@@ -1,10 +1,9 @@
 // app/(routes)/api-keys/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { PlusCircle, Trash2, Copy, CheckCircle } from 'lucide-react';
+import { PlusCircle, Trash2, Copy } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,14 +13,6 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
 import {
   Dialog,
   DialogContent,
@@ -43,8 +34,112 @@ import {
 import { ContentLayout } from '@/components/layout/content-layout';
 import { APIKeyWithoutValue } from '@/types/api-keys';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Skeleton } from '@/components/ui/skeleton';
 import { APIKeyTester } from '@/components/apikey/api-key-tester';
-import { debugLog, logError } from '@/lib/api/debug-logger';
+
+// Loading skeleton component
+function LoadingSkeleton() {
+  return (
+    <div className='space-y-4'>
+      <div className='space-y-2'>
+        <Skeleton className='h-8 w-1/3' />
+        <Skeleton className='h-4 w-1/4' />
+      </div>
+      <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
+        {[...Array(4)].map((_, i) => (
+          <Card key={i}>
+            <CardContent className='p-6'>
+              <Skeleton className='h-8 w-20 mb-2' />
+              <Skeleton className='h-6 w-16' />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Card>
+        <CardContent className='p-6'>
+          <div className='space-y-4'>
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className='flex items-center justify-between'>
+                <Skeleton className='h-6 w-1/4' />
+                <Skeleton className='h-6 w-1/4' />
+                <Skeleton className='h-6 w-1/4' />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// API Keys list component
+const APIKeysList = ({
+  apiKeys,
+  onDeactivate,
+  onRefresh
+}: {
+  apiKeys: APIKeyWithoutValue[];
+  onDeactivate: (id: string) => Promise<void>;
+  onRefresh: () => Promise<void>;
+}) => {
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleString();
+  };
+
+  const calculateStatus = (key: APIKeyWithoutValue) => {
+    if (!key.is_active) return 'inactive';
+    if (key.expires_at && new Date(key.expires_at) < new Date())
+      return 'expired';
+    return 'active';
+  };
+
+  return (
+    <div className='space-y-4'>
+      {apiKeys.length === 0 ? (
+        <Card>
+          <CardContent className='p-6 text-center'>
+            <p className='text-muted-foreground'>No API keys found</p>
+          </CardContent>
+        </Card>
+      ) : (
+        apiKeys.map((key) => (
+          <Card key={key.id}>
+            <CardContent className='p-4'>
+              <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
+                <div>
+                  <h3 className='font-medium'>{key.name}</h3>
+                  <p className='text-sm text-muted-foreground'>
+                    Created: {formatDate(key.created_at)}
+                  </p>
+                </div>
+                <div className='flex items-center gap-4'>
+                  <Badge
+                    variant={
+                      calculateStatus(key) === 'active'
+                        ? 'default'
+                        : 'secondary'
+                    }
+                  >
+                    {calculateStatus(key)}
+                  </Badge>
+                  {key.is_active && (
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      onClick={() => onDeactivate(key.id)}
+                    >
+                      <Trash2 className='h-4 w-4' />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))
+      )}
+    </div>
+  );
+};
 
 export default function APIKeysPage() {
   const [apiKeys, setApiKeys] = useState<APIKeyWithoutValue[]>([]);
@@ -53,13 +148,7 @@ export default function APIKeysPage() {
   const [showNewKeyDialog, setShowNewKeyDialog] = useState(false);
   const [newKeyValue, setNewKeyValue] = useState('');
   const [expiryDays, setExpiryDays] = useState('never');
-  const router = useRouter();
   const supabase = createClientComponentClient();
-
-  useEffect(() => {
-    fetchAPIKeys();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const fetchAPIKeys = async () => {
     try {
@@ -84,28 +173,19 @@ export default function APIKeysPage() {
     }
   };
 
+  useEffect(() => {
+    fetchAPIKeys();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const createNewKey = async () => {
     try {
       setIsLoading(true);
-
-      // 1. Get current user
       const {
-        data: { user },
-        error: userError
+        data: { user }
       } = await supabase.auth.getUser();
+      if (!user) throw new Error('No authenticated user');
 
-      if (userError || !user) {
-        throw new Error('Authentication required');
-      }
-
-      // 2. Generate key value
-      const keyBytes = new Uint8Array(32);
-      crypto.getRandomValues(keyBytes);
-      const keyValue = `myjkkn_${Array.from(keyBytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')}`;
-
-      // 3. Calculate expiration date if needed
       let expiresAt: string | null = null;
       if (expiryDays !== 'never') {
         const date = new Date();
@@ -113,14 +193,14 @@ export default function APIKeysPage() {
         expiresAt = date.toISOString();
       }
 
-      console.log('Creating API key with params:', {
-        name: newKeyName,
-        userId: user.id,
-        expiresAt
-      });
+      // Generate key value
+      const keyBytes = new Uint8Array(32);
+      crypto.getRandomValues(keyBytes);
+      const keyValue = `myjkkn_${Array.from(keyBytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')}`;
 
-      // 4. Insert new API key
-      const { data: newKey, error: insertError } = await supabase
+      const { data: newKey, error } = await supabase
         .from('api_keys')
         .insert({
           name: newKeyName,
@@ -135,24 +215,14 @@ export default function APIKeysPage() {
         .select()
         .single();
 
-      if (insertError) {
-        console.error('Insert Error:', insertError);
-        throw new Error(insertError.message);
-      }
+      if (error) throw error;
 
-      if (!newKey) {
-        throw new Error('Failed to create API key - no data returned');
-      }
-
-      // 5. Update state and show success message
       setNewKeyValue(keyValue);
       await fetchAPIKeys();
       toast.success('API key created successfully');
     } catch (error) {
       console.error('Error creating API key:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to create API key'
-      );
+      toast.error('Failed to create API key');
     } finally {
       setIsLoading(false);
     }
@@ -175,57 +245,13 @@ export default function APIKeysPage() {
     }
   };
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success('Copied to clipboard');
-    } catch (error) {
-      toast.error('Failed to copy to clipboard');
-    }
-  };
-
   const handleCreateKey = async () => {
-    try {
-      if (!newKeyName.trim()) {
-        toast.error('Please enter a key name');
-        return;
-      }
-
-      setIsLoading(true);
-      debugLog('Creating API Key', {
-        name: newKeyName,
-        expiryDays
-      });
-
-      await createNewKey();
-    } catch (error) {
-      logError('handleCreateKey', error);
-      toast.error('Failed to create API key');
-    } finally {
-      setIsLoading(false);
+    if (!newKeyName.trim()) {
+      toast.error('Please enter a key name');
+      return;
     }
+    await createNewKey();
   };
-
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleString();
-  };
-
-  const calculateStatus = (key: APIKeyWithoutValue) => {
-    if (!key.is_active) return 'inactive';
-    if (key.expires_at && new Date(key.expires_at) < new Date())
-      return 'expired';
-    return 'active';
-  };
-
-  if (isLoading) {
-    return (
-      <ContentLayout title='API Keys'>
-        <div className='flex items-center justify-center h-screen'>
-          <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary' />
-        </div>
-      </ContentLayout>
-    );
-  }
 
   return (
     <ContentLayout title='API Keys'>
@@ -234,7 +260,7 @@ export default function APIKeysPage() {
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>API Keys</h1>
             <p className='text-muted-foreground'>
-              Manage your API keys for external access
+              Manage and test your API keys
             </p>
           </div>
           <Dialog open={showNewKeyDialog} onOpenChange={setShowNewKeyDialog}>
@@ -252,25 +278,21 @@ export default function APIKeysPage() {
                 </DialogDescription>
               </DialogHeader>
               {!newKeyValue ? (
+                // Create Key Form
                 <div className='space-y-4'>
                   <div className='space-y-2'>
-                    <label htmlFor='keyName' className='text-sm font-medium'>
-                      Key Name
-                    </label>
+                    <label className='text-sm font-medium'>Key Name</label>
                     <Input
-                      id='keyName'
                       value={newKeyName}
                       onChange={(e) => setNewKeyName(e.target.value)}
                       placeholder='Enter a name for your API key'
                     />
                   </div>
                   <div className='space-y-2'>
-                    <label htmlFor='expiry' className='text-sm font-medium'>
-                      Expiration
-                    </label>
+                    <label className='text-sm font-medium'>Expiration</label>
                     <Select value={expiryDays} onValueChange={setExpiryDays}>
                       <SelectTrigger>
-                        <SelectValue placeholder='Select expiration period' />
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value='never'>Never</SelectItem>
@@ -291,6 +313,7 @@ export default function APIKeysPage() {
                   </DialogFooter>
                 </div>
               ) : (
+                // Show New Key
                 <div className='space-y-4'>
                   <div className='space-y-2'>
                     <label className='text-sm font-medium'>
@@ -303,7 +326,10 @@ export default function APIKeysPage() {
                       <Button
                         size='icon'
                         variant='outline'
-                        onClick={() => copyToClipboard(newKeyValue)}
+                        onClick={() => {
+                          navigator.clipboard.writeText(newKeyValue);
+                          toast.success('Copied to clipboard');
+                        }}
                       >
                         <Copy className='h-4 w-4' />
                       </Button>
@@ -330,83 +356,30 @@ export default function APIKeysPage() {
           </Dialog>
         </div>
 
-        <Tabs defaultValue='keys' className='space-y-6'>
-          <TabsList>
-            <TabsTrigger value='keys'>API Keys</TabsTrigger>
-            <TabsTrigger value='test'>Test API Key</TabsTrigger>
-          </TabsList>
+        <Suspense fallback={<LoadingSkeleton />}>
+          <Tabs defaultValue='keys' className='space-y-6'>
+            <TabsList>
+              <TabsTrigger value='keys'>API Keys</TabsTrigger>
+              <TabsTrigger value='test'>Test API Key</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value='keys'>
-            <Card>
-              <CardContent className='p-0'>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Expires</TableHead>
-                      <TableHead>Last Used</TableHead>
-                      <TableHead className='w-[100px]'>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {apiKeys.map((key) => (
-                      <TableRow key={key.id}>
-                        <TableCell className='font-medium'>
-                          {key.name}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              calculateStatus(key) === 'active'
-                                ? 'default'
-                                : 'secondary'
-                            }
-                          >
-                            {calculateStatus(key)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{formatDate(key.created_at)}</TableCell>
-                        <TableCell>
-                          {key.expires_at
-                            ? formatDate(key.expires_at)
-                            : 'Never'}
-                        </TableCell>
-                        <TableCell>
-                          {key.last_used_at
-                            ? formatDate(key.last_used_at)
-                            : 'Never'}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant='ghost'
-                            size='icon'
-                            onClick={() => deactivateKey(key.id)}
-                            disabled={!key.is_active}
-                          >
-                            <Trash2 className='h-4 w-4' />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {apiKeys.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={6} className='text-center'>
-                          No API keys found
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
+            <TabsContent value='keys'>
+              {isLoading ? (
+                <LoadingSkeleton />
+              ) : (
+                <APIKeysList
+                  apiKeys={apiKeys}
+                  onDeactivate={deactivateKey}
+                  onRefresh={fetchAPIKeys}
+                />
+              )}
+            </TabsContent>
 
-          <TabsContent value='test'>
-            <APIKeyTester />
-          </TabsContent>
-        </Tabs>
+            <TabsContent value='test'>
+              <APIKeyTester />
+            </TabsContent>
+          </Tabs>
+        </Suspense>
       </div>
     </ContentLayout>
   );
