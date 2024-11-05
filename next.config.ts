@@ -5,9 +5,6 @@ const nextConfig: NextConfig = {
     domains: ['https://lhaveojlrsahqfevulla.supabase.co']
   },
   typescript: {
-    // !! WARN !!
-    // Dangerously allow production builds to successfully complete even if
-    // your project has type errors.
     ignoreBuildErrors: true
   }
 };
