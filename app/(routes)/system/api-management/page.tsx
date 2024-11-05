@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import { Code2, Plus } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import Link from 'next/link';
 import { BeatLoader } from 'react-spinners';
@@ -26,11 +26,13 @@ import {
 } from '@/components/ui/breadcrumb';
 import { ApiKeyList } from './_components/api-key-list';
 import { CreateApiKeyModal } from './_components/create-api-key-modal';
+import { TestApiKeyModal } from './_components/test-api-key-modal';
 
 export default function ApiKeysPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showTestModal, setShowTestModal] = useState(false);
 
   const fetchApiKeys = async () => {
     try {
@@ -173,6 +175,10 @@ export default function ApiKeysPage() {
             </p>
           </div>
           <div className='flex gap-4'>
+            <Button variant='outline' onClick={() => setShowTestModal(true)}>
+              <Code2 className='mr-2 h-4 w-4' />
+              Test API Key
+            </Button>
             <Button variant='outline' onClick={handleGenerateTestKey}>
               Generate Test Key
             </Button>
@@ -181,6 +187,12 @@ export default function ApiKeysPage() {
               Create API Key
             </Button>
           </div>
+
+          {/* Add the TestApiKeyModal component */}
+          <TestApiKeyModal
+            open={showTestModal}
+            onClose={() => setShowTestModal(false)}
+          />
         </div>
 
         <Card>
