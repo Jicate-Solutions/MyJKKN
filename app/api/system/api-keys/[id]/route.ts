@@ -7,11 +7,12 @@ import { UpdateApiKeyInput } from '@/types/api-keys';
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
     const input: UpdateApiKeyInput = await request.json();
+    const { id } = context.params;
 
     // Check authentication
     const {
@@ -20,7 +21,10 @@ export async function PATCH(
     } = await supabase.auth.getSession();
 
     if (authError || !session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
     }
 
     // Check if user is admin
@@ -30,12 +34,11 @@ export async function PATCH(
       .eq('id', session.user.id)
       .single();
 
-    if (
-      profileError ||
-      !profile ||
-      !['super_admin', 'administrator'].includes(profile.role)
-    ) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (profileError || !profile || !['super_admin', 'administrator'].includes(profile.role)) {
+      return NextResponse.json(
+        { error: 'Forbidden' },
+        { status: 403 }
+      );
     }
 
     // Update API key
@@ -48,7 +51,7 @@ export async function PATCH(
         permissions: input.permissions,
         updated_at: new Date().toISOString()
       })
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 
@@ -68,10 +71,11 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
+    const { id } = context.params;
 
     // Check authentication
     const {
@@ -80,7 +84,10 @@ export async function DELETE(
     } = await supabase.auth.getSession();
 
     if (authError || !session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
     }
 
     // Check if user is admin
@@ -90,19 +97,18 @@ export async function DELETE(
       .eq('id', session.user.id)
       .single();
 
-    if (
-      profileError ||
-      !profile ||
-      !['super_admin', 'administrator'].includes(profile.role)
-    ) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (profileError || !profile || !['super_admin', 'administrator'].includes(profile.role)) {
+      return NextResponse.json(
+        { error: 'Forbidden' },
+        { status: 403 }
+      );
     }
 
     // Delete API key
     const { error } = await supabase
       .from('api_keys')
       .delete()
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (error) {
       throw error;
