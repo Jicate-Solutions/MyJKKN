@@ -260,7 +260,7 @@ export default function APIKeysPage() {
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>API Keys</h1>
             <p className='text-muted-foreground'>
-              Manage and test your API keys
+              Manage and test your API key
             </p>
           </div>
           <Dialog open={showNewKeyDialog} onOpenChange={setShowNewKeyDialog}>
