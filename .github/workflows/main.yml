@@ -1,0 +1,18 @@
+name: Auto-Deploy to Vercel
+
+# Trigger this workflow on push events to specific branches
+on:
+  push:
+    branches:
+      - main  # Change to your production branch, if different
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Deploy Hook
+        run: curl -X POST "https://api.vercel.com/v1/integrations/deploy/prj_HQQdae74Mkbts7u6zucGJtAbpTGc/5yGemYq99o"
+        env:
+          # Replace with your Deploy Hook URL
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
