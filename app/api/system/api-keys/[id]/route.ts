@@ -21,10 +21,7 @@ export async function PATCH(
     } = await supabase.auth.getSession();
 
     if (authError || !session) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Check if user is admin
@@ -34,11 +31,12 @@ export async function PATCH(
       .eq('id', session.user.id)
       .single();
 
-    if (profileError || !profile || !['super_admin', 'administrator'].includes(profile.role)) {
-      return NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 }
-      );
+    if (
+      profileError ||
+      !profile ||
+      !['super_admin', 'administrator'].includes(profile.role)
+    ) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Update API key
@@ -69,6 +67,7 @@ export async function PATCH(
   }
 }
 
+
 export async function DELETE(
   request: NextRequest,
   context: { params: { id: string } }
@@ -84,10 +83,7 @@ export async function DELETE(
     } = await supabase.auth.getSession();
 
     if (authError || !session) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Check if user is admin
@@ -97,18 +93,16 @@ export async function DELETE(
       .eq('id', session.user.id)
       .single();
 
-    if (profileError || !profile || !['super_admin', 'administrator'].includes(profile.role)) {
-      return NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 }
-      );
+    if (
+      profileError ||
+      !profile ||
+      !['super_admin', 'administrator'].includes(profile.role)
+    ) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Delete API key
-    const { error } = await supabase
-      .from('api_keys')
-      .delete()
-      .eq('id', id);
+    const { error } = await supabase.from('api_keys').delete().eq('id', id);
 
     if (error) {
       throw error;
