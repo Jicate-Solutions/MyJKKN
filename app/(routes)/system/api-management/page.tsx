@@ -166,59 +166,71 @@ export default function ApiKeysPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='space-y-4 p-4 md:p-6'>
-        <div className='flex justify-between items-center'>
+      <div className='space-y-6 p-4 md:p-6'>
+        <div className='space-y-4 md:space-y-0 md:flex md:justify-between md:items-center'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>API Keys</h1>
             <p className='text-sm text-muted-foreground'>
               Manage API keys for external access to your data
             </p>
           </div>
-          <div className='flex gap-4'>
-            <Button variant='outline' onClick={() => setShowTestModal(true)}>
+
+          <div className='flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-4'>
+            <Button
+              variant='outline'
+              onClick={() => setShowTestModal(true)}
+              className='w-full sm:w-auto'
+            >
               <Code2 className='mr-2 h-4 w-4' />
               Test API Key
             </Button>
-            <Button variant='outline' onClick={handleGenerateTestKey}>
+            <Button
+              variant='outline'
+              onClick={handleGenerateTestKey}
+              className='w-full sm:w-auto'
+            >
               Generate Test Key
             </Button>
-            <Button onClick={() => setShowCreateModal(true)}>
+            <Button
+              onClick={() => setShowCreateModal(true)}
+              className='w-full sm:w-auto'
+            >
               <Plus className='mr-2 h-4 w-4' />
               Create API Key
             </Button>
           </div>
-
-          {/* Add the TestApiKeyModal component */}
-          <TestApiKeyModal
-            open={showTestModal}
-            onClose={() => setShowTestModal(false)}
-          />
         </div>
 
-        <Card>
-          <CardHeader>
+        <Card className='overflow-hidden'>
+          <CardHeader className='p-4 md:p-6'>
             <CardTitle>API Keys</CardTitle>
-            <CardDescription>
+            <CardDescription className='text-sm'>
               View and manage your API keys. Keep these secure - they provide
               access to your data.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className='p-4 md:p-6'>
             {isLoading ? (
               <div className='flex justify-center items-center h-32'>
                 <BeatLoader color='#00e902' />
               </div>
             ) : (
-              <ApiKeyList
-                apiKeys={apiKeys}
-                onDelete={handleDeleteKey}
-                onToggle={handleToggleKey}
-              />
+              <div className='overflow-x-auto'>
+                <ApiKeyList
+                  apiKeys={apiKeys}
+                  onDelete={handleDeleteKey}
+                  onToggle={handleToggleKey}
+                />
+              </div>
             )}
           </CardContent>
         </Card>
       </div>
 
+      <TestApiKeyModal
+        open={showTestModal}
+        onClose={() => setShowTestModal(false)}
+      />
       <CreateApiKeyModal
         open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
