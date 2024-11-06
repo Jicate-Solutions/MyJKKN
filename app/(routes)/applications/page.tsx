@@ -2,7 +2,15 @@
 
 import { memo, useCallback, useEffect, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { PlusCircle, Search, MoreVertical, Download } from 'lucide-react';
+import {
+  PlusCircle,
+  Search,
+  MoreVertical,
+  Download,
+  Trash2,
+  Pencil,
+  Eye
+} from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import BeatLoader from 'react-spinners/BeatLoader';
@@ -382,23 +390,30 @@ const ApplicationsTable = memo(function ApplicationsTable({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align='end'>
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      <DropdownMenuItem
-                        onClick={() => router.push(`/applications/${app.id}`)}
-                      >
-                        View Details
+                      <DropdownMenuItem asChild>
+                        <Link
+                          href={`/applications/${app.id}`}
+                          className='cursor-pointer flex items-center'
+                        >
+                          <Eye className='mr-2 h-4 w-4' />
+                          View Details
+                        </Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          router.push(`/applications/${app.id}/edit`)
-                        }
-                      >
-                        Edit
+                      <DropdownMenuItem asChild>
+                        <Link
+                          href={`/applications/${app.id}/edit`}
+                          className='cursor-pointer flex items-center'
+                        >
+                          <Pencil className='mr-2 h-4 w-4' />
+                          Edit
+                        </Link>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        className='text-destructive'
                         onClick={() => onDelete(app.id)}
+                        className='text-destructive focus:text-destructive flex items-center'
                       >
+                        <Trash2 className='mr-2 h-4 w-4' />
                         Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
