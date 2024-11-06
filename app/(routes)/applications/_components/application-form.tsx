@@ -170,7 +170,7 @@ export function ApplicationForm({
               <FormItem className='col-span-2'>
                 <FormLabel>Description</FormLabel>
                 <FormControl>
-                  <Textarea {...field} value={field.value || ''} />
+                  <Textarea {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -214,7 +214,7 @@ export function ApplicationForm({
               <FormItem>
                 <FormLabel>Subcategory</FormLabel>
                 <FormControl>
-                  <Input {...field} value={field.value || ''} />
+                  <Input {...field} value={field.value ?? ''} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

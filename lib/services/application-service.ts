@@ -78,14 +78,22 @@ export class ApplicationService {
         body: JSON.stringify(data)
       });
 
+      const responseData = await response.json();
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create application');
+        // Handle duplicate name error specifically
+        if (
+          responseData.code === '23505' &&
+          responseData.message.includes('applications_name_key')
+        ) {
+          throw new Error('An application with this name already exists');
+        }
+
+        throw new Error(responseData.message || 'Failed to create application');
       }
 
-      const result = await response.json();
       toast.success('Application created successfully');
-      return result;
+      return responseData;
     } catch (error) {
       console.error('Error creating application:', error);
       toast.error(
