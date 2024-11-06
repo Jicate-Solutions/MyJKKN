@@ -1,12 +1,13 @@
-//app/api/applications/categories/route.ts
+//app/api/categories/route.ts
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { CreateCategoryInput, UpdateCategoryInput } from '@/types/categories';
+import { Database } from '@/types/supabase';
+import { CreateCategoryInput } from '@/types/categories';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createRouteHandlerClient<Database>({ cookies });
 
     // Check authentication
     const {
@@ -44,11 +45,11 @@ export async function GET(request: NextRequest) {
     // Apply sorting
     query = query.order(sort, { ascending: order === 'asc' });
 
-    const { data: categories, error } = await query;
+    const { data, error } = await query;
 
     if (error) throw error;
 
-    return NextResponse.json(categories);
+    return NextResponse.json(data);
   } catch (error) {
     console.error('Error fetching categories:', error);
     return NextResponse.json(
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createRouteHandlerClient<Database>({ cookies });
     const input: CreateCategoryInput = await request.json();
 
     // Check authentication
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create category
-    const { data: category, error } = await supabase
+    const { data, error } = await supabase
       .from('categories')
       .insert({
         name: input.name,
@@ -100,7 +101,7 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error;
 
-    return NextResponse.json(category);
+    return NextResponse.json(data);
   } catch (error) {
     console.error('Error creating category:', error);
     return NextResponse.json(
