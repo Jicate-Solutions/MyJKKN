@@ -1,11 +1,11 @@
 // app/(routes)/applications/layout.tsx
-
-import { ErrorBoundary } from '@/components/Error/error-boundary';
+import { Suspense } from 'react';
+import Loading from './loading';
 
 export default function ApplicationsLayout({
   children
 }: {
   children: React.ReactNode;
 }) {
-  return <ErrorBoundary>{children}</ErrorBoundary>;
+  return <Suspense fallback={<Loading />}>{children}</Suspense>;
 }
