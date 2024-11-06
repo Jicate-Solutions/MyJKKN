@@ -1,21 +1,21 @@
 // lib/services/category-service.ts
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
+import { Database } from '@/types/supabase';
 import { toast } from 'react-hot-toast';
 import {
   Category,
   CreateCategoryInput,
-  UpdateCategoryInput,
   CreateSubcategoryInput,
   Subcategory
 } from '@/types/categories';
 
-export class CategoryService {
-  private static supabase = createClientComponentClient();
+type CategoryResponse = Database['public']['Tables']['categories']['Row'];
+type SubcategoryResponse = Database['public']['Tables']['subcategories']['Row'];
 
-  // Get all categories with subcategories
-  static async getCategories(): Promise<Category[]> {
+export class CategoryService {
+  static async getCategories(): Promise<CategoryResponse[]> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('categories')
         .select(
           `
@@ -26,7 +26,6 @@ export class CategoryService {
         .order('name');
 
       if (error) throw error;
-
       return data || [];
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -35,36 +34,11 @@ export class CategoryService {
     }
   }
 
-  // Get a single category by ID
-  static async getCategoryById(id: string): Promise<Category | null> {
-    try {
-      const { data, error } = await this.supabase
-        .from('categories')
-        .select(
-          `
-          *,
-          subcategories (*)
-        `
-        )
-        .eq('id', id)
-        .single();
-
-      if (error) throw error;
-
-      return data;
-    } catch (error) {
-      console.error('Error fetching category:', error);
-      toast.error('Failed to fetch category');
-      return null;
-    }
-  }
-
-  // Create a new category
   static async createCategory(
     input: CreateCategoryInput
-  ): Promise<Category | null> {
+  ): Promise<CategoryResponse | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('categories')
         .insert({
           name: input.name,
@@ -84,59 +58,12 @@ export class CategoryService {
     }
   }
 
-  // Update a category
-  static async updateCategory(
-    id: string,
-    input: UpdateCategoryInput
-  ): Promise<Category | null> {
-    try {
-      const { data, error } = await this.supabase
-        .from('categories')
-        .update({
-          name: input.name,
-          description: input.description
-        })
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      toast.success('Category updated successfully');
-      return data;
-    } catch (error) {
-      console.error('Error updating category:', error);
-      toast.error('Failed to update category');
-      return null;
-    }
-  }
-
-  // Delete a category
-  static async deleteCategory(id: string): Promise<boolean> {
-    try {
-      const { error } = await this.supabase
-        .from('categories')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-
-      toast.success('Category deleted successfully');
-      return true;
-    } catch (error) {
-      console.error('Error deleting category:', error);
-      toast.error('Failed to delete category');
-      return false;
-    }
-  }
-
-  // Create a new subcategory
   static async createSubcategory(
     categoryId: string,
     input: CreateSubcategoryInput
-  ): Promise<Subcategory | null> {
+  ): Promise<SubcategoryResponse | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('subcategories')
         .insert({
           name: input.name,
@@ -157,29 +84,24 @@ export class CategoryService {
     }
   }
 
-  // Get subcategories for a category
-  static async getSubcategories(categoryId: string): Promise<Subcategory[]> {
+  static async deleteCategory(id: string): Promise<boolean> {
     try {
-      const { data, error } = await this.supabase
-        .from('subcategories')
-        .select('*')
-        .eq('parent_id', categoryId)
-        .order('name');
+      const { error } = await supabase.from('categories').delete().eq('id', id);
 
       if (error) throw error;
 
-      return data || [];
+      toast.success('Category deleted successfully');
+      return true;
     } catch (error) {
-      console.error('Error fetching subcategories:', error);
-      toast.error('Failed to fetch subcategories');
-      return [];
+      console.error('Error deleting category:', error);
+      toast.error('Failed to delete category');
+      return false;
     }
   }
 
-  // Delete a subcategory
   static async deleteSubcategory(id: string): Promise<boolean> {
     try {
-      const { error } = await this.supabase
+      const { error } = await supabase
         .from('subcategories')
         .delete()
         .eq('id', id);
@@ -192,30 +114,6 @@ export class CategoryService {
       console.error('Error deleting subcategory:', error);
       toast.error('Failed to delete subcategory');
       return false;
-    }
-  }
-
-  // Search categories
-  static async searchCategories(query: string): Promise<Category[]> {
-    try {
-      const { data, error } = await this.supabase
-        .from('categories')
-        .select(
-          `
-          *,
-          subcategories (*)
-        `
-        )
-        .ilike('name', `%${query}%`)
-        .order('name');
-
-      if (error) throw error;
-
-      return data || [];
-    } catch (error) {
-      console.error('Error searching categories:', error);
-      toast.error('Failed to search categories');
-      return [];
     }
   }
 }

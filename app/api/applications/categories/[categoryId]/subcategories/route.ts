@@ -1,7 +1,8 @@
-//app/api/applications/categories/[categoryId]/subcategories/route.ts
+//app/api/categories/[categoryId]/subcategories/route.ts
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { Database } from '@/types/supabase';
 import { CreateSubcategoryInput } from '@/types/categories';
 
 export async function GET(
@@ -9,7 +10,7 @@ export async function GET(
   { params }: { params: { categoryId: string } }
 ) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createRouteHandlerClient<Database>({ cookies });
 
     // Check authentication
     const {
@@ -21,7 +22,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: subcategories, error } = await supabase
+    const { data, error } = await supabase
       .from('subcategories')
       .select('*')
       .eq('parent_id', params.categoryId)
@@ -29,7 +30,7 @@ export async function GET(
 
     if (error) throw error;
 
-    return NextResponse.json(subcategories);
+    return NextResponse.json(data);
   } catch (error) {
     console.error('Error fetching subcategories:', error);
     return NextResponse.json(
@@ -44,7 +45,7 @@ export async function POST(
   { params }: { params: { categoryId: string } }
 ) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createRouteHandlerClient<Database>({ cookies });
     const input: CreateSubcategoryInput = await request.json();
 
     // Check authentication
@@ -72,7 +73,7 @@ export async function POST(
     }
 
     // Create subcategory
-    const { data: subcategory, error } = await supabase
+    const { data, error } = await supabase
       .from('subcategories')
       .insert({
         name: input.name,
@@ -85,7 +86,7 @@ export async function POST(
 
     if (error) throw error;
 
-    return NextResponse.json(subcategory);
+    return NextResponse.json(data);
   } catch (error) {
     console.error('Error creating subcategory:', error);
     return NextResponse.json(
