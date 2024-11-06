@@ -44,6 +44,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { toast } from 'react-hot-toast';
 import { utils, writeFile } from 'xlsx';
 import { useAuth } from '@/providers/auth-provider';
+import { ApplicationSkeleton } from '@/components/skeleton/application-skeleton';
 
 interface Application {
   id: string;
@@ -83,6 +84,7 @@ export default function ApplicationsPage() {
   const { user, loading: authLoading } = useAuth(); // Add auth context
   const [isLoading, setIsLoading] = useState(true);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [stats, setStats] = useState({
     total: 0,
@@ -90,21 +92,32 @@ export default function ApplicationsPage() {
     internal: 0,
     external: 0
   });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
+  // Update fetch function with pagination
   const fetchApplications = useCallback(async () => {
     try {
       if (!user) return;
       setIsLoading(true);
-      const { data, error } = await supabase
+
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      const { data, count, error } = await supabase
         .from('applications')
-        .select('*')
-        .order('display_order', { ascending: true });
+        .select('*', { count: 'exact' })
+        .order('display_order', { ascending: true })
+        .range(from, to);
 
       if (error) throw error;
 
       setApplications(data || []);
+      setTotalCount(count || 0); // Add totalCount state
+
+      // Calculate stats only for visible data
       setStats({
-        total: data?.length || 0,
+        total: count || 0,
         active: data?.filter((app) => app.is_active).length || 0,
         internal:
           data?.filter((app) => app.application_type === 'Internal').length ||
@@ -118,7 +131,7 @@ export default function ApplicationsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [user, supabase]);
+  }, [user, page, pageSize, supabase]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -302,251 +315,141 @@ export default function ApplicationsPage() {
   };
 
   return (
-    <ContentLayout title='Applications'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Applications</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className='space-y-4 px-1 sm:px-2 py-4'>
-        {/* Header Section - Improved mobile layout */}
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center'>
-          <div>
-            <h1 className='text-xl sm:text-2xl font-bold tracking-tight'>
-              Applications
-            </h1>
-            <p className='text-sm text-muted-foreground'>
-              Manage and monitor all applications
-            </p>
-          </div>
-          <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4'>
-            <Button
-              variant='outline'
-              onClick={handleExport}
-              className='w-full sm:w-auto justify-center'
-            >
-              <Download className='mr-2 h-4 w-4' />
-              Export
-            </Button>
-            <Link href='/applications/new' className='w-full sm:w-auto'>
-              <Button className='w-full sm:w-auto justify-center'>
-                <PlusCircle className='mr-2 h-4 w-4' />
-                Add New Application
-              </Button>
-            </Link>
-          </div>
+    <>
+      {isLoading ? (
+        <div className='grid gap-4'>
+          {[...Array(pageSize)].map((_, i) => (
+            <ApplicationSkeleton key={i} />
+          ))}
         </div>
+      ) : (
+        <ContentLayout title='Applications'>
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href='/'>Home</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Applications</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
 
-        {/* Stats Cards */}
-        <div className='grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4'>
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-xs sm:text-sm font-medium'>
-                Total Applications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className='text-lg sm:text-2xl font-bold'>{stats.total}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-xs sm:text-sm font-medium'>
-                Active Applications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className='text-lg sm:text-2xl font-bold'>
-                {stats.active}
+          <div className='space-y-4 px-1 sm:px-2 py-4'>
+            {/* Header Section - Improved mobile layout */}
+            <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center'>
+              <div>
+                <h1 className='text-xl sm:text-2xl font-bold tracking-tight'>
+                  Applications
+                </h1>
+                <p className='text-sm text-muted-foreground'>
+                  Manage and monitor all applications
+                </p>
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-xs sm:text-sm font-medium'>
-                Internal Applications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className='text-lg sm:text-2xl font-bold'>
-                {stats.internal}
+              <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4'>
+                <Button
+                  variant='outline'
+                  onClick={handleExport}
+                  className='w-full sm:w-auto justify-center'
+                >
+                  <Download className='mr-2 h-4 w-4' />
+                  Export
+                </Button>
+                <Link href='/applications/new' className='w-full sm:w-auto'>
+                  <Button className='w-full sm:w-auto justify-center'>
+                    <PlusCircle className='mr-2 h-4 w-4' />
+                    Add New Application
+                  </Button>
+                </Link>
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-xs sm:text-sm font-medium'>
-                External Applications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className='text-lg sm:text-2xl font-bold'>
-                {stats.external}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Search - Full width on mobile */}
-        <div className='flex items-center w-full'>
-          <div className='relative flex-1'>
-            <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
-            <Input
-              placeholder='Search applications...'
-              className='pl-10 w-full'
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* Responsive Table */}
-        <Card>
-          <CardContent className='p-0 overflow-auto'>
-            {/* Mobile List View */}
-            <div className='block sm:hidden'>
-              {filteredApplications.map((app) => (
-                <div key={app.id} className='border-b p-4 space-y-3'>
-                  <div className='flex justify-between items-start'>
-                    <div className='space-y-1'>
-                      <p className='font-medium'>{app.name}</p>
-                      <p className='text-sm text-muted-foreground line-clamp-2'>
-                        {app.description}
-                      </p>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant='ghost' className='h-8 w-8 p-0'>
-                          <ChevronDown className='h-4 w-4' />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem
-                          onClick={() => router.push(`/applications/${app.id}`)}
-                        >
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            router.push(`/applications/${app.id}/edit`)
-                          }
-                        >
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className='text-red-600'
-                          onClick={() => handleDelete(app.id)}
-                        >
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  <div className='grid grid-cols-2 gap-2 text-sm'>
-                    <div>
-                      <p className='text-muted-foreground'>Category</p>
-                      <p>
-                        {app.category} / {app.subcategory}
-                      </p>
-                    </div>
-                    <div>
-                      <p className='text-muted-foreground'>Type</p>
-                      <p>{app.integration_type}</p>
-                    </div>
-                    <div>
-                      <p className='text-muted-foreground'>Status</p>
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          app.is_active
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {app.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                    <div>
-                      <p className='text-muted-foreground'>Platform</p>
-                      <p>{app.supported_platforms}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
             </div>
 
-            {/* Desktop Table View */}
-            <div className='hidden sm:block min-w-full'>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className='hidden md:table-cell'>
-                      Platform
-                    </TableHead>
-                    <TableHead className='hidden md:table-cell'>
-                      Last Updated
-                    </TableHead>
-                    <TableHead className='w-[50px]'></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+            {/* Stats Cards */}
+            <div className='grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4'>
+              <Card>
+                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                  <CardTitle className='text-xs sm:text-sm font-medium'>
+                    Total Applications
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className='text-lg sm:text-2xl font-bold'>
+                    {stats.total}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                  <CardTitle className='text-xs sm:text-sm font-medium'>
+                    Active Applications
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className='text-lg sm:text-2xl font-bold'>
+                    {stats.active}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                  <CardTitle className='text-xs sm:text-sm font-medium'>
+                    Internal Applications
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className='text-lg sm:text-2xl font-bold'>
+                    {stats.internal}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                  <CardTitle className='text-xs sm:text-sm font-medium'>
+                    External Applications
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className='text-lg sm:text-2xl font-bold'>
+                    {stats.external}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Search - Full width on mobile */}
+            <div className='flex items-center w-full'>
+              <div className='relative flex-1'>
+                <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+                <Input
+                  placeholder='Search applications...'
+                  className='pl-10 w-full'
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Responsive Table */}
+            <Card>
+              <CardContent className='p-0 overflow-auto'>
+                {/* Mobile List View */}
+                <div className='block sm:hidden'>
                   {filteredApplications.map((app) => (
-                    <TableRow key={app.id}>
-                      <TableCell className='font-medium'>
-                        <div>
+                    <div key={app.id} className='border-b p-4 space-y-3'>
+                      <div className='flex justify-between items-start'>
+                        <div className='space-y-1'>
                           <p className='font-medium'>{app.name}</p>
-                          <p className='text-sm text-muted-foreground line-clamp-1 md:line-clamp-2'>
+                          <p className='text-sm text-muted-foreground line-clamp-2'>
                             {app.description}
                           </p>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p>{app.category}</p>
-                          <p className='text-sm text-muted-foreground'>
-                            {app.subcategory}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell className='whitespace-nowrap'>
-                        {app.integration_type}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            app.is_active
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {app.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </TableCell>
-                      <TableCell className='hidden md:table-cell whitespace-nowrap'>
-                        {app.supported_platforms}
-                      </TableCell>
-                      <TableCell className='hidden md:table-cell whitespace-nowrap'>
-                        {formatDate(app.updated_at)}
-                      </TableCell>
-                      <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant='ghost' className='h-8 w-8 p-0'>
-                              <MoreVertical className='h-4 w-4' />
+                              <ChevronDown className='h-4 w-4' />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align='end'>
@@ -574,15 +477,139 @@ export default function ApplicationsPage() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
+                      </div>
+                      <div className='grid grid-cols-2 gap-2 text-sm'>
+                        <div>
+                          <p className='text-muted-foreground'>Category</p>
+                          <p>
+                            {app.category} / {app.subcategory}
+                          </p>
+                        </div>
+                        <div>
+                          <p className='text-muted-foreground'>Type</p>
+                          <p>{app.integration_type}</p>
+                        </div>
+                        <div>
+                          <p className='text-muted-foreground'>Status</p>
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              app.is_active
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-gray-100 text-gray-800'
+                            }`}
+                          >
+                            {app.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </div>
+                        <div>
+                          <p className='text-muted-foreground'>Platform</p>
+                          <p>{app.supported_platforms}</p>
+                        </div>
+                      </div>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </ContentLayout>
+                </div>
+
+                {/* Desktop Table View */}
+                <div className='hidden sm:block min-w-full'>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className='hidden md:table-cell'>
+                          Platform
+                        </TableHead>
+                        <TableHead className='hidden md:table-cell'>
+                          Last Updated
+                        </TableHead>
+                        <TableHead className='w-[50px]'></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredApplications.map((app) => (
+                        <TableRow key={app.id}>
+                          <TableCell className='font-medium'>
+                            <div>
+                              <p className='font-medium'>{app.name}</p>
+                              <p className='text-sm text-muted-foreground line-clamp-1 md:line-clamp-2'>
+                                {app.description}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p>{app.category}</p>
+                              <p className='text-sm text-muted-foreground'>
+                                {app.subcategory}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell className='whitespace-nowrap'>
+                            {app.integration_type}
+                          </TableCell>
+                          <TableCell>
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                app.is_active
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-gray-100 text-gray-800'
+                              }`}
+                            >
+                              {app.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </TableCell>
+                          <TableCell className='hidden md:table-cell whitespace-nowrap'>
+                            {app.supported_platforms}
+                          </TableCell>
+                          <TableCell className='hidden md:table-cell whitespace-nowrap'>
+                            {formatDate(app.updated_at)}
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant='ghost' className='h-8 w-8 p-0'>
+                                  <MoreVertical className='h-4 w-4' />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align='end'>
+                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    router.push(`/applications/${app.id}`)
+                                  }
+                                >
+                                  View Details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    router.push(`/applications/${app.id}/edit`)
+                                  }
+                                >
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className='text-red-600'
+                                  onClick={() => handleDelete(app.id)}
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </ContentLayout>
+      )}
+    </>
   );
 }
