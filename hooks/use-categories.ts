@@ -1,27 +1,30 @@
 // hooks/use-categories.ts
 import useSWR from 'swr';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
 import { Category } from '@/types/categories';
 
-const supabase = createClientComponentClient();
-
-async function fetchCategories(): Promise<Category[]> {
-  const { data: categories, error } = await supabase
+const fetchCategories = async (): Promise<Category[]> => {
+  const { data, error } = await supabase
     .from('categories')
     .select('*, subcategories(*)');
 
   if (error) throw error;
 
-  return categories.map((category) => ({
+  return data.map((category) => ({
     ...category,
+    description: category.description || undefined,
     subcategories: category.subcategories || []
   }));
-}
+};
 
 export function useCategories() {
   const { data, error, isLoading, mutate } = useSWR<Category[]>(
     'categories',
-    fetchCategories
+    fetchCategories,
+    {
+      revalidateOnFocus: true,
+      refreshInterval: 30000 // Refresh every 30 seconds
+    }
   );
 
   return {
