@@ -1,8 +1,8 @@
-//app/api/applications/categories/[id]/route.ts
+// app/api/applications/[id]/route.ts
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
-import { UpdateCategoryInput } from '@/types/categories';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
 export async function GET(
   request: NextRequest,
@@ -14,44 +14,34 @@ export async function GET(
     // Check authentication
     const {
       data: { session },
-      error: authError
+      error: sessionError
     } = await supabase.auth.getSession();
 
-    if (authError || !session) {
+    if (sessionError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: category, error } = await supabase
-      .from('categories')
-      .select(
-        `
-        *,
-        subcategories (
-          id,
-          name,
-          description,
-          created_at,
-          updated_at
-        )
-      `
-      )
+    const { data, error } = await supabase
+      .from('applications')
+      .select('*')
       .eq('id', params.id)
       .single();
 
-    if (error) throw error;
-
-    if (!category) {
-      return NextResponse.json(
-        { error: 'Category not found' },
-        { status: 404 }
-      );
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'Application not found' },
+          { status: 404 }
+        );
+      }
+      throw error;
     }
 
-    return NextResponse.json(category);
+    return NextResponse.json(data);
   } catch (error) {
-    console.error('Error fetching category:', error);
+    console.error('Error fetching application:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -63,19 +53,18 @@ export async function PATCH(
 ) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
-    const input: UpdateCategoryInput = await request.json();
 
     // Check authentication
     const {
       data: { session },
-      error: authError
+      error: sessionError
     } = await supabase.auth.getSession();
 
-    if (authError || !session) {
+    if (sessionError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin privileges
+    // Check admin role
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
@@ -84,30 +73,37 @@ export async function PATCH(
 
     if (
       profileError ||
-      !['administrator', 'super_admin'].includes(profile?.role)
+      !profile ||
+      !['super_admin', 'administrator'].includes(profile.role)
     ) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Update category
-    const { data: category, error } = await supabase
-      .from('categories')
-      .update({
-        name: input.name,
-        description: input.description,
-        updated_at: new Date().toISOString()
-      })
+    const body = await request.json();
+
+    // Update application
+    const { data, error } = await supabase
+      .from('applications')
+      .update(body)
       .eq('id', params.id)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'Application not found' },
+          { status: 404 }
+        );
+      }
+      throw error;
+    }
 
-    return NextResponse.json(category);
+    return NextResponse.json(data);
   } catch (error) {
-    console.error('Error updating category:', error);
+    console.error('Error updating application:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -123,14 +119,14 @@ export async function DELETE(
     // Check authentication
     const {
       data: { session },
-      error: authError
+      error: sessionError
     } = await supabase.auth.getSession();
 
-    if (authError || !session) {
+    if (sessionError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin privileges
+    // Check admin role
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
@@ -139,27 +135,26 @@ export async function DELETE(
 
     if (
       profileError ||
-      !['administrator', 'super_admin'].includes(profile?.role)
+      !profile ||
+      !['super_admin', 'administrator'].includes(profile.role)
     ) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // First delete all subcategories
-    await supabase.from('subcategories').delete().eq('parent_id', params.id);
-
-    // Then delete the category
     const { error } = await supabase
-      .from('categories')
+      .from('applications')
       .delete()
       .eq('id', params.id);
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
-    return NextResponse.json({ success: true });
+    return new NextResponse(null, { status: 204 });
   } catch (error) {
-    console.error('Error deleting category:', error);
+    console.error('Error deleting application:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
