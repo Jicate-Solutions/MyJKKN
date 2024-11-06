@@ -92,19 +92,7 @@ const applicationSchema = z.object({
   api_endpoints: z.array(apiEndpointSchema).optional()
 });
 
-const categories = [
-  { value: 'core', label: 'Core Systems' },
-  { value: 'academic', label: 'Academic' },
-  { value: 'admin', label: 'Administrative' },
-  { value: 'support', label: 'Support' }
-];
 
-const subcategories = {
-  core: ['Student Portal', 'Staff Portal', 'Finance'],
-  academic: ['Course Management', 'Library', 'Research'],
-  admin: ['HR', 'Facilities', 'IT Services'],
-  support: ['Help Desk', 'Training', 'Documentation']
-};
 
 type FormValues = z.infer<typeof applicationSchema>;
 
