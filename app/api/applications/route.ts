@@ -19,13 +19,29 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
 
-    // Start building the query
-    let query = supabase.from('applications').select('*', { count: 'exact' });
 
-    // Apply filters
-    if (category) {
-      query = query.eq('category', category);
-    }
+    // Debug log
+    console.log('Category filter:', category);
+
+
+    // Start building the query
+    let query = supabase
+      .from('applications')
+      .select(`
+        *,
+        category:categories (
+          id,
+          name,
+          description
+        )
+      `, { count: 'exact' });
+
+
+      // Apply filters
+if (category && category !== 'all') {
+  query = query.eq('category_id', category);
+}
+
 
     if (isActive !== null) {
       query = query.eq('is_active', isActive === 'true');
@@ -35,10 +51,10 @@ export async function GET(request: NextRequest) {
       query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
     }
 
-    // Apply pagination
+   // Apply pagination
     const from = (page - 1) * limit;
     const to = from + limit - 1;
-    query = query.range(from, to).order('display_order', { ascending: true });
+    query = query.range(from, to).order('created_at', { ascending: false });
 
     const { data: applications, error, count } = await query;
 
@@ -49,6 +65,11 @@ export async function GET(request: NextRequest) {
         { status: 500 }
       );
     }
+
+     // Debug log
+     console.log('Query results:', applications?.length);
+
+    
 
     return NextResponse.json({
       data: applications,
@@ -67,6 +88,7 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
 
 export async function POST(request: NextRequest) {
   try {

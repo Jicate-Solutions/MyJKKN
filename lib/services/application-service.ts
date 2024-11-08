@@ -1,5 +1,3 @@
-// lib/services/application-service.ts
-
 import type {
   ApiEndpoint,
   Application,
@@ -35,6 +33,12 @@ export class ApplicationService {
     try {
       // Build query parameters
       const params = new URLSearchParams();
+
+
+      // Debug log
+    console.log('Filters:', filters);
+
+
       if (filters.category) params.append('category', filters.category);
       if (filters.search) params.append('search', filters.search);
       if (filters.isActive !== undefined)
@@ -42,12 +46,16 @@ export class ApplicationService {
       if (filters.page) params.append('page', String(filters.page));
       if (filters.limit) params.append('limit', String(filters.limit));
 
+       // Debug log
+    console.log('Request URL:', `/api/applications?${params.toString()}`);
+
       const response = await fetch(`/api/applications?${params.toString()}`);
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to fetch applications');
       }
-      return await response.json();
+      const data =  await response.json();
+      return data;
     } catch (error) {
       console.error('Error fetching applications:', error);
       throw error;
@@ -76,7 +84,7 @@ export class ApplicationService {
           throw new Error('Support contact name and email are required');
         }
       }
-  
+
       // Validate API endpoints if provided
       if (data.api_endpoints && data.api_endpoints.length > 0) {
         data.api_endpoints.forEach((endpoint, index) => {
@@ -85,7 +93,7 @@ export class ApplicationService {
           }
         });
       }
-  
+
       const response = await fetch('/api/applications', {
         method: 'POST',
         headers: {
@@ -93,16 +101,16 @@ export class ApplicationService {
         },
         body: JSON.stringify(data)
       });
-  
+
       const responseData = await response.json();
-  
-     
+
+
       if (!response.ok) {
         if (response.status === 409) {
           toast.error('An application with this name already exists');
           return Promise.reject();
         }
-        
+
         toast.error(responseData.error || 'Failed to create application');
         return Promise.reject();
       }
@@ -127,7 +135,7 @@ export class ApplicationService {
           throw new Error('Support contact name and email are required');
         }
       }
-  
+
       // Validate API endpoints if provided
       if (data.api_endpoints && data.api_endpoints.length > 0) {
         data.api_endpoints.forEach((endpoint, index) => {
@@ -136,7 +144,7 @@ export class ApplicationService {
           }
         });
       }
-  
+
       const response = await fetch(`/api/applications/${id}`, {
         method: 'PATCH',
         headers: {
@@ -144,12 +152,12 @@ export class ApplicationService {
         },
         body: JSON.stringify(data)
       });
-  
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to update application');
       }
-  
+
       const result = await response.json();
       toast.success('Application updated successfully');
       return result;
@@ -201,16 +209,7 @@ export class ApplicationService {
   }
 
   static getAvailableCategories(): string[] {
-    return [
-      'Core Systems',
-      'Student Services',
-      'Academic',
-      'Administrative',
-      'Healthcare',
-      'Library',
-      'Research',
-      'Other'
-    ];
+    return [];
   }
 
   // Method to get categories and subcategories for form
@@ -219,7 +218,7 @@ export class ApplicationService {
   }> {
     try {
       const categories = await CategoryService.getCategories();
-      
+
       return {
         categories: categories.map(category => ({
           label: category.name,
@@ -244,11 +243,11 @@ export class ApplicationService {
     try {
       const category = await CategoryService.getCategoryById(categoryId);
       if (!category) return false;
-      
+
       if (subcategoryId) {
         return category.subcategories.some(sub => sub.id === subcategoryId);
       }
-      
+
       return true;
     } catch (error) {
       return false;
@@ -282,14 +281,13 @@ export class ApplicationService {
 
 
   // Add this helper method in ApplicationService class
-static validateEndpointConfig(endpoint: ApiEndpoint): boolean {
-  return (
-    endpoint.name.length >= 2 &&
-    endpoint.url.startsWith('https://') &&
-    ['GET', 'POST', 'PUT', 'DELETE'].includes(endpoint.method)
-  );
-}
+  static validateEndpointConfig(endpoint: ApiEndpoint): boolean {
+    return (
+      endpoint.name.length >= 2 &&
+      endpoint.url.startsWith('https://') &&
+      ['GET', 'POST', 'PUT', 'DELETE'].includes(endpoint.method)
+    );
+  }
 
 
 }
-

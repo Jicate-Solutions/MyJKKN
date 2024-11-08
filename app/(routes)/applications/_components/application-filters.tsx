@@ -1,7 +1,6 @@
-// app/(routes)/applications/_components/application-filters.tsx
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -11,19 +10,42 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { ApplicationService } from '@/lib/services/application-service';
+import { CategoryService } from '@/lib/services/category-service';
+import { Category } from '@/types/categories';
 import type { ApplicationFilters as Filters } from '@/lib/services/application-service';
 import { useDebounce } from '@/hooks/use-debounce';
 
 interface ApplicationFiltersProps {
-  filters: Filters;
-  onFilterChange: (filters: Partial<Filters>) => void;
+  filters: {
+    search?: string;
+    category?: string;
+    isActive?: boolean;
+  };
+  onFilterChange: (filters: any) => void;
 }
 
 export function ApplicationFilters({
   filters,
   onFilterChange
 }: ApplicationFiltersProps) {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const data = await CategoryService.getCategories();
+        setCategories(data);
+      } catch (error) {
+        console.error('Error loading categories:', error);
+      } finally {
+        setLoadingCategories(false);
+      }
+    };
+
+    loadCategories();
+  }, []);
+
   const debouncedSearch = useDebounce((value: string) => {
     onFilterChange({ search: value });
   }, 300);
@@ -61,15 +83,16 @@ export function ApplicationFilters({
         <Select
           value={filters.category || 'all'}
           onValueChange={handleCategoryChange}
+          disabled={loadingCategories}
         >
           <SelectTrigger>
             <SelectValue placeholder='Select category' />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value='all'>All Categories</SelectItem>
-            {ApplicationService.getAvailableCategories().map((category) => (
-              <SelectItem key={category} value={category}>
-                {category}
+            {categories.map((category) => (
+              <SelectItem key={category.id} value={category.id}>
+                {category.name}
               </SelectItem>
             ))}
           </SelectContent>
