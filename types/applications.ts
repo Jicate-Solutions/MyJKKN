@@ -5,11 +5,22 @@ export type AuthMethod = 'sso' | 'separate_login' | 'none';
 export type PlatformType = 'web' | 'mobile' | 'both';
 export type AppType = 'internal' | 'external';
 export type SensitivityLevel = 'public' | 'restricted' | 'confidential';
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
+// New support contact interface
+export interface SupportContact {
+  name: string;
+  email: string;
+  phone: string | null;
+}
+
+// Enhanced API endpoint interface
 export interface ApiEndpoint {
+  name: string;
   url: string;
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
-  description?: string;
+  method: HttpMethod;
+  description: string | null;
+  is_active: boolean;
 }
 
 export interface Application {
@@ -25,9 +36,9 @@ export interface Application {
   integration_type: IntegrationType;
   auth_method: AuthMethod;
   tags: string[];
-  support_contact: string | null;
+  support_contact: SupportContact | null;  // Changed to use SupportContact interface
   supported_platforms: PlatformType;
-  api_endpoints: ApiEndpoint[];
+  api_endpoints: ApiEndpoint[];            // Using enhanced ApiEndpoint interface
   application_type: AppType;
   data_sensitivity: SensitivityLevel;
   created_by: string;

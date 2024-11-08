@@ -1,4 +1,5 @@
 // app/api/applications/[id]/route.ts
+
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -9,9 +10,10 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = cookies();
 
-    // Check authentication
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore  });
+
     const {
       data: { session },
       error: sessionError
@@ -52,7 +54,8 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
     // Check authentication
     const {
@@ -81,10 +84,64 @@ export async function PATCH(
 
     const body = await request.json();
 
+    // Validate URL if provided
+    if (body.url && !body.url.startsWith('https://')) {
+      return NextResponse.json(
+        { error: 'URL must start with https://' },
+        { status: 400 }
+      );
+    }
+
+    // Validate support contact if provided
+    if (body.support_contact) {
+      const { name, email, phone } = body.support_contact;
+      if (!name || !email) {
+        return NextResponse.json(
+          { error: 'Support contact name and email are required' },
+          { status: 400 }
+        );
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return NextResponse.json(
+          { error: 'Invalid email format for support contact' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate API endpoints if provided
+    if (body.api_endpoints?.length > 0) {
+      for (const endpoint of body.api_endpoints) {
+        if (!endpoint.name || endpoint.name.length < 2) {
+          return NextResponse.json(
+            { error: 'API endpoint name must be at least 2 characters' },
+            { status: 400 }
+          );
+        }
+        if (!endpoint.url.startsWith('https://')) {
+          return NextResponse.json(
+            { error: 'API endpoint URLs must start with https://' },
+            { status: 400 }
+          );
+        }
+        if (!['GET', 'POST', 'PUT', 'DELETE'].includes(endpoint.method)) {
+          return NextResponse.json(
+            { error: 'Invalid HTTP method for API endpoint' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // Update application
     const { data, error } = await supabase
       .from('applications')
-      .update(body)
+      .update({
+        ...body,
+        updated_at: new Date().toISOString()
+      })
       .eq('id', params.id)
       .select()
       .single();
@@ -114,9 +171,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
-    // Check authentication
     const {
       data: { session },
       error: sessionError
@@ -126,7 +183,6 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin role
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
