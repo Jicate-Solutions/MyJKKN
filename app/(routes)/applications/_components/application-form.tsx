@@ -1,7 +1,7 @@
 // app/(routes)/applications/_components/application-form.tsx
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -33,6 +33,14 @@ import { Application } from '@/types/applications';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SupportContactField } from './support-contact-field';
 import { ApiEndpointField } from './api-endpoint-field';
+import { CategoryService } from '@/lib/services/category-service';
+
+// Add this type inside your component
+type CategoryOption = {
+  label: string;
+  value: string;
+  subcategories: { label: string; value: string }[];
+};
 
 // Form schema
 const applicationSchema = z.object({
@@ -45,8 +53,8 @@ const applicationSchema = z.object({
     .string()
     .min(10, 'Description must be at least 10 characters')
     .nullable(),
-  category: z.string().min(1, 'Category is required'),
-  subcategory: z.string().optional().nullable(), // Allow null or undefined
+    category_id: z.string().min(1, 'Category is required'),
+  subcategory_id: z.string().optional(),
   roles_access: z
     .array(z.string())
     .min(1, 'At least one role must be selected'),
@@ -86,6 +94,36 @@ export function ApplicationForm({
   isEditing
 }: ApplicationFormProps) {
   const router = useRouter();
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+   // Fetch categories when component mounts
+   useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setLoadingCategories(true);
+        const data = await CategoryService.getCategories();
+        const formattedCategories = data.map(category => ({
+          label: category.name,
+          value: category.id,
+          subcategories: category.subcategories.map(sub => ({
+            label: sub.name,
+            value: sub.id
+          }))
+        }));
+        setCategories(formattedCategories);
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+        toast.error('Failed to load categories');
+      } finally {
+        setLoadingCategories(false);
+      }
+    };
+
+    fetchCategories();
+  }, []);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(applicationSchema),
@@ -93,8 +131,8 @@ export function ApplicationForm({
       name: initialData?.name || '',
       url: initialData?.url || 'https://',
       description: initialData?.description || null,
-      category: initialData?.category || '',
-      subcategory: initialData?.subcategory || null,
+      category_id: initialData?.category_id || '',
+      subcategory_id: initialData?.subcategory_id || '',
       roles_access: initialData?.roles_access || [],
       display_order: initialData?.display_order || 0,
       is_active: initialData?.is_active ?? true,
@@ -113,23 +151,32 @@ export function ApplicationForm({
     }
   });
 
+   // Handle category change
+   const handleCategoryChange = (categoryId: string) => {
+    setSelectedCategory(categoryId);
+    form.setValue('subcategory_id', ''); // Reset subcategory when category changes
+  };
+  
   const isLoading = form.formState.isSubmitting;
 
   const onSubmit = async (values: FormValues) => {
     try {
+
+      setIsSubmitting(true);
+      setError(null);
+
+
       if (isEditing && initialData) {
         await ApplicationService.updateApplication(initialData.id, {
           ...values,
-          // Convert empty strings to null for optional fields
-          subcategory: values.subcategory || null,
+          subcategory_id: values.subcategory_id || null,
           description: values.description || null,
           support_contact: values.support_contact || null
         });
       } else {
         await ApplicationService.createApplication({
           ...values,
-          // Convert empty strings to null for optional fields
-          subcategory: values.subcategory || null,
+          subcategory_id: values.subcategory_id || null,
           description: values.description || null,
           support_contact: values.support_contact || null
         });
@@ -137,14 +184,16 @@ export function ApplicationForm({
       router.push('/applications');
       router.refresh();
     } catch (error) {
-      toast.error('Something went wrong');
       console.error('Form submission error:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8 max-w-5xl mx-auto">
+      
         {/* Basic Information Card */}
         <Card>
           <CardHeader>
@@ -214,101 +263,71 @@ export function ApplicationForm({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="category"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Category</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {ApplicationService.getAvailableCategories().map((category) => (
-                          <SelectItem key={category} value={category}>
-                            {category}
+          <div className="grid gap-6 md:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="category_id"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Category</FormLabel>
+                <Select
+                  disabled={loadingCategories}
+                  onValueChange={(value) => {
+                    field.onChange(value);
+                    handleCategoryChange(value);
+                  }}
+                  value={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {categories.map((category) => (
+                      <SelectItem key={category.value} value={category.value}>
+                        {category.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="subcategory_id"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Subcategory</FormLabel>
+                <Select
+                  disabled={!selectedCategory}
+                  onValueChange={field.onChange}
+                  value={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select subcategory" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {selectedCategory &&
+                      categories
+                        .find(cat => cat.value === selectedCategory)
+                        ?.subcategories.map((sub) => (
+                          <SelectItem key={sub.value} value={sub.value}>
+                            {sub.label}
                           </SelectItem>
                         ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="subcategory"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Subcategory</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter subcategory" {...field} value={field.value ?? ''} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="tags"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tags</FormLabel>
-                    <FormControl>
-                      <Input 
-                        placeholder="Enter tags separated by commas"
-                        value={field.value.join(', ')}
-                        onChange={(e) => {
-                          const tags = e.target.value
-                            .split(',')
-                            .map(tag => tag.trim())
-                            .filter(tag => tag !== '');
-                          field.onChange(tags);
-                        }}
-                      />
-                    </FormControl>
-                    <div className="mt-2 text-[0.8rem] text-muted-foreground">
-                      Current tags: 
-                      <span className="ml-1">
-                        {field.value.map(tag => (
-                          <Badge key={tag} variant="secondary" className="mr-1">
-                            {tag}
-                          </Badge>
-                        ))}
-                      </span>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="display_order"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Display Order</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="number" 
-                        {...field} 
-                        onChange={e => field.onChange(Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Lower numbers appear first
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
           </CardContent>
         </Card>
 
@@ -492,20 +511,17 @@ export function ApplicationForm({
 
         {/* Submit Buttons */}
         <div className="flex justify-end space-x-4 pt-6">
-          <Button
+        <Button
             type="button"
             variant="outline"
             onClick={() => router.back()}
-            disabled={isLoading}
+            disabled={isSubmitting}
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={isLoading}>
-            {isLoading ? (
-              <>
-                <span className="loading loading-spinner loading-sm mr-2"></span>
-                Saving...
-              </>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? (
+              'Saving...'
             ) : isEditing ? (
               'Update Application'
             ) : (
