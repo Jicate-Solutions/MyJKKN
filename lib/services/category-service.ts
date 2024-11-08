@@ -17,78 +17,68 @@ export class CategoryService {
   // Get all categories with their subcategories
   static async getCategories(): Promise<Category[]> {
     try {
-      // First get all categories
-      const { data: categories, error: categoriesError } = await this.supabase
-        .from('categories')
-        .select('*')
-        .order('name');
+      const response = await fetch('/api/categories', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
 
-      if (categoriesError) throw categoriesError;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch categories');
+      }
 
-      // Then get all subcategories
-      const { data: subcategories, error: subcategoriesError } = await this.supabase
-        .from('subcategories')
-        .select('*')
-        .order('name');
-
-      if (subcategoriesError) throw subcategoriesError;
-
-      // Combine categories with their subcategories
-      return categories.map(category => ({
-        ...category,
-        subcategories: subcategories.filter(sub => sub.category_id === category.id)
-      }));
+      return await response.json();
     } catch (error) {
       console.error('Error fetching categories:', error);
-      throw error;
+      toast.error('Failed to load categories');
+      return [];
     }
   }
 
   // Get a single category with its subcategories
   static async getCategoryById(id: string): Promise<Category | null> {
     try {
-      const { data: category, error: categoryError } = await this.supabase
-        .from('categories')
-        .select('*')
-        .eq('id', id)
-        .single();
+      const response = await fetch(`/api/categories/${id}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
 
-      if (categoryError) throw categoryError;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch category');
+      }
 
-      const { data: subcategories, error: subcategoriesError } = await this.supabase
-        .from('subcategories')
-        .select('*')
-        .eq('category_id', id)
-        .order('name');
-
-      if (subcategoriesError) throw subcategoriesError;
-
-      return {
-        ...category,
-        subcategories
-      };
+      return await response.json();
     } catch (error) {
       console.error('Error fetching category:', error);
-      throw error;
+      toast.error('Failed to load category');
+      return null;
     }
   }
 
   // Create a new category
   static async createCategory(data: CreateCategoryDTO): Promise<Category> {
     try {
-      const { data: category, error } = await this.supabase
-        .from('categories')
-        .insert([data])
-        .select()
-        .single();
+      const response = await fetch('/api/categories', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      });
 
-      if (error) throw error;
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Failed to create category');
+      }
 
       toast.success('Category created successfully');
-      return {
-        ...category,
-        subcategories: []
-      };
+      return responseData;
     } catch (error) {
       console.error('Error creating category:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to create category');
@@ -99,27 +89,22 @@ export class CategoryService {
   // Update a category
   static async updateCategory(id: string, data: UpdateCategoryDTO): Promise<Category> {
     try {
-      const { data: category, error } = await this.supabase
-        .from('categories')
-        .update(data)
-        .eq('id', id)
-        .select()
-        .single();
+      const response = await fetch(`/api/categories/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      });
 
-      if (error) throw error;
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Failed to update category');
+      }
 
       toast.success('Category updated successfully');
-      
-      // Fetch subcategories after update
-      const { data: subcategories } = await this.supabase
-        .from('subcategories')
-        .select('*')
-        .eq('category_id', id);
-
-      return {
-        ...category,
-        subcategories: subcategories || []
-      };
+      return responseData;
     } catch (error) {
       console.error('Error updating category:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to update category');
@@ -130,12 +115,14 @@ export class CategoryService {
   // Delete a category
   static async deleteCategory(id: string): Promise<void> {
     try {
-      const { error } = await this.supabase
-        .from('categories')
-        .delete()
-        .eq('id', id);
+      const response = await fetch(`/api/categories/${id}`, {
+        method: 'DELETE'
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete category');
+      }
 
       toast.success('Category deleted successfully');
     } catch (error) {
@@ -148,16 +135,22 @@ export class CategoryService {
   // Create a subcategory
   static async createSubcategory(data: CreateSubcategoryDTO): Promise<Subcategory> {
     try {
-      const { data: subcategory, error } = await this.supabase
-        .from('subcategories')
-        .insert([data])
-        .select()
-        .single();
+      const response = await fetch('/api/categories/subcategories', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      });
 
-      if (error) throw error;
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Failed to create subcategory');
+      }
 
       toast.success('Subcategory created successfully');
-      return subcategory;
+      return responseData;
     } catch (error) {
       console.error('Error creating subcategory:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to create subcategory');
@@ -171,17 +164,22 @@ export class CategoryService {
     data: UpdateSubcategoryDTO
   ): Promise<Subcategory> {
     try {
-      const { data: subcategory, error } = await this.supabase
-        .from('subcategories')
-        .update(data)
-        .eq('id', id)
-        .select()
-        .single();
+      const response = await fetch(`/api/categories/subcategories/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      });
 
-      if (error) throw error;
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Failed to update subcategory');
+      }
 
       toast.success('Subcategory updated successfully');
-      return subcategory;
+      return responseData;
     } catch (error) {
       console.error('Error updating subcategory:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to update subcategory');
@@ -192,12 +190,14 @@ export class CategoryService {
   // Delete a subcategory
   static async deleteSubcategory(id: string): Promise<void> {
     try {
-      const { error } = await this.supabase
-        .from('subcategories')
-        .delete()
-        .eq('id', id);
+      const response = await fetch(`/api/categories/subcategories/${id}`, {
+        method: 'DELETE'
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete subcategory');
+      }
 
       toast.success('Subcategory deleted successfully');
     } catch (error) {

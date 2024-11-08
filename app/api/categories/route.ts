@@ -6,6 +6,9 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CreateCategoryDTO } from '@/types/categories';
 
+export const dynamic = 'force-dynamic';
+
+
 export async function GET() {
   try {
     const cookieStore = cookies();
