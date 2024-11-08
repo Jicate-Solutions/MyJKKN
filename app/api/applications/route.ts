@@ -100,6 +100,21 @@ export async function POST(request: NextRequest) {
 
     const body: CreateApplicationDTO = await request.json();
 
+
+     // Check if application with same name exists
+     const { data: existingApp } = await supabase
+     .from('applications')
+     .select('id')
+     .eq('name', body.name)
+     .single();
+
+   if (existingApp) {
+     return NextResponse.json(
+       { error: 'An application with this name already exists' },
+       { status: 409 }
+     );
+   }
+
     // Validate base URL
     if (!body.url.startsWith('https://')) {
       return NextResponse.json(
@@ -164,26 +179,20 @@ export async function POST(request: NextRequest) {
       .select()
       .single();
 
-    if (error) {
-      console.error('Error creating application:', error);
-      if (error.code === '23505') {
+      if (error) {
+        console.error('Database error:', error);
         return NextResponse.json(
-          { error: 'An application with this name already exists' },
-          { status: 409 }
+          { error: 'Failed to create application' },
+          { status: 500 }
         );
       }
+  
+      return NextResponse.json(data, { status: 201 });
+    } catch (error) {
+      console.error('Error in POST /api/applications:', error);
       return NextResponse.json(
-        { error: 'Error creating application' },
+        { error: 'Internal server error' },
         { status: 500 }
       );
     }
-
-    return NextResponse.json(data, { status: 201 });
-  } catch (error) {
-    console.error('Error in POST /api/applications:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
   }
-}

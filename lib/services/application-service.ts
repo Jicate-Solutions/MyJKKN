@@ -7,6 +7,8 @@ import type {
   UpdateApplicationDTO
 } from '@/types/applications';
 import { toast } from 'react-hot-toast';
+import { CategoryService } from './category-service';
+import { ApiError, handleApiError } from '../api-errors';
 
 export interface ApplicationListResponse {
   data: Application[];
@@ -94,26 +96,25 @@ export class ApplicationService {
   
       const responseData = await response.json();
   
+     
       if (!response.ok) {
-        if (
-          responseData.code === '23505' &&
-          responseData.message.includes('applications_name_key')
-        ) {
-          throw new Error('An application with this name already exists');
+        if (response.status === 409) {
+          toast.error('An application with this name already exists');
+          return Promise.reject();
         }
-        throw new Error(responseData.message || 'Failed to create application');
+        
+        toast.error(responseData.error || 'Failed to create application');
+        return Promise.reject();
       }
-  
+
       toast.success('Application created successfully');
       return responseData;
     } catch (error) {
-      console.error('Error creating application:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to create application'
-      );
-      throw error;
+      toast.error('An error occurred while creating the application');
+      return Promise.reject();
     }
   }
+
 
   static async updateApplication(
     id: string,
@@ -211,6 +212,49 @@ export class ApplicationService {
       'Other'
     ];
   }
+
+  // Method to get categories and subcategories for form
+  static async getCategoryOptions(): Promise<{
+    categories: { label: string; value: string; subcategories: { label: string; value: string; }[] }[];
+  }> {
+    try {
+      const categories = await CategoryService.getCategories();
+      
+      return {
+        categories: categories.map(category => ({
+          label: category.name,
+          value: category.id,
+          subcategories: category.subcategories.map(sub => ({
+            label: sub.name,
+            value: sub.id
+          }))
+        }))
+      };
+    } catch (error) {
+      console.error('Error fetching category options:', error);
+      throw error;
+    }
+  }
+
+  // Update the application schema to use IDs instead of strings
+  private static async validateCategoryAndSubcategory(
+    categoryId: string,
+    subcategoryId?: string
+  ): Promise<boolean> {
+    try {
+      const category = await CategoryService.getCategoryById(categoryId);
+      if (!category) return false;
+      
+      if (subcategoryId) {
+        return category.subcategories.some(sub => sub.id === subcategoryId);
+      }
+      
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
 
   static getAvailableRoles(): string[] {
     return ['student', 'faculty', 'staff', 'administrator', 'super_admin'];

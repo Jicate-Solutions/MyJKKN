@@ -28,8 +28,8 @@ export interface Application {
   name: string;
   url: string;
   description: string | null;
-  category: string;
-  subcategory: string | null;
+  category_id: string;
+  subcategory_id?: string | null;
   roles_access: string[];
   display_order: number;
   is_active: boolean;
