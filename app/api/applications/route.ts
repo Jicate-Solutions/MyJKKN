@@ -1,4 +1,3 @@
-'use server';
 // app/api/applications/route.ts
 
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
@@ -9,7 +8,8 @@ import type { CreateApplicationDTO } from '@/types/applications';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore  });
 
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;
@@ -70,7 +70,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore  });
 
     // Get current user session
     const {
@@ -97,10 +98,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Get request body
     const body: CreateApplicationDTO = await request.json();
 
-    // Validate URL format
+    // Validate base URL
     if (!body.url.startsWith('https://')) {
       return NextResponse.json(
         { error: 'URL must start with https://' },
@@ -108,12 +108,58 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate support contact if provided
+    if (body.support_contact) {
+      const { name, email, phone } = body.support_contact;
+      if (!name || !email) {
+        return NextResponse.json(
+          { error: 'Support contact name and email are required' },
+          { status: 400 }
+        );
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return NextResponse.json(
+          { error: 'Invalid email format for support contact' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate API endpoints if provided
+    if (body.api_endpoints?.length > 0) {
+      for (const endpoint of body.api_endpoints) {
+        if (!endpoint.name || endpoint.name.length < 2) {
+          return NextResponse.json(
+            { error: 'API endpoint name must be at least 2 characters' },
+            { status: 400 }
+          );
+        }
+        if (!endpoint.url.startsWith('https://')) {
+          return NextResponse.json(
+            { error: 'API endpoint URLs must start with https://' },
+            { status: 400 }
+          );
+        }
+        if (!['GET', 'POST', 'PUT', 'DELETE'].includes(endpoint.method)) {
+          return NextResponse.json(
+            { error: 'Invalid HTTP method for API endpoint' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // Insert new application
     const { data, error } = await supabase
       .from('applications')
       .insert({
         ...body,
-        created_by: session.user.id
+        created_by: session.user.id,
+        api_endpoints: body.api_endpoints || [],
+        support_contact: body.support_contact || null
       })
       .select()
       .single();
@@ -121,7 +167,6 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Error creating application:', error);
       if (error.code === '23505') {
-        // Unique violation
         return NextResponse.json(
           { error: 'An application with this name already exists' },
           { status: 409 }

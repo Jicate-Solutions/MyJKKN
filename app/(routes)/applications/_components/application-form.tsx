@@ -30,6 +30,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Application } from '@/types/applications';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SupportContactField } from './support-contact-field';
+import { ApiEndpointField } from './api-endpoint-field';
 
 // Form schema
 const applicationSchema = z.object({
@@ -52,17 +55,21 @@ const applicationSchema = z.object({
   integration_type: z.enum(['direct_link', 'embedded', 'api']),
   auth_method: z.enum(['sso', 'separate_login', 'none']),
   tags: z.array(z.string()),
-  support_contact: z.string().email('Must be a valid email').nullable(),
+  support_contact: z.object({
+    name: z.string().min(2, 'Name must be at least 2 characters'),
+    email: z.string().email('Must be a valid email'),
+    phone: z.string().nullable()
+  }).nullable(),
   supported_platforms: z.enum(['web', 'mobile', 'both']),
-  api_endpoints: z
-    .array(
-      z.object({
-        url: z.string().url(),
-        method: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
-        description: z.string().optional()
-      })
-    )
-    .default([]),
+  api_endpoints: z.array(
+    z.object({
+      name: z.string().min(2, 'Name must be at least 2 characters'),
+      url: z.string().url('Must be a valid URL'),
+      method: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
+      description: z.string().nullable(),
+      is_active: z.boolean()
+    })
+  ).default([]),
   application_type: z.enum(['internal', 'external']),
   data_sensitivity: z.enum(['public', 'restricted', 'confidential'])
 });
@@ -94,7 +101,11 @@ export function ApplicationForm({
       integration_type: initialData?.integration_type || 'direct_link',
       auth_method: initialData?.auth_method || 'sso',
       tags: initialData?.tags || [],
-      support_contact: initialData?.support_contact || null,
+      support_contact: initialData?.support_contact || {
+        name: '',
+        email: '',
+        phone: null
+      },
       supported_platforms: initialData?.supported_platforms || 'web',
       api_endpoints: initialData?.api_endpoints || [],
       application_type: initialData?.application_type || 'internal',
@@ -133,215 +144,373 @@ export function ApplicationForm({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-8'>
-        <div className='grid gap-6 md:grid-cols-2'>
-          <FormField
-            control={form.control}
-            name='name'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Name</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8 max-w-5xl mx-auto">
+        {/* Basic Information Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Basic Information</CardTitle>
+            <CardDescription>
+              Enter the core details of your application
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Application Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter application name" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-          <FormField
-            control={form.control}
-            name='url'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>URL</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+              <FormField
+                control={form.control}
+                name="url"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Application URL</FormLabel>
+                    <FormControl>
+                      <Input placeholder="https://example.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
-          <FormField
-            control={form.control}
-            name='description'
-            render={({ field }) => (
-              <FormItem className='col-span-2'>
-                <FormLabel>Description</FormLabel>
-                <FormControl>
-                  <Textarea {...field} value={field.value ?? ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name='category'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Category</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                >
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description</FormLabel>
                   <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder='Select category' />
-                    </SelectTrigger>
+                    <Textarea 
+                      placeholder="Describe the application's purpose and functionality"
+                      className="h-24"
+                      {...field}
+                      value={field.value ?? ''} 
+                    />
                   </FormControl>
-                  <SelectContent>
-                    {ApplicationService.getAvailableCategories().map(
-                      (category) => (
-                        <SelectItem key={category} value={category}>
-                          {category}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </CardContent>
+        </Card>
 
-          <FormField
-            control={form.control}
-            name='subcategory'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Subcategory</FormLabel>
-                <FormControl>
-                  <Input {...field} value={field.value ?? ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+        {/* Classification Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Classification</CardTitle>
+            <CardDescription>
+              Categorize and organize your application
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ApplicationService.getAvailableCategories().map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-          <FormField
-            control={form.control}
-            name='roles_access'
-            render={() => (
-              <FormItem>
-                <FormLabel>Roles with Access</FormLabel>
-                <div className='space-y-2'>
-                  {ApplicationService.getAvailableRoles().map((role) => (
-                    <div key={role} className='flex items-center space-x-2'>
-                      <Checkbox
-                        checked={form.watch('roles_access').includes(role)}
-                        onCheckedChange={(checked) => {
-                          const current = form.watch('roles_access');
-                          const updated = checked
-                            ? [...current, role]
-                            : current.filter((r) => r !== role);
-                          form.setValue('roles_access', updated);
+              <FormField
+                control={form.control}
+                name="subcategory"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Subcategory</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter subcategory" {...field} value={field.value ?? ''} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="tags"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tags</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Enter tags separated by commas"
+                        value={field.value.join(', ')}
+                        onChange={(e) => {
+                          const tags = e.target.value
+                            .split(',')
+                            .map(tag => tag.trim())
+                            .filter(tag => tag !== '');
+                          field.onChange(tags);
                         }}
                       />
-                      <label className='text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70'>
-                        {role}
-                      </label>
+                    </FormControl>
+                    <div className="mt-2 text-[0.8rem] text-muted-foreground">
+                      Current tags: 
+                      <span className="ml-1">
+                        {field.value.map(tag => (
+                          <Badge key={tag} variant="secondary" className="mr-1">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </span>
                     </div>
-                  ))}
-                </div>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-          <FormField
-            control={form.control}
-            name='is_active'
-            render={({ field }) => (
-              <FormItem className='flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4'>
-                <FormControl>
-                  <Checkbox
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-                <div className='space-y-1 leading-none'>
-                  <FormLabel>Active</FormLabel>
-                  <FormDescription>
-                    This application will be available to users
-                  </FormDescription>
-                </div>
-              </FormItem>
-            )}
-          />
-        </div>
+              <FormField
+                control={form.control}
+                name="display_order"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Display Order</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        {...field} 
+                        onChange={e => field.onChange(Number(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Lower numbers appear first
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
-        <div className='grid gap-6 md:grid-cols-2'>
-          <FormField
-            control={form.control}
-            name='integration_type'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Integration Type</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder='Select integration type' />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {ApplicationService.getIntegrationTypes().map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+        {/* Access Control Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Access Control</CardTitle>
+            <CardDescription>
+              Configure access and security settings
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="roles_access"
+                render={() => (
+                  <FormItem className="space-y-4">
+                    <FormLabel>Roles with Access</FormLabel>
+                    <div className="grid grid-cols-2 gap-4">
+                      {ApplicationService.getAvailableRoles().map((role) => (
+                        <div key={role} className="flex items-center space-x-2 bg-secondary/20 p-2 rounded-md">
+                          <Checkbox
+                            checked={form.watch('roles_access').includes(role)}
+                            onCheckedChange={(checked) => {
+                              const current = form.watch('roles_access');
+                              const updated = checked
+                                ? [...current, role]
+                                : current.filter((r) => r !== role);
+                              form.setValue('roles_access', updated);
+                            }}
+                          />
+                          <label className="text-sm font-medium">
+                            {role}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-          <FormField
-            control={form.control}
-            name='auth_method'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Authentication Method</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder='Select auth method' />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {ApplicationService.getAuthMethods().map((method) => (
-                      <SelectItem key={method} value={method}>
-                        {method}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="data_sensitivity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Data Sensitivity</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select sensitivity level" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="public">Public</SelectItem>
+                          <SelectItem value="restricted">Restricted</SelectItem>
+                          <SelectItem value="confidential">Confidential</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-        <div className='flex justify-end space-x-4'>
+                <FormField
+                  control={form.control}
+                  name="is_active"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>Active Status</FormLabel>
+                        <FormDescription>
+                          Enable or disable application access
+                        </FormDescription>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Technical Configuration Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Technical Configuration</CardTitle>
+            <CardDescription>
+              Set up technical aspects of the application
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="integration_type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Integration Type</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select integration type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ApplicationService.getIntegrationTypes().map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="auth_method"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Authentication Method</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select auth method" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ApplicationService.getAuthMethods().map((method) => (
+                          <SelectItem key={method} value={method}>
+                            {method}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Support Contact Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Support Contact</CardTitle>
+            <CardDescription>
+              Add contact details for application support
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SupportContactField />
+          </CardContent>
+        </Card>
+
+        {/* API Endpoints Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>API Endpoints</CardTitle>
+            <CardDescription>
+              Configure API endpoints for this application
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ApiEndpointField />
+          </CardContent>
+        </Card>
+
+        {/* Submit Buttons */}
+        <div className="flex justify-end space-x-4 pt-6">
           <Button
-            type='button'
-            variant='outline'
+            type="button"
+            variant="outline"
             onClick={() => router.back()}
             disabled={isLoading}
           >
             Cancel
           </Button>
-          <Button type='submit' disabled={isLoading}>
-            {isLoading ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+          <Button type="submit" disabled={isLoading}>
+            {isLoading ? (
+              <>
+                <span className="loading loading-spinner loading-sm mr-2"></span>
+                Saving...
+              </>
+            ) : isEditing ? (
+              'Update Application'
+            ) : (
+              'Create Application'
+            )}
           </Button>
         </div>
       </form>

@@ -1,7 +1,7 @@
 // lib/services/application-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import type {
+  ApiEndpoint,
   Application,
   CreateApplicationDTO,
   UpdateApplicationDTO
@@ -66,10 +66,24 @@ export class ApplicationService {
     }
   }
 
-  static async createApplication(
-    data: CreateApplicationDTO
-  ): Promise<Application> {
+  static async createApplication(data: CreateApplicationDTO): Promise<Application> {
     try {
+      // Validate support contact if provided
+      if (data.support_contact) {
+        if (!data.support_contact.email || !data.support_contact.name) {
+          throw new Error('Support contact name and email are required');
+        }
+      }
+  
+      // Validate API endpoints if provided
+      if (data.api_endpoints && data.api_endpoints.length > 0) {
+        data.api_endpoints.forEach((endpoint, index) => {
+          if (!this.validateEndpointConfig(endpoint)) {
+            throw new Error(`Invalid configuration for API endpoint ${index + 1}`);
+          }
+        });
+      }
+  
       const response = await fetch('/api/applications', {
         method: 'POST',
         headers: {
@@ -77,21 +91,19 @@ export class ApplicationService {
         },
         body: JSON.stringify(data)
       });
-
+  
       const responseData = await response.json();
-
+  
       if (!response.ok) {
-        // Handle duplicate name error specifically
         if (
           responseData.code === '23505' &&
           responseData.message.includes('applications_name_key')
         ) {
           throw new Error('An application with this name already exists');
         }
-
         throw new Error(responseData.message || 'Failed to create application');
       }
-
+  
       toast.success('Application created successfully');
       return responseData;
     } catch (error) {
@@ -108,6 +120,22 @@ export class ApplicationService {
     data: UpdateApplicationDTO
   ): Promise<Application> {
     try {
+      // Validate support contact if provided
+      if (data.support_contact) {
+        if (!data.support_contact.email || !data.support_contact.name) {
+          throw new Error('Support contact name and email are required');
+        }
+      }
+  
+      // Validate API endpoints if provided
+      if (data.api_endpoints && data.api_endpoints.length > 0) {
+        data.api_endpoints.forEach((endpoint, index) => {
+          if (!this.validateEndpointConfig(endpoint)) {
+            throw new Error(`Invalid configuration for API endpoint ${index + 1}`);
+          }
+        });
+      }
+  
       const response = await fetch(`/api/applications/${id}`, {
         method: 'PATCH',
         headers: {
@@ -115,12 +143,12 @@ export class ApplicationService {
         },
         body: JSON.stringify(data)
       });
-
+  
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to update application');
       }
-
+  
       const result = await response.json();
       toast.success('Application updated successfully');
       return result;
@@ -207,4 +235,17 @@ export class ApplicationService {
   static getSensitivityLevels(): string[] {
     return ['public', 'restricted', 'confidential'];
   }
+
+
+  // Add this helper method in ApplicationService class
+static validateEndpointConfig(endpoint: ApiEndpoint): boolean {
+  return (
+    endpoint.name.length >= 2 &&
+    endpoint.url.startsWith('https://') &&
+    ['GET', 'POST', 'PUT', 'DELETE'].includes(endpoint.method)
+  );
 }
+
+
+}
+
