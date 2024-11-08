@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MoreVertical, Plus, Edit, Trash2 } from 'lucide-react';
+import { MoreVertical, Plus, Edit, Trash2, RefreshCw } from 'lucide-react';
 import { Category, Subcategory } from '@/types/categories';
 import { CategoryService } from '@/lib/services/category-service';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,7 @@ import { EditSubcategoryModal } from './edit-subcategory-modal';
 interface CategoryListProps {
   categories: Category[];
   onRefresh: () => void;
+  
 }
 
 export function CategoryList({ categories, onRefresh }: CategoryListProps) {
@@ -81,6 +82,18 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
 
   return (
     <div className="space-y-4">
+      <div className='flex justify-end'>
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={onRefresh}
+          className='ml-auto'
+        >
+          <RefreshCw className='mr-2 h-4 w-4' />
+          Refresh
+        </Button>
+      </div>
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
