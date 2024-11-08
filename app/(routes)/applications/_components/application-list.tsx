@@ -113,7 +113,7 @@ export function ApplicationList({
             applications.map((app) => (
               <TableRow key={app.id}>
                 <TableCell className='font-medium'>{app.name}</TableCell>
-                <TableCell>{app.category_id}</TableCell>
+                <TableCell>{app.category?.name || 'Uncategorized'}</TableCell>
                 <TableCell className='hidden md:table-cell'>
                   <Badge variant={app.is_active ? 'default' : 'secondary'}>
                     {app.is_active ? 'Active' : 'Inactive'}

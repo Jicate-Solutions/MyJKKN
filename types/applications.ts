@@ -29,6 +29,11 @@ export interface Application {
   url: string;
   description: string | null;
   category_id: string;
+  category?: {
+    id: string;
+    name: string;
+    description: string | null;
+  };
   subcategory_id?: string | null;
   roles_access: string[];
   display_order: number;
