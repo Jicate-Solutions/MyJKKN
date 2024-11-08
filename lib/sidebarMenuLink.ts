@@ -30,7 +30,8 @@ import {
   ClipboardCheck,
   Gauge,
   Lock,
-  LucideIcon
+  LucideIcon,
+  LayoutGrid
 } from 'lucide-react';
 
 type Submenu = {
@@ -97,6 +98,19 @@ export function GetPages(pathname: string): Group[] {
           icon: ClipboardList,
           submenus: []
         }
+      ]
+    },
+    {
+      groupLabel: 'Applications',
+      menus: [
+        
+        {
+          href: '/application-hub',
+          label: 'Application Hub',
+          active: pathname === '/application-hub',
+          icon: LayoutGrid, // or any other icon you prefer
+          submenus: []
+        },
       ]
     },
     {
