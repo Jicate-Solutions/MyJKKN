@@ -26,12 +26,17 @@ interface ApplicationCardProps {
 
 export function ApplicationCard({ application }: ApplicationCardProps) {
   return (
-    <Card className='group h-[280px] relative flex flex-col overflow-hidden transition-all hover:shadow-lg hover:scale-[1.02] border-2'>
+    <Card className='group h-[260px] relative flex flex-col overflow-hidden transition-all hover:shadow-lg hover:scale-[1.02] border-2 border-gray-100'>
       <CardHeader className='space-y-2 p-5 pb-3'>
         <div className='flex items-start justify-between space-x-2'>
-          <CardTitle className='line-clamp-1 flex-1 text-lg font-semibold'>
-            {application.name}
-          </CardTitle>
+          <div className='flex flex-col flex-1'>
+            <CardTitle className='line-clamp-1 text-lg font-semibold'>
+              {application.name}
+            </CardTitle>
+            <span className='text-xs mt-2 text-muted-foreground'>
+              {application.category?.name || 'Uncategorized'}
+            </span>
+          </div>
           <Badge
             variant={application.is_active ? 'default' : 'secondary'}
             className='text-xs shrink-0'
@@ -39,6 +44,24 @@ export function ApplicationCard({ application }: ApplicationCardProps) {
             {application.is_active ? 'Active' : 'Inactive'}
           </Badge>
         </div>
+      </CardHeader>
+
+      <CardContent className='flex-1 p-5 pt-0 space-y-3'>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger className='text-left w-full'>
+              <p className='line-clamp-3 text-sm text-muted-foreground'>
+                {application.description || 'No description available'}
+              </p>
+            </TooltipTrigger>
+            {application.description && (
+              <TooltipContent side='right' className='max-w-[300px]'>
+                <p className='text-sm'>{application.description}</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
+
         {application.tags?.length > 0 && (
           <div className='flex flex-wrap gap-1.5'>
             {application.tags.slice(0, 3).map((tag) => (
@@ -57,23 +80,6 @@ export function ApplicationCard({ application }: ApplicationCardProps) {
             )}
           </div>
         )}
-      </CardHeader>
-
-      <CardContent className='flex-1 p-5 pt-0'>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger className='text-left w-full'>
-              <p className='line-clamp-3 text-sm text-muted-foreground'>
-                {application.description || 'No description available'}
-              </p>
-            </TooltipTrigger>
-            {application.description && (
-              <TooltipContent side='right' className='max-w-[300px]'>
-                <p className='text-sm'>{application.description}</p>
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </TooltipProvider>
       </CardContent>
 
       <CardFooter className='p-5 pt-0 mt-auto'>
