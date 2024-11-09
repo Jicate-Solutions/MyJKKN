@@ -1,15 +1,12 @@
+// components/Navbar/user-nav.tsx
 'use client';
 
 import Link from 'next/link';
-import { LayoutGrid, LogOut, User } from 'lucide-react';
+import { LayoutGrid, LogOut, Settings, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TooltipProvider
-} from '@/components/ui/tooltip';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AuthService } from '@/lib/auth/auth-service';
+import { useAuth } from '@/providers/auth-provider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,54 +18,67 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function UserNav() {
+  const { user } = useAuth();
+
+  // Generate initials from user's name
+  const initials = user?.full_name
+    ? user.full_name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+    : 'U';
+
+  const handleLogout = async () => {
+    try {
+      await AuthService.signOut();
+    } catch (error) {
+      console.error('Error during logout:', error);
+    }
+  };
+
   return (
     <DropdownMenu>
-      <TooltipProvider disableHoverableContent>
-        <Tooltip delayDuration={100}>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant='outline'
-                className='relative h-8 w-8 rounded-full'
-              >
-                <Avatar className='h-8 w-8'>
-                  <AvatarImage src='#' alt='Avatar' />
-                  <AvatarFallback className='bg-transparent'>JD</AvatarFallback>
-                </Avatar>
-              </Button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent side='bottom'>Profile</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <DropdownMenuTrigger asChild>
+        <Button variant='ghost' className='relative h-8 w-8 rounded-full'>
+          <Avatar className='h-8 w-8'>
+            <AvatarFallback className='bg-primary/10'>
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+        </Button>
+      </DropdownMenuTrigger>
 
       <DropdownMenuContent className='w-56' align='end' forceMount>
         <DropdownMenuLabel className='font-normal'>
           <div className='flex flex-col space-y-1'>
-            <p className='text-sm font-medium leading-none'>John Doe</p>
+            <p className='text-sm font-medium leading-none'>
+              {user?.full_name}
+            </p>
             <p className='text-xs leading-none text-muted-foreground'>
-              johndoe@example.com
+              {user?.email}
             </p>
           </div>
         </DropdownMenuLabel>
+
         <DropdownMenuSeparator />
+
         <DropdownMenuGroup>
-          <DropdownMenuItem className='hover:cursor-pointer' asChild>
-            <Link href='/dashboard' className='flex items-center'>
-              <LayoutGrid className='w-4 h-4 mr-3 text-muted-foreground' />
-              Dashboard
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem className='hover:cursor-pointer' asChild>
-            <Link href='/account' className='flex items-center'>
-              <User className='w-4 h-4 mr-3 text-muted-foreground' />
-              Account
+          <DropdownMenuItem asChild>
+            <Link href='/profile' className='cursor-pointer flex items-center'>
+              <User className='mr-2 h-4 w-4' />
+              Profile
             </Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>
+
         <DropdownMenuSeparator />
-        <DropdownMenuItem className='hover:cursor-pointer' onClick={() => {}}>
-          <LogOut className='w-4 h-4 mr-3 text-muted-foreground' />
+
+        <DropdownMenuItem
+          onClick={handleLogout}
+          className='text-destructive focus:text-destructive cursor-pointer'
+        >
+          <LogOut className='mr-2 h-4 w-4' />
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>

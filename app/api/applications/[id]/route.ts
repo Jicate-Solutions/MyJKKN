@@ -4,6 +4,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import toast from 'react-hot-toast';
 
 export async function GET(
   request: NextRequest,
@@ -12,7 +13,7 @@ export async function GET(
   try {
     const cookieStore = cookies();
 
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore  });
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
     const {
       data: { session },
@@ -79,6 +80,7 @@ export async function PATCH(
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
+      toast.error('You are not authorized to update this application');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CreateSubcategoryDTO } from '@/types/categories';
+import toast from 'react-hot-toast';
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
+      toast.error('You are not authorized to create a subcategory');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -76,6 +78,39 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
     console.error('Error in POST /api/categories/subcategories:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+
+    // Get all categories with their subcategories in a single query
+    const { data: categories, error } = await supabase
+      .from('categories')
+      .select(
+        `
+        *,
+        subcategories (
+          id,
+          name,
+          description,
+          category_id
+        )
+      `
+      )
+      .order('name');
+
+    if (error) throw error;
+
+    return NextResponse.json(categories);
+  } catch (error) {
+    console.error('Error in GET /api/categories:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

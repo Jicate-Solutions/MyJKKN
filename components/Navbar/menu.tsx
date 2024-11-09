@@ -14,6 +14,7 @@ import {
 import { CollapseMenuButton } from './CollapseMenuButton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { GetPages } from '@/lib/sidebarMenuLink';
+import { AuthService } from '@/lib/auth/auth-service';
 
 interface MenuProps {
   isOpen: boolean | undefined;
@@ -22,6 +23,14 @@ interface MenuProps {
 export function Menu({ isOpen }: MenuProps) {
   const pathname = usePathname();
   const pages = GetPages(pathname);
+
+  const handleLogout = async () => {
+    try {
+      await AuthService.signOut();
+    } catch (error) {
+      console.error('Error during logout:', error);
+    }
+  };
 
   return (
     <ScrollArea className='[&>div>div[style]]:!block'>
@@ -109,6 +118,7 @@ export function Menu({ isOpen }: MenuProps) {
                   <Button
                     variant='outline'
                     className='w-full justify-center h-10 mt-4'
+                    onClick={handleLogout}
                   >
                     <span className={cn(isOpen === false ? '' : 'mr-4')}>
                       <LogOut size={18} />

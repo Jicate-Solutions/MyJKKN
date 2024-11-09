@@ -22,7 +22,14 @@ export default function LoginPage() {
     const params = new URLSearchParams(window.location.search);
     const error = params.get('error');
     if (error) {
-      toast.error(`Login error: ${error}`);
+      const errorMessages: Record<string, string> = {
+        no_code: 'Authentication code missing',
+        exchange: 'Error exchanging auth code',
+        session: 'Error creating session',
+        general: 'An unexpected error occurred',
+        callback: 'Authentication callback failed'
+      };
+      toast.error(errorMessages[error] || `Login error: ${error}`);
     }
   }, []);
 
