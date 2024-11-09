@@ -13,13 +13,13 @@ export default function UnauthorizedPage() {
           </div>
           <CardTitle className='text-2xl'>Access Denied</CardTitle>
         </CardHeader>
-        <CardContent className='text-center space-y-4'>
+        <CardContent className='text-center space-y-6'>
           <p className='text-muted-foreground'>
             You don&apos;t have permission to access this page. Please contact
-            your administrator if you think this is a mistake.
+            your administrator.
           </p>
           <Link href='/'>
-            <Button variant='default' className='w-full'>
+            <Button variant='default' className='w-full mt-4'>
               Return to Home
             </Button>
           </Link>
