@@ -6,13 +6,15 @@ import {
   useContext,
   useEffect,
   useState,
-  ReactNode
+  ReactNode,
+  useCallback
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { Profile } from '@/types/auth';
 import { AuthService } from '@/lib/auth/auth-service';
 import { toast } from 'react-hot-toast';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: Profile | null;
@@ -34,14 +36,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const supabase = createClientComponentClient();
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     try {
-      const profile = await AuthService.getUserProfile();
+      const {
+        data: { session },
+        error: sessionError
+      } = await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+      if (!session) {
+        setUser(null);
+        return;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+
+      if (profileError) throw profileError;
       setUser(profile);
     } catch (error) {
       console.error('Error refreshing user:', error);
+      setUser(null);
     }
-  };
+  }, [supabase]);
 
   const signOut = async () => {
     try {
@@ -65,24 +85,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    // Set up real-time auth subscription
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (event) => {
-      if (event === 'SIGNED_IN') {
-        await refreshUser();
-        router.refresh();
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        router.push('/auth/login');
+    } = supabase.auth.onAuthStateChange(
+      async (event: AuthChangeEvent, session: Session | null) => {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          await refreshUser();
+          router.refresh();
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          router.push('/auth/login');
+        }
       }
-    });
+    );
 
     initAuth();
 
+    // Periodic session refresh
+    const refreshInterval = setInterval(refreshUser, 5 * 60 * 1000); // Refresh every 5 minutes
+
     return () => {
       subscription.unsubscribe();
+      clearInterval(refreshInterval);
     };
-  }, [router, supabase.auth]);
+  }, [refreshUser, router, supabase.auth]);
 
   return (
     <AuthContext.Provider value={{ user, loading, signOut, refreshUser }}>

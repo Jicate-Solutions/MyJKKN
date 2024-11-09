@@ -18,8 +18,11 @@ export async function middleware(req: NextRequest) {
   try {
     // Get session
     const {
-      data: { session }
+      data: { session },
+      error: sessionError
     } = await supabase.auth.getSession();
+
+    if (sessionError) throw sessionError;
 
     // If no session and not on auth pages, redirect to login
     if (!session && !req.nextUrl.pathname.startsWith('/auth')) {
@@ -29,30 +32,34 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    // Get the exact path from the request
-    const path = req.nextUrl.pathname;
+    // Check protected routes only if we have a session
+    if (session) {
+      const path = req.nextUrl.pathname;
 
-    // Check if the exact path is protected
-    if (protectedRoutes[path as keyof typeof protectedRoutes]) {
-      const allowedRoles =
-        protectedRoutes[path as keyof typeof protectedRoutes];
+      if (protectedRoutes[path as keyof typeof protectedRoutes]) {
+        const allowedRoles =
+          protectedRoutes[path as keyof typeof protectedRoutes];
 
-      // Get user profile to check role
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session?.user.id)
-        .single();
+        // Get fresh profile data
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .single();
 
-      if (!profile || !allowedRoles.includes(profile.role)) {
-        // Redirect to unauthorized page
-        return NextResponse.redirect(new URL('/unauthorized', req.url));
+        if (profileError) throw profileError;
+
+        if (!profile || !allowedRoles.includes(profile.role)) {
+          return NextResponse.redirect(new URL('/unauthorized', req.url));
+        }
       }
     }
 
     return res;
   } catch (error) {
     console.error('Middleware error:', error);
+    // Clear any invalid session
+    await supabase.auth.signOut();
     return NextResponse.redirect(new URL('/auth/login', req.url));
   }
 }
