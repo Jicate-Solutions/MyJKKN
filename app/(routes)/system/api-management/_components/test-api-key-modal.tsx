@@ -110,100 +110,104 @@ export function TestApiKeyModal({ open, onClose }: TestApiKeyModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='max-w-[95vw] w-full sm:max-w-[800px] p-4 sm:p-6 overflow-y-auto max-h-[90vh]'>
-        <DialogHeader className='space-y-2'>
-          <DialogTitle className='text-xl sm:text-2xl'>
-            Test API Key
-          </DialogTitle>
-          <DialogDescription className='text-sm sm:text-base'>
-            Test your API key and see detailed information about its permissions
-            and status.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className='max-w-[95vw] w-full sm:max-w-[800px] p-4 sm:p-6 max-h-[90vh]'>
+        <div className='h-[calc(90vh-2rem)] overflow-y-auto'>
+          <DialogHeader className='space-y-2'>
+            <DialogTitle className='text-xl sm:text-2xl'>
+              Test API Key
+            </DialogTitle>
+            <DialogDescription className='text-sm sm:text-base'>
+              Test your API key and see detailed information about its
+              permissions and status.
+            </DialogDescription>
+          </DialogHeader>
 
-        <Tabs defaultValue='test' className='w-full'>
-          <TabsList className='grid w-full grid-cols-2 mb-4'>
-            <TabsTrigger value='test-endpoint' className='text-sm sm:text-base'>
-              Test Endpoint
-            </TabsTrigger>
-            <TabsTrigger value='guide' className='text-sm sm:text-base'>
-              Usage Guide
-            </TabsTrigger>
-          </TabsList>
+          <Tabs defaultValue='test' className='w-full'>
+            <TabsList className='grid w-full grid-cols-2 mb-4'>
+              <TabsTrigger
+                value='test-endpoint'
+                className='text-sm sm:text-base'
+              >
+                Test Endpoint
+              </TabsTrigger>
+              <TabsTrigger value='guide' className='text-sm sm:text-base'>
+                Usage Guide
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value='test-endpoint' className='space-y-4'>
-            <div className='flex flex-col space-y-4'>
-              <TestEndpoint />
+            <TabsContent value='test-endpoint' className='space-y-4'>
+              <div className='flex flex-col space-y-4'>
+                <TestEndpoint />
 
-              {/* Response Section */}
-              {testResult && (
-                <Card className='w-full'>
-                  <CardHeader className='flex flex-row items-center justify-between space-y-0 p-4'>
-                    <CardTitle className='text-base sm:text-lg'>
-                      Response
-                    </CardTitle>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      onClick={() => copyToClipboard(formatJSON(testResult))}
-                      className='h-8 w-8 p-0'
-                    >
-                      {hasCopied ? (
-                        <Check className='h-4 w-4 text-green-500' />
-                      ) : (
-                        <Copy className='h-4 w-4' />
-                      )}
-                    </Button>
-                  </CardHeader>
-                  <CardContent className='p-4'>
-                    <div className='relative'>
-                      <pre className='bg-white p-3 rounded-lg overflow-x-auto text-xs sm:text-sm max-h-[300px] scrollbar-thin'>
-                        <code className='block whitespace-pre-wrap break-words'>
-                          {formatJSON(testResult)}
-                        </code>
-                      </pre>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                {/* Response Section */}
+                {testResult && (
+                  <Card className='w-full'>
+                    <CardHeader className='flex flex-row items-center justify-between space-y-0 p-4'>
+                      <CardTitle className='text-base sm:text-lg'>
+                        Response
+                      </CardTitle>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => copyToClipboard(formatJSON(testResult))}
+                        className='h-8 w-8 p-0'
+                      >
+                        {hasCopied ? (
+                          <Check className='h-4 w-4 text-green-500' />
+                        ) : (
+                          <Copy className='h-4 w-4' />
+                        )}
+                      </Button>
+                    </CardHeader>
+                    <CardContent className='p-4'>
+                      <div className='relative'>
+                        <pre className='bg-white p-3 rounded-lg overflow-x-auto text-xs sm:text-sm max-h-[300px] scrollbar-thin'>
+                          <code className='block whitespace-pre-wrap break-words'>
+                            {formatJSON(testResult)}
+                          </code>
+                        </pre>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
-              {error && (
-                <Alert variant='destructive'>
-                  <AlertTitle className='text-sm font-semibold'>
-                    Error
+                {error && (
+                  <Alert variant='destructive'>
+                    <AlertTitle className='text-sm font-semibold'>
+                      Error
+                    </AlertTitle>
+                    <AlertDescription className='text-xs sm:text-sm mt-1'>
+                      {error}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value='guide' className='space-y-4'>
+              <div className='space-y-4'>
+                <Alert>
+                  <AlertTitle className='text-sm sm:text-base'>
+                    Test Endpoint
                   </AlertTitle>
-                  <AlertDescription className='text-xs sm:text-sm mt-1'>
-                    {error}
+                  <AlertDescription className='text-xs sm:text-sm break-words'>
+                    Send a POST request to{' '}
+                    <code className='bg-white px-1 rounded'>
+                      /api/system/api-keys/test
+                    </code>
                   </AlertDescription>
                 </Alert>
-              )}
-            </div>
-          </TabsContent>
 
-          <TabsContent value='guide' className='space-y-4'>
-            <div className='space-y-4'>
-              <Alert>
-                <AlertTitle className='text-sm sm:text-base'>
-                  Test Endpoint
-                </AlertTitle>
-                <AlertDescription className='text-xs sm:text-sm break-words'>
-                  Send a POST request to{' '}
-                  <code className='bg-white px-1 rounded'>
-                    /api/system/api-keys/test
-                  </code>
-                </AlertDescription>
-              </Alert>
-
-              <Card>
-                <CardHeader className='p-3 sm:p-4'>
-                  <CardTitle className='text-base sm:text-lg'>
-                    Example Request
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className='p-3 sm:p-4'>
-                  <pre className='bg-white p-2 sm:p-3 rounded-lg overflow-x-auto text-xs sm:text-sm'>
-                    <code className='block whitespace-pre-wrap break-words'>
-                      {`fetch('/api/system/api-keys/test', {
+                <Card>
+                  <CardHeader className='p-3 sm:p-4'>
+                    <CardTitle className='text-base sm:text-lg'>
+                      Example Request
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className='p-3 sm:p-4'>
+                    <pre className='bg-white p-2 sm:p-3 rounded-lg overflow-x-auto text-xs sm:text-sm'>
+                      <code className='block whitespace-pre-wrap break-words'>
+                        {`fetch('/api/system/api-keys/test', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json'
@@ -212,13 +216,14 @@ export function TestApiKeyModal({ open, onClose }: TestApiKeyModalProps) {
     apiKey: 'your-api-key'
   })
 })`}
-                    </code>
-                  </pre>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-        </Tabs>
+                      </code>
+                    </pre>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
       </DialogContent>
     </Dialog>
   );

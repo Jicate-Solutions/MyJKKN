@@ -7,6 +7,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
+import { BeatLoader } from 'react-spinners';
+
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -14,7 +16,8 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage
+  FormMessage,
+  FormDescription
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import {
@@ -31,68 +34,104 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
+import { INSTITUTIONS, DEPARTMENTS } from '@/lib/constants/profile';
 
-const profileSchema = z.object({
+const completeProfileSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
-  phone_number: z.string().min(10, 'Phone number must be at least 10 digits'),
+  phone_number: z
+    .string()
+    .regex(/^[0-9+][0-9\s-]{9,14}$/, 'Invalid phone number format'),
   institution: z.string().min(2, 'Institution is required'),
-  department: z.enum(['engineering', 'science', 'arts', 'medical'])
+  department: z.string().min(2, 'Department is required')
 });
 
-type ProfileFormValues = z.infer<typeof profileSchema>;
+type FormData = z.infer<typeof completeProfileSchema>;
 
 export default function CompleteProfile() {
   const [isLoading, setIsLoading] = useState(true);
   const [userEmail, setUserEmail] = useState<string>('');
+  const [selectedInstitution, setSelectedInstitution] = useState<string>('');
   const router = useRouter();
   const supabase = createClientComponentClient();
 
-  const form = useForm<ProfileFormValues>({
-    resolver: zodResolver(profileSchema),
+  const form = useForm<FormData>({
+    resolver: zodResolver(completeProfileSchema),
     defaultValues: {
       full_name: '',
       phone_number: '',
       institution: '',
-      department: 'engineering'
+      department: ''
     }
   });
 
   useEffect(() => {
-    async function getUserEmail() {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
-      if (session?.user.email) {
-        setUserEmail(session.user.email);
+    async function loadUserData() {
+      try {
+        const {
+          data: { session },
+          error: sessionError
+        } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        if (!session) {
+          router.push('/auth/login');
+          return;
+        }
+
+        setUserEmail(session.user.email || '');
+
+        // Load existing profile data
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profileError && profileError.code !== 'PGRST116') {
+          throw profileError;
+        }
+
+        if (profile) {
+          form.reset({
+            full_name: profile.full_name || '',
+            phone_number: profile.phone_number || '',
+            institution: profile.institution || '',
+            department: profile.department || ''
+          });
+          setSelectedInstitution(profile.institution || '');
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+        toast.error('Failed to load user data');
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     }
 
-    getUserEmail();
-  }, [supabase]);
+    loadUserData();
+  }, [supabase, router, form]);
 
-  async function onSubmit(data: ProfileFormValues) {
+  async function onSubmit(data: FormData) {
     try {
       setIsLoading(true);
       const {
-        data: { session }
+        data: { session },
+        error: sessionError
       } = await supabase.auth.getSession();
 
-      if (!session) {
+      if (sessionError || !session) {
         throw new Error('No authenticated session');
       }
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('profiles')
         .update({
           ...data,
-          email: session.user.email,
           profile_completed: true,
           updated_at: new Date().toISOString()
         })
         .eq('id', session.user.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
       toast.success('Profile updated successfully');
       router.push('/');
@@ -105,8 +144,16 @@ export default function CompleteProfile() {
   }
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return (
+      <div className='min-h-screen flex items-center justify-center'>
+        <BeatLoader color='#00e902' />
+      </div>
+    );
   }
+
+  const availableDepartments = selectedInstitution
+    ? DEPARTMENTS[selectedInstitution as keyof typeof DEPARTMENTS] || []
+    : [];
 
   return (
     <div className='min-h-screen flex items-center justify-center bg-background p-4'>
@@ -119,8 +166,8 @@ export default function CompleteProfile() {
         </CardHeader>
         <CardContent>
           <div className='mb-4'>
-            <label className='text-sm font-medium'>Email</label>
-            <p className='text-sm text-muted-foreground'>{userEmail}</p>
+            <div className='font-medium text-sm'>Email</div>
+            <div className='text-sm text-muted-foreground'>{userEmail}</div>
           </div>
 
           <Form {...form}>
@@ -132,7 +179,7 @@ export default function CompleteProfile() {
                   <FormItem>
                     <FormLabel>Full Name</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input placeholder='Enter your full name' {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -146,8 +193,11 @@ export default function CompleteProfile() {
                   <FormItem>
                     <FormLabel>Phone Number</FormLabel>
                     <FormControl>
-                      <Input {...field} type='tel' />
+                      <Input placeholder='+91XXXXXXXXXX' {...field} />
                     </FormControl>
+                    <FormDescription>
+                      Include country code (e.g., +91 for India)
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -159,9 +209,27 @@ export default function CompleteProfile() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Institution</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
+                    <Select
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        setSelectedInstitution(value);
+                        form.setValue('department', '');
+                      }}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select your institution' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {INSTITUTIONS.map((inst) => (
+                          <SelectItem key={inst.value} value={inst.value}>
+                            {inst.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -175,18 +243,20 @@ export default function CompleteProfile() {
                     <FormLabel>Department</FormLabel>
                     <Select
                       onValueChange={field.onChange}
-                      defaultValue={field.value}
+                      value={field.value}
+                      disabled={!selectedInstitution}
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue />
+                          <SelectValue placeholder='Select your department' />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value='engineering'>Engineering</SelectItem>
-                        <SelectItem value='science'>Science</SelectItem>
-                        <SelectItem value='arts'>Arts</SelectItem>
-                        <SelectItem value='medical'>Medical</SelectItem>
+                        {availableDepartments.map((dept) => (
+                          <SelectItem key={dept} value={dept}>
+                            {dept}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -194,8 +264,12 @@ export default function CompleteProfile() {
                 )}
               />
 
-              <Button type='submit' disabled={isLoading} className='w-full'>
-                {isLoading ? 'Saving...' : 'Complete Profile'}
+              <Button type='submit' className='w-full' disabled={isLoading}>
+                {isLoading ? (
+                  <BeatLoader size={8} color='#FFFFFF' />
+                ) : (
+                  'Complete Profile'
+                )}
               </Button>
             </form>
           </Form>

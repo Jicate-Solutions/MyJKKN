@@ -3,6 +3,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import toast from 'react-hot-toast';
 
 export async function PATCH(
   request: NextRequest,
@@ -34,6 +35,7 @@ export async function PATCH(
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
+      toast.error('You are not authorized to update this subcategory');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -92,6 +94,7 @@ export async function DELETE(
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
+      toast.error('You are not authorized to delete this subcategory');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

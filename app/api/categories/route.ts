@@ -5,9 +5,9 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CreateCategoryDTO } from '@/types/categories';
+import toast from 'react-hot-toast';
 
 export const dynamic = 'force-dynamic';
-
 
 export async function GET() {
   try {
@@ -29,9 +29,11 @@ export async function GET() {
     if (subcategoriesError) throw subcategoriesError;
 
     // Combine categories with their subcategories
-    const categoriesWithSubs = categories.map(category => ({
+    const categoriesWithSubs = categories.map((category) => ({
       ...category,
-      subcategories: subcategories.filter(sub => sub.category_id === category.id)
+      subcategories: subcategories.filter(
+        (sub) => sub.category_id === category.id
+      )
     }));
 
     return NextResponse.json(categoriesWithSubs);
@@ -71,6 +73,7 @@ export async function POST(request: NextRequest) {
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
+      toast.error('You are not authorized to create a category');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

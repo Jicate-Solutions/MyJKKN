@@ -5,11 +5,12 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CreateApplicationDTO } from '@/types/applications';
+import toast from 'react-hot-toast';
 
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore  });
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;
@@ -19,29 +20,26 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
 
-
     // Debug log
     console.log('Category filter:', category);
 
-
     // Start building the query
-    let query = supabase
-      .from('applications')
-      .select(`
+    let query = supabase.from('applications').select(
+      `
         *,
         category:categories (
           id,
           name,
           description
         )
-      `, { count: 'exact' });
+      `,
+      { count: 'exact' }
+    );
 
-
-      // Apply filters
-if (category && category !== 'all') {
-  query = query.eq('category_id', category);
-}
-
+    // Apply filters
+    if (category && category !== 'all') {
+      query = query.eq('category_id', category);
+    }
 
     if (isActive !== null) {
       query = query.eq('is_active', isActive === 'true');
@@ -51,7 +49,7 @@ if (category && category !== 'all') {
       query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
     }
 
-   // Apply pagination
+    // Apply pagination
     const from = (page - 1) * limit;
     const to = from + limit - 1;
     query = query.range(from, to).order('created_at', { ascending: false });
@@ -66,10 +64,8 @@ if (category && category !== 'all') {
       );
     }
 
-     // Debug log
-     console.log('Query results:', applications?.length);
-
-    
+    // Debug log
+    console.log('Query results:', applications?.length);
 
     return NextResponse.json({
       data: applications,
@@ -89,11 +85,10 @@ if (category && category !== 'all') {
   }
 }
 
-
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore  });
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
     // Get current user session
     const {
@@ -117,25 +112,25 @@ export async function POST(request: NextRequest) {
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
+      toast.error('You are not authorized to create an application');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const body: CreateApplicationDTO = await request.json();
 
+    // Check if application with same name exists
+    const { data: existingApp } = await supabase
+      .from('applications')
+      .select('id')
+      .eq('name', body.name)
+      .single();
 
-     // Check if application with same name exists
-     const { data: existingApp } = await supabase
-     .from('applications')
-     .select('id')
-     .eq('name', body.name)
-     .single();
-
-   if (existingApp) {
-     return NextResponse.json(
-       { error: 'An application with this name already exists' },
-       { status: 409 }
-     );
-   }
+    if (existingApp) {
+      return NextResponse.json(
+        { error: 'An application with this name already exists' },
+        { status: 409 }
+      );
+    }
 
     // Validate base URL
     if (!body.url.startsWith('https://')) {
@@ -201,20 +196,20 @@ export async function POST(request: NextRequest) {
       .select()
       .single();
 
-      if (error) {
-        console.error('Database error:', error);
-        return NextResponse.json(
-          { error: 'Failed to create application' },
-          { status: 500 }
-        );
-      }
-  
-      return NextResponse.json(data, { status: 201 });
-    } catch (error) {
-      console.error('Error in POST /api/applications:', error);
+    if (error) {
+      console.error('Database error:', error);
       return NextResponse.json(
-        { error: 'Internal server error' },
+        { error: 'Failed to create application' },
         { status: 500 }
       );
     }
+
+    return NextResponse.json(data, { status: 201 });
+  } catch (error) {
+    console.error('Error in POST /api/applications:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
+}
