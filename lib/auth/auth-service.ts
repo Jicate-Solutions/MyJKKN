@@ -8,15 +8,10 @@ const supabase = createClientComponentClient<Database>();
 export class AuthService {
   static async signInWithGoogle() {
     try {
-      const redirectTo =
-        typeof window !== 'undefined'
-          ? `${window.location.origin}/auth/callback`
-          : '/auth/callback';
-
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo,
+          redirectTo: `${window.location.origin}/auth/callback`,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent'
@@ -64,21 +59,19 @@ export class AuthService {
     try {
       const {
         data: { session },
-        error: sessionError
+        error
       } = await supabase.auth.getSession();
 
-      if (sessionError) throw sessionError;
-      if (!session) return null;
+      if (error) {
+        console.error('Session error:', error);
+        return null;
+      }
 
-      // Then get the profile data
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
+      if (!session) {
+        return null;
+      }
 
-      if (profileError) throw profileError;
-      return profile;
+      return session.user;
     } catch (error) {
       console.error('Get current user error:', error);
       return null;
