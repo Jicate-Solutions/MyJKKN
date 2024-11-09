@@ -18,7 +18,18 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function UserNav() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+
+  // Show loading state
+  if (loading) {
+    return (
+      <Button variant='ghost' className='relative h-8 w-8 rounded-full'>
+        <Avatar className='h-8 w-8'>
+          <AvatarFallback className='bg-primary/10'>...</AvatarFallback>
+        </Avatar>
+      </Button>
+    );
+  }
 
   // Generate initials from user's name
   const initials = user?.full_name
