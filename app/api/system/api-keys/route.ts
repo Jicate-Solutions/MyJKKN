@@ -4,6 +4,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { CreateApiKeyInput, UpdateApiKeyInput } from '@/types/api-keys';
+import toast from 'react-hot-toast';
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest) {
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
+      toast.error('You are not authorized to view API keys');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -81,6 +83,7 @@ export async function POST(request: NextRequest) {
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
+      toast.error('You are not authorized to create an API key');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
