@@ -95,6 +95,22 @@ export async function DELETE(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    // Check if subcategory exists and is not in use
+    const { data: applications, error: applicationsError } = await supabase
+      .from('applications')
+      .select('id')
+      .eq('subcategory_id', params.id)
+      .limit(1);
+
+    if (applicationsError) throw applicationsError;
+
+    if (applications && applications.length > 0) {
+      return NextResponse.json(
+        { error: 'Cannot delete subcategory that is in use by applications' },
+        { status: 409 }
+      );
+    }
+
     const { error } = await supabase
       .from('subcategories')
       .delete()

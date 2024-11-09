@@ -103,14 +103,13 @@ export function GetPages(pathname: string): Group[] {
     {
       groupLabel: 'Applications',
       menus: [
-        
         {
           href: '/application-hub',
           label: 'Application Hub',
           active: pathname === '/application-hub',
           icon: LayoutGrid, // or any other icon you prefer
           submenus: []
-        },
+        }
       ]
     },
     {
@@ -136,21 +135,21 @@ export function GetPages(pathname: string): Group[] {
           active: pathname === '/applications/categories',
           icon: Tags,
           submenus: []
-        },
-        {
-          href: '/applications/integrations',
-          label: 'API Integrations',
-          active: pathname === '/applications/integrations',
-          icon: Link2,
-          submenus: []
-        },
-        {
-          href: '/applications/feedback',
-          label: 'Application Feedback',
-          active: pathname === '/applications/feedback',
-          icon: MessageCircle,
-          submenus: []
         }
+        // {
+        //   href: '/applications/integrations',
+        //   label: 'API Integrations',
+        //   active: pathname === '/applications/integrations',
+        //   icon: Link2,
+        //   submenus: []
+        // },
+        // {
+        //   href: '/applications/feedback',
+        //   label: 'Application Feedback',
+        //   active: pathname === '/applications/feedback',
+        //   icon: MessageCircle,
+        //   submenus: []
+        // }
       ]
     },
     // {

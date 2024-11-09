@@ -81,13 +81,18 @@ export class CategoryService {
       return responseData;
     } catch (error) {
       console.error('Error creating category:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to create category');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to create category'
+      );
       throw error;
     }
   }
 
   // Update a category
-  static async updateCategory(id: string, data: UpdateCategoryDTO): Promise<Category> {
+  static async updateCategory(
+    id: string,
+    data: UpdateCategoryDTO
+  ): Promise<Category> {
     try {
       const response = await fetch(`/api/categories/${id}`, {
         method: 'PATCH',
@@ -107,7 +112,9 @@ export class CategoryService {
       return responseData;
     } catch (error) {
       console.error('Error updating category:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to update category');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update category'
+      );
       throw error;
     }
   }
@@ -127,13 +134,17 @@ export class CategoryService {
       toast.success('Category deleted successfully');
     } catch (error) {
       console.error('Error deleting category:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to delete category');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete category'
+      );
       throw error;
     }
   }
 
   // Create a subcategory
-  static async createSubcategory(data: CreateSubcategoryDTO): Promise<Subcategory> {
+  static async createSubcategory(
+    data: CreateSubcategoryDTO
+  ): Promise<Subcategory> {
     try {
       const response = await fetch('/api/categories/subcategories', {
         method: 'POST',
@@ -153,7 +164,9 @@ export class CategoryService {
       return responseData;
     } catch (error) {
       console.error('Error creating subcategory:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to create subcategory');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to create subcategory'
+      );
       throw error;
     }
   }
@@ -182,7 +195,9 @@ export class CategoryService {
       return responseData;
     } catch (error) {
       console.error('Error updating subcategory:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to update subcategory');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update subcategory'
+      );
       throw error;
     }
   }
@@ -202,7 +217,9 @@ export class CategoryService {
       toast.success('Subcategory deleted successfully');
     } catch (error) {
       console.error('Error deleting subcategory:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to delete subcategory');
+      const message =
+        error instanceof Error ? error.message : 'Failed to delete subcategory';
+      toast.error(message);
       throw error;
     }
   }
