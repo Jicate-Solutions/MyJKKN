@@ -91,21 +91,73 @@ export class UserService {
     }
   }
 
-  static async updateUserRole(userId: string, role: string): Promise<void> {
+  static async getCurrentUserProfile() {
     try {
-      const { error } = await this.supabase
+      const supabase = createClientComponentClient();
+      const {
+        data: { session }
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        return { data: null, error: new Error('No authenticated session') };
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+
+      if (error) throw error;
+
+      return { data, error: null };
+    } catch (error) {
+      console.error('Error getting current user profile:', error);
+      return {
+        data: null,
+        error: error instanceof Error ? error : new Error('Unknown error')
+      };
+    }
+  }
+
+  static async updateUserRole(userId: string, newRole: string): Promise<void> {
+    try {
+      const supabase = createClientComponentClient();
+
+      // First check if current user is super admin
+      const { data: currentProfile } = await this.getCurrentUserProfile();
+      if (!currentProfile || currentProfile.role !== 'super_admin') {
+        throw new Error('Only super admins can change user roles');
+      }
+
+      // Check if trying to modify another super admin
+      const { data: targetUser } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+
+      if (targetUser?.role === 'super_admin' && newRole !== 'super_admin') {
+        throw new Error("Cannot modify another super admin's role");
+      }
+
+      // Update the role
+      const { error } = await supabase
         .from('profiles')
         .update({
-          role,
+          role: newRole,
           updated_at: new Date().toISOString()
         })
         .eq('id', userId);
 
       if (error) throw error;
 
-      toast.success('User role updated successfully');
+      toast.success('Role updated successfully');
     } catch (error) {
       console.error('Error updating user role:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update role'
+      );
       throw error;
     }
   }
