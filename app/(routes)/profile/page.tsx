@@ -1,4 +1,3 @@
-// app/(routes)/profile/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -10,8 +9,7 @@ import {
   Phone,
   User2,
   CalendarDays,
-  BookOpen,
-  CircleUser
+  BookOpen
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ProfileForm } from './_components/profile-form';
@@ -84,6 +82,15 @@ export default function ProfilePage() {
     return institution ? institution.label : value;
   };
 
+  // Generate initials for avatar
+  const initials = user.full_name
+    ? user.full_name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+    : 'U';
+
   const handleProfileUpdate = async () => {
     await refreshUser();
     setIsEditing(false);
@@ -121,7 +128,7 @@ export default function ProfilePage() {
                         alt='Profile'
                       />
                       <AvatarFallback className='text-2xl bg-primary/10'>
-                        <CircleUser className='h-4 w-4' />
+                        {initials}
                       </AvatarFallback>
                     </Avatar>
                     <div>
@@ -132,8 +139,8 @@ export default function ProfilePage() {
                         <Badge variant='secondary'>
                           {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
                         </Badge>
-                        {user.designation && (
-                          <Badge variant='outline'>{user.designation}</Badge>
+                        {user.department && (
+                          <Badge variant='outline'>{user.department}</Badge>
                         )}
                       </div>
                     </div>
@@ -185,39 +192,6 @@ export default function ProfilePage() {
                       </div>
                     </div>
                   </div>
-
-                  <Separator />
-
-                  {/* Personal Information */}
-                  <div>
-                    <h3 className='text-lg font-semibold mb-4'>
-                      Personal Information
-                    </h3>
-                    <div className='grid gap-4 md:grid-cols-2'>
-                      <div className='flex items-center gap-2 text-muted-foreground'>
-                        <User2 className='h-4 w-4 shrink-0' />
-                        <span>
-                          Gender:{' '}
-                          {user.gender
-                            ? user.gender.charAt(0).toUpperCase() +
-                              user.gender.slice(1)
-                            : 'Not specified'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {user.bio && (
-                    <>
-                      <Separator />
-                      <div>
-                        <h3 className='text-lg font-semibold mb-4'>About</h3>
-                        <p className='text-muted-foreground whitespace-pre-line'>
-                          {user.bio}
-                        </p>
-                      </div>
-                    </>
-                  )}
 
                   <Separator />
 

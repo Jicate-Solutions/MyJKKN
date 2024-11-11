@@ -7,11 +7,6 @@ export type UserRole =
   | 'staff'
   | 'guest';
 
-// Department types
-export type Department = string;
-
-export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
-
 export type Institution =
   | 'jkkn_dental'
   | 'jkkn_pharmacy'
@@ -22,6 +17,11 @@ export type Institution =
   | 'jkkn_allied_health_science'
   | 'jkkn_matriculation'
   | 'jkkn_NV';
+
+export type Department = string;
+
+export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
+
 // Base Profile interface
 export interface Profile {
   id: string;
@@ -54,12 +54,7 @@ export interface ProfileUpdate {
   profile_completed?: boolean;
 }
 
-// Complete profile data interface
-export interface CompleteProfileData extends ProfileUpdate {
-  role?: UserRole;
-}
-
-// Database definition
+// Database definition for Supabase
 export interface Database {
   public: {
     Tables: {
