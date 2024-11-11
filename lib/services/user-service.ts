@@ -122,42 +122,28 @@ export class UserService {
 
   static async updateUserRole(userId: string, newRole: string): Promise<void> {
     try {
-      const supabase = createClientComponentClient();
+      const response = await fetch(`/api/users/${userId}/role`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ role: newRole })
+      });
 
-      // First check if current user is super admin
-      const { data: currentProfile } = await this.getCurrentUserProfile();
-      if (!currentProfile || currentProfile.role !== 'super_admin') {
-        throw new Error('Only super admins can change user roles');
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update role');
       }
 
-      // Check if trying to modify another super admin
-      const { data: targetUser } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .single();
-
-      if (targetUser?.role === 'super_admin' && newRole !== 'super_admin') {
-        throw new Error("Cannot modify another super admin's role");
+      if (!data.success) {
+        throw new Error('Role update failed');
       }
-
-      // Update the role
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          role: newRole,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', userId);
-
-      if (error) throw error;
-
-      toast.success('Role updated successfully');
     } catch (error) {
       console.error('Error updating user role:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to update role'
-      );
+      const message =
+        error instanceof Error ? error.message : 'Failed to update role';
+      toast.error(message);
       throw error;
     }
   }

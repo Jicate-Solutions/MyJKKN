@@ -30,3 +30,12 @@ export interface UserStats {
     [key: string]: number;
   };
 }
+
+export interface RoleUpdateRequest {
+  role: string;
+}
+
+export interface RoleUpdateResponse {
+  success: boolean;
+  user: Profile;
+}
