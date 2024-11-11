@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { LayoutGrid, LogOut, Settings, User } from 'lucide-react';
+import { CircleUser, LayoutGrid, LogOut, Settings, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { AuthService } from '@/lib/auth/auth-service';
@@ -43,7 +43,7 @@ export function UserNav() {
         <Button variant='ghost' className='relative h-8 w-8 rounded-full'>
           <Avatar className='h-8 w-8'>
             <AvatarFallback className='bg-primary/10'>
-              {initials}
+              <CircleUser className='h-4 w-4' />
             </AvatarFallback>
           </Avatar>
         </Button>
