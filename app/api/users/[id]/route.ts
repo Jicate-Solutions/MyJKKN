@@ -83,3 +83,77 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createRouteHandlerClient({ cookies });
+    const { role } = await request.json();
+
+    // Check for required data
+    if (!role) {
+      return NextResponse.json({ error: 'Role is required' }, { status: 400 });
+    }
+
+    // Check authentication
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user is super_admin
+    const { data: currentProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single();
+
+    if (profileError || currentProfile.role !== 'super_admin') {
+      return NextResponse.json(
+        { error: 'Only super admins can update roles' },
+        { status: 403 }
+      );
+    }
+
+    // Check if trying to modify another super admin
+    const { data: targetUser } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', params.id)
+      .single();
+
+    if (targetUser?.role === 'super_admin' && role !== 'super_admin') {
+      return NextResponse.json(
+        { error: "Cannot modify another super admin's role" },
+        { status: 403 }
+      );
+    }
+
+    // Update role
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        role,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', params.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}

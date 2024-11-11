@@ -31,6 +31,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 
 interface RolesListProps {
   users: Profile[];
@@ -39,6 +40,7 @@ interface RolesListProps {
 
 export function RolesList({ users, onRoleUpdate }: RolesListProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState<{
     userId: string;
     newRole: string;
@@ -57,8 +59,19 @@ export function RolesList({ users, onRoleUpdate }: RolesListProps) {
   };
 
   const confirmRoleUpdate = async () => {
-    if (pendingUpdate) {
+    if (!pendingUpdate) return;
+
+    try {
+      setIsUpdating(true);
       await onRoleUpdate(pendingUpdate.userId, pendingUpdate.newRole);
+      toast.success('Role updated successfully');
+    } catch (error) {
+      console.error('Error updating role:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update role'
+      );
+    } finally {
+      setIsUpdating(false);
       setShowConfirmDialog(false);
       setPendingUpdate(null);
     }
@@ -185,9 +198,12 @@ export function RolesList({ users, onRoleUpdate }: RolesListProps) {
             </div>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmRoleUpdate}>
-              Confirm Change
+            <AlertDialogCancel disabled={isUpdating}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmRoleUpdate}
+              disabled={isUpdating}
+            >
+              {isUpdating ? 'Updating...' : 'Confirm Change'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
