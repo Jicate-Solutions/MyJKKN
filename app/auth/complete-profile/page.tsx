@@ -65,82 +65,110 @@ export default function CompleteProfile() {
   });
 
   useEffect(() => {
+    let mounted = true;
+
     async function loadUserData() {
       try {
+        setIsLoading(true);
+
+        // Get current session
         const {
           data: { session },
           error: sessionError
         } = await supabase.auth.getSession();
 
-        if (sessionError || !session) {
+        if (sessionError) {
+          throw new Error('Authentication error: ' + sessionError.message);
+        }
+
+        if (!session?.user) {
           router.push('/auth/login');
           return;
         }
 
         setUserEmail(session.user.email || '');
 
-        // Load existing profile data if any
+        // Try to get existing profile
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', session.user.id)
           .single();
 
+        // If there's a profile error other than "not found"
         if (profileError && profileError.code !== 'PGRST116') {
           throw profileError;
         }
 
-        // If profile exists and is completed, redirect to home
-        if (profile?.profile_completed) {
-          router.push('/');
-          return;
-        }
+        // If profile not found, create one
+        if (!profile) {
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert([
+              {
+                id: session.user.id,
+                email: session.user.email,
+                role: 'student',
+                profile_completed: false
+              }
+            ]);
 
-        // Pre-fill form if profile data exists
-        if (profile) {
-          form.reset({
-            full_name: profile.full_name || '',
-            phone_number: profile.phone_number || '',
-            institution: profile.institution || '',
-            department: profile.department || ''
-          });
-          setSelectedInstitution(profile.institution || '');
+          if (insertError) throw insertError;
+        } else {
+          // If profile exists and is completed, redirect to home
+          if (profile.profile_completed) {
+            router.push('/');
+            return;
+          }
+
+          // Pre-fill form with existing data
+          if (mounted) {
+            form.reset({
+              full_name: profile.full_name || '',
+              phone_number: profile.phone_number || '',
+              institution: profile.institution || '',
+              department: profile.department || ''
+            });
+            setSelectedInstitution(profile.institution || '');
+          }
         }
       } catch (error) {
         console.error('Error loading user data:', error);
-        toast.error('Failed to load user data');
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to load user data'
+        );
+        router.push('/auth/login');
       } finally {
-        setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     }
 
     loadUserData();
+
+    return () => {
+      mounted = false;
+    };
   }, [router, supabase, form]);
 
   async function onSubmit(data: FormData) {
     try {
       setIsLoading(true);
 
-      const {
-        data: { session },
-        error: sessionError
-      } = await supabase.auth.getSession();
-
-      if (sessionError || !session) {
+      const session = await supabase.auth.getSession();
+      if (!session.data.session?.user) {
         throw new Error('No authenticated session');
       }
 
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
-          full_name: data.full_name.trim(),
-          phone_number: data.phone_number.trim(),
-          institution: data.institution,
-          department: data.department,
+          ...data,
           profile_completed: true,
           updated_at: new Date().toISOString()
         })
-        .eq('id', session.user.id);
+        .eq('id', session.data.session.user.id);
 
       if (updateError) throw updateError;
 
@@ -148,7 +176,9 @@ export default function CompleteProfile() {
       router.push('/');
     } catch (error) {
       console.error('Error updating profile:', error);
-      toast.error('Failed to update profile');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update profile'
+      );
     } finally {
       setIsLoading(false);
     }

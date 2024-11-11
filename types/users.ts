@@ -1,7 +1,7 @@
-import { UserRole, Institution, Department } from './auth';
+import { Profile } from './auth';
 
 export interface UserListResponse {
-  data: UserList[];
+  data: Profile[];
   metadata: {
     total: number;
     page: number;
@@ -10,24 +10,23 @@ export interface UserListResponse {
   };
 }
 
-export interface UserList {
-  id: string;
-  email: string;
-  full_name: string | null;
-  role: UserRole;
-  institution: Institution | null;
-  department: Department | null;
-  profile_completed: boolean;
-  is_active: boolean;
-  last_login: string | null;
-  created_at: string;
-}
-
 export interface UserFilters {
+  role?: string;
+  institution?: string;
   search?: string;
-  role?: UserRole;
-  institution?: Institution;
   isActive?: boolean;
   page?: number;
   limit?: number;
+}
+
+export interface UserStats {
+  total: number;
+  active: number;
+  inactive: number;
+  byRole: {
+    [key: string]: number;
+  };
+  byInstitution: {
+    [key: string]: number;
+  };
 }

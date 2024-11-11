@@ -11,15 +11,19 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { INSTITUTIONS, ROLE_LABELS } from '@/lib/constants/profile';
+import { UserFilters } from '@/types/users';
 import { useDebounce } from '@/hooks/use-debounce';
-import type { UserFilters } from '@/types/users';
 
 interface UserFiltersProps {
   filters: UserFilters;
   onFilterChange: (filters: Partial<UserFilters>) => void;
 }
 
-export function UserFilters({ filters, onFilterChange }: UserFiltersProps) {
+export function UserFiltersComponent({
+  filters,
+  onFilterChange
+}: UserFiltersProps) {
+  // Debounce search to avoid too many API calls
   const debouncedSearch = useDebounce((value: string) => {
     onFilterChange({ search: value });
   }, 300);
@@ -31,36 +35,27 @@ export function UserFilters({ filters, onFilterChange }: UserFiltersProps) {
     [debouncedSearch]
   );
 
-  const handleRoleChange = (value: string) => {
-    onFilterChange({ role: value === 'all' ? undefined : (value as any) });
-  };
-
-  const handleInstitutionChange = (value: string) => {
-    onFilterChange({
-      institution: value === 'all' ? undefined : (value as any)
-    });
-  };
-
-  const handleStatusChange = (value: string) => {
-    onFilterChange({
-      isActive: value === 'all' ? undefined : value === 'active'
-    });
-  };
-
   return (
-    <div className='mb-6 space-y-4'>
+    <div className='space-y-4 mb-6'>
       <div className='grid gap-4 md:grid-cols-4'>
+        {/* Search */}
         <div className='relative'>
           <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
           <Input
             placeholder='Search users...'
             onChange={handleSearchChange}
             defaultValue={filters.search}
-            className='pl-10'
+            className='pl-9'
           />
         </div>
 
-        <Select value={filters.role || 'all'} onValueChange={handleRoleChange}>
+        {/* Role Filter */}
+        <Select
+          value={filters.role || 'all'}
+          onValueChange={(value) =>
+            onFilterChange({ role: value === 'all' ? undefined : value })
+          }
+        >
           <SelectTrigger>
             <SelectValue placeholder='Filter by role' />
           </SelectTrigger>
@@ -74,9 +69,14 @@ export function UserFilters({ filters, onFilterChange }: UserFiltersProps) {
           </SelectContent>
         </Select>
 
+        {/* Institution Filter */}
         <Select
           value={filters.institution || 'all'}
-          onValueChange={handleInstitutionChange}
+          onValueChange={(value) =>
+            onFilterChange({
+              institution: value === 'all' ? undefined : value
+            })
+          }
         >
           <SelectTrigger>
             <SelectValue placeholder='Filter by institution' />
@@ -91,6 +91,7 @@ export function UserFilters({ filters, onFilterChange }: UserFiltersProps) {
           </SelectContent>
         </Select>
 
+        {/* Status Filter - if you implement user status */}
         <Select
           value={
             filters.isActive === undefined
@@ -99,7 +100,12 @@ export function UserFilters({ filters, onFilterChange }: UserFiltersProps) {
               ? 'active'
               : 'inactive'
           }
-          onValueChange={handleStatusChange}
+          onValueChange={(value) =>
+            onFilterChange({
+              isActive:
+                value === 'all' ? undefined : value === 'active' ? true : false
+            })
+          }
         >
           <SelectTrigger>
             <SelectValue placeholder='Filter by status' />

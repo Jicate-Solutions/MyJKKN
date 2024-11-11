@@ -6,24 +6,25 @@ import type { NextRequest } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get('code');
-  const origin = requestUrl.origin;
-
-  // Early return if no code
-  if (!code) {
-    console.error('No code in callback');
-    return NextResponse.redirect(new URL(`/auth/login?error=no_code`, origin));
-  }
-
   try {
+    const requestUrl = new URL(request.url);
+    const code = requestUrl.searchParams.get('code');
+    const origin = requestUrl.origin;
+
+    // Early return if no code
+    if (!code) {
+      console.error('No code in callback');
+      return NextResponse.redirect(
+        new URL(`/auth/login?error=no_code`, origin)
+      );
+    }
+
     const supabase = createRouteHandlerClient({ cookies });
 
     // Exchange code for session
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
       code
     );
-
     if (exchangeError) {
       console.error('Exchange error:', exchangeError);
       return NextResponse.redirect(
@@ -36,7 +37,6 @@ export async function GET(request: NextRequest) {
       data: { session },
       error: sessionError
     } = await supabase.auth.getSession();
-
     if (sessionError || !session) {
       console.error('Session error:', sessionError);
       return NextResponse.redirect(
@@ -45,23 +45,37 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      // Try to get profile
-      const { data: profile, error: profileError } = await supabase
+      // Get or create profile
+      const { data: existingProfile } = await supabase
         .from('profiles')
         .select('profile_completed')
         .eq('id', session.user.id)
         .single();
 
-      // If no profile, the trigger should have created one
-      if (!profile || !profile.profile_completed) {
+      // If no profile exists, create one
+      if (!existingProfile) {
+        const { error: insertError } = await supabase.from('profiles').insert([
+          {
+            id: session.user.id,
+            email: session.user.email,
+            role: 'student',
+            profile_completed: false
+          }
+        ]);
+
+        if (insertError) throw insertError;
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));
       }
 
-      // All good - redirect to home
+      // If profile exists but not completed
+      if (!existingProfile.profile_completed) {
+        return NextResponse.redirect(new URL('/auth/complete-profile', origin));
+      }
+
+      // If profile exists and is completed, redirect to home
       return NextResponse.redirect(new URL('/', origin));
     } catch (dbError) {
       console.error('Database error:', dbError);
-      // If database error, still allow login but redirect to complete profile
       return NextResponse.redirect(new URL('/auth/complete-profile', origin));
     }
   } catch (error) {

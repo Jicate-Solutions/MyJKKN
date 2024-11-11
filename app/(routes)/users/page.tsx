@@ -1,12 +1,16 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
-import { ContentLayout } from '@/components/layout/content-layout';
+import { UserService } from '@/lib/services/user-service';
+import { UserStats, UserFilters } from '@/types/users';
+import { Profile } from '@/types/auth';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { BeatLoader } from 'react-spinners';
+import { UserList } from './_components/user-list';
+import { UserFiltersComponent } from './_components/user-filters';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -15,40 +19,91 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { useUsers } from '@/hooks/use-users';
-import { UsersListTable } from './_components/user-list';
-import { UserFilters } from './_components/user-filters';
-import { useAuth } from '@/providers/auth-provider';
+import { BeatLoader } from 'react-spinners';
+import { Plus, Download } from 'lucide-react';
 
 export default function UsersPage() {
-  const { user } = useAuth();
-  const {
-    users,
-    loading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    fetchUsers
-  } = useUsers();
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [filters, setFilters] = useState<UserFilters>({
+    page: 1,
+    limit: 10
+  });
+  const [metadata, setMetadata] = useState({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 0
+  });
 
-  // Initial fetch
+  // Define fetchData as a useCallback function
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // Fetch users with filters
+      const response = await UserService.getUsers(filters);
+      setUsers(response.data);
+      setMetadata(response.metadata);
+
+      // Fetch stats
+      const statsData = await UserService.getUserStats();
+      setStats(statsData);
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters]); // Add filters as dependency
+
+  // Check admin access
   useEffect(() => {
-    fetchUsers();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const checkAccess = async () => {
+      const isAdmin = await UserService.checkIsAdmin();
+      if (!isAdmin) {
+        router.push('/unauthorized');
+      }
+    };
+    checkAccess();
+  }, [router]);
 
-  // Only super admins and administrators can access this page
-  if (user && !['super_admin', 'administrator'].includes(user.role)) {
+  // Fetch users and stats
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleFilterChange = (newFilters: Partial<UserFilters>) => {
+    setFilters((prev) => ({
+      ...prev,
+      ...newFilters,
+      page: 1 // Reset to first page when filters change
+    }));
+  };
+
+  const handlePageChange = (page: number) => {
+    setFilters((prev) => ({
+      ...prev,
+      page
+    }));
+  };
+
+  if (error) {
     return (
-      <ContentLayout title='Unauthorized'>
-        <div className='flex items-center justify-center min-h-[400px]'>
-          <div className='text-center'>
-            <h1 className='text-2xl font-bold mb-2'>Access Denied</h1>
-            <p className='text-muted-foreground'>
-              You don&apos;t have permission to view this page.
-            </p>
-          </div>
+      <ContentLayout title='Users'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>{error}</p>
+          <Button
+            variant='outline'
+            onClick={() => window.location.reload()}
+            className='mt-4'
+          >
+            Try Again
+          </Button>
         </div>
       </ContentLayout>
     );
@@ -56,7 +111,6 @@ export default function UsersPage() {
 
   return (
     <ContentLayout title='Users'>
-      {/* Breadcrumb */}
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -71,93 +125,66 @@ export default function UsersPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      {/* Page Header */}
-      <div className='flex justify-between items-center mt-4'>
-        <div>
-          <h1 className='text-3xl font-bold'>Users</h1>
-          <p className='text-sm text-muted-foreground'>
-            Manage and monitor user accounts
-          </p>
+      <div className='space-y-6'>
+        <div className='flex justify-between items-start'>
+          <div>
+            <h1 className='text-3xl font-bold'>Users</h1>
+            <p className='text-muted-foreground'>
+              Manage and monitor user accounts
+            </p>
+          </div>
+          <div className='flex items-center gap-4'>
+            <Button variant='outline'>
+              <Download className='mr-2 h-4 w-4' />
+              Export
+            </Button>
+            <Button asChild>
+              <Link href='/users/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add User
+              </Link>
+            </Button>
+          </div>
         </div>
-        <Button asChild>
-          <Link href='/users/new'>
-            <Plus className='mr-2 h-4 w-4' />
-            Add New User
-          </Link>
-        </Button>
-      </div>
 
-      {/* User Stats Cards */}
-      <div className='grid gap-4 md:grid-cols-4 mt-6'>
-        <Card>
-          <CardContent className='p-6'>
-            <div className='space-y-1'>
-              <p className='text-sm font-medium text-muted-foreground'>
-                Total Users
-              </p>
-              <p className='text-2xl font-bold'>{metadata.total}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className='p-6'>
-            <div className='space-y-1'>
-              <p className='text-sm font-medium text-muted-foreground'>
-                Active Users
-              </p>
-              <p className='text-2xl font-bold'>
-                {users.filter((u) => u.is_active).length}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className='p-6'>
-            <div className='space-y-1'>
-              <p className='text-sm font-medium text-muted-foreground'>
-                Inactive Users
-              </p>
-              <p className='text-2xl font-bold'>
-                {users.filter((u) => !u.is_active).length}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className='p-6'>
-            <div className='space-y-1'>
-              <p className='text-sm font-medium text-muted-foreground'>
-                Incomplete Profiles
-              </p>
-              <p className='text-2xl font-bold'>
-                {users.filter((u) => !u.profile_completed).length}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+        {stats && (
+          <div className='grid gap-4 md:grid-cols-4'>
+            <Card>
+              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                <CardTitle className='text-sm font-medium'>
+                  Total Users
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className='text-2xl font-bold'>{stats.total}</div>
+              </CardContent>
+            </Card>
+            {/* Add more stat cards as needed */}
+          </div>
+        )}
 
-      {/* Main Content */}
-      <Card className='mt-6'>
-        <CardContent className='p-6'>
-          <UserFilters filters={filters} onFilterChange={updateFilters} />
-
-          {error ? (
-            <div className='text-center text-red-500 py-8'>{error}</div>
-          ) : loading ? (
-            <div className='flex justify-center items-center py-8'>
-              <BeatLoader color='#00e902' />
-            </div>
-          ) : (
-            <UsersListTable
-              users={users}
-              metadata={metadata}
-              onPageChange={changePage}
-              onRefresh={fetchUsers}
+        <Card>
+          <CardContent className='p-6'>
+            <UserFiltersComponent
+              filters={filters}
+              onFilterChange={handleFilterChange}
             />
-          )}
-        </CardContent>
-      </Card>
+
+            {isLoading ? (
+              <div className='flex justify-center items-center p-8'>
+                <BeatLoader color='#00e902' />
+              </div>
+            ) : (
+              <UserList
+                users={users}
+                metadata={metadata}
+                onPageChange={handlePageChange}
+                onRefresh={fetchData}
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </ContentLayout>
   );
 }
