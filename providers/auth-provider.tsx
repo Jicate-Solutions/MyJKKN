@@ -18,6 +18,7 @@ import {
   AuthChangeEvent,
   RealtimePostgresChangesPayload
 } from '@supabase/supabase-js';
+import { useSessionSync } from '@/hooks/use-session-sync';
 
 interface AuthContextType {
   user: Profile | null;
@@ -39,14 +40,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const supabase = createClientComponentClient();
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     try {
+      setLoading(true);
       const profile = await AuthService.getUserProfile();
+      
+      if (!profile) {
+        // If no profile, check if we're actually logged in
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          setUser(null);
+          return;
+        }
+      }
+      
       setUser(profile);
     } catch (error) {
       console.error('Error refreshing user:', error);
+      // On error, verify session and redirect if needed
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setUser(null);
+        router.push('/auth/login');
+      }
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [supabase, router]);
 
   const signOut = async () => {
     try {
@@ -55,39 +75,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       router.push('/auth/login');
       toast.success('Signed out successfully');
     } catch (error) {
+      console.error('Sign out error:', error);
       toast.error('Error signing out');
     }
   };
 
+  // Initial auth check
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        await refreshUser();
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    refreshUser();
+  }, [refreshUser]);
 
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (event) => {
-      if (event === 'SIGNED_IN') {
-        await refreshUser();
-        router.refresh();
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        router.push('/auth/login');
-      }
-    });
-
-    initAuth();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [router, supabase.auth]);
+  // Use the session sync hook
+  useSessionSync();
 
   return (
     <AuthContext.Provider value={{ user, loading, signOut, refreshUser }}>
