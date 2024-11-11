@@ -30,13 +30,14 @@ export function Navbar({ title }: NavbarProps) {
           <h1 className='font-bold'>{title}</h1>
         </div>
         <div className='flex items-center justify-between space-x-4'>
-          {/* User actions */}
+          {/* Desktop view */}
           <div className='hidden md:flex items-center space-x-2'>
             <UserNav />
           </div>
 
           {/* Mobile view */}
           <div className='flex md:hidden items-center space-x-2'>
+            <UserNav />
             <Button
               variant='destructive'
               onClick={handleLogout}
