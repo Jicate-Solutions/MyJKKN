@@ -6,6 +6,10 @@ export const PROTECTED_ROUTES = {
   USER_ONLY: {
     paths: ['/profile'],
     roles: ['student', 'faculty', 'staff', 'administrator', 'super_admin']
+  },
+  SUPER_ADMIN_ONLY: {
+    paths: ['/users/roles'],
+    roles: ['super_admin']
   }
   //   STAFF_ONLY: {
   //     paths: ['/reports', '/analytics'],

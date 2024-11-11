@@ -3,173 +3,80 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-async function checkAdminAccess(supabase: any) {
-  const {
-    data: { session },
-    error: sessionError
-  } = await supabase.auth.getSession();
-
-  if (sessionError || !session) {
-    return false;
-  }
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', session.user.id)
-    .single();
-
-  return ['super_admin', 'administrator'].includes(profile?.role || '');
-}
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
 
-    // Check admin access
-    const isAdmin = await checkAdminAccess(supabase);
-    if (!isAdmin) {
+    // Get current user's session
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: user, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', params.id)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json({ error: 'User not found' }, { status: 404 });
-      }
-      throw error;
-    }
-
-    return NextResponse.json(user);
-  } catch (error) {
-    console.error('Error in GET /api/users/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = createRouteHandlerClient({ cookies });
-
-    // Check admin access
-    const isAdmin = await checkAdminAccess(supabase);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const body = await request.json();
-
-    // If trying to change role to super_admin, require super_admin access
-    if (body.role === 'super_admin') {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
-
-      const { data: adminProfile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session?.user.id)
-        .single();
-
-      if (adminProfile?.role !== 'super_admin') {
-        return NextResponse.json(
-          { error: 'Only super admins can assign super admin role' },
-          { status: 403 }
-        );
-      }
-    }
-
-    const { data: user, error } = await supabase
-      .from('profiles')
-      .update({
-        ...body,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', params.id)
-      .select()
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json({ error: 'User not found' }, { status: 404 });
-      }
-      throw error;
-    }
-
-    return NextResponse.json(user);
-  } catch (error) {
-    console.error('Error in PATCH /api/users/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = createRouteHandlerClient({ cookies });
-
-    // Check admin access
-    const isAdmin = await checkAdminAccess(supabase);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check if user exists and get their role
-    const { data: userToDelete } = await supabase
+    // Get current user's profile
+    const { data: currentUserProfile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', params.id)
+      .eq('id', session.user.id)
       .single();
 
-    if (userToDelete?.role === 'super_admin') {
-      // Check if requester is super_admin
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
-
-      const { data: adminProfile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session?.user.id)
-        .single();
-
-      if (adminProfile?.role !== 'super_admin') {
-        return NextResponse.json(
-          { error: 'Only super admins can delete super admin users' },
-          { status: 403 }
-        );
-      }
+    if (profileError) {
+      return NextResponse.json(
+        { error: 'Error fetching user profile' },
+        { status: 500 }
+      );
     }
 
-    const { error } = await supabase
-      .from('profiles')
-      .delete()
-      .eq('id', params.id);
+    // Get URL parameters
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '10');
+    const search = searchParams.get('search');
+    const role = searchParams.get('role');
 
-    if (error) throw error;
+    // Base query
+    let query = supabase.from('profiles').select('*', { count: 'exact' });
 
-    return new NextResponse(null, { status: 204 });
+    // Apply filters
+    if (currentUserProfile.role === 'super_admin') {
+      // Super admins can see all users with all filters
+      if (search) {
+        query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
+      }
+      if (role) {
+        query = query.eq('role', role);
+      }
+    } else {
+      // Non-super admins can only see their own profile
+      query = query.eq('id', session.user.id);
+    }
+
+    // Apply pagination
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    query = query.range(from, to).order('created_at', { ascending: false });
+
+    // Execute query
+    const { data: users, error: usersError, count } = await query;
+
+    if (usersError) throw usersError;
+
+    return NextResponse.json({
+      data: users,
+      metadata: {
+        total: count || 0,
+        page,
+        limit,
+        totalPages: count ? Math.ceil(count / limit) : 0
+      }
+    });
   } catch (error) {
-    console.error('Error in DELETE /api/users/[id]:', error);
+    console.error('Error in GET /api/users:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

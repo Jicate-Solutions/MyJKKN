@@ -1,8 +1,12 @@
-// app/(routes)/users/roles/page.tsx
 'use client';
 
-import { ContentLayout } from '@/components/layout/content-layout';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Profile } from '@/types/auth';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { Card, CardContent } from '@/components/ui/card';
+import { BeatLoader } from 'react-spinners';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -11,8 +15,82 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { RolesList } from './_components/roles-list';
+import { UserService } from '@/lib/services/user-service';
 
 export default function RolesPage() {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+
+  // Check super admin access
+  useEffect(() => {
+    const checkAccess = async () => {
+      try {
+        const { data: profile } = await UserService.getCurrentUserProfile();
+        if (!profile || profile.role !== 'super_admin') {
+          router.push('/unauthorized');
+          return;
+        }
+        setIsSuperAdmin(true);
+      } catch (error) {
+        console.error('Error checking access:', error);
+        router.push('/unauthorized');
+      }
+    };
+    checkAccess();
+  }, [router]);
+
+  // Fetch users
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        setIsLoading(true);
+        const response = await UserService.getUsers();
+        setUsers(response.data);
+      } catch (err) {
+        console.error('Error fetching users:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (isSuperAdmin) {
+      fetchUsers();
+    }
+  }, [isSuperAdmin]);
+
+  const handleRoleUpdate = async (userId: string, newRole: string) => {
+    try {
+      setIsLoading(true);
+      await UserService.updateUserRole(userId, newRole);
+
+      // Refresh user list
+      const response = await UserService.getUsers();
+      setUsers(response.data);
+    } catch (error) {
+      console.error('Error updating role:', error);
+      setError(
+        error instanceof Error ? error.message : 'Failed to update role'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isSuperAdmin) {
+    return (
+      <ContentLayout title='Roles & Permissions'>
+        <div className='flex justify-center items-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
     <ContentLayout title='Roles & Permissions'>
       <Breadcrumb>
@@ -34,7 +112,30 @@ export default function RolesPage() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      {/* Add your roles management content here */}
+
+      <div className='space-y-6'>
+        <div>
+          <h1 className='text-3xl font-bold'>Roles & Permissions</h1>
+          <p className='text-muted-foreground'>
+            Manage user roles and permissions. Only super admins can modify
+            roles.
+          </p>
+        </div>
+
+        <Card>
+          <CardContent className='p-6'>
+            {error ? (
+              <div className='text-center text-red-500 py-4'>{error}</div>
+            ) : isLoading ? (
+              <div className='flex justify-center py-8'>
+                <BeatLoader color='#00e902' />
+              </div>
+            ) : (
+              <RolesList users={users} onRoleUpdate={handleRoleUpdate} />
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </ContentLayout>
   );
 }
