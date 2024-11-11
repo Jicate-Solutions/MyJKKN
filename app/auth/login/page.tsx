@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -12,13 +13,28 @@ import {
 } from '@/components/ui/card';
 import { FcGoogle } from 'react-icons/fc';
 import { toast } from 'react-hot-toast';
+import { BeatLoader } from 'react-spinners';
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
   const supabase = createClientComponentClient();
 
+  // Check if user is already logged in
   useEffect(() => {
-    // Check for error params
+    const checkUser = async () => {
+      const {
+        data: { session }
+      } = await supabase.auth.getSession();
+      if (session) {
+        router.push('/');
+      }
+    };
+    checkUser();
+  }, [router, supabase.auth]);
+
+  // Check for error params
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const error = params.get('error');
     if (error) {
@@ -37,16 +53,15 @@ export default function LoginPage() {
     try {
       setIsLoading(true);
 
-      // Get the current URL for redirection
       const redirectTo =
         typeof window !== 'undefined'
           ? `${window.location.origin}/auth/callback`
           : '/auth/callback';
 
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo, // This ensures we redirect back to the same origin
+          redirectTo,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent'
@@ -55,7 +70,8 @@ export default function LoginPage() {
       });
 
       if (error) throw error;
-      toast.success('Signing in...');
+
+      toast.success('Redirecting to Google...');
     } catch (error) {
       console.error('Login error:', error);
       toast.error('Failed to sign in with Google');
@@ -65,14 +81,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div className='min-h-screen flex items-center justify-center bg-background'>
-      <Card className='w-[400px]'>
+    <div className='min-h-screen flex items-center justify-center bg-background p-4'>
+      <Card className='w-full max-w-md'>
         <CardHeader className='space-y-1'>
-          <CardTitle className='text-2xl text-center'>
+          <CardTitle className='text-2xl font-bold tracking-tight text-center'>
             Welcome to MyJKKN
           </CardTitle>
           <CardDescription className='text-center'>
-            Login with your institutional Google account
+            Sign in with your institutional Google account
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -80,16 +96,13 @@ export default function LoginPage() {
             variant='outline'
             onClick={handleGoogleLogin}
             disabled={isLoading}
-            className='w-full flex items-center justify-center gap-2'
+            className='w-full flex items-center justify-center gap-2 h-12'
           >
             {isLoading ? (
-              <>
-                <div className='animate-spin rounded-full h-4 w-4 border-b-2 border-primary'></div>
-                <span>Signing in...</span>
-              </>
+              <BeatLoader size={8} color='#000000' />
             ) : (
               <>
-                <FcGoogle className='w-5 h-5' />
+                <FcGoogle className='h-5 w-5' />
                 <span>Sign in with Google</span>
               </>
             )}

@@ -29,7 +29,7 @@ export class AuthService {
 
   static async signOut() {
     try {
-      // Clear local storage
+      // Clear any user-related data from local storage
       if (typeof window !== 'undefined') {
         localStorage.clear();
       }
@@ -37,9 +37,13 @@ export class AuthService {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
 
+      toast.success('Signed out successfully');
+      window.location.href = '/auth/login';
+
       return true;
     } catch (error) {
       console.error('Sign out error:', error);
+      toast.error('Failed to sign out. Please try again.');
       throw error;
     }
   }
@@ -80,41 +84,15 @@ export class AuthService {
 
       if (error) {
         if (error.code === 'PGRST116') {
-          // Profile not found
-          console.error('Profile not found for user:', user.id);
           return null;
         }
         throw error;
-      }
-
-      // Cache the profile data
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('user_profile', JSON.stringify(profile));
       }
 
       return profile;
     } catch (error) {
       console.error('Error getting user profile:', error);
       return null;
-    }
-  }
-
-  static async checkUserAccess(): Promise<boolean> {
-    try {
-      const profile = await this.getUserProfile();
-      if (!profile) return false;
-
-      // Check if user has valid role
-      return [
-        'student',
-        'faculty',
-        'staff',
-        'administrator',
-        'super_admin'
-      ].includes(profile.role);
-    } catch (error) {
-      console.error('Error checking user access:', error);
-      return false;
     }
   }
 
@@ -132,7 +110,6 @@ export class AuthService {
         .from('profiles')
         .update({
           ...profileData,
-          profile_completed: true,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id)
@@ -144,6 +121,40 @@ export class AuthService {
     } catch (error) {
       console.error('Update profile error:', error);
       throw error;
+    }
+  }
+
+  static async checkProfileCompletion(): Promise<boolean> {
+    const profile = await this.getUserProfile();
+    return Boolean(profile?.profile_completed);
+  }
+
+  static async refreshSession() {
+    try {
+      const {
+        data: { session },
+        error
+      } = await supabase.auth.getSession();
+
+      if (error) throw error;
+
+      if (!session) {
+        window.location.href = '/auth/login';
+        return null;
+      }
+
+      // Update last login
+      await supabase
+        .from('profiles')
+        .update({ last_login: new Date().toISOString() })
+        .eq('id', session.user.id);
+
+      return session;
+    } catch (error) {
+      console.error('Session refresh error:', error);
+      toast.error('Session expired. Please sign in again.');
+      window.location.href = '/auth/login';
+      return null;
     }
   }
 
@@ -234,40 +245,6 @@ export class AuthService {
       return {
         error: error instanceof Error ? error : new Error('Unknown error')
       };
-    }
-  }
-
-  static async checkProfileCompletion(): Promise<boolean> {
-    const profile = await this.getUserProfile();
-    return Boolean(profile?.profile_completed);
-  }
-
-  static async refreshSession() {
-    try {
-      const {
-        data: { session },
-        error
-      } = await supabase.auth.getSession();
-
-      if (error) throw error;
-
-      if (!session) {
-        window.location.href = '/auth/login';
-        return null;
-      }
-
-      // Update last login
-      await supabase
-        .from('profiles')
-        .update({ last_login: new Date().toISOString() })
-        .eq('id', session.user.id);
-
-      return session;
-    } catch (error) {
-      console.error('Session refresh error:', error);
-      toast.error('Session expired. Please sign in again.');
-      window.location.href = '/auth/login';
-      return null;
     }
   }
 }

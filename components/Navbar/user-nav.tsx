@@ -1,12 +1,12 @@
-// components/Navbar/user-nav.tsx
 'use client';
 
 import Link from 'next/link';
-import { CircleUser, LayoutGrid, LogOut, Settings, User } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { AuthService } from '@/lib/auth/auth-service';
+import { User, Settings, LayoutDashboard, LogOut } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
+import { Button } from '@/components/ui/button';
+import { ROLE_LABELS } from '@/lib/constants/profile';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,90 +16,90 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
 
 export function UserNav() {
-  const { user, signOut, refreshUser } = useAuth();
-  const router = useRouter();
+  const { user, signOut } = useAuth();
 
-  // Check user access periodically
-  useEffect(() => {
-    const checkAccess = async () => {
-      const hasAccess = await AuthService.checkUserAccess();
-      if (!hasAccess) {
-        // If user no longer has access, sign them out
-        await signOut();
-      }
-    };
+  if (!user) return null;
 
-    // Check access immediately
-    checkAccess();
+  // Generate initials for avatar
+  const initials = user.full_name
+    ? user.full_name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+    : user.email[0].toUpperCase();
 
-    // Then check periodically (e.g., every 5 minutes)
-    const interval = setInterval(checkAccess, 5 * 60 * 1000);
-
-    return () => clearInterval(interval);
-  }, [signOut]);
-
-  // Return null if no user or invalid role
-  if (
-    !user ||
-    !['student', 'faculty', 'staff', 'administrator', 'super_admin'].includes(
-      user.role
-    )
-  ) {
-    return null;
-  }
-
-  const handleProfileClick = () => {
-    router.push('/profile');
-  };
-
-  const handleLogout = async () => {
+  const handleSignOut = async () => {
     try {
       await signOut();
-      router.push('/auth/login');
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error('Error signing out:', error);
     }
   };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant='ghost' className='relative h-8 w-8 rounded-full'>
-          <Avatar className='h-8 w-8'>
-            {user.avatar_url && (
-              <AvatarImage src={user.avatar_url} alt={user.full_name || ''} />
-            )}
+        <Button variant='ghost' className='relative h-10 w-10 rounded-full'>
+          <Avatar className='h-10 w-10'>
+            <AvatarImage
+              src={user.avatar_url || undefined}
+              alt={user.full_name || 'User'}
+            />
             <AvatarFallback className='bg-primary/10'>
-              {user.full_name?.charAt(0) || <CircleUser className='h-4 w-4' />}
+              {initials}
             </AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent className='w-56' align='end'>
+      <DropdownMenuContent className='w-64' align='end' forceMount>
         <DropdownMenuLabel className='font-normal'>
-          <div className='flex flex-col space-y-1'>
+          <div className='flex flex-col space-y-2'>
             <p className='text-sm font-medium leading-none'>
               {user.full_name || 'User'}
             </p>
             <p className='text-xs leading-none text-muted-foreground'>
               {user.email}
             </p>
+            <Badge variant='secondary' className='w-fit text-xs'>
+              {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
+            </Badge>
           </div>
         </DropdownMenuLabel>
+
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleProfileClick}>
-          <User className='mr-2 h-4 w-4' />
-          Profile
-        </DropdownMenuItem>
+
+        <DropdownMenuGroup>
+          <DropdownMenuItem asChild>
+            <Link href='/' className='flex items-center cursor-pointer'>
+              <LayoutDashboard className='mr-2 h-4 w-4' />
+              Dashboard
+            </Link>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem asChild>
+            <Link href='/profile' className='flex items-center cursor-pointer'>
+              <User className='mr-2 h-4 w-4' />
+              Profile
+            </Link>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem asChild>
+            <Link href='/settings' className='flex items-center cursor-pointer'>
+              <Settings className='mr-2 h-4 w-4' />
+              Settings
+            </Link>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+
         <DropdownMenuSeparator />
+
         <DropdownMenuItem
-          onClick={handleLogout}
-          className='text-destructive focus:text-destructive'
+          className='text-red-600 cursor-pointer'
+          onClick={handleSignOut}
         >
           <LogOut className='mr-2 h-4 w-4' />
           Sign out
