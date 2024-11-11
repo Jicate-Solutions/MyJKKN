@@ -1,81 +1,157 @@
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { UserList, UserListResponse, UserFilters } from '@/types/users';
+import { Profile } from '@/types/auth';
+import { UserFilters, UserListResponse, UserStats } from '@/types/users';
 import { toast } from 'react-hot-toast';
-import { handleApiResponse } from '../utils';
 
 export class UserService {
   private static supabase = createClientComponentClient();
 
   static async getUsers(filters: UserFilters = {}): Promise<UserListResponse> {
     try {
-      // Build query parameters
-      const params = new URLSearchParams();
+      // Start building the query
+      let query = this.supabase
+        .from('profiles')
+        .select('*', { count: 'exact' });
 
-      if (filters.search) params.append('search', filters.search);
-      if (filters.role) params.append('role', filters.role);
-      if (filters.institution)
-        params.append('institution', filters.institution);
-      if (filters.isActive !== undefined)
-        params.append('isActive', String(filters.isActive));
-      if (filters.page) params.append('page', String(filters.page));
-      if (filters.limit) params.append('limit', String(filters.limit));
+      // Apply filters
+      if (filters.role) {
+        query = query.eq('role', filters.role);
+      }
 
-      // Make API request
-      const response = await fetch(`/api/users?${params.toString()}`, {
-        credentials: 'include' // Important for cookies
-      });
+      if (filters.institution) {
+        query = query.eq('institution', filters.institution);
+      }
 
-      return handleApiResponse(response);
+      if (filters.search) {
+        query = query.or(
+          `full_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%`
+        );
+      }
+
+      // Apply pagination
+      const page = filters.page || 1;
+      const limit = filters.limit || 10;
+      const start = (page - 1) * limit;
+      const end = start + limit - 1;
+
+      query = query.range(start, end).order('created_at', { ascending: false });
+
+      // Execute query
+      const { data, error, count } = await query;
+
+      if (error) throw error;
+
+      return {
+        data: data || [],
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: count ? Math.ceil(count / limit) : 0
+        }
+      };
     } catch (error) {
       console.error('Error fetching users:', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to fetch users'
+      throw error;
+    }
+  }
+
+  static async getUserStats(): Promise<UserStats> {
+    try {
+      const { data, error } = await this.supabase
+        .from('profiles')
+        .select('role, institution');
+
+      if (error) throw error;
+
+      const stats: UserStats = {
+        total: data.length,
+        active: 0, // You might want to add an is_active field to profiles
+        inactive: 0,
+        byRole: {},
+        byInstitution: {}
+      };
+
+      // Calculate stats
+      data.forEach((profile) => {
+        // Count by role
+        stats.byRole[profile.role] = (stats.byRole[profile.role] || 0) + 1;
+
+        // Count by institution
+        if (profile.institution) {
+          stats.byInstitution[profile.institution] =
+            (stats.byInstitution[profile.institution] || 0) + 1;
+        }
+      });
+
+      return stats;
+    } catch (error) {
+      console.error('Error fetching user stats:', error);
+      throw error;
+    }
+  }
+
+  static async updateUserRole(userId: string, role: string): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from('profiles')
+        .update({
+          role,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      toast.success('User role updated successfully');
+    } catch (error) {
+      console.error('Error updating user role:', error);
+      throw error;
+    }
+  }
+
+  static async deactivateUser(userId: string): Promise<void> {
+    try {
+      // This is a placeholder - you'll need to implement user deactivation
+      // based on your requirements
+      const { error } = await this.supabase
+        .from('profiles')
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      toast.success('User deactivated successfully');
+    } catch (error) {
+      console.error('Error deactivating user:', error);
+      throw error;
+    }
+  }
+
+  static async checkIsAdmin(): Promise<boolean> {
+    try {
+      const {
+        data: { session },
+        error
+      } = await this.supabase.auth.getSession();
+
+      if (error || !session) return false;
+
+      const { data: profile } = await this.supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .single();
+
+      return (
+        profile?.role === 'super_admin' || profile?.role === 'administrator'
       );
-    }
-  }
-
-  static async updateUserStatus(
-    userId: string,
-    isActive: boolean
-  ): Promise<void> {
-    try {
-      const response = await fetch(`/api/users/${userId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ is_active: isActive })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to update user status');
-      }
-
-      toast.success('User status updated successfully');
     } catch (error) {
-      console.error('Error updating user status:', error);
-      toast.error('Failed to update user status');
-      throw error;
-    }
-  }
-
-  static async deleteUser(userId: string): Promise<void> {
-    try {
-      const response = await fetch(`/api/users/${userId}`, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to delete user');
-      }
-
-      toast.success('User deleted successfully');
-    } catch (error) {
-      console.error('Error deleting user:', error);
-      toast.error('Failed to delete user');
-      throw error;
+      console.error('Error checking admin status:', error);
+      return false;
     }
   }
 }
