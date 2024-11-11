@@ -79,8 +79,12 @@ export class AuthService {
         .single();
 
       if (error) {
-        console.error('Error fetching profile:', error);
-        return null;
+        if (error.code === 'PGRST116') {
+          // Profile not found
+          console.error('Profile not found for user:', user.id);
+          return null;
+        }
+        throw error;
       }
 
       // Cache the profile data
@@ -92,6 +96,25 @@ export class AuthService {
     } catch (error) {
       console.error('Error getting user profile:', error);
       return null;
+    }
+  }
+
+  static async checkUserAccess(): Promise<boolean> {
+    try {
+      const profile = await this.getUserProfile();
+      if (!profile) return false;
+
+      // Check if user has valid role
+      return [
+        'student',
+        'faculty',
+        'staff',
+        'administrator',
+        'super_admin'
+      ].includes(profile.role);
+    } catch (error) {
+      console.error('Error checking user access:', error);
+      return false;
     }
   }
 

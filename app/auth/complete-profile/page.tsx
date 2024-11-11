@@ -65,32 +65,52 @@ export default function CompleteProfile() {
   });
 
   useEffect(() => {
+    let mounted = true;
+
     async function loadUserData() {
       try {
+        // Check session
         const {
           data: { session },
           error: sessionError
         } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-        if (!session) {
+
+        if (sessionError) {
+          throw new Error(sessionError.message);
+        }
+
+        if (!session || !session.user) {
           router.push('/auth/login');
           return;
         }
 
-        setUserEmail(session.user.email || '');
+        // Set email
+        if (mounted) {
+          setUserEmail(session.user.email || '');
+        }
 
-        // Load existing profile data
+        // Load profile data
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', session.user.id)
           .single();
 
-        if (profileError && profileError.code !== 'PGRST116') {
-          throw profileError;
+        if (profileError) {
+          // Only throw if it's not a "no rows returned" error
+          if (profileError.code !== 'PGRST116') {
+            throw profileError;
+          }
         }
 
-        if (profile) {
+        // If profile exists and is completed, redirect to home
+        if (profile?.profile_completed) {
+          router.push('/');
+          return;
+        }
+
+        // Update form if profile data exists
+        if (profile && mounted) {
           form.reset({
             full_name: profile.full_name || '',
             phone_number: profile.phone_number || '',
@@ -101,43 +121,94 @@ export default function CompleteProfile() {
         }
       } catch (error) {
         console.error('Error loading user data:', error);
-        toast.error('Failed to load user data');
+        const errorMessage =
+          error instanceof Error ? error.message : 'Failed to load user data';
+        toast.error(errorMessage);
       } finally {
-        setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     }
 
     loadUserData();
-  }, [supabase, router, form]);
+
+    return () => {
+      mounted = false;
+    };
+  }, [router, supabase, form]);
 
   async function onSubmit(data: FormData) {
     try {
       setIsLoading(true);
+
+      // 1. Check session
       const {
         data: { session },
         error: sessionError
       } = await supabase.auth.getSession();
 
-      if (sessionError || !session) {
-        throw new Error('No authenticated session');
+      if (sessionError) {
+        throw new Error('Session error: ' + sessionError.message);
       }
 
-      const { error: updateError } = await supabase
+      if (!session?.user?.id) {
+        throw new Error('No authenticated session found');
+      }
+
+      // 2. Log the attempt
+      console.log('Attempting profile update for user:', session.user.id);
+
+      // 3. Prepare update data
+      const updateData = {
+        full_name: data.full_name.trim(),
+        phone_number: data.phone_number.trim(),
+        institution: data.institution,
+        department: data.department,
+        profile_completed: true,
+        updated_at: new Date().toISOString()
+      };
+
+      console.log('Update data:', updateData);
+
+      // 4. Perform the update
+      const { data: updatedProfile, error: updateError } = await supabase
         .from('profiles')
-        .update({
-          ...data,
-          profile_completed: true,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', session.user.id);
+        .update(updateData)
+        .eq('id', session.user.id)
+        .select()
+        .single();
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('Update error:', updateError);
+        throw new Error(
+          updateError.details ??
+            updateError.message ??
+            'Failed to update profile'
+        );
+      }
 
-      toast.success('Profile updated successfully');
+      if (!updatedProfile) {
+        throw new Error('No profile was updated');
+      }
+
+      // 5. Success
+      console.log('Profile updated successfully:', updatedProfile);
+      toast.success('Profile completed successfully');
+
+      // 6. Redirect
       router.push('/');
     } catch (error) {
-      console.error('Error updating profile:', error);
-      toast.error('Failed to update profile');
+      console.error('Profile update error:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to update profile';
+
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
