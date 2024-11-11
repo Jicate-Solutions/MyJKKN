@@ -8,39 +8,60 @@ export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
   const supabase = createMiddlewareClient({ req, res });
 
-  // Get session
   const {
     data: { session }
   } = await supabase.auth.getSession();
 
-  // If no session, redirect to login
-  if (!session) {
+  // Add public paths that don't need auth
+  const publicPaths = [
+    '/auth/login',
+    '/auth/callback',
+    '/auth/complete-profile'
+  ];
+  const isPublicPath = publicPaths.includes(req.nextUrl.pathname);
+
+  if (!session && !isPublicPath) {
     const redirectUrl = new URL('/auth/login', req.url);
     redirectUrl.searchParams.set('redirectedFrom', req.nextUrl.pathname);
     return NextResponse.redirect(redirectUrl);
   }
 
+  // Add auth user info to request headers
+  if (session) {
+    res.headers.set('x-user-id', session.user.id);
+    res.headers.set('x-user-email', session.user.email || '');
+  }
+
   try {
-    // Get user profile with role
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', session.user.id)
-      .single();
+    if (session) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
 
-    const currentPath = req.nextUrl.pathname;
+      const currentPath = req.nextUrl.pathname;
 
-    // Check each protected route configuration
-    for (const [_, config] of Object.entries(PROTECTED_ROUTES)) {
-      if (config.paths.some((path) => currentPath.startsWith(path))) {
-        // If user's role is not in the allowed roles, redirect to unauthorized
-        if (!profile?.role || !config.roles.includes(profile.role)) {
-          return NextResponse.redirect(new URL('/unauthorized', req.url));
+      // Check protected routes
+      for (const [_, config] of Object.entries(PROTECTED_ROUTES)) {
+        if (config.paths.some((path) => currentPath.startsWith(path))) {
+          if (!profile?.role || !config.roles.includes(profile.role)) {
+            return NextResponse.redirect(new URL('/unauthorized', req.url));
+          }
         }
+      }
+
+      // Redirect to complete profile if needed
+      if (
+        !profile?.profile_completed &&
+        !currentPath.includes('/auth/complete-profile')
+      ) {
+        return NextResponse.redirect(
+          new URL('/auth/complete-profile', req.url)
+        );
       }
     }
   } catch (error) {
-    // On error, redirect to unauthorized
     console.error('Middleware error:', error);
     return NextResponse.redirect(new URL('/unauthorized', req.url));
   }

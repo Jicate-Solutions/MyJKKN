@@ -29,28 +29,17 @@ export class AuthService {
 
   static async signOut() {
     try {
-      // Clear any user-related data from local storage
-      Object.keys(localStorage).forEach((key) => {
-        if (key.startsWith('sb-') || key.includes('supabase')) {
-          localStorage.removeItem(key);
-        }
-      });
-      localStorage.removeItem('sidebarOpen');
+      // Clear local storage
+      if (typeof window !== 'undefined') {
+        localStorage.clear();
+      }
 
-      // Sign out from Supabase
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-
-      // Show success message
-      toast.success('Signed out successfully');
-
-      // Redirect to login page
-      window.location.href = '/auth/login';
 
       return true;
     } catch (error) {
       console.error('Sign out error:', error);
-      toast.error('Failed to sign out. Please try again.');
       throw error;
     }
   }
@@ -89,7 +78,16 @@ export class AuthService {
         .eq('id', user.id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return null;
+      }
+
+      // Cache the profile data
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('user_profile', JSON.stringify(profile));
+      }
+
       return profile;
     } catch (error) {
       console.error('Error getting user profile:', error);

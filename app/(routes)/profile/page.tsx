@@ -10,7 +10,8 @@ import {
   Phone,
   User2,
   CalendarDays,
-  BookOpen
+  BookOpen,
+  CircleUser
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ProfileForm } from './_components/profile-form';
@@ -83,15 +84,6 @@ export default function ProfilePage() {
     return institution ? institution.label : value;
   };
 
-  // Generate initials for avatar
-  const initials = user.full_name
-    ? user.full_name
-        .split(' ')
-        .map((n) => n[0])
-        .join('')
-        .toUpperCase()
-    : 'U';
-
   const handleProfileUpdate = async () => {
     await refreshUser();
     setIsEditing(false);
@@ -129,7 +121,7 @@ export default function ProfilePage() {
                         alt='Profile'
                       />
                       <AvatarFallback className='text-2xl bg-primary/10'>
-                        {initials}
+                        <CircleUser className='h-4 w-4' />
                       </AvatarFallback>
                     </Avatar>
                     <div>
