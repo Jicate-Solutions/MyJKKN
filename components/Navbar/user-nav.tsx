@@ -17,12 +17,40 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 export function UserNav() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, refreshUser } = useAuth();
   const router = useRouter();
 
-  if (!user) return null;
+  // Check user access periodically
+  useEffect(() => {
+    const checkAccess = async () => {
+      const hasAccess = await AuthService.checkUserAccess();
+      if (!hasAccess) {
+        // If user no longer has access, sign them out
+        await signOut();
+      }
+    };
+
+    // Check access immediately
+    checkAccess();
+
+    // Then check periodically (e.g., every 5 minutes)
+    const interval = setInterval(checkAccess, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [signOut]);
+
+  // Return null if no user or invalid role
+  if (
+    !user ||
+    !['student', 'faculty', 'staff', 'administrator', 'super_admin'].includes(
+      user.role
+    )
+  ) {
+    return null;
+  }
 
   const handleProfileClick = () => {
     router.push('/profile');
@@ -31,6 +59,7 @@ export function UserNav() {
   const handleLogout = async () => {
     try {
       await signOut();
+      router.push('/auth/login');
     } catch (error) {
       console.error('Logout error:', error);
     }
@@ -68,7 +97,10 @@ export function UserNav() {
           Profile
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleLogout} className='text-destructive'>
+        <DropdownMenuItem
+          onClick={handleLogout}
+          className='text-destructive focus:text-destructive'
+        >
           <LogOut className='mr-2 h-4 w-4' />
           Sign out
         </DropdownMenuItem>
