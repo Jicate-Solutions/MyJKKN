@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { CircleUser, LayoutGrid, LogOut, Settings, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useAuth } from '@/providers/auth-provider';
 import {
@@ -16,24 +16,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import { useRouter } from 'next/navigation';
 
 export function UserNav() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const router = useRouter();
 
-  // Generate initials from user's name
-  const initials = user?.full_name
-    ? user.full_name
-        .split(' ')
-        .map((n) => n[0])
-        .join('')
-        .toUpperCase()
-    : 'U';
+  if (!user) return null;
+
+  const handleProfileClick = () => {
+    router.push('/profile');
+  };
 
   const handleLogout = async () => {
     try {
-      await AuthService.signOut();
+      await signOut();
     } catch (error) {
-      console.error('Error during logout:', error);
+      console.error('Logout error:', error);
     }
   };
 
@@ -42,42 +41,34 @@ export function UserNav() {
       <DropdownMenuTrigger asChild>
         <Button variant='ghost' className='relative h-8 w-8 rounded-full'>
           <Avatar className='h-8 w-8'>
+            {user.avatar_url && (
+              <AvatarImage src={user.avatar_url} alt={user.full_name || ''} />
+            )}
             <AvatarFallback className='bg-primary/10'>
-              <CircleUser className='h-4 w-4' />
+              {user.full_name?.charAt(0) || <CircleUser className='h-4 w-4' />}
             </AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent className='w-56' align='end' forceMount>
+      <DropdownMenuContent className='w-56' align='end'>
         <DropdownMenuLabel className='font-normal'>
           <div className='flex flex-col space-y-1'>
             <p className='text-sm font-medium leading-none'>
-              {user?.full_name}
+              {user.full_name || 'User'}
             </p>
             <p className='text-xs leading-none text-muted-foreground'>
-              {user?.email}
+              {user.email}
             </p>
           </div>
         </DropdownMenuLabel>
-
         <DropdownMenuSeparator />
-
-        <DropdownMenuGroup>
-          <DropdownMenuItem asChild>
-            <Link href='/profile' className='cursor-pointer flex items-center'>
-              <User className='mr-2 h-4 w-4' />
-              Profile
-            </Link>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-
+        <DropdownMenuItem onClick={handleProfileClick}>
+          <User className='mr-2 h-4 w-4' />
+          Profile
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
-
-        <DropdownMenuItem
-          onClick={handleLogout}
-          className='text-destructive focus:text-destructive cursor-pointer'
-        >
+        <DropdownMenuItem onClick={handleLogout} className='text-destructive'>
           <LogOut className='mr-2 h-4 w-4' />
           Sign out
         </DropdownMenuItem>

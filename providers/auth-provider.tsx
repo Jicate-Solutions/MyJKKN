@@ -6,7 +6,8 @@ import {
   useContext,
   useEffect,
   useState,
-  ReactNode
+  ReactNode,
+  useCallback
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { Profile } from '@/types/auth';
@@ -35,43 +36,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const supabase = createClientComponentClient();
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     try {
       const profile = await AuthService.getUserProfile();
       setUser(profile);
     } catch (error) {
       console.error('Error refreshing user:', error);
     }
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
+      setLoading(true);
       await AuthService.signOut();
       setUser(null);
       router.push('/auth/login');
-      toast.success('Signed out successfully');
     } catch (error) {
-      toast.error('Error signing out');
+      console.error('Error signing out:', error);
+      toast.error('Failed to sign out');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [router]);
 
   useEffect(() => {
+    let mounted = true;
+
     const initAuth = async () => {
       try {
-        await refreshUser();
+        const {
+          data: { session }
+        } = await supabase.auth.getSession();
+
+        if (session && mounted) {
+          await refreshUser();
+        }
       } catch (error) {
         console.error('Auth initialization error:', error);
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
-
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent) => {
-      if (event === 'SIGNED_IN') {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session) {
         await refreshUser();
-        router.refresh();
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         router.push('/auth/login');
@@ -81,9 +93,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
-  }, [router, supabase.auth]);
+  }, [refreshUser, router, supabase.auth]);
 
   return (
     <AuthContext.Provider value={{ user, loading, signOut, refreshUser }}>
