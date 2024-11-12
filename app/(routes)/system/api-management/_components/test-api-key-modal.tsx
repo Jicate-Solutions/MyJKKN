@@ -3,14 +3,13 @@
 
 import { useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { Code2, Copy, Check } from 'lucide-react';
+import { Code2, Copy, Check, Search, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog';
@@ -24,7 +23,9 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { TestEndpoint } from './test-endpoint';
+import { OrganizationApiDocs } from './organization-api-docs';
 
 interface TestResponse {
   status: string;
@@ -50,12 +51,15 @@ export function TestApiKeyModal({ open, onClose }: TestApiKeyModalProps) {
   const [testResult, setTestResult] = useState<TestResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState('test-endpoint');
 
   const resetState = () => {
     setApiKey('');
     setTestResult(null);
     setError(null);
     setHasCopied(false);
+    setSearchQuery('');
   };
 
   const handleClose = () => {
@@ -72,9 +76,7 @@ export function TestApiKeyModal({ open, onClose }: TestApiKeyModalProps) {
 
       const response = await fetch('/api/system/api-keys/test', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey })
       });
 
@@ -110,119 +112,149 @@ export function TestApiKeyModal({ open, onClose }: TestApiKeyModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='max-w-[95vw] w-full sm:max-w-[800px] p-4 sm:p-6 max-h-[90vh]'>
-        <div className='h-[calc(90vh-2rem)] overflow-y-auto'>
-          <DialogHeader className='space-y-2'>
-            <DialogTitle className='text-xl sm:text-2xl'>
-              Test API Key
-            </DialogTitle>
-            <DialogDescription className='text-sm sm:text-base'>
-              Test your API key and see detailed information about its
-              permissions and status.
-            </DialogDescription>
-          </DialogHeader>
+      <DialogContent className='max-w-[95vw] w-full h-[95vh] overflow-y-auto sm:max-w-[1200px] p-0'>
+        <div className='flex h-full flex-col md:flex-row'>
+          {/* Mobile Navigation Bar */}
+          <div className='block md:hidden border-b bg-background sticky top-0 z-10'>
+            <div className='p-3'>
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className='grid w-full grid-cols-2'>
+                  <TabsTrigger
+                    value='test-endpoint'
+                    className='text-xs sm:text-sm py-2'
+                  >
+                    Test API Key
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value='organization-api'
+                    className='text-xs sm:text-sm py-2'
+                  >
+                    API Docs
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+          </div>
 
-          <Tabs defaultValue='test' className='w-full'>
-            <TabsList className='grid w-full grid-cols-2 mb-4'>
-              <TabsTrigger
-                value='test-endpoint'
-                className='text-sm sm:text-base'
-              >
-                Test Endpoint
-              </TabsTrigger>
-              <TabsTrigger value='guide' className='text-sm sm:text-base'>
-                Usage Guide
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value='test-endpoint' className='space-y-4'>
-              <div className='flex flex-col space-y-4'>
-                <TestEndpoint />
-
-                {/* Response Section */}
-                {testResult && (
-                  <Card className='w-full'>
-                    <CardHeader className='flex flex-row items-center justify-between space-y-0 p-4'>
-                      <CardTitle className='text-base sm:text-lg'>
-                        Response
-                      </CardTitle>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={() => copyToClipboard(formatJSON(testResult))}
-                        className='h-8 w-8 p-0'
-                      >
-                        {hasCopied ? (
-                          <Check className='h-4 w-4 text-green-500' />
-                        ) : (
-                          <Copy className='h-4 w-4' />
-                        )}
-                      </Button>
-                    </CardHeader>
-                    <CardContent className='p-4'>
-                      <div className='relative'>
-                        <pre className='bg-white p-3 rounded-lg overflow-x-auto text-xs sm:text-sm max-h-[300px] scrollbar-thin'>
-                          <code className='block whitespace-pre-wrap break-words'>
-                            {formatJSON(testResult)}
-                          </code>
-                        </pre>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {error && (
-                  <Alert variant='destructive'>
-                    <AlertTitle className='text-sm font-semibold'>
-                      Error
-                    </AlertTitle>
-                    <AlertDescription className='text-xs sm:text-sm mt-1'>
-                      {error}
-                    </AlertDescription>
-                  </Alert>
-                )}
+          {/* Sidebar - Hidden on Mobile */}
+          <div className='hidden md:flex flex-col w-64 border-r bg-muted/20'>
+            <div className='p-4 border-b sticky top-0 bg-background z-10'>
+              <div className='relative'>
+                <Search className='absolute left-2 top-2.5 h-4 w-4 text-muted-foreground' />
+                <Input
+                  placeholder='Search...'
+                  className='pl-8 text-sm'
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
-            </TabsContent>
+            </div>
+            <div className='flex-1 p-4 overflow-y-auto'>
+              <nav className='space-y-2'>
+                <Button
+                  variant={
+                    activeTab === 'test-endpoint' ? 'secondary' : 'ghost'
+                  }
+                  className='w-full justify-start text-sm'
+                  onClick={() => setActiveTab('test-endpoint')}
+                >
+                  Test Endpoint
+                </Button>
+                <Button
+                  variant={
+                    activeTab === 'organization-api' ? 'secondary' : 'ghost'
+                  }
+                  className='w-full justify-start text-sm'
+                  onClick={() => setActiveTab('organization-api')}
+                >
+                  Organization API
+                </Button>
+              </nav>
+            </div>
+          </div>
 
-            <TabsContent value='guide' className='space-y-4'>
-              <div className='space-y-4'>
-                <Alert>
-                  <AlertTitle className='text-sm sm:text-base'>
-                    Test Endpoint
-                  </AlertTitle>
-                  <AlertDescription className='text-xs sm:text-sm break-words'>
-                    Send a POST request to{' '}
-                    <code className='bg-white px-1 rounded'>
-                      /api/system/api-keys/test
-                    </code>
-                  </AlertDescription>
-                </Alert>
-
-                <Card>
-                  <CardHeader className='p-3 sm:p-4'>
-                    <CardTitle className='text-base sm:text-lg'>
-                      Example Request
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className='p-3 sm:p-4'>
-                    <pre className='bg-white p-2 sm:p-3 rounded-lg overflow-x-auto text-xs sm:text-sm'>
-                      <code className='block whitespace-pre-wrap break-words'>
-                        {`fetch('/api/system/api-keys/test', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    apiKey: 'your-api-key'
-  })
-})`}
-                      </code>
-                    </pre>
-                  </CardContent>
-                </Card>
+          {/* Main Content */}
+          <div className='flex-1 flex flex-col min-h-0'>
+            <DialogHeader className='px-4 py-3 sm:p-6 border-b sticky top-0 bg-background z-10'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <DialogTitle className='text-base sm:text-xl'>
+                    Test API Key
+                  </DialogTitle>
+                  <DialogDescription className='text-xs sm:text-sm mt-1'>
+                    Test your API key and explore our API documentation
+                  </DialogDescription>
+                </div>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  onClick={handleClose}
+                  className='h-8 w-8'
+                >
+                  <X className='h-4 w-4' />
+                </Button>
               </div>
-            </TabsContent>
-          </Tabs>
+            </DialogHeader>
+
+            {/* Content Area with Native Scrolling */}
+            <div className='flex-1 overflow-y-auto'>
+              <div className='p-3 sm:p-6'>
+                <Tabs
+                  value={activeTab}
+                  onValueChange={setActiveTab}
+                  className='w-full'
+                >
+                  <TabsContent value='test-endpoint' className='m-0 space-y-3'>
+                    <TestEndpoint />
+
+                    {testResult && (
+                      <Card className='overflow-hidden'>
+                        <CardHeader className='flex flex-row items-center justify-between p-3'>
+                          <CardTitle className='text-sm'>Response</CardTitle>
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={() =>
+                              copyToClipboard(formatJSON(testResult))
+                            }
+                            className='h-8 w-8 p-0'
+                          >
+                            {hasCopied ? (
+                              <Check className='h-3 w-3 sm:h-4 sm:w-4 text-green-500' />
+                            ) : (
+                              <Copy className='h-3 w-3 sm:h-4 sm:w-4' />
+                            )}
+                          </Button>
+                        </CardHeader>
+                        <CardContent className='p-3'>
+                          <div className='max-h-[200px] sm:max-h-[300px] overflow-y-auto'>
+                            <pre className='bg-muted p-2 sm:p-4 rounded-lg text-xs sm:text-sm whitespace-pre-wrap'>
+                              <code>{formatJSON(testResult)}</code>
+                            </pre>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {error && (
+                      <Alert variant='destructive' className='p-3'>
+                        <AlertTitle className='text-xs sm:text-sm'>
+                          Error
+                        </AlertTitle>
+                        <AlertDescription className='text-xs'>
+                          {error}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value='organization-api' className='m-0'>
+                    <OrganizationApiDocs />
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </div>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

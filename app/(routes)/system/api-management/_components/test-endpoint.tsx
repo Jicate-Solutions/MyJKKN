@@ -292,7 +292,7 @@ export function TestEndpoint() {
           </CardHeader>
           {showResponse && (
             <CardContent>
-              <pre className='bg-muted p-4 rounded-lg overflow-x-auto max-h-[400px] text-xs sm:text-sm'>
+              <pre className='bg-white p-4 rounded-lg overflow-x-auto max-h-[400px] text-xs sm:text-sm'>
                 <code>{JSON.stringify(response, null, 2)}</code>
               </pre>
             </CardContent>
