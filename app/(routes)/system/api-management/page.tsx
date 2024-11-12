@@ -169,7 +169,7 @@ export default function ApiKeysPage() {
       <div className='space-y-6 p-4 md:p-6'>
         <div className='space-y-4 md:space-y-0 md:flex md:justify-between md:items-center'>
           <div>
-            <h1 className='text-2xl font-bold tracking-tight'>API Keys</h1>
+            <h1 className='text-2xl font-bold tracking-tight py-1'>API Keys</h1>
             <p className='text-sm text-muted-foreground'>
               Manage API keys for external access to your data
             </p>

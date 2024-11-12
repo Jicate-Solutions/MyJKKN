@@ -22,7 +22,7 @@ import { ApplicationGrid } from './_components/application-grid';
 export default function ApplicationHubPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
-  
+
   const {
     applications,
     loading,
@@ -50,9 +50,9 @@ export default function ApplicationHubPage() {
 
   if (loadingCategories || loading) {
     return (
-      <ContentLayout title="Application Hub">
-        <div className="flex justify-center items-center min-h-[400px]">
-          <BeatLoader color="#00e902" />
+      <ContentLayout title='Application Hub'>
+        <div className='flex justify-center items-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
         </div>
       </ContentLayout>
     );
@@ -60,21 +60,21 @@ export default function ApplicationHubPage() {
 
   if (error) {
     return (
-      <ContentLayout title="Application Hub">
-        <div className="text-center text-destructive min-h-[400px] flex flex-col justify-center">
-          <p className="text-lg">{error}</p>
+      <ContentLayout title='Application Hub'>
+        <div className='text-center text-destructive min-h-[400px] flex flex-col justify-center'>
+          <p className='text-lg'>{error}</p>
         </div>
       </ContentLayout>
     );
   }
 
   return (
-    <ContentLayout title="Application Hub">
+    <ContentLayout title='Application Hub'>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/">Home</Link>
+              <Link href='/'>Home</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -84,21 +84,21 @@ export default function ApplicationHubPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="space-y-6 mt-2">
+      <div className='space-y-6 mt-2'>
         <div>
-          <h1 className="text-3xl font-bold">Application Hub</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className='text-2xl font-bold py-1'>Application Hub</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
             Discover and access all available applications
           </p>
         </div>
 
-        <Card className="p-6">
-          <ApplicationHubFilters 
+        <Card className='p-6'>
+          <ApplicationHubFilters
             categories={categories}
             filters={filters}
             onFilterChange={updateFilters}
           />
-          
+
           <ApplicationGrid applications={applications} />
         </Card>
       </div>

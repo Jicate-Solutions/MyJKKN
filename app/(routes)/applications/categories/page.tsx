@@ -34,7 +34,9 @@ export default function CategoriesPage() {
       const data = await CategoryService.getCategories();
       setCategories(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load categories');
+      setError(
+        err instanceof Error ? err.message : 'Failed to load categories'
+      );
       toast.error('Failed to load categories');
     } finally {
       setLoading(false);
@@ -67,11 +69,11 @@ export default function CategoriesPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='space-y-6'>
+      <div className='space-y-6 mt-4'>
         <div className='flex justify-between items-center'>
           <div>
-            <h1 className='text-3xl font-bold'>Categories</h1>
-            <p className='text-sm text-muted-foreground'>
+            <h1 className='text-2xl font-bold py-1'>Categories</h1>
+            <p className='text-sm sm:text-base text-muted-foreground'>
               Manage application categories and subcategories
             </p>
           </div>

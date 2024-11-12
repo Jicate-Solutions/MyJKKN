@@ -58,11 +58,13 @@ export default function ApplicationsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='space-y-6 mt-2'>
+      <div className='space-y-6 mt-4'>
         <div className='flex flex-col gap-4 md:flex-row md:items-center md:justify-between'>
           <div>
-            <h1 className='text-3xl font-bold'>Applications</h1>
-            <p className='text-sm text-muted-foreground'>
+            <h1 className='text-2xl sm:text-3xl font-bold py-2'>
+              Applications
+            </h1>
+            <p className='text-sm sm:text-base text-muted-foreground'>
               Manage and monitor applications
             </p>
           </div>

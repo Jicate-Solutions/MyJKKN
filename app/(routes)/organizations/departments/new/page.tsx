@@ -74,10 +74,10 @@ export default function NewDepartmentPage({
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='space-y-6'>
+      <div className='space-y-6 mt-4'>
         <div>
-          <h1 className='text-3xl font-bold'>New Department</h1>
-          <p className='text-muted-foreground'>
+          <h1 className='text-2xl font-bold py-1'>New Department</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
             Create a new department
             {institutionId ? ' for this institution' : ''}
           </p>
