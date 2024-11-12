@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
     const { data: categories, error: categoriesError } = await supabase
       .from('categories')
@@ -47,7 +48,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
     // Check authentication
     const {
       data: { session },

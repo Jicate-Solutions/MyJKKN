@@ -4,7 +4,9 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createRouteHandlerClient({
+      cookies: async () => await cookies()
+    });
 
     // Get session
     const {
