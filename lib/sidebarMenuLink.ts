@@ -78,27 +78,27 @@ export function GetPages(pathname: string): Group[] {
           icon: Users,
           submenus: []
         },
-        {
-          href: '/users/new',
-          label: 'Add New User',
-          active: pathname === '/users/new',
-          icon: UserPlus,
-          submenus: []
-        },
+        // {
+        //   href: '/users/new',
+        //   label: 'Add New User',
+        //   active: pathname === '/users/new',
+        //   icon: UserPlus,
+        //   submenus: []
+        // },
         {
           href: '/users/roles',
           label: 'Roles & Permissions',
           active: pathname === '/users/roles',
           icon: Shield,
           submenus: []
-        },
-        {
-          href: '/users/activity',
-          label: 'User Activity Logs',
-          active: pathname === '/users/activity',
-          icon: ClipboardList,
-          submenus: []
         }
+        // {
+        //   href: '/users/activity',
+        //   label: 'User Activity Logs',
+        //   active: pathname === '/users/activity',
+        //   icon: ClipboardList,
+        //   submenus: []
+        // }
       ]
     },
     {
