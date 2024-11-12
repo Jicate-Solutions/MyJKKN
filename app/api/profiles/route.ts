@@ -7,7 +7,9 @@ import { createHash } from 'crypto';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createRouteHandlerClient({
+      cookies: async () => await cookies()
+    });
 
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');

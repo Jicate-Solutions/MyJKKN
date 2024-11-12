@@ -8,7 +8,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createRouteHandlerClient({ cookies });
+  const supabase = createRouteHandlerClient({
+    cookies: async () => await cookies()
+  });
 
   try {
     // Log the received data
