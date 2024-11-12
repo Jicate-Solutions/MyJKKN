@@ -93,6 +93,10 @@ export function CreateApiKeyModal({
       }
 
       const data = await response.json();
+      if (!data.plainTextKey) {
+        throw new Error('No API key returned from server');
+      }
+
       setNewApiKey(data.plainTextKey);
       toast.success('API key created successfully');
       setHasCopied(false);

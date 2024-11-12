@@ -3,8 +3,8 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { CreateApiKeyInput, UpdateApiKeyInput } from '@/types/api-keys';
-import toast from 'react-hot-toast';
+import { CreateApiKeyInput } from '@/types/api-keys';
+import crypto from 'crypto';
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,7 +32,6 @@ export async function GET(request: NextRequest) {
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
-      toast.error('You are not authorized to view API keys');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -42,9 +41,7 @@ export async function GET(request: NextRequest) {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     return NextResponse.json(keys);
   } catch (error) {
@@ -83,54 +80,49 @@ export async function POST(request: NextRequest) {
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
-      toast.error('You are not authorized to create an API key');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Generate API key (similar to service function but for server-side)
+    // Generate API key
     const prefix = 'jk';
-    const randomBytes = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(crypto.randomUUID())
-    );
-    const randomString = Array.from(new Uint8Array(randomBytes))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('')
-      .slice(0, 24);
+    const randomString = crypto.randomBytes(16).toString('hex');
     const timestamp = Date.now().toString(36);
     const plainTextKey = `${prefix}_${randomString}_${timestamp}`;
 
     // Hash the key for storage
-    const keyHash = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(plainTextKey)
-    );
-    const hashedKey = Array.from(new Uint8Array(keyHash))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
+    const hashedKey = crypto
+      .createHash('sha256')
+      .update(plainTextKey)
+      .digest('hex');
 
-    // Create API key
+    // Create API key record
     const { data: key, error } = await supabase
       .from('api_keys')
-      .insert({
-        name: input.name,
-        key_value: hashedKey,
-        created_by: session.user.id,
-        expires_at: input.expires_at || null,
-        permissions: input.permissions || { read: true, write: false }
-      })
+      .insert([
+        {
+          name: input.name,
+          key_value: hashedKey,
+          created_by: session.user.id,
+          expires_at: input.expires_at || null,
+          permissions: input.permissions || { read: true, write: false },
+          is_active: true
+        }
+      ])
       .select()
       .single();
 
     if (error) {
-      throw error;
+      console.error('Database error:', error);
+      throw new Error('Failed to create API key');
     }
 
     return NextResponse.json({ key, plainTextKey });
   } catch (error) {
     console.error('Error creating API key:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      {
+        error: error instanceof Error ? error.message : 'Internal Server Error'
+      },
       { status: 500 }
     );
   }
