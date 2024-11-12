@@ -62,8 +62,7 @@ export async function PATCH(
     const updateData = {
       name: body.name,
       description: body.description || null,
-      updated_at: new Date().toISOString(),
-      updated_by: session.user.id
+      updated_at: new Date().toISOString()
     };
 
     // Update subcategory
@@ -71,16 +70,7 @@ export async function PATCH(
       .from('subcategories')
       .update(updateData)
       .eq('id', params.id)
-      .select(
-        `
-        *,
-        category:categories(
-          id,
-          name,
-          code
-        )
-      `
-      )
+      .select()
       .single();
 
     if (updateError) {
@@ -164,48 +154,6 @@ export async function DELETE(
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     console.error('Error deleting subcategory:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = createRouteHandlerClient({ cookies });
-
-    const { data: subcategory, error } = await supabase
-      .from('subcategories')
-      .select(
-        `
-        *,
-        category:categories(
-          id,
-          name,
-          code
-        )
-      `
-      )
-      .eq('id', params.id)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Subcategory not found' },
-          { status: 404 }
-        );
-      }
-      throw error;
-    }
-
-    return NextResponse.json(subcategory);
-  } catch (error) {
-    console.error('Error fetching subcategory:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

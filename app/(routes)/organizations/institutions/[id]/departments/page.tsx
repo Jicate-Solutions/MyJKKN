@@ -158,11 +158,11 @@ export default function InstitutionDepartmentsPage({
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='space-y-6'>
+      <div className='space-y-6 mt-4'>
         <div className='flex justify-between items-start'>
           <div>
-            <h1 className='text-3xl font-bold'>{institution.name}</h1>
-            <p className='text-muted-foreground'>
+            <h1 className='text-2xl py-1 font-bold'>{institution.name}</h1>
+            <p className='text-muted-foreground text-sm sm:text-base'>
               Manage departments for {institution.name}
             </p>
           </div>

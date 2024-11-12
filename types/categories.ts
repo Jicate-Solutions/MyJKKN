@@ -4,6 +4,8 @@ export interface Subcategory {
   name: string;
   description: string | null;
   category_id: string;
+  created_by: string; // Add this field
+  is_active: boolean; // Add this field
   created_at: string;
   updated_at: string;
 }
@@ -23,7 +25,10 @@ export type UpdateCategoryDTO = Partial<CreateCategoryDTO>;
 export type CreateSubcategoryDTO = Pick<
   Subcategory,
   'name' | 'description' | 'category_id'
->;
+> & {
+  is_active?: boolean;
+};
+
 export type UpdateSubcategoryDTO = Partial<
   Omit<CreateSubcategoryDTO, 'category_id'>
 >;
