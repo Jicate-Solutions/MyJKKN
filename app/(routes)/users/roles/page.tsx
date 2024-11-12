@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { RolesList } from './_components/roles-list';
 import { UserService } from '@/lib/services/user-service';
+import toast from 'react-hot-toast';
 
 export default function RolesPage() {
   const router = useRouter();
@@ -66,6 +67,14 @@ export default function RolesPage() {
   const handleRoleUpdate = async (userId: string, newRole: string) => {
     try {
       setIsLoading(true);
+      setError(null);
+
+      // Prevent updating super_admin role
+      const userToUpdate = users.find((user) => user.id === userId);
+      if (userToUpdate?.role === 'super_admin' && newRole !== 'super_admin') {
+        throw new Error("Cannot modify a super admin's role");
+      }
+
       await UserService.updateUserRole(userId, newRole);
 
       // Refresh user list
@@ -74,6 +83,9 @@ export default function RolesPage() {
     } catch (error) {
       console.error('Error updating role:', error);
       setError(
+        error instanceof Error ? error.message : 'Failed to update role'
+      );
+      toast.error(
         error instanceof Error ? error.message : 'Failed to update role'
       );
     } finally {

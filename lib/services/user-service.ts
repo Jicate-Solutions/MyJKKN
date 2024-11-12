@@ -123,7 +123,7 @@ export class UserService {
   static async updateUserRole(userId: string, newRole: string): Promise<void> {
     try {
       const response = await fetch(`/api/users/${userId}/role`, {
-        method: 'POST',
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
