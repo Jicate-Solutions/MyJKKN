@@ -31,7 +31,8 @@ import {
   Gauge,
   Lock,
   LucideIcon,
-  LayoutGrid
+  LayoutGrid,
+  Building
 } from 'lucide-react';
 
 type Submenu = {
@@ -150,6 +151,25 @@ export function GetPages(pathname: string): Group[] {
         //   icon: MessageCircle,
         //   submenus: []
         // }
+      ]
+    },
+    {
+      groupLabel: 'Organization Management',
+      menus: [
+        {
+          href: '/organizations/institutions',
+          label: 'Institutions',
+          active: pathname.startsWith('/organizations/institutions'),
+          icon: Building,
+          submenus: []
+        },
+        {
+          href: '/organizations/departments',
+          label: 'Departments',
+          active: pathname.startsWith('/organizations/departments'),
+          icon: GraduationCap,
+          submenus: []
+        }
       ]
     },
     // {

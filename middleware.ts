@@ -119,6 +119,7 @@ export const config = {
   matcher: [
     // Protected routes
     '/system/:path*',
+    '/organizations/:path*',
     '/settings/:path*',
     '/reports/:path*',
     '/analytics/:path*',

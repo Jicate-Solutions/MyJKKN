@@ -1,6 +1,10 @@
 export const PROTECTED_ROUTES = {
   ADMIN_ONLY: {
-    paths: ['/system'],
+    paths: [
+      '/system',
+      '/organizations/institutions',
+      '/organizations/departments'
+    ],
     roles: ['administrator', 'super_admin']
   },
   USER_ONLY: {
