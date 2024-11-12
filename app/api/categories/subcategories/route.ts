@@ -7,8 +7,8 @@ import toast from 'react-hot-toast';
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
-
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
     // Check authentication
     const {
       data: { session },
@@ -59,19 +59,11 @@ export async function POST(request: NextRequest) {
           name: body.name,
           description: body.description || null,
           category_id: body.category_id,
-          created_by: session.user.id
+          created_by: session.user.id, // Add this
+          is_active: body.is_active ?? true // Add this
         }
       ])
-      .select(
-        `
-        *,
-        category:categories(
-          id,
-          name,
-          code
-        )
-      `
-      )
+      .select()
       .single();
 
     if (createError) {
