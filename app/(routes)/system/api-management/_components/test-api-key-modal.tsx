@@ -112,7 +112,10 @@ export function TestApiKeyModal({ open, onClose }: TestApiKeyModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='max-w-[95vw] w-full h-[95vh] overflow-y-auto sm:max-w-[1200px] p-0'>
+      <DialogContent
+        aria-describedby={undefined}
+        className='max-w-[95vw] w-full h-[95vh] overflow-y-auto sm:max-w-[1200px] p-0'
+      >
         <div className='flex h-full flex-col md:flex-row'>
           {/* Mobile Navigation Bar */}
           <div className='block md:hidden border-b bg-background sticky top-0 z-10'>
@@ -178,9 +181,7 @@ export function TestApiKeyModal({ open, onClose }: TestApiKeyModalProps) {
             <DialogHeader className='px-4 py-3 sm:p-6 border-b sticky top-0 bg-background z-10'>
               <div className='flex items-center justify-between'>
                 <div>
-                  <DialogTitle className='text-base sm:text-xl'>
-                    Test API Key
-                  </DialogTitle>
+                  <DialogTitle>Test API Key</DialogTitle>
                   <DialogDescription className='text-xs sm:text-sm mt-1'>
                     Test your API key and explore our API documentation
                   </DialogDescription>

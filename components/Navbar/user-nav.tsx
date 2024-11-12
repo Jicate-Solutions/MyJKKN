@@ -86,13 +86,6 @@ export function UserNav() {
               Profile
             </Link>
           </DropdownMenuItem>
-
-          <DropdownMenuItem asChild>
-            <Link href='/settings' className='flex items-center cursor-pointer'>
-              <Settings className='mr-2 h-4 w-4' />
-              Settings
-            </Link>
-          </DropdownMenuItem>
         </DropdownMenuGroup>
 
         <DropdownMenuSeparator />
