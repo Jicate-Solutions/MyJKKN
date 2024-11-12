@@ -75,15 +75,15 @@ export default function DepartmentsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='space-y-6'>
-        <div className='flex justify-between items-start'>
+      <div className='space-y-6 mt-4'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
           <div>
-            <h1 className='text-3xl font-bold'>Departments</h1>
-            <p className='text-muted-foreground'>
+            <h1 className='text-2xl font-bold py-1'>Departments</h1>
+            <p className='text-sm sm:text-base text-muted-foreground'>
               Manage departments across all institutions
             </p>
           </div>
-          <Button asChild>
+          <Button className='w-full sm:w-auto' asChild>
             <Link href='/organizations/departments/new'>
               <Plus className='mr-2 h-4 w-4' />
               Add Department

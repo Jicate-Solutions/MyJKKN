@@ -37,10 +37,10 @@ export default function NewApplicationPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='space-y-6'>
+      <div className='space-y-6 mt-4'>
         <div>
-          <h1 className='text-3xl font-bold'>New Application</h1>
-          <p className='text-sm text-muted-foreground'>
+          <h1 className='text-2xl font-bold py-1'>New Application</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
             Add a new application to the platform
           </p>
         </div>
