@@ -10,8 +10,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    const supabase = createRouteHandlerClient({ cookies });
 
     // Check authentication
     const {
@@ -41,20 +40,58 @@ export async function PATCH(
 
     const body = await request.json();
 
-    const { data, error } = await supabase
+    // Validate required fields
+    if (!body.name) {
+      return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+    }
+    // Verify the subcategory exists
+    const { data: existingSubcategory, error: existingError } = await supabase
       .from('subcategories')
-      .update({
-        name: body.name,
-        description: body.description,
-        updated_at: new Date().toISOString()
-      })
+      .select('id, category_id')
       .eq('id', params.id)
-      .select()
       .single();
 
-    if (error) throw error;
+    if (existingError || !existingSubcategory) {
+      return NextResponse.json(
+        { error: 'Subcategory not found' },
+        { status: 404 }
+      );
+    }
 
-    return NextResponse.json(data);
+    // Prepare update data
+    const updateData = {
+      name: body.name,
+      description: body.description || null,
+      updated_at: new Date().toISOString(),
+      updated_by: session.user.id
+    };
+
+    // Update subcategory
+    const { data: updatedSubcategory, error: updateError } = await supabase
+      .from('subcategories')
+      .update(updateData)
+      .eq('id', params.id)
+      .select(
+        `
+        *,
+        category:categories(
+          id,
+          name,
+          code
+        )
+      `
+      )
+      .single();
+
+    if (updateError) {
+      console.error('Update error:', updateError);
+      return NextResponse.json(
+        { error: updateError.message || 'Failed to update subcategory' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(updatedSubcategory);
   } catch (error) {
     console.error('Error updating subcategory:', error);
     return NextResponse.json(
@@ -69,10 +106,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    const supabase = createRouteHandlerClient({ cookies });
 
-    // Check authentication
+    // Get current user's session
     const {
       data: { session },
       error: sessionError
@@ -82,7 +118,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin role
+    // Verify admin role
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
@@ -94,36 +130,82 @@ export async function DELETE(
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
-      toast.error('You are not authorized to delete this subcategory');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Check if subcategory exists and is not in use
-    const { data: applications, error: applicationsError } = await supabase
-      .from('applications')
+    // Verify subcategory exists
+    const { data: existingSubcategory, error: existingError } = await supabase
+      .from('subcategories')
       .select('id')
-      .eq('subcategory_id', params.id)
-      .limit(1);
+      .eq('id', params.id)
+      .single();
 
-    if (applicationsError) throw applicationsError;
-
-    if (applications && applications.length > 0) {
+    if (existingError || !existingSubcategory) {
       return NextResponse.json(
-        { error: 'Cannot delete subcategory that is in use by applications' },
-        { status: 409 }
+        { error: 'Subcategory not found' },
+        { status: 404 }
       );
     }
 
-    const { error } = await supabase
+    // Delete subcategory
+    const { error: deleteError } = await supabase
       .from('subcategories')
       .delete()
       .eq('id', params.id);
 
-    if (error) throw error;
+    if (deleteError) {
+      console.error('Delete error:', deleteError);
+      return NextResponse.json(
+        { error: deleteError.message || 'Failed to delete subcategory' },
+        { status: 500 }
+      );
+    }
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     console.error('Error deleting subcategory:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createRouteHandlerClient({ cookies });
+
+    const { data: subcategory, error } = await supabase
+      .from('subcategories')
+      .select(
+        `
+        *,
+        category:categories(
+          id,
+          name,
+          code
+        )
+      `
+      )
+      .eq('id', params.id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'Subcategory not found' },
+          { status: 404 }
+        );
+      }
+      throw error;
+    }
+
+    return NextResponse.json(subcategory);
+  } catch (error) {
+    console.error('Error fetching subcategory:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

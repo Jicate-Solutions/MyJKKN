@@ -7,8 +7,7 @@ import toast from 'react-hot-toast';
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    const supabase = createRouteHandlerClient({ cookies });
 
     // Check authentication
     const {
@@ -53,29 +52,37 @@ export async function POST(request: NextRequest) {
     }
 
     // Create subcategory
-    const { data, error } = await supabase
+    const { data: subcategory, error: createError } = await supabase
       .from('subcategories')
       .insert([
         {
           name: body.name,
           description: body.description || null,
-          category_id: body.category_id
+          category_id: body.category_id,
+          created_by: session.user.id
         }
       ])
-      .select()
+      .select(
+        `
+        *,
+        category:categories(
+          id,
+          name,
+          code
+        )
+      `
+      )
       .single();
 
-    if (error) {
-      if (error.code === '23505') {
-        return NextResponse.json(
-          { error: 'A subcategory with this name already exists' },
-          { status: 409 }
-        );
-      }
-      throw error;
+    if (createError) {
+      console.error('Create error:', createError);
+      return NextResponse.json(
+        { error: createError.message || 'Failed to create subcategory' },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json(data, { status: 201 });
+    return NextResponse.json(subcategory, { status: 201 });
   } catch (error) {
     console.error('Error in POST /api/categories/subcategories:', error);
     return NextResponse.json(
@@ -87,8 +94,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    const supabase = createRouteHandlerClient({ cookies });
 
     // Get all categories with their subcategories in a single query
     const { data: categories, error } = await supabase
