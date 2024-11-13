@@ -23,7 +23,9 @@ export class ApiKeyService {
   }
 
   // Create a new API key
-  static async createApiKey(input: CreateApiKeyInput): Promise<{ key: ApiKey; plainTextKey: string } | null> {
+  static async createApiKey(
+    input: CreateApiKeyInput
+  ): Promise<{ key: ApiKey; plainTextKey: string } | null> {
     try {
       const plainTextKey = this.generateKeyValue();
       const hashedKey = this.hashKey(plainTextKey);
@@ -73,7 +75,10 @@ export class ApiKeyService {
   }
 
   // Update an API key
-  static async updateApiKey(id: string, input: UpdateApiKeyInput): Promise<ApiKey | null> {
+  static async updateApiKey(
+    id: string,
+    input: UpdateApiKeyInput
+  ): Promise<ApiKey | null> {
     try {
       const { data: key, error } = await this.supabase
         .from('api_keys')
@@ -148,7 +153,10 @@ export class ApiKeyService {
   }
 
   // Generate a test API key (for development/testing only)
-  static async generateTestApiKey(): Promise<{ key: ApiKey; plainTextKey: string } | null> {
+  static async generateTestApiKey(): Promise<{
+    key: ApiKey;
+    plainTextKey: string;
+  } | null> {
     try {
       const result = await this.createApiKey({
         name: 'Test API Key',
