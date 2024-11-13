@@ -76,20 +76,23 @@ export async function GET(request: NextRequest) {
     const institutionId = url.searchParams.get('institutionId');
     const isActive = url.searchParams.get('isActive');
 
-    // Build query
-    let query = supabase.from('departments').select(
-      `
-      *,
-      institution:institutions (
-        id,
-        name,
-        code
-      )
-    `,
-      { count: 'exact' }
-    );
+    // First, let's check if there are any departments at all
+    const { count: totalCount, error: countError } = await supabase
+      .from('departments')
+      .select('*', { count: 'exact', head: true });
 
-    console.log('5. Building query...');
+    console.log('5. Total departments count:', totalCount);
+
+    // Build query
+    console.log('6. Building query with filters:', {
+      search,
+      institutionId,
+      isActive,
+      page,
+      limit
+    });
+
+    let query = supabase.from('departments').select('*', { count: 'exact' });
 
     // Apply filters
     if (search) {
@@ -107,21 +110,17 @@ export async function GET(request: NextRequest) {
     // Apply pagination
     const from = (page - 1) * limit;
     const to = from + limit - 1;
-    query = query.range(from, to).order('name');
+
+    query = query.range(from, to).order('created_at', { ascending: false });
 
     // Execute query
     const { data: departments, error, count } = await query;
 
-    console.log('6. Query result:', {
+    console.log('7. Query result:', {
       success: !!departments,
       error: error?.message,
       count,
-      firstRecord: departments?.[0]
-        ? {
-            id: departments[0].id,
-            name: departments[0].name
-          }
-        : null
+      data: departments
     });
 
     if (error) throw error;
