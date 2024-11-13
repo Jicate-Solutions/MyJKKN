@@ -58,6 +58,12 @@ export async function POST(request: NextRequest) {
     const supabase = createRouteHandlerClient({ cookies });
     const input: CreateApiKeyInput = await request.json();
 
+    // Add these debug logs
+    console.log('Creating API key:', {
+      input,
+      session: await supabase.auth.getSession()
+    });
+
     // Check authentication
     const {
       data: { session },
