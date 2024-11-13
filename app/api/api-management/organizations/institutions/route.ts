@@ -5,7 +5,10 @@ import { createHash } from 'crypto';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({
+      cookies: () => cookieStore
+    });
 
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
@@ -43,6 +46,9 @@ export async function GET(request: NextRequest) {
         : null
     });
 
+    // Check RLS policies
+    console.log('4. Checking RLS policies');
+
     if (keyError || !keyData) {
       return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
     }
@@ -75,6 +81,8 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase.from('institutions').select('*', { count: 'exact' });
 
+    console.log('5. Executing query...');
+
     // Apply filters
     if (search) {
       query = query.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
@@ -92,7 +100,7 @@ export async function GET(request: NextRequest) {
     // Execute query
     const { data: institutions, error, count } = await query;
 
-    console.log('5. Query result:', {
+    console.log('6. Query result:', {
       success: !!institutions,
       error: error?.message,
       count,
@@ -113,12 +121,12 @@ export async function GET(request: NextRequest) {
       .eq('id', keyData.id);
 
     return NextResponse.json({
-      data: institutions,
+      data: institutions || [],
       metadata: {
         total: count || 0,
-        page,
-        limit,
-        totalPages: count ? Math.ceil(count / limit) : 0
+        page: 1,
+        limit: 10,
+        totalPages: count ? Math.ceil(count / 10) : 0
       }
     });
   } catch (error) {
