@@ -2,9 +2,20 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
+import { corsHeaders } from '@/lib/api-keys/cors';
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
 
 export async function GET(request: NextRequest) {
   try {
+    // Add CORS headers to response
+    const response = NextResponse.next();
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
+
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({
       cookies: () => cookieStore
@@ -17,7 +28,7 @@ export async function GET(request: NextRequest) {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'API key is required in Authorization header' },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       );
     }
 
@@ -120,20 +131,23 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    return NextResponse.json({
-      data: institutions || [],
-      metadata: {
-        total: count || 0,
-        page: 1,
-        limit: 10,
-        totalPages: count ? Math.ceil(count / 10) : 0
-      }
-    });
+    return NextResponse.json(
+      {
+        data: institutions || [],
+        metadata: {
+          total: count || 0,
+          page: 1,
+          limit: 10,
+          totalPages: count ? Math.ceil(count / 10) : 0
+        }
+      },
+      { headers: corsHeaders }
+    );
   } catch (error) {
     console.error('Error fetching institutions:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
