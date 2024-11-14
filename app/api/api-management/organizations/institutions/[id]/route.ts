@@ -2,12 +2,19 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
+import { corsHeaders } from '@/lib/api-keys/cors';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    // Add CORS headers to response
+    const response = NextResponse.next();
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
+
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({
       cookies: () => cookieStore
@@ -20,7 +27,7 @@ export async function GET(
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'API key is required in Authorization header' },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       );
     }
 
@@ -50,20 +57,23 @@ export async function GET(
     });
 
     if (keyError || !keyData) {
-      return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401, headers: corsHeaders }
+      );
     }
 
     if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
       return NextResponse.json(
         { error: 'API key has expired' },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       );
     }
 
     if (!keyData.permissions?.read) {
       return NextResponse.json(
         { error: 'API key does not have read permission' },
-        { status: 403 }
+        { status: 403, headers: corsHeaders }
       );
     }
 
@@ -98,7 +108,7 @@ export async function GET(
       if (institutionError.code === 'PGRST116') {
         return NextResponse.json(
           { error: 'Institution not found' },
-          { status: 404 }
+          { status: 404, headers: corsHeaders }
         );
       }
       throw institutionError;
@@ -121,7 +131,7 @@ export async function GET(
     console.error('Error fetching institution:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
