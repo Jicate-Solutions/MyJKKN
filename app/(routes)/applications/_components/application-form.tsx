@@ -398,35 +398,7 @@ export function ApplicationForm({
                 )}
               />
 
-              <div className='space-y-4'>
-                <FormField
-                  control={form.control}
-                  name='data_sensitivity'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Data Sensitivity</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        defaultValue={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder='Select sensitivity level' />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value='public'>Public</SelectItem>
-                          <SelectItem value='restricted'>Restricted</SelectItem>
-                          <SelectItem value='confidential'>
-                            Confidential
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
+              <div>
                 <FormField
                   control={form.control}
                   name='is_active'
@@ -566,24 +538,58 @@ export function ApplicationForm({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Tags</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='Enter tags separated by commas'
-                        value={field.value?.join(', ') || ''}
-                        onChange={(e) => {
-                          const tags = e.target.value
-                            .split(',')
-                            .map((tag) => tag.trim())
-                            .filter((tag) => tag !== '');
-                          field.onChange(tags);
-                        }}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Add relevant tags to help with searching and
-                      categorization
-                    </FormDescription>
-                    <FormMessage />
+                    <div className='space-y-2'>
+                      <FormControl>
+                        <div className='space-y-2'>
+                          <Input
+                            placeholder='Type a tag and press Enter'
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const input = e.currentTarget;
+                                const newTag = input.value.trim();
+                                if (newTag && !field.value?.includes(newTag)) {
+                                  const updatedTags = [
+                                    ...(field.value || []),
+                                    newTag
+                                  ];
+                                  field.onChange(updatedTags);
+                                  input.value = '';
+                                }
+                              }
+                            }}
+                          />
+                          <div className='flex flex-wrap gap-2'>
+                            {field.value?.map((tag, index) => (
+                              <Badge
+                                key={index}
+                                variant='secondary'
+                                className='flex items-center gap-1'
+                              >
+                                {tag}
+                                <button
+                                  type='button'
+                                  onClick={() => {
+                                    const updatedTags = field.value?.filter(
+                                      (_, i) => i !== index
+                                    );
+                                    field.onChange(updatedTags);
+                                  }}
+                                  className='ml-1 hover:text-destructive focus:outline-none'
+                                >
+                                  ×
+                                </button>
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      </FormControl>
+                      <FormDescription>
+                        Type a tag and press Enter to add it. Click × to remove
+                        a tag.
+                      </FormDescription>
+                      <FormMessage />
+                    </div>
                   </FormItem>
                 )}
               />
