@@ -48,10 +48,6 @@ interface ProfileFormProps {
 
 export function ProfileForm({ user, onComplete }: ProfileFormProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedInstitution, setSelectedInstitution] = useState<string>(
-    user.institution || ''
-  );
-
   const supabase = createClientComponentClient<Database>();
 
   const form = useForm<ProfileFormValues>({
@@ -59,18 +55,11 @@ export function ProfileForm({ user, onComplete }: ProfileFormProps) {
     defaultValues: {
       full_name: user.full_name || '',
       phone_number: user.phone_number || '',
-      institution: user.institution || undefined,
-      department: user.department || '',
       gender: user.gender || undefined,
       designation: user.designation || '',
       bio: user.bio || ''
     }
   });
-
-  // Get available departments based on selected institution
-  const availableDepartments = selectedInstitution
-    ? DEPARTMENTS[selectedInstitution as keyof typeof DEPARTMENTS]
-    : [];
 
   // Generate initials for avatar
   const initials = user.full_name
@@ -204,69 +193,6 @@ export function ProfileForm({ user, onComplete }: ProfileFormProps) {
                     <FormDescription>
                       Format: +91XXXXXXXXXX or 10 digits
                     </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Institution */}
-              <FormField
-                control={form.control}
-                name='institution'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Institution</FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        setSelectedInstitution(value);
-                        form.setValue('department', '');
-                      }}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select your institution' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {INSTITUTIONS.map(({ value, label }) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Department */}
-              <FormField
-                control={form.control}
-                name='department'
-                render={({ field: { value, ...fieldProps } }) => (
-                  <FormItem>
-                    <FormLabel>Department</FormLabel>
-                    <Select
-                      value={value || ''}
-                      disabled={!selectedInstitution}
-                      {...fieldProps}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select your department' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {availableDepartments.map((dept) => (
-                          <SelectItem key={dept} value={dept}>
-                            {dept}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

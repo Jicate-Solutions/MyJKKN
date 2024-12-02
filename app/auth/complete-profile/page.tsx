@@ -40,9 +40,7 @@ const completeProfileSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
   phone_number: z
     .string()
-    .regex(/^[0-9+][0-9\s-]{9,14}$/, 'Invalid phone number format'),
-  institution: z.string().min(2, 'Institution is required'),
-  department: z.string().min(2, 'Department is required')
+    .regex(/^[0-9+][0-9\s-]{9,14}$/, 'Invalid phone number format')
 });
 
 type FormData = z.infer<typeof completeProfileSchema>;
@@ -50,7 +48,6 @@ type FormData = z.infer<typeof completeProfileSchema>;
 export default function CompleteProfile() {
   const [isLoading, setIsLoading] = useState(true);
   const [userEmail, setUserEmail] = useState<string>('');
-  const [selectedInstitution, setSelectedInstitution] = useState<string>('');
   const router = useRouter();
   const supabase = createClientComponentClient();
 
@@ -58,9 +55,7 @@ export default function CompleteProfile() {
     resolver: zodResolver(completeProfileSchema),
     defaultValues: {
       full_name: '',
-      phone_number: '',
-      institution: '',
-      department: ''
+      phone_number: ''
     }
   });
 
@@ -125,11 +120,8 @@ export default function CompleteProfile() {
           if (mounted) {
             form.reset({
               full_name: profile.full_name || '',
-              phone_number: profile.phone_number || '',
-              institution: profile.institution || '',
-              department: profile.department || ''
+              phone_number: profile.phone_number || ''
             });
-            setSelectedInstitution(profile.institution || '');
           }
         }
       } catch (error) {
@@ -192,10 +184,6 @@ export default function CompleteProfile() {
     );
   }
 
-  const availableDepartments = selectedInstitution
-    ? DEPARTMENTS[selectedInstitution as keyof typeof DEPARTMENTS] || []
-    : [];
-
   return (
     <div className='min-h-screen flex items-center justify-center bg-background p-4'>
       <Card className='w-full max-w-[500px]'>
@@ -239,67 +227,6 @@ export default function CompleteProfile() {
                     <FormDescription>
                       Include country code (e.g., +91 for India)
                     </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='institution'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Institution</FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        setSelectedInstitution(value);
-                        form.setValue('department', '');
-                      }}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select your institution' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {INSTITUTIONS.map((inst) => (
-                          <SelectItem key={inst.value} value={inst.value}>
-                            {inst.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='department'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Department</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={!selectedInstitution}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select your department' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {availableDepartments.map((dept) => (
-                          <SelectItem key={dept} value={dept}>
-                            {dept}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Profile } from '@/types/auth';
-import { Shield, AlertCircle } from 'lucide-react';
+import { Shield, AlertCircle, ChevronRight, ChevronLeft } from 'lucide-react';
 import { ROLE_LABELS } from '@/lib/constants/profile';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -32,13 +32,28 @@ import {
 } from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
+import { Button } from '@/components/ui/button';
 
 interface RolesListProps {
   users: Profile[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
+  onPageChange: (page: number) => void;
   onRoleUpdate: (userId: string, newRole: string) => Promise<void>;
 }
 
-export function RolesList({ users, onRoleUpdate }: RolesListProps) {
+export function RolesList({
+  users,
+  metadata,
+  onPageChange,
+  onRoleUpdate
+}: RolesListProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState<{
@@ -92,7 +107,7 @@ export function RolesList({ users, onRoleUpdate }: RolesListProps) {
   };
 
   return (
-    <div>
+    <div className='space-y-4'>
       <div className='rounded-md border'>
         <Table>
           <TableHeader>
@@ -104,8 +119,11 @@ export function RolesList({ users, onRoleUpdate }: RolesListProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {users.map((user) => (
+            {users.map((user, index) => (
               <TableRow key={user.id}>
+                <TableCell className='font-medium'>
+                  {(metadata.page - 1) * metadata.limit + index + 1}
+                </TableCell>
                 <TableCell>
                   <div className='flex items-center gap-3'>
                     <Avatar className='h-9 w-9'>
@@ -162,6 +180,72 @@ export function RolesList({ users, onRoleUpdate }: RolesListProps) {
             ))}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Advanced Pagination */}
+      <div className='flex items-center justify-between px-2'>
+        <div className='text-sm text-muted-foreground'>
+          Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
+          {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
+          {metadata.total} entries
+        </div>
+
+        <div className='flex items-center space-x-2'>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(1)}
+            disabled={metadata.page === 1}
+          >
+            First
+          </Button>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(metadata.page - 1)}
+            disabled={!metadata.hasPreviousPage}
+          >
+            <ChevronLeft className='h-4 w-4' />
+            Previous
+          </Button>
+          <div className='flex items-center gap-1'>
+            {[...Array(Math.min(5, metadata.totalPages))].map((_, i) => {
+              const pageNumber = metadata.page + i - 2;
+              if (pageNumber > 0 && pageNumber <= metadata.totalPages) {
+                return (
+                  <Button
+                    key={pageNumber}
+                    variant={
+                      metadata.page === pageNumber ? 'default' : 'outline'
+                    }
+                    size='sm'
+                    onClick={() => onPageChange(pageNumber)}
+                  >
+                    {pageNumber}
+                  </Button>
+                );
+              }
+              return null;
+            })}
+          </div>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(metadata.page + 1)}
+            disabled={!metadata.hasNextPage}
+          >
+            Next
+            <ChevronRight className='h-4 w-4' />
+          </Button>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(metadata.totalPages)}
+            disabled={metadata.page === metadata.totalPages}
+          >
+            Last
+          </Button>
+        </div>
       </div>
 
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>

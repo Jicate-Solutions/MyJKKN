@@ -69,28 +69,6 @@ export function UserFiltersComponent({
           </SelectContent>
         </Select>
 
-        {/* Institution Filter */}
-        <Select
-          value={filters.institution || 'all'}
-          onValueChange={(value) =>
-            onFilterChange({
-              institution: value === 'all' ? undefined : value
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Filter by institution' />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>All Institutions</SelectItem>
-            {INSTITUTIONS.map((inst) => (
-              <SelectItem key={inst.value} value={inst.value}>
-                {inst.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         {/* Status Filter - if you implement user status */}
         <Select
           value={
