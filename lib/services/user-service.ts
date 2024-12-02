@@ -114,6 +114,22 @@ export class UserService {
     }
   }
 
+  static async getUserById(id: string): Promise<Profile | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching user by ID:', error);
+      throw error;
+    }
+  }
+
   static async updateUserRole(userId: string, newRole: string): Promise<void> {
     try {
       const response = await fetch(`/api/users/${userId}/role`, {
@@ -142,23 +158,32 @@ export class UserService {
     }
   }
 
+  // Update the deactivateUser method
   static async deactivateUser(userId: string): Promise<void> {
     try {
-      // This is a placeholder - you'll need to implement user deactivation
-      // based on your requirements
-      const { error } = await this.supabase
-        .from('profiles')
-        .update({
-          is_active: false,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', userId);
+      const response = await fetch(`/api/users/${userId}/deactivate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
 
-      if (error) throw error;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to deactivate user');
+      }
+
+      if (!data.success) {
+        throw new Error('User deactivation failed');
+      }
 
       toast.success('User deactivated successfully');
     } catch (error) {
       console.error('Error deactivating user:', error);
+      const message =
+        error instanceof Error ? error.message : 'Failed to deactivate user';
+      toast.error(message);
       throw error;
     }
   }
