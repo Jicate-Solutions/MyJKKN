@@ -77,14 +77,13 @@ export function UserList({
     try {
       setIsLoading(true);
       await UserService.deactivateUser(userToDeactivate);
-      onRefresh();
-      toast.success('User deactivated successfully');
+      await onRefresh(); // Refresh the user list after deactivation
+      setUserToDeactivate(null);
     } catch (error) {
       console.error('Error deactivating user:', error);
-      toast.error('Failed to deactivate user');
+      // Error is already handled by UserService with toast
     } finally {
       setIsLoading(false);
-      setUserToDeactivate(null);
     }
   };
 
@@ -157,6 +156,14 @@ export function UserList({
                       {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
                     </Badge>
                   </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={user.last_login ? 'success' : 'secondary'}
+                      className='whitespace-nowrap'
+                    >
+                      {user.last_login ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </TableCell>
                   <TableCell>{formatDate(user.created_at)}</TableCell>
                   <TableCell className='text-right'>
                     <DropdownMenu>
@@ -178,15 +185,7 @@ export function UserList({
                             View Details
                           </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/users/${user.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit User
-                          </Link>
-                        </DropdownMenuItem>
+
                         <DropdownMenuItem asChild>
                           <Link
                             href={`/users/${user.id}/permissions`}
@@ -200,9 +199,10 @@ export function UserList({
                         <DropdownMenuItem
                           onClick={() => setUserToDeactivate(user.id)}
                           className='text-destructive focus:text-destructive'
+                          disabled={user.role === 'super_admin'}
                         >
                           <Ban className='mr-2 h-4 w-4' />
-                          Deactivate User
+                          {user.last_login ? 'Deactivate' : 'Activate'} User
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -217,11 +217,11 @@ export function UserList({
       {/* Advanced Pagination */}
       <div className='flex items-center justify-between px-2'>
         <div className='text-sm text-muted-foreground'>
-          Showing {((metadata.page - 1) * metadata.limit) + 1} to{' '}
+          Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
           {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
           {metadata.total} entries
         </div>
-        
+
         <div className='flex items-center space-x-2'>
           <Button
             variant='outline'
@@ -247,7 +247,9 @@ export function UserList({
                 return (
                   <Button
                     key={pageNumber}
-                    variant={metadata.page === pageNumber ? 'default' : 'outline'}
+                    variant={
+                      metadata.page === pageNumber ? 'default' : 'outline'
+                    }
                     size='sm'
                     onClick={() => onPageChange(pageNumber)}
                   >
