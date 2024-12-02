@@ -18,6 +18,8 @@ import {
 import { RolesList } from './_components/roles-list';
 import { UserService } from '@/lib/services/user-service';
 import toast from 'react-hot-toast';
+import { UserFilters } from '@/types/users';
+import { UserFiltersComponent } from '../_components/user-filters';
 
 export default function RolesPage() {
   const router = useRouter();
@@ -25,7 +27,19 @@ export default function RolesPage() {
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [filters, setFilters] = useState<UserFilters>({
+    page: 1,
+    limit: 10
+  });
 
+  const [metadata, setMetadata] = useState({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 0,
+    hasNextPage: false,
+    hasPreviousPage: false
+  });
   // Check super admin access
   useEffect(() => {
     const checkAccess = async () => {
@@ -44,25 +58,36 @@ export default function RolesPage() {
     checkAccess();
   }, [router]);
 
-  // Fetch users
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        setIsLoading(true);
-        const response = await UserService.getUsers();
-        setUsers(response.data);
-      } catch (err) {
-        console.error('Error fetching users:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  // Add filter change handler
+  const handleFilterChange = (newFilters: Partial<UserFilters>) => {
+    setFilters((prev) => ({
+      ...prev,
+      ...newFilters,
+      page: 1 // Reset to first page when filters change
+    }));
+  };
 
+  // Update fetchUsers to use filters
+  const fetchUsers = async () => {
+    try {
+      setIsLoading(true);
+      const response = await UserService.getUsers(filters);
+      setUsers(response.data);
+      setMetadata(response.metadata);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Update useEffect to depend on filters
+  useEffect(() => {
     if (isSuperAdmin) {
       fetchUsers();
     }
-  }, [isSuperAdmin]);
+  }, [isSuperAdmin, filters]);
 
   const handleRoleUpdate = async (userId: string, newRole: string) => {
     try {
@@ -91,6 +116,13 @@ export default function RolesPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handlePageChange = (page: number) => {
+    setFilters((prev) => ({
+      ...prev,
+      page
+    }));
   };
 
   if (!isSuperAdmin) {
@@ -136,6 +168,11 @@ export default function RolesPage() {
 
         <Card>
           <CardContent className='p-6'>
+            <UserFiltersComponent
+              filters={filters}
+              onFilterChange={handleFilterChange}
+            />
+
             {error ? (
               <div className='text-center text-red-500 py-4'>{error}</div>
             ) : isLoading ? (
@@ -143,7 +180,12 @@ export default function RolesPage() {
                 <BeatLoader color='#00e902' />
               </div>
             ) : (
-              <RolesList users={users} onRoleUpdate={handleRoleUpdate} />
+              <RolesList
+                users={users}
+                metadata={metadata}
+                onPageChange={handlePageChange}
+                onRoleUpdate={handleRoleUpdate}
+              />
             )}
           </CardContent>
         </Card>

@@ -28,8 +28,6 @@ export interface Profile {
   email: string;
   full_name: string | null;
   phone_number: string | null;
-  institution: Institution | null;
-  department: Department | null;
   role: UserRole;
   bio: string | null;
   gender: Gender | null;
@@ -45,8 +43,6 @@ export interface Profile {
 export interface ProfileUpdate {
   full_name?: string | null;
   phone_number?: string | null;
-  institution?: Institution | null;
-  department?: Department | null;
   bio?: string | null;
   gender?: Gender | null;
   designation?: string | null;

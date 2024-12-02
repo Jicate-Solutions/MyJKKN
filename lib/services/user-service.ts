@@ -18,10 +18,6 @@ export class UserService {
         query = query.eq('role', filters.role);
       }
 
-      if (filters.institution) {
-        query = query.eq('institution', filters.institution);
-      }
-
       if (filters.search) {
         query = query.or(
           `full_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%`
@@ -41,13 +37,17 @@ export class UserService {
 
       if (error) throw error;
 
+      const totalPages = count ? Math.ceil(count / limit) : 0;
+
       return {
         data: data || [],
         metadata: {
           total: count || 0,
           page,
           limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPreviousPage: page > 1
         }
       };
     } catch (error) {
@@ -60,13 +60,13 @@ export class UserService {
     try {
       const { data, error } = await this.supabase
         .from('profiles')
-        .select('role, institution');
+        .select('role');
 
       if (error) throw error;
 
       const stats: UserStats = {
         total: data.length,
-        active: 0, // You might want to add an is_active field to profiles
+        active: 0,
         inactive: 0,
         byRole: {},
         byInstitution: {}
@@ -74,14 +74,8 @@ export class UserService {
 
       // Calculate stats
       data.forEach((profile) => {
-        // Count by role
+        // Count by role only
         stats.byRole[profile.role] = (stats.byRole[profile.role] || 0) + 1;
-
-        // Count by institution
-        if (profile.institution) {
-          stats.byInstitution[profile.institution] =
-            (stats.byInstitution[profile.institution] || 0) + 1;
-        }
       });
 
       return stats;

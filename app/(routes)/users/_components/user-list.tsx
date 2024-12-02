@@ -55,6 +55,8 @@ interface UserListProps {
     page: number;
     limit: number;
     totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
   };
   onPageChange: (page: number) => void;
   onRefresh: () => void;
@@ -96,38 +98,20 @@ export function UserList({
       : user.email[0].toUpperCase();
   };
 
-  const getInstitutionLabel = (value: string | null) => {
-    if (!value) return 'Not Set';
-    const institution = INSTITUTIONS.find((i) => i.value === value);
-    return institution ? institution.label : value;
-  };
-
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy');
   };
 
   return (
     <div className='space-y-4'>
-      <div className='flex justify-end'>
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={onRefresh}
-          className='ml-auto'
-        >
-          <RefreshCw className='mr-2 h-4 w-4' />
-          Refresh
-        </Button>
-      </div>
-
       <div className='rounded-md border'>
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className='w-16'>S.No</TableHead>
               <TableHead>User</TableHead>
+              <TableHead>Mobile Number</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead>Institution</TableHead>
-              <TableHead>Department</TableHead>
               <TableHead>Joined</TableHead>
               <TableHead className='text-right'>Actions</TableHead>
             </TableRow>
@@ -136,15 +120,18 @@ export function UserList({
             {users.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={7}
                   className='text-center text-muted-foreground'
                 >
                   No users found
                 </TableCell>
               </TableRow>
             ) : (
-              users.map((user) => (
+              users.map((user, index) => (
                 <TableRow key={user.id}>
+                  <TableCell className='font-medium'>
+                    {(metadata.page - 1) * metadata.limit + index + 1}
+                  </TableCell>
                   <TableCell>
                     <div className='flex items-center gap-3'>
                       <Avatar className='h-9 w-9'>
@@ -164,13 +151,12 @@ export function UserList({
                       </div>
                     </div>
                   </TableCell>
+                  <TableCell>{user.phone_number}</TableCell>
                   <TableCell>
                     <Badge variant='secondary'>
                       {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
                     </Badge>
                   </TableCell>
-                  <TableCell>{getInstitutionLabel(user.institution)}</TableCell>
-                  <TableCell>{user.department || 'Not Set'}</TableCell>
                   <TableCell>{formatDate(user.created_at)}</TableCell>
                   <TableCell className='text-right'>
                     <DropdownMenu>
@@ -228,31 +214,69 @@ export function UserList({
         </Table>
       </div>
 
-      {metadata.totalPages > 1 && (
-        <div className='flex items-center justify-center gap-2 py-4'>
+      {/* Advanced Pagination */}
+      <div className='flex items-center justify-between px-2'>
+        <div className='text-sm text-muted-foreground'>
+          Showing {((metadata.page - 1) * metadata.limit) + 1} to{' '}
+          {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
+          {metadata.total} entries
+        </div>
+        
+        <div className='flex items-center space-x-2'>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(1)}
+            disabled={metadata.page === 1}
+          >
+            First
+          </Button>
           <Button
             variant='outline'
             size='sm'
             onClick={() => onPageChange(metadata.page - 1)}
-            disabled={metadata.page <= 1}
+            disabled={!metadata.hasPreviousPage}
           >
             <ChevronLeft className='h-4 w-4' />
             Previous
           </Button>
-          <span className='text-sm text-muted-foreground'>
-            Page {metadata.page} of {metadata.totalPages}
-          </span>
+          <div className='flex items-center gap-1'>
+            {[...Array(Math.min(5, metadata.totalPages))].map((_, i) => {
+              const pageNumber = metadata.page + i - 2;
+              if (pageNumber > 0 && pageNumber <= metadata.totalPages) {
+                return (
+                  <Button
+                    key={pageNumber}
+                    variant={metadata.page === pageNumber ? 'default' : 'outline'}
+                    size='sm'
+                    onClick={() => onPageChange(pageNumber)}
+                  >
+                    {pageNumber}
+                  </Button>
+                );
+              }
+              return null;
+            })}
+          </div>
           <Button
             variant='outline'
             size='sm'
             onClick={() => onPageChange(metadata.page + 1)}
-            disabled={metadata.page >= metadata.totalPages}
+            disabled={!metadata.hasNextPage}
           >
             Next
             <ChevronRight className='h-4 w-4' />
           </Button>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(metadata.totalPages)}
+            disabled={metadata.page === metadata.totalPages}
+          >
+            Last
+          </Button>
         </div>
-      )}
+      </div>
 
       {/* Deactivation Confirmation Dialog */}
       <AlertDialog

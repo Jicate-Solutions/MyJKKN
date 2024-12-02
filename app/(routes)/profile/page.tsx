@@ -139,9 +139,6 @@ export default function ProfilePage() {
                         <Badge variant='secondary'>
                           {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
                         </Badge>
-                        {user.department && (
-                          <Badge variant='outline'>{user.department}</Badge>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -174,22 +171,29 @@ export default function ProfilePage() {
 
                   <Separator />
 
-                  {/* Academic Information */}
+                  {/* Contact Information */}
                   <div>
                     <h3 className='text-lg font-semibold mb-4'>
-                      Academic Information
+                      Personal Information
                     </h3>
                     <div className='grid gap-4 md:grid-cols-2'>
                       <div className='flex items-center gap-2 text-muted-foreground'>
-                        <Building2 className='h-4 w-4 shrink-0' />
+                        <User2 className='h-4 w-4 shrink-0' />
                         <span className='truncate'>
-                          {getInstitutionLabel(user.institution)}
+                          Gender: {user.gender || 'No gender set'}
                         </span>
                       </div>
                       <div className='flex items-center gap-2 text-muted-foreground'>
-                        <BookOpen className='h-4 w-4 shrink-0' />
-                        <span>{user.department || 'No department set'}</span>
+                        <Building2 className='h-4 w-4 shrink-0' />
+                        <span>
+                          Designation:{' '}
+                          {user.designation || 'No designation set'}
+                        </span>
                       </div>
+                    </div>
+                    <div className='flex items-center gap-2 text-muted-foreground mt-6'>
+                      <BookOpen className='h-4 w-4 shrink-0' />
+                      <span>Bio: {user.bio || 'No bio set'}</span>
                     </div>
                   </div>
 
