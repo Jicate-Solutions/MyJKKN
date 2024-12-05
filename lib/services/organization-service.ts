@@ -4,95 +4,35 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { toast } from 'react-hot-toast';
 import type {
   Institution,
-  Department,
   CreateInstitutionDto,
   UpdateInstitutionDto,
-  CreateDepartmentDto,
-  UpdateDepartmentDto,
   InstitutionFilters,
-  DepartmentFilters,
-  OrganizationListResponse,
-  InstitutionWithDepartments,
-  DepartmentWithInstitution
+  OrganizationListResponse
 } from '@/types/organizations';
+import { StorageService } from '../storage/storage-service';
 
 export class OrganizationService {
   private static supabase = createClientComponentClient();
 
-  // Institution Methods
-  static async getInstitutions(
-    filters: InstitutionFilters = {}
-  ): Promise<OrganizationListResponse<Institution>> {
+  static async checkCodeExists(counsellingCode: string, excludeId?: string): Promise<boolean> {
     try {
       let query = this.supabase
         .from('institutions')
-        .select('*', { count: 'exact' });
-
-      // Apply filters
-      if (filters.search) {
-        query = query.or(
-          `name.ilike.%${filters.search}%,code.ilike.%${filters.search}%`
-        );
+        .select('id')
+        .or(`counselling_code.eq.${counsellingCode.toUpperCase()},name.ilike.${counsellingCode}`);
+      
+      // If excludeId is provided (for editing), exclude that institution
+      if (excludeId) {
+        query = query.neq('id', excludeId);
       }
 
-      if (filters.isActive !== undefined) {
-        query = query.eq('is_active', filters.isActive);
-      }
-
-      // Apply pagination
-      const page = filters.page || 1;
-      const limit = filters.limit || 10;
-      const start = (page - 1) * limit;
-      const end = start + limit - 1;
-
-      query = query.range(start, end).order('created_at', { ascending: false });
-
-      const { data, error, count } = await query;
+      const { data, error } = await query.maybeSingle();
 
       if (error) throw error;
-
-      return {
-        data: data || [],
-        metadata: {
-          total: count || 0,
-          page,
-          limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
-        }
-      };
+      return !!data;
     } catch (error) {
-      console.error('Error fetching institutions:', error);
-      throw error;
-    }
-  }
-
-  static async getInstitutionWithDepartments(
-    id: string
-  ): Promise<InstitutionWithDepartments | null> {
-    try {
-      const { data: institution, error: institutionError } = await this.supabase
-        .from('institutions')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (institutionError) throw institutionError;
-
-      const { data: departments, error: departmentsError } = await this.supabase
-        .from('departments')
-        .select('*')
-        .eq('institution_id', id)
-        .order('name');
-
-      if (departmentsError) throw departmentsError;
-
-      return {
-        ...institution,
-        departments: departments || []
-      };
-    } catch (error) {
-      console.error('Error fetching institution with departments:', error);
-      return null;
+      console.error('Error checking institution code/name:', error);
+      return false;
     }
   }
 
@@ -100,33 +40,62 @@ export class OrganizationService {
     data: CreateInstitutionDto
   ): Promise<Institution> {
     try {
-      // First check if institution with same code exists
-      const { data: existing } = await this.supabase
+      // First create the institution record
+      const { data: institution, error: institutionError } = await this.supabase
         .from('institutions')
-        .select('id, code')
-        .eq('code', data.code)
-        .maybeSingle();
-
-      if (existing) {
-        throw new Error(`Institution with code "${data.code}" already exists`);
-      }
-
-      const { data: institution, error } = await this.supabase
-        .from('institutions')
-        .insert([data])
+        .insert([
+          {
+            name: data.name,
+            counselling_code: data.counselling_code,
+            institution_type: data.institution_type,
+            category: data.category,
+            accredited_by: data.accredited_by,
+            address_line1: data.address_line1,
+            address_line2: data.address_line2,
+            address_line3: data.address_line3,
+            city: data.city,
+            state: data.state,
+            country: data.country,
+            pin_code: data.pin_code,
+            email: data.email,
+            phone: data.phone,
+            website: data.website,
+            logo_url: data.logo_url,
+            is_active: data.is_active
+          }
+        ])
         .select()
         .single();
 
-      if (error) {
-        if (error.code === '23505') {
+      if (institutionError) {
+        if (institutionError.code === '23505') {
           throw new Error(
-            `Institution with code "${data.code}" already exists`
+            `Institution code "${data.counselling_code}" already exists`
           );
         }
-        throw error;
+        throw institutionError;
       }
 
-      toast.success('Institution created successfully');
+      // Only create department contacts if they exist and have data
+      if (data.departments) {
+        const departmentPromises = Object.entries(data.departments)
+          .filter(([_, contact]) => contact && contact.contact_name) // Only process departments with data
+          .map(([type, contact]) => {
+            return this.supabase.from('institution_departments').insert({
+              institution_id: institution.id,
+              department_type: type,
+              contact_name: contact.contact_name,
+              designation: contact.designation,
+              email: contact.email,
+              mobile: contact.mobile
+            });
+          });
+
+        if (departmentPromises.length > 0) {
+          await Promise.all(departmentPromises);
+        }
+      }
+
       return institution;
     } catch (error) {
       console.error('Error creating institution:', error);
@@ -137,129 +106,158 @@ export class OrganizationService {
     }
   }
 
-  // Add method to check if code exists
-  static async checkCodeExists(code: string): Promise<boolean> {
-    try {
-      const { data, error } = await this.supabase
-        .from('institutions')
-        .select('id')
-        .eq('code', code)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      return !!data;
-    } catch (error) {
-      console.error('Error checking institution code:', error);
-      return false;
-    }
-  }
-
   static async updateInstitution(
     id: string,
     data: UpdateInstitutionDto
   ): Promise<Institution> {
     try {
-      const { data: institution, error } = await this.supabase
+      // Update institution record
+      const { data: institution, error: institutionError } = await this.supabase
         .from('institutions')
-        .update(data)
+        .update({
+          name: data.name,
+          counselling_code: data.counselling_code,
+          institution_type: data.institution_type,
+          category: data.category,
+          accredited_by: data.accredited_by,
+          address_line1: data.address_line1,
+          address_line2: data.address_line2,
+          address_line3: data.address_line3,
+          city: data.city,
+          state: data.state,
+          country: data.country,
+          pin_code: data.pin_code,
+          email: data.email,
+          phone: data.phone,
+          website: data.website,
+          logo_url: data.logo_url,
+          is_active: data.is_active,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', id)
         .select()
         .single();
 
-      if (error) throw error;
+      if (institutionError) throw institutionError;
 
-      toast.success('Institution updated successfully');
+      // Update department contacts if provided
+      if (data.departments) {
+        // First delete existing departments
+        await this.supabase
+          .from('institution_departments')
+          .delete()
+          .eq('institution_id', id);
+
+        // Then create new ones if they have data
+        const departmentPromises = Object.entries(data.departments)
+          .filter(([_, contact]) => contact && contact.contact_name)
+          .map(([type, contact]) => {
+            return this.supabase.from('institution_departments').insert({
+              institution_id: id,
+              department_type: type,
+              contact_name: contact.contact_name,
+              designation: contact.designation,
+              email: contact.email,
+              mobile: contact.mobile
+            });
+          });
+
+        if (departmentPromises.length > 0) {
+          await Promise.all(departmentPromises);
+        }
+      }
+
       return institution;
     } catch (error) {
       console.error('Error updating institution:', error);
+      const message =
+        error instanceof Error ? error.message : 'Failed to update institution';
+      toast.error(message);
       throw error;
     }
   }
 
   static async deleteInstitution(id: string): Promise<void> {
     try {
-      // First check if the institution exists
-      const { data: institution, error: checkError } = await this.supabase
+      // Get institution logo URL first
+      const { data: institution } = await this.supabase
         .from('institutions')
-        .select('name')
+        .select('logo_url')
         .eq('id', id)
         .single();
 
-      if (checkError) {
-        throw new Error('Institution not found');
+      // Delete the logo if exists
+      if (institution?.logo_url) {
+        await StorageService.deleteInstitutionLogo(id);
       }
 
-      // Delete the institution (departments will be automatically deleted due to CASCADE)
-      const { error: deleteError } = await this.supabase
+      // Delete the institution (departments will be deleted via cascade)
+      const { error } = await this.supabase
         .from('institutions')
         .delete()
         .eq('id', id);
 
-      if (deleteError) {
-        console.error('Delete error:', deleteError);
-        throw new Error(deleteError.message || 'Failed to delete institution');
-      }
+      if (error) throw error;
 
-      toast.success('Institution deleted successfully');
+      // Return void explicitly
+      return;
     } catch (error) {
       console.error('Error deleting institution:', error);
-      const message =
-        error instanceof Error ? error.message : 'Failed to delete institution';
-      toast.error(message);
       throw error;
     }
   }
 
-  // Department Methods
-  static async getDepartments(
-    filters: DepartmentFilters = {}
-  ): Promise<OrganizationListResponse<Department>> {
+  private static transformDepartments(departments: any[]): Record<string, any> {
+    const transformedDepartments: Record<string, any> = {};
+
+    departments.forEach((dept) => {
+      transformedDepartments[dept.department_type] = {
+        contact_name: dept.contact_name,
+        designation: dept.designation,
+        email: dept.email,
+        mobile: dept.mobile
+      };
+    });
+
+    return transformedDepartments;
+  }
+
+  static async getInstitutions(
+    filters: InstitutionFilters = {}
+  ): Promise<OrganizationListResponse<Institution>> {
     try {
-      let query = this.supabase.from('departments').select(
-        `
-        *,
-        institution:institutions (
-          id,
-          name,
-          code
-        )
-      `,
-        { count: 'exact' }
-      );
+      let query = this.supabase
+        .from('institutions')
+        .select('*', { count: 'exact' });
 
-      if (filters.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-
+      // Apply search filter
       if (filters.search) {
         query = query.or(
-          `name.ilike.%${filters.search}%,code.ilike.%${filters.search}%`
+          `name.ilike.%${filters.search}%,counselling_code.ilike.%${filters.search}%`
         );
       }
 
-      if (filters.status) {
-        query = query.eq('status', filters.status);
-      }
-
+      // Apply active status filter
       if (filters.isActive !== undefined) {
         query = query.eq('is_active', filters.isActive);
       }
 
-      // Apply pagination
+      // Calculate pagination
       const page = filters.page || 1;
       const limit = filters.limit || 10;
-      const start = (page - 1) * limit;
-      const end = start + limit - 1;
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
 
-      query = query.range(start, end).order('name');
+      // Apply pagination
+      query = query.range(from, to).order('created_at', { ascending: false });
 
-      const { data, error, count } = await query;
+      // Execute query
+      const { data: institutions, error, count } = await query;
 
       if (error) throw error;
 
       return {
-        data: data || [],
+        data: institutions || [],
         metadata: {
           total: count || 0,
           page,
@@ -268,102 +266,69 @@ export class OrganizationService {
         }
       };
     } catch (error) {
-      console.error('Error fetching departments:', error);
+      console.error('Error in getInstitutions:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to fetch institutions'
+      );
       throw error;
     }
   }
 
-  static async getDepartmentById(
-    id: string
-  ): Promise<DepartmentWithInstitution | null> {
+  static async getInstitution(id: string): Promise<{
+    institution: Institution;
+    departments: Record<string, any>;
+  }> {
     try {
-      const { data, error } = await this.supabase
-        .from('departments')
-        .select(
-          `
-          *,
-          institution:institutions(id, name, code)
-        `
-        )
+      // Fetch institution
+      const { data: institution, error: institutionError } = await this.supabase
+        .from('institutions')
+        .select('*')
         .eq('id', id)
         .single();
 
-      if (error) throw error;
-      return data;
+      if (institutionError) throw institutionError;
+
+      // Fetch department contacts
+      const { data: departments, error: departmentsError } = await this.supabase
+        .from('institution_departments')
+        .select('*')
+        .eq('institution_id', id);
+
+      if (departmentsError) throw departmentsError;
+
+      // Transform departments into expected format
+      const transformedDepartments = this.transformDepartments(departments);
+
+      return {
+        institution,
+        departments: transformedDepartments
+      };
     } catch (error) {
-      console.error('Error fetching department:', error);
-      return null;
+      console.error('Error fetching institution:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to fetch institution'
+      );
+      throw error;
     }
   }
 
-  static async createDepartment(
-    data: CreateDepartmentDto
-  ): Promise<Department> {
+  static async getInstitutionNames(isActive?: boolean): Promise<{ id: string; name: string; counselling_code: string; }[]> {
     try {
-      // Check if department code already exists in the same institution
-      const { data: existing } = await this.supabase
-        .from('departments')
-        .select('id')
-        .eq('institution_id', data.institution_id)
-        .eq('code', data.code)
-        .maybeSingle();
+      let query = this.supabase
+        .from('institutions')
+        .select('id, name, counselling_code');
 
-      if (existing) {
-        throw new Error(
-          `Department code "${data.code}" already exists in this institution`
-        );
+      if (isActive !== undefined) {
+        query = query.eq('is_active', isActive);
       }
 
-      const { data: department, error } = await this.supabase
-        .from('departments')
-        .insert([data])
-        .select()
-        .single();
+      const { data, error } = await query.order('name');
 
       if (error) throw error;
 
-      toast.success('Department created successfully');
-      return department;
+      return data || [];
     } catch (error) {
-      console.error('Error creating department:', error);
-      throw error;
-    }
-  }
-
-  static async updateDepartment(
-    id: string,
-    data: UpdateDepartmentDto
-  ): Promise<Department> {
-    try {
-      const { data: department, error } = await this.supabase
-        .from('departments')
-        .update(data)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      toast.success('Department updated successfully');
-      return department;
-    } catch (error) {
-      console.error('Error updating department:', error);
-      throw error;
-    }
-  }
-
-  static async deleteDepartment(id: string): Promise<void> {
-    try {
-      const { error } = await this.supabase
-        .from('departments')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-
-      toast.success('Department deleted successfully');
-    } catch (error) {
-      console.error('Error deleting department:', error);
+      console.error('Error fetching institution names:', error);
       throw error;
     }
   }

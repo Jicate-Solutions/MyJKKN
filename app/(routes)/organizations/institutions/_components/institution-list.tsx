@@ -109,7 +109,7 @@ export function InstitutionList({
           <TableHeader>
             <TableRow>
               <TableHead>Code</TableHead>
-              <TableHead>Name</TableHead>
+              <TableHead>Institution Name</TableHead>
               <TableHead>Contact</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created</TableHead>
@@ -135,7 +135,7 @@ export function InstitutionList({
                       className='flex items-center hover:text-primary'
                     >
                       <Building2 className='mr-2 h-4 w-4' />
-                      {institution.code}
+                      {institution.counselling_code}
                     </Link>
                   </TableCell>
                   <TableCell>{institution.name}</TableCell>
@@ -173,11 +173,11 @@ export function InstitutionList({
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
                         <DropdownMenuItem asChild>
                           <Link
-                            href={`/organizations/institutions/${institution.id}/departments`}
+                            href={`/organizations/institutions/${institution.id}`}
                             className='cursor-pointer'
                           >
                             <Building2 className='mr-2 h-4 w-4' />
-                            View Departments
+                            View Details
                           </Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem asChild>

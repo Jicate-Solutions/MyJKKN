@@ -2,7 +2,7 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   images: {
-    domains: ['https://lhaveojlrsahqfevulla.supabase.co']
+    domains: ['kvizhngldtiuufknvehv.supabase.co']
   },
   typescript: {
     ignoreBuildErrors: true

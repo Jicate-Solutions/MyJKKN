@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TestEndpoint } from './test-endpoint';
-import { OrganizationApiDocs } from './organization-api-docs';
+import { OrganizationApiDocs } from '@/components/api-documentation/organization-api-docs';
 
 interface TestResponse {
   status: string;

@@ -1,29 +1,38 @@
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Database } from '@/types/auth';
 
-const AVATAR_BUCKET = 'avatars';
+const BUCKETS = {
+  AVATARS: 'avatars',
+  LOGOS: 'institution-logos'
+} as const;
+
 const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 export class StorageService {
   private static supabase = createClientComponentClient<Database>();
 
+  private static async validateFile(file: File): Promise<void> {
+    // Validate file type
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      throw new Error(
+        'Invalid file type. Please upload a JPEG, PNG or GIF image.'
+      );
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error('File size must be less than 5MB');
+    }
+  }
+
+  // Avatar methods remain the same
   static async uploadAvatar(file: File): Promise<{
     publicUrl: string | null;
     error: Error | null;
   }> {
     try {
-      // Validate file type
-      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-        throw new Error(
-          'Invalid file type. Please upload a JPEG, PNG or GIF image.'
-        );
-      }
-
-      // Validate file size
-      if (file.size > MAX_FILE_SIZE) {
-        throw new Error('File size must be less than 5MB');
-      }
+      await this.validateFile(file);
 
       const {
         data: { session },
@@ -34,30 +43,25 @@ export class StorageService {
         throw new Error('Authentication required');
       }
 
-      // Delete existing avatar first
       await this.deleteOldAvatar(session.user.id);
 
-      // Create unique filename
       const fileExt = file.name.split('.').pop()?.toLowerCase();
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `${session.user.id}/${fileName}`;
 
-      // Upload the file
       const { error: uploadError } = await this.supabase.storage
-        .from(AVATAR_BUCKET)
+        .from(BUCKETS.AVATARS)
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: true // Changed to true to handle existing files
+          upsert: true
         });
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
       const { data: urlData } = this.supabase.storage
-        .from(AVATAR_BUCKET)
+        .from(BUCKETS.AVATARS)
         .getPublicUrl(filePath);
 
-      // Update profile with new avatar URL
       const { error: updateError } = await this.supabase
         .from('profiles')
         .update({
@@ -83,15 +87,13 @@ export class StorageService {
 
   private static async deleteOldAvatar(userId: string): Promise<void> {
     try {
-      // List existing files
       const { data: existingFiles } = await this.supabase.storage
-        .from(AVATAR_BUCKET)
+        .from(BUCKETS.AVATARS)
         .list(`${userId}`);
 
       if (existingFiles && existingFiles.length > 0) {
-        // Delete all existing files in user's folder
         const filesToRemove = existingFiles.map((f) => `${userId}/${f.name}`);
-        await this.supabase.storage.from(AVATAR_BUCKET).remove(filesToRemove);
+        await this.supabase.storage.from(BUCKETS.AVATARS).remove(filesToRemove);
       }
     } catch (error) {
       console.error('Error deleting old avatar:', error);
@@ -102,7 +104,6 @@ export class StorageService {
     try {
       await this.deleteOldAvatar(userId);
 
-      // Update profile
       const { error: updateError } = await this.supabase
         .from('profiles')
         .update({
@@ -116,6 +117,91 @@ export class StorageService {
       return { error: null };
     } catch (error) {
       console.error('Error deleting avatar:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  // New methods for institution logos
+  static async uploadInstitutionLogo(
+    file: File,
+    institutionId: string
+  ): Promise<{
+    publicUrl: string | null;
+    error: Error | null;
+  }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { session },
+        error: sessionError
+      } = await this.supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        throw new Error('Authentication required');
+      }
+
+      await this.deleteOldInstitutionLogo(institutionId);
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${institutionId}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.LOGOS)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.LOGOS)
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading institution logo:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  private static async deleteOldInstitutionLogo(
+    institutionId: string
+  ): Promise<void> {
+    try {
+      const { data: existingFiles } = await this.supabase.storage
+        .from(BUCKETS.LOGOS)
+        .list(`${institutionId}`);
+
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map(
+          (f) => `${institutionId}/${f.name}`
+        );
+        await this.supabase.storage.from(BUCKETS.LOGOS).remove(filesToRemove);
+      }
+    } catch (error) {
+      console.error('Error deleting old institution logo:', error);
+    }
+  }
+
+  static async deleteInstitutionLogo(
+    institutionId: string
+  ): Promise<{ error: Error | null }> {
+    try {
+      await this.deleteOldInstitutionLogo(institutionId);
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting institution logo:', error);
       return {
         error: error instanceof Error ? error : new Error('Delete failed')
       };

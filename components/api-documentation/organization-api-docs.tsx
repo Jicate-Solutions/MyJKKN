@@ -94,6 +94,35 @@ const endpoints = [
 })
 .then(response => response.json())
 .then(data => console.log(data));`
+  },
+  {
+    method: 'GET',
+    path: '/api/api-management/organizations/institutions/names',
+    description: 'Get list of institution names',
+    queryParams: [
+      { name: 'isActive', type: 'boolean', description: 'Filter by active status (optional)' }
+    ],
+    example: `fetch('https://myjkkn.ac.in/api/api-management/organizations/institutions/names', {
+  headers: {
+    'Authorization': 'Bearer YOUR_API_KEY'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));`,
+    response: `{
+  "data": [
+    {
+      "id": "123",
+      "name": "JKKN College of Engineering",
+      "counselling_code": "JKKN001"
+    },
+    {
+      "id": "124",
+      "name": "JKKN College of Pharmacy",
+      "counselling_code": "JKKN002"
+    }
+  ]
+}`
   }
 ];
 
