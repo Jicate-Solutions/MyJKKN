@@ -232,3 +232,67 @@ export interface ProgramListResponse {
     totalPages: number;
   };
 }
+
+export interface Course {
+  id: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  course_code: string;
+  course_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  degree?: {
+    id: string;
+    degree_name: string;
+  };
+  department?: {
+    id: string;
+    department_name: string;
+  };
+  program?: {
+    id: string;
+    program_name: string;
+  };
+}
+
+export interface CreateCourseDto {
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  course_code: string;
+  course_name: string;
+  is_active?: boolean;
+}
+
+export interface UpdateCourseDto extends Partial<CreateCourseDto> {}
+
+export interface CourseFilters {
+  search?: string;
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface CourseListResponse {
+  data: Course[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}

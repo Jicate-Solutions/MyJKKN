@@ -204,3 +204,70 @@ CREATE OR REPLACE TRIGGER set_updated_at
     BEFORE UPDATE ON programs
     FOR EACH ROW
 EXECUTE FUNCTION moddatetime('updated_at');
+
+
+-- Create courses table
+CREATE TABLE IF NOT EXISTS public.courses (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
+    degree_id UUID REFERENCES degrees(id) ON DELETE CASCADE,
+    department_id UUID REFERENCES departments(id) ON DELETE CASCADE,
+    program_id UUID REFERENCES programs(id) ON DELETE CASCADE,
+    course_code TEXT NOT NULL,
+    course_name TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    UNIQUE(institution_id, course_code)
+);
+
+-- Create RLS policies
+ALTER TABLE public.courses ENABLE ROW LEVEL SECURITY;
+
+-- Policy for selecting courses
+CREATE POLICY "Select courses for authenticated users" ON public.courses
+    FOR SELECT
+    USING (auth.role() = 'authenticated');
+
+-- Policy for inserting courses
+CREATE POLICY "Insert courses for authorized users" ON public.courses
+    FOR INSERT
+    WITH CHECK (
+        auth.role() = 'authenticated' AND 
+        EXISTS (
+            SELECT 1 FROM profiles 
+            WHERE id = auth.uid() AND 
+            role IN ('administrator', 'super_admin')
+        )
+    );
+
+-- Policy for updating courses
+CREATE POLICY "Update courses for authorized users" ON public.courses
+    FOR UPDATE
+    USING (
+        auth.role() = 'authenticated' AND 
+        EXISTS (
+            SELECT 1 FROM profiles 
+            WHERE id = auth.uid() AND 
+            role IN ('administrator', 'super_admin')
+        )
+    );
+
+-- Policy for deleting courses
+CREATE POLICY "Delete courses for authorized users" ON public.courses
+    FOR DELETE
+    USING (
+        auth.role() = 'authenticated' AND 
+        EXISTS (
+            SELECT 1 FROM profiles 
+            WHERE id = auth.uid() AND 
+            role IN ('administrator', 'super_admin')
+        )
+    );
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_courses_institution ON public.courses(institution_id);
+CREATE INDEX IF NOT EXISTS idx_courses_degree ON public.courses(degree_id);
+CREATE INDEX IF NOT EXISTS idx_courses_department ON public.courses(department_id);
+CREATE INDEX IF NOT EXISTS idx_courses_program ON public.courses(program_id);
+CREATE INDEX IF NOT EXISTS idx_courses_code ON public.courses(course_code);

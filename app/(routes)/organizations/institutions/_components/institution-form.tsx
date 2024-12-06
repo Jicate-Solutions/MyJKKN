@@ -132,7 +132,7 @@ export function InstitutionForm({
     const checkDuplicate = async (value: string, field: string) => {
       if (!value || (isEditing && field === 'counselling_code')) return;
       const exists = await OrganizationService.checkCodeExists(
-        value, 
+        value,
         isEditing ? institution?.id : undefined
       );
       setCodeExists(exists);
@@ -141,7 +141,8 @@ export function InstitutionForm({
     const subscription = form.watch((value, { name }) => {
       const fieldValue = value[name as keyof FormValues];
       if (
-        ((name === 'counselling_code' || name === 'name') && fieldValue) &&
+        (name === 'counselling_code' || name === 'name') &&
+        fieldValue &&
         typeof fieldValue === 'string'
       ) {
         checkDuplicate(fieldValue, name);
@@ -157,7 +158,7 @@ export function InstitutionForm({
         toast.error('An institution with this code or name already exists');
         return;
       }
-      
+
       setIsSubmitting(true);
 
       if (isEditing && institution) {
@@ -217,7 +218,6 @@ export function InstitutionForm({
                         onChange={(e) =>
                           field.onChange(e.target.value.toUpperCase())
                         }
-                        disabled={isEditing} // Prevent editing code after creation
                       />
                     </FormControl>
                     <FormMessage />

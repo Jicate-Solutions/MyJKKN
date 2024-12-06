@@ -159,7 +159,6 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                         onChange={(e) =>
                           field.onChange(e.target.value.toUpperCase())
                         }
-                        disabled={isEditing}
                       />
                     </FormControl>
                     <FormDescription>
