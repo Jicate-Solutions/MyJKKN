@@ -134,3 +134,73 @@ comment on column public.departments.institution_id is 'Reference to the institu
 comment on column public.departments.degree_id is 'Reference to the degree program';
 comment on column public.departments.department_code is 'Unique code for the department within an institution';
 comment on column public.departments.department_name is 'Full name of the department';
+
+
+-- First create the extension if not exists
+create extension if not exists moddatetime;
+
+-- Create programs table
+create table programs (
+  id uuid default uuid_generate_v4() primary key,
+  institution_id uuid references institutions(id) on delete cascade,
+  degree_id uuid references degrees(id) on delete cascade, 
+  department_id uuid references departments(id) on delete cascade,
+  program_id text not null,
+  program_name text not null,
+  is_active boolean default true,
+  created_by uuid references auth.users(id),
+  created_at timestamp with time zone default timezone('utc'::text, now()),
+  updated_at timestamp with time zone default timezone('utc'::text, now()),
+  unique(institution_id, program_id)
+);
+
+-- Enable RLS
+alter table programs enable row level security;
+
+-- Create policies
+-- Allow admins to do everything
+create policy "Admins can do everything" on programs to authenticated
+using (
+  auth.jwt() ->> 'email' in (
+    select email from profiles 
+    where role in ('super_admin', 'administrator')
+  )
+)
+with check (
+  auth.jwt() ->> 'email' in (
+    select email from profiles 
+    where role in ('super_admin', 'administrator')
+  )
+);
+
+-- Allow read access for all authenticated users
+create policy "Authenticated users can view" on programs
+for select to authenticated using (true);
+
+-- Allow users to create/update programs if they have edit access
+create policy "Users can create/update programs" on programs
+for all to authenticated
+using (
+  auth.jwt() ->> 'email' in (
+    select email from profiles 
+    where role in ('super_admin', 'administrator', 'faculty')
+  )
+) 
+with check (
+  auth.jwt() ->> 'email' in (
+    select email from profiles 
+    where role in ('super_admin', 'administrator', 'faculty')
+  )
+);
+
+-- Create indexes
+create index programs_institution_id_idx on programs(institution_id);
+create index programs_degree_id_idx on programs(degree_id);
+create index programs_department_id_idx on programs(department_id);
+create index programs_program_id_idx on programs(program_id);
+
+-- Create the correct trigger
+CREATE OR REPLACE TRIGGER set_updated_at
+    BEFORE UPDATE ON programs
+    FOR EACH ROW
+EXECUTE FUNCTION moddatetime('updated_at');

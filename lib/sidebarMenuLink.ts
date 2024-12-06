@@ -178,6 +178,20 @@ export function GetPages(pathname: string): Group[] {
           active: pathname.startsWith('/organizations/departments'),
           icon: MdLocalFireDepartment,
           submenus: []
+        },
+        {
+          href: '/organizations/programs',
+          label: 'Programs',
+          active: pathname.startsWith('/organizations/programs'),
+          icon: GraduationCap,
+          submenus: []
+        },
+        {
+          href: '/organizations/courses',
+          label: 'Courses',
+          active: pathname.startsWith('/organizations/courses'),
+          icon: BookOpen,
+          submenus: []
         }
       ]
     },
