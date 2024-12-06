@@ -73,11 +73,12 @@ export async function GET(request: NextRequest) {
     const search = url.searchParams.get('search');
     const institutionId = url.searchParams.get('institution_id');
     const degreeId = url.searchParams.get('degree_id');
+    const departmentId = url.searchParams.get('department_id');
     const isActive = url.searchParams.get('isActive');
 
     // First, let's check if there are any departments at all
     const { count: totalCount, error: countError } = await supabase
-      .from('departments')
+      .from('programs')
       .select(
         `
         *,
@@ -90,12 +91,19 @@ export async function GET(request: NextRequest) {
           id,
           degree_id,
           degree_name
+        ),
+        department:departments (
+          id,
+          department_code,
+          department_name
         )
       `,
-        { count: 'exact', head: true }
+        { count: 'exact' }
       );
 
-    let query = supabase.from('departments').select(
+    // Build query
+
+    let query = supabase.from('programs').select(
       `
       *,
       institution:institutions (
@@ -107,6 +115,11 @@ export async function GET(request: NextRequest) {
         id,
         degree_id,
         degree_name
+      ),
+      department:departments (
+        id,
+        department_code,
+        department_name
       )
     `,
       { count: 'exact' }
@@ -115,7 +128,7 @@ export async function GET(request: NextRequest) {
     // Apply filters
     if (search) {
       query = query.or(
-        `department_code.ilike.%${search}%,department_name.ilike.%${search}%`
+        `program_id.ilike.%${search}%,program_name.ilike.%${search}%`
       );
     }
 
@@ -125,6 +138,10 @@ export async function GET(request: NextRequest) {
 
     if (degreeId) {
       query = query.eq('degree_id', degreeId);
+    }
+
+    if (departmentId) {
+      query = query.eq('department_id', departmentId);
     }
 
     if (isActive !== null) {
@@ -138,7 +155,7 @@ export async function GET(request: NextRequest) {
     query = query.range(from, to).order('created_at', { ascending: false });
 
     // Execute query
-    const { data: departments, error, count } = await query;
+    const { data: programs, error, count } = await query;
 
     if (error) throw error;
 
@@ -149,7 +166,7 @@ export async function GET(request: NextRequest) {
       .eq('id', keyData.id);
 
     return NextResponse.json({
-      data: departments || [],
+      data: programs || [],
       metadata: {
         total: count || 0,
         page,
@@ -158,7 +175,7 @@ export async function GET(request: NextRequest) {
       }
     });
   } catch (error) {
-    console.error('Error fetching departments:', error);
+    console.error('Error fetching programs:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: corsHeaders }

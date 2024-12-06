@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { corsHeaders } from '@/lib/api-keys/cors';
 
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -20,7 +23,7 @@ export async function GET(
       cookies: () => cookieStore
     });
 
-    // Get API key from Authorization header
+    // Get and verify API key
     const authHeader = request.headers.get('authorization');
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -62,9 +65,9 @@ export async function GET(
       );
     }
 
-    // Get institution with departments
-    const { data: degrees, error: degreesError } = await supabase
-      .from('degrees')
+    // Get department with institution details
+    const { data: program, error: programError } = await supabase
+      .from('programs')
       .select(
         `
         *,
@@ -72,35 +75,41 @@ export async function GET(
           id,
           name,
           counselling_code
+        ),
+        degree:degrees (
+          id,
+          degree_id,
+          degree_name
+        ),
+        department:departments (
+          id,
+          department_code,
+          department_name
         )
       `
       )
       .eq('id', params.id)
       .single();
 
-    if (degreesError) {
-      if (degreesError.code === 'PGRST116') {
+    if (programError) {
+      if (programError.code === 'PGRST116') {
         return NextResponse.json(
-          { error: 'Degree not found' },
+          { error: 'Program not found' },
           { status: 404, headers: corsHeaders }
         );
       }
-      throw degreesError;
+      throw programError;
     }
 
     // Update last used timestamp
-    const { error: updateError } = await supabase
+    await supabase
       .from('api_keys')
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    if (updateError) {
-      console.error('Error updating last used timestamp:', updateError);
-    }
-
-    return NextResponse.json(degrees);
+    return NextResponse.json(program);
   } catch (error) {
-    console.error('Error fetching degree:', error);
+    console.error('Error fetching program:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: corsHeaders }
