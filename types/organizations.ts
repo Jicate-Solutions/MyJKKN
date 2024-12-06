@@ -66,3 +66,54 @@ export interface OrganizationListResponse<T> {
     totalPages: number;
   };
 }
+
+// types/degrees.ts
+
+export type DegreeType = 'ug' | 'pg';
+
+export interface Degree {
+  id: string;
+  institution_id: string;
+  degree_id: string;
+  degree_name: string;
+  degree_type: DegreeType;
+  is_active: boolean;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+}
+
+export interface CreateDegreeDto {
+  institution_id: string;
+  degree_id: string;
+  degree_name: string;
+  degree_type: DegreeType;
+  is_active?: boolean;
+}
+
+export interface UpdateDegreeDto extends Partial<CreateDegreeDto> {}
+
+export interface DegreeFilters {
+  search?: string;
+  institution_id?: string;
+  degree_type?: DegreeType;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface DegreeListResponse {
+  data: Degree[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}

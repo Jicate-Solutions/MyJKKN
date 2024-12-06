@@ -32,7 +32,8 @@ import {
   Lock,
   LucideIcon,
   LayoutGrid,
-  Building
+  Building,
+  Boxes
 } from 'lucide-react';
 
 type Submenu = {
@@ -164,10 +165,10 @@ export function GetPages(pathname: string): Group[] {
           submenus: []
         },
         {
-          href: '/organizations/departments',
-          label: 'Departments',
-          active: pathname.startsWith('/organizations/departments'),
-          icon: GraduationCap,
+          href: '/organizations/degrees',
+          label: 'Degrees',
+          active: pathname.startsWith('/organizations/degrees'),
+          icon: Boxes,
           submenus: []
         }
       ]
