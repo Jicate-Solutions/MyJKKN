@@ -37,8 +37,6 @@ import {
 interface DashboardMetrics {
   totalInstitutions: number;
   activeInstitutions: number;
-  totalDepartments: number;
-  activeDepartments: number;
   totalUsers: number;
   activeUsers: number;
   totalApplications: number;
@@ -61,11 +59,6 @@ export default function DashboardPage() {
         const institutionsResult = await OrganizationService.getInstitutions();
         const institutions = institutionsResult.data;
         const activeInstitutions = institutions.filter((i) => i.is_active);
-
-        // Fetch departments data
-        const departmentsResult = await OrganizationService.getDepartments();
-        const departments = departmentsResult.data;
-        const activeDepartments = departments.filter((d) => d.is_active);
 
         // Fetch applications data
         const applicationsResult = await ApplicationService.getApplications();
@@ -99,8 +92,6 @@ export default function DashboardPage() {
         setMetrics({
           totalInstitutions: institutions.length,
           activeInstitutions: activeInstitutions.length,
-          totalDepartments: departments.length,
-          activeDepartments: activeDepartments.length,
           totalUsers: users.length,
           activeUsers: activeUsers.length,
           totalApplications: applications.length,
@@ -167,7 +158,7 @@ export default function DashboardPage() {
         ) : metrics ? (
           <div className='space-y-6'>
             {/* Quick Stats */}
-            <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+            <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
               <Card>
                 <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
                   <CardTitle className='text-sm font-medium'>
@@ -181,23 +172,6 @@ export default function DashboardPage() {
                   </div>
                   <p className='text-xs text-muted-foreground'>
                     {metrics.activeInstitutions} active
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                  <CardTitle className='text-sm font-medium'>
-                    Total Departments
-                  </CardTitle>
-                  <LibrarySquare className='h-4 w-4 text-muted-foreground' />
-                </CardHeader>
-                <CardContent>
-                  <div className='text-2xl font-bold'>
-                    {metrics.totalDepartments}
-                  </div>
-                  <p className='text-xs text-muted-foreground'>
-                    {metrics.activeDepartments} active
                   </p>
                 </CardContent>
               </Card>
@@ -288,15 +262,10 @@ export default function DashboardPage() {
                 <CardTitle>Quick Actions</CardTitle>
                 <CardDescription>Common tasks and actions</CardDescription>
               </CardHeader>
-              <CardContent className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+              <CardContent className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
                 <Button asChild className='w-full'>
                   <Link href='/organizations/institutions/new'>
                     Add Institution
-                  </Link>
-                </Button>
-                <Button asChild className='w-full'>
-                  <Link href='/organizations/departments/new'>
-                    Add Department
                   </Link>
                 </Button>
                 <Button asChild className='w-full'>
