@@ -117,3 +117,57 @@ export interface DegreeListResponse {
     totalPages: number;
   };
 }
+
+// types/organizations.ts
+// Add these along with existing Institution and Degree types
+
+export interface Department {
+  id: string;
+  institution_id: string;
+  degree_id: string;
+  department_code: string;
+  department_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  degree?: {
+    id: string;
+    degree_id: string;
+    degree_name: string;
+  };
+}
+
+export interface CreateDepartmentDto {
+  institution_id: string;
+  degree_id: string;
+  department_code: string;
+  department_name: string;
+  is_active?: boolean;
+}
+
+export interface UpdateDepartmentDto extends Partial<CreateDepartmentDto> {}
+
+export interface DepartmentFilters {
+  search?: string;
+  institution_id?: string;
+  degree_id?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface DepartmentListResponse {
+  data: Department[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}

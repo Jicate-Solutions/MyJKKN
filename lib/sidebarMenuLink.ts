@@ -35,6 +35,7 @@ import {
   Building,
   Boxes
 } from 'lucide-react';
+import { MdLocalFireDepartment } from 'react-icons/md';
 
 type Submenu = {
   href: string;
@@ -46,7 +47,7 @@ type Menu = {
   href: string;
   label: string;
   active: boolean;
-  icon: LucideIcon; // ideally this should be more strictly typed
+  icon: LucideIcon | React.ElementType; // ideally this should be more strictly typed
   submenus: Submenu[];
 };
 
@@ -169,6 +170,13 @@ export function GetPages(pathname: string): Group[] {
           label: 'Degrees',
           active: pathname.startsWith('/organizations/degrees'),
           icon: Boxes,
+          submenus: []
+        },
+        {
+          href: '/organizations/departments',
+          label: 'Departments',
+          active: pathname.startsWith('/organizations/departments'),
+          icon: MdLocalFireDepartment,
           submenus: []
         }
       ]

@@ -87,13 +87,29 @@ export async function GET(request: NextRequest) {
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '10');
     const search = url.searchParams.get('search');
-    const institutionId = url.searchParams.get('institutionId');
+    const institutionId = url.searchParams.get('institution_id');
+    const degreeId = url.searchParams.get('degree_id');
     const isActive = url.searchParams.get('isActive');
 
     // First, let's check if there are any departments at all
     const { count: totalCount, error: countError } = await supabase
       .from('departments')
-      .select('*', { count: 'exact', head: true });
+      .select(
+        `
+        *,
+        institution:institutions (
+          id,
+          name,
+          counselling_code
+        ),
+        degree:degrees (
+          id,
+          degree_id,
+          degree_name
+        )
+      `,
+        { count: 'exact', head: true }
+      );
 
     console.log('5. Total departments count:', totalCount);
 
@@ -106,15 +122,36 @@ export async function GET(request: NextRequest) {
       limit
     });
 
-    let query = supabase.from('departments').select('*', { count: 'exact' });
+    let query = supabase.from('departments').select(
+      `
+      *,
+      institution:institutions (
+        id,
+        name,
+        counselling_code
+      ),
+      degree:degrees (
+        id,
+        degree_id,
+        degree_name
+      )
+    `,
+      { count: 'exact' }
+    );
 
     // Apply filters
     if (search) {
-      query = query.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
+      query = query.or(
+        `department_code.ilike.%${search}%,department_name.ilike.%${search}%`
+      );
     }
 
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
+    }
+
+    if (degreeId) {
+      query = query.eq('degree_id', degreeId);
     }
 
     if (isActive !== null) {

@@ -88,12 +88,15 @@ export async function GET(
       .select(
         `
         *,
-        institution:institutions(
+        institution:institutions (
           id,
           name,
-          code,
-          description,
-          is_active
+          counselling_code
+        ),
+        degree:degrees (
+          id,
+          degree_id,
+          degree_name
         )
       `
       )
