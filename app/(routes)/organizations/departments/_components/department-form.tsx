@@ -218,7 +218,6 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
                         onChange={(e) =>
                           field.onChange(e.target.value.toUpperCase())
                         }
-                        disabled={isEditing}
                       />
                     </FormControl>
                     <FormDescription>

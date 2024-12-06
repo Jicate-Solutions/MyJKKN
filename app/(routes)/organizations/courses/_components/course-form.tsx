@@ -6,11 +6,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
-import { Program } from '@/types/organizations';
-import { ProgramService } from '@/lib/services/program-service';
+import { Course } from '@/types/organizations';
+import { CourseService } from '@/lib/services/course-service';
 import { OrganizationService } from '@/lib/services/organization-service';
 import { DegreeService } from '@/lib/services/degree-service';
 import { DepartmentService } from '@/lib/services/department-service';
+import { ProgramService } from '@/lib/services/program-service';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -32,65 +33,64 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 
-const programSchema = z.object({
+const courseSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
   degree_id: z.string().min(1, 'Degree is required'),
   department_id: z.string().min(1, 'Department is required'),
-  program_id: z
+  program_id: z.string().min(1, 'Program is required'),
+  course_code: z
     .string()
-    .min(2, 'Program ID must be at least 2 characters')
-    .max(20, 'Program ID must be at most 20 characters')
+    .min(2, 'Course code must be at least 2 characters')
+    .max(20, 'Course code must be at most 20 characters')
     .regex(
       /^[A-Z0-9_-]+$/,
-      'Program ID can only contain uppercase letters, numbers, underscores, and hyphens'
+      'Course code can only contain uppercase letters, numbers, underscores, and hyphens'
     )
     .transform((val) => val.toUpperCase()),
-  program_name: z.string().min(2, 'Name must be at least 2 characters'),
+  course_name: z.string().min(2, 'Course name must be at least 2 characters'),
   is_active: z.boolean().default(true)
 });
 
-type FormValues = z.infer<typeof programSchema>;
+type FormValues = z.infer<typeof courseSchema>;
 
-interface ProgramFormProps {
-  program?: Program;
+interface CourseFormProps {
+  course?: Course;
   isEditing?: boolean;
 }
 
-interface Institution {
-  id: string;
-  name: string;
-}
-
-interface Degree {
-  id: string;
-  degree_name: string;
-}
-
-interface Department {
-  id: string;
-  department_name: string;
-}
-
-export function ProgramForm({ program, isEditing }: ProgramFormProps) {
+export function CourseForm({ course, isEditing }: CourseFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [degrees, setDegrees] = useState<Degree[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
+  const [institutions, setInstitutions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [degrees, setDegrees] = useState<
+    Array<{ id: string; degree_name: string }>
+  >([]);
+  const [departments, setDepartments] = useState<
+    Array<{ id: string; department_name: string }>
+  >([]);
+  const [programs, setPrograms] = useState<
+    Array<{ id: string; program_name: string }>
+  >([]);
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(programSchema),
+    resolver: zodResolver(courseSchema),
     defaultValues: {
-      institution_id: program?.institution_id || '',
-      degree_id: program?.degree_id || '',
-      department_id: program?.department_id || '',
-      program_id: program?.program_id || '',
-      program_name: program?.program_name || '',
-      is_active: program?.is_active ?? true
+      institution_id: course?.institution_id || '',
+      degree_id: course?.degree_id || '',
+      department_id: course?.department_id || '',
+      program_id: course?.program_id || '',
+      course_code: course?.course_code || '',
+      course_name: course?.course_name || '',
+      is_active: course?.is_active ?? true
     }
   });
 
-  // Load institutions
+  const watchedInstitutionId = form.watch('institution_id');
+  const watchedDegreeId = form.watch('degree_id');
+  const watchedDepartmentId = form.watch('department_id');
+
   useEffect(() => {
     async function loadInstitutions() {
       try {
@@ -98,74 +98,85 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
         setInstitutions(data);
       } catch (error) {
         console.error('Error loading institutions:', error);
-        toast.error('Failed to load institutions');
       }
     }
     loadInstitutions();
   }, []);
 
-  // Load degrees when institution is selected
   useEffect(() => {
-    const institutionId = form.watch('institution_id');
-    if (institutionId) {
+    if (watchedInstitutionId) {
       async function loadDegrees() {
         try {
           const data = await DegreeService.getDegreesByInstitution(
-            institutionId
+            watchedInstitutionId
           );
           setDegrees(data);
         } catch (error) {
           console.error('Error loading degrees:', error);
-          toast.error('Failed to load degrees');
         }
       }
       loadDegrees();
     } else {
       setDegrees([]);
-      form.setValue('degree_id', '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.watch('institution_id')]);
+  }, [watchedInstitutionId]);
 
-  // Load departments when degree is selected
-  // Note: You'll need to implement getDepartmentsByDegree in DepartmentService
   useEffect(() => {
-    const degreeId = form.watch('degree_id');
-    if (degreeId) {
+    if (watchedDegreeId) {
       async function loadDepartments() {
         try {
-          // Implement this method in your department service
-          const data = await DepartmentService.getDepartmentsByDegree(degreeId);
+          const data = await DepartmentService.getDepartmentsByDegree(
+            watchedDegreeId
+          );
           setDepartments(data);
         } catch (error) {
           console.error('Error loading departments:', error);
-          toast.error('Failed to load departments');
         }
       }
       loadDepartments();
     } else {
       setDepartments([]);
-      form.setValue('department_id', '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.watch('degree_id')]);
+  }, [watchedDegreeId]);
+
+  useEffect(() => {
+    if (watchedDepartmentId) {
+      async function loadPrograms() {
+        try {
+          const { data } = await ProgramService.getPrograms({
+            department_id: watchedDepartmentId,
+            isActive: true
+          });
+          setPrograms(data);
+        } catch (error) {
+          console.error('Error loading programs:', error);
+        }
+      }
+      loadPrograms();
+    } else {
+      setPrograms([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedDepartmentId]);
 
   const onSubmit = async (values: FormValues) => {
     try {
       setIsSubmitting(true);
 
-      if (isEditing && program) {
-        await ProgramService.updateProgram(program.id, values);
+      if (isEditing && course) {
+        await CourseService.updateCourse(course.id, values);
       } else {
-        await ProgramService.createProgram(values);
+        await CourseService.createCourse(values);
       }
 
-      router.push('/organizations/programs');
+      router.push('/organizations/courses');
       router.refresh();
     } catch (error) {
       console.error('Form submission error:', error);
       toast.error(
-        error instanceof Error ? error.message : 'Failed to save program'
+        error instanceof Error ? error.message : 'Failed to save course'
       );
     } finally {
       setIsSubmitting(false);
@@ -195,7 +206,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {institutions.map((inst: Institution) => (
+                        {institutions.map((inst) => (
                           <SelectItem key={inst.id} value={inst.id}>
                             {inst.name}
                           </SelectItem>
@@ -224,7 +235,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {degrees.map((degree: Degree) => (
+                        {degrees.map((degree) => (
                           <SelectItem key={degree.id} value={degree.id}>
                             {degree.degree_name}
                           </SelectItem>
@@ -253,7 +264,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {departments.map((dept: Department) => (
+                        {departments.map((dept) => (
                           <SelectItem key={dept.id} value={dept.id}>
                             {dept.department_name}
                           </SelectItem>
@@ -270,20 +281,25 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 name='program_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Program ID</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='Enter program ID'
-                        {...field}
-                        value={field.value.toUpperCase()}
-                        onChange={(e) =>
-                          field.onChange(e.target.value.toUpperCase())
-                        }
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      A unique identifier for the program (e.g., CSE_BE, IT_ME)
-                    </FormDescription>
+                    <FormLabel>Program</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={!form.watch('department_id') || isEditing}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select program' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {programs.map((program) => (
+                          <SelectItem key={program.id} value={program.id}>
+                            {program.program_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -291,12 +307,33 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
 
               <FormField
                 control={form.control}
-                name='program_name'
+                name='course_code'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Program Name</FormLabel>
+                    <FormLabel>Course Code</FormLabel>
                     <FormControl>
-                      <Input placeholder='Enter program name' {...field} />
+                      <Input
+                        placeholder='Enter course code'
+                        {...field}
+                        value={field.value.toUpperCase()}
+                        onChange={(e) =>
+                          field.onChange(e.target.value.toUpperCase())
+                        }
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='course_name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Course Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder='Enter course name' {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -312,7 +349,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                   <div className='space-y-0.5'>
                     <FormLabel>Active Status</FormLabel>
                     <div className='text-sm text-muted-foreground'>
-                      Disable to temporarily hide this program
+                      Disable to temporarily hide this course
                     </div>
                   </div>
                   <FormControl>
@@ -343,7 +380,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 : 'Creating...'
               : isEditing
               ? 'Save Changes'
-              : 'Create Program'}
+              : 'Create Course'}
           </Button>
         </div>
       </form>
