@@ -213,4 +213,23 @@ export class DepartmentService {
       throw error;
     }
   }
+
+  static async getDepartmentsByDegree(degreeId: string) {
+    try {
+      const { data: departments, error } = await this.supabase
+        .from('departments')
+        .select('*')
+        .eq('degree_id', degreeId)
+        .eq('is_active', true)
+        .order('department_name');
+
+      if (error) throw error;
+
+      return departments || [];
+    } catch (error) {
+      console.error('Error fetching departments by degree:', error);
+      toast.error('Failed to load departments');
+      return [];
+    }
+  }
 }

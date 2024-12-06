@@ -171,3 +171,64 @@ export interface DepartmentListResponse {
     totalPages: number;
   };
 }
+
+// Add these interfaces alongside existing ones
+
+export interface Program {
+  id: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  program_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  degree?: {
+    id: string;
+    degree_id: string;
+    degree_name: string;
+  };
+  department?: {
+    id: string;
+    department_code: string;
+    department_name: string;
+  };
+}
+
+export interface CreateProgramDto {
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  program_name: string;
+  is_active?: boolean;
+}
+
+export interface UpdateProgramDto extends Partial<CreateProgramDto> {}
+
+export interface ProgramFilters {
+  search?: string;
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface ProgramListResponse {
+  data: Program[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
