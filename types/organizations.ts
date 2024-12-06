@@ -1,7 +1,5 @@
 // types/organizations.ts
 
-// types/organizations.ts - Update the Institution interfaces
-
 export interface DepartmentContact {
   contact_name?: string; // Make fields optional
   designation?: string;
