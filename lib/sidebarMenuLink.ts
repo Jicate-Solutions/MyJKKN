@@ -199,6 +199,13 @@ export function GetPages(pathname: string): Group[] {
           active: pathname.startsWith('/organizations/semesters'),
           icon: CalendarDays,
           submenus: []
+        },
+        {
+          href: '/organizations/sections',
+          label: 'Sections',
+          active: pathname.startsWith('/organizations/sections'),
+          icon: BookOpen,
+          submenus: []
         }
       ]
     },
