@@ -305,3 +305,41 @@ create policy "Enable update access for authenticated users" on public.semesters
 
 create policy "Enable delete access for authenticated users" on public.semesters
   for delete using (auth.role() = 'authenticated');
+
+  create table public.sections (
+    id uuid default gen_random_uuid() primary key,
+    institution_id uuid references public.institutions(id) on delete cascade not null,
+    degree_id uuid references public.degrees(id) on delete cascade not null,
+    department_id uuid references public.departments(id) on delete cascade not null,
+    program_id uuid references public.programs(id) on delete cascade not null,
+    course_id uuid references public.courses(id) on delete cascade not null,
+    semester_id uuid references public.semesters(id) on delete cascade not null,
+    section_code text not null,
+    section_name text not null,
+    is_active boolean default true,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+    updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
+    unique(institution_id, degree_id, department_id, program_id, course_id, semester_id, section_code)
+);
+
+-- Add RLS policies
+alter table public.sections enable row level security;
+
+create policy "Allow public read access"
+    on public.sections for select
+    using ( true );
+
+create policy "Allow authenticated create access"
+    on public.sections for insert
+    to authenticated
+    with check ( true );
+
+create policy "Allow individual update access"
+    on public.sections for update
+    to authenticated
+    using ( true );
+
+create policy "Allow individual delete access"
+    on public.sections for delete
+    to authenticated
+    using ( true );

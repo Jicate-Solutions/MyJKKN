@@ -370,3 +370,81 @@ export interface SemesterListResponse {
     totalPages: number;
   };
 }
+
+export interface Section {
+  id: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  course_id: string;
+  semester_id: string;
+  section_code: string;
+  section_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  degree?: {
+    id: string;
+    degree_name: string;
+  };
+  department?: {
+    id: string;
+    department_name: string;
+  };
+  program?: {
+    id: string;
+    program_name: string;
+  };
+  course?: {
+    id: string;
+    course_name: string;
+  };
+  semester?: {
+    id: string;
+    semester_name: string;
+  };
+}
+
+export interface CreateSectionDto {
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  course_id: string;
+  semester_id: string;
+  section_code: string;
+  section_name: string;
+  is_active?: boolean;
+}
+
+export interface UpdateSectionDto extends Partial<CreateSectionDto> {}
+
+export interface SectionFilters {
+  search?: string;
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  course_id?: string;
+  semester_id?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface SectionListResponse {
+  data: Section[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
