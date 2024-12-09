@@ -271,3 +271,37 @@ CREATE INDEX IF NOT EXISTS idx_courses_degree ON public.courses(degree_id);
 CREATE INDEX IF NOT EXISTS idx_courses_department ON public.courses(department_id);
 CREATE INDEX IF NOT EXISTS idx_courses_program ON public.courses(program_id);
 CREATE INDEX IF NOT EXISTS idx_courses_code ON public.courses(course_code);
+
+create table public.semesters (
+  id uuid default gen_random_uuid() primary key,
+  institution_id uuid references public.institutions(id) on delete cascade not null,
+  degree_id uuid references public.degrees(id) on delete cascade not null,
+  department_id uuid references public.departments(id) on delete cascade not null,
+  program_id uuid references public.programs(id) on delete cascade not null,
+  course_id uuid references public.courses(id) on delete cascade not null,
+  semester_code varchar(20) not null,
+  semester_name varchar(255) not null,
+  semester_type varchar(50) check (semester_type in ('even', 'odd')) not null,
+  is_active boolean default true,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Add unique constraint on semester_code
+alter table public.semesters
+  add constraint semesters_semester_code_unique unique (semester_code);
+
+-- Add RLS policies
+alter table public.semesters enable row level security;
+
+create policy "Enable read access for authenticated users" on public.semesters
+  for select using (auth.role() = 'authenticated');
+
+create policy "Enable insert access for authenticated users" on public.semesters
+  for insert with check (auth.role() = 'authenticated');
+
+create policy "Enable update access for authenticated users" on public.semesters
+  for update using (auth.role() = 'authenticated');
+
+create policy "Enable delete access for authenticated users" on public.semesters
+  for delete using (auth.role() = 'authenticated');
