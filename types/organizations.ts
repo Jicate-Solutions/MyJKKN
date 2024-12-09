@@ -296,3 +296,77 @@ export interface CourseListResponse {
     totalPages: number;
   };
 }
+
+export interface Semester {
+  id: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  course_id: string;
+  semester_code: string;
+  semester_name: string;
+  semester_type: 'even' | 'odd';
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  degree?: {
+    id: string;
+    degree_name: string;
+  };
+  department?: {
+    id: string;
+    department_name: string;
+  };
+  program?: {
+    id: string;
+    program_name: string;
+  };
+  course?: {
+    id: string;
+    course_name: string;
+  };
+}
+
+export interface CreateSemesterDto {
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  course_id: string;
+  semester_code: string;
+  semester_name: string;
+  semester_type: 'even' | 'odd';
+  is_active?: boolean;
+}
+
+export interface UpdateSemesterDto extends Partial<CreateSemesterDto> {}
+
+export interface SemesterFilters {
+  search?: string;
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  course_id?: string;
+  semester_type?: 'even' | 'odd';
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface SemesterListResponse {
+  data: Semester[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
