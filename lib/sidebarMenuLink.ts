@@ -107,6 +107,13 @@ export function GetPages(pathname: string): Group[] {
       groupLabel: 'Applications',
       menus: [
         {
+          href: '/application-hub/api-guidelines',
+          label: 'API Guidelines',
+          active: pathname === '/application-hub/api-guidelines',
+          icon: BookOpen, // or any other icon you prefer
+          submenus: []
+        },
+        {
           href: '/application-hub',
           label: 'Application Hub',
           active: pathname === '/application-hub',
