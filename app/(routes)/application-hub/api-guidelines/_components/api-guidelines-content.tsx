@@ -9,534 +9,218 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { CodeBlock } from '@/components/code-block';
+import { Card, CardContent } from '@/components/ui/card';
 
 export default function ApiGuidelinesContent() {
   return (
-    <div className='container mx-auto py-4 space-y-6'>
+    <div className='py-4 space-y-6'>
       <div className='space-y-4'>
         <h1 className='text-2xl font-bold'>API Documentation</h1>
         <p className='text-muted-foreground'>
-          Complete documentation for accessing organization data through our
-          APIs
+          Complete guide for accessing organization data through our APIs
         </p>
       </div>
 
+      {/* Getting Started Section */}
+      <Card>
+        <CardContent className='p-6 space-y-4'>
+          <h2 className='text-xl font-semibold'>Getting Started</h2>
+
+          <div className='space-y-4'>
+            <h3 className='text-lg font-semibold'>1. API Key Setup</h3>
+            <p>
+              Your API key is required for authentication. Keep it secure and
+              never expose it in client-side code.
+            </p>
+            <p>
+              Format:{' '}
+              <code className='bg-muted px-2 py-1 rounded'>
+                jk_[hash]_[identifier]
+              </code>
+            </p>
+            <CodeBlock
+              language='typescript'
+              code={`
+// Example API Key
+const API_KEY = 'jk_11644c4e5143c0aff198cc19b26cb3f8_m50nz55a';
+              `}
+            />
+          </div>
+
+          <div className='space-y-4'>
+            <h3 className='text-lg font-semibold'>2. Base URL</h3>
+            <CodeBlock
+              language='bash'
+              code={`
+BASE_URL = 'https://my-jkkn-nine.vercel.app/api'
+              `}
+            />
+          </div>
+
+          <div className='space-y-4'>
+            <h3 className='text-lg font-semibold'>
+              3. Using the API Fetcher Component
+            </h3>
+            <p>
+              Import and use our reusable ApiFetcher component for easy API
+              integration:
+            </p>
+            <CodeBlock
+              language='typescript'
+              code={`
+import { ApiFetcher } from '@/components/ApiFetcher';
+
+// Basic Usage
+function MyComponent() {
+  const handleData = (data) => {
+    console.log('Received data:', data);
+  };
+
+  return (
+    <ApiFetcher 
+      endpoint="/api-management/organizations/institutions"
+      apiKey="your_api_key"
+      onDataReceived={handleData}
+    />
+  );
+}
+              `}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* API Fetcher Implementation */}
+      <Card>
+        <CardContent className='p-6 space-y-4'>
+          <h2 className='text-xl font-semibold'>API Fetcher Implementation</h2>
+          <CodeBlock
+            language='typescript'
+            code={`
+import React, { useEffect, useState } from 'react';
+import { useToast } from "@/components/ui/use-toast";
+
+interface ApiFetcherProps {
+  endpoint: string;
+  onDataReceived: (data: any) => void;
+  apiKey?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  body?: any;
+}
+
+const DEFAULT_API_KEY = 'jk_11644c4e5143c0aff198cc19b26cb3f8_m50nz55a';
+const BASE_URL = 'https://my-jkkn-nine.vercel.app/api';
+
+export const ApiFetcher: React.FC<ApiFetcherProps> = ({
+  endpoint,
+  onDataReceived,
+  apiKey = DEFAULT_API_KEY,
+  method = 'GET',
+  body
+}) => {
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(\`\${BASE_URL}\${endpoint}\`, {
+          method,
+          headers: {
+            'Authorization': \`Bearer \${apiKey}\`,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          ...(body && { body: JSON.stringify(body) }),
+          mode: 'cors',
+        });
+
+        if (!response.ok) {
+          throw new Error(\`HTTP error! status: \${response.status}\`);
+        }
+
+        const result = await response.json();
+        onDataReceived(result);
+      } catch (error) {
+        console.error('Error:', error);
+        toast({
+          title: "Error",
+          description: "Failed to fetch data. Please try again later.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, [endpoint, apiKey, method, body, onDataReceived, toast]);
+
+  return isLoading ? <div>Loading...</div> : null;
+};
+            `}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Example Usage Section */}
+      <Card>
+        <CardContent className='p-6 space-y-4'>
+          <h2 className='text-xl font-semibold'>Example Usage</h2>
+
+          <div className='space-y-4'>
+            <h3 className='text-lg font-semibold'>
+              Filter by Type and Category
+            </h3>
+            <CodeBlock
+              language='typescript'
+              code={`
+<ApiFetcher 
+  endpoint="/api-management/organizations/institutions?type=university&category=ug"
+  apiKey={apiKey}
+  onDataReceived={handleData}
+/>
+              `}
+            />
+          </div>
+
+          <div className='space-y-4'>
+            <h3 className='text-lg font-semibold'>Search by Name</h3>
+            <CodeBlock
+              language='typescript'
+              code={`
+<ApiFetcher 
+  endpoint="/api-management/organizations/institutions?search=engineering"
+  apiKey={apiKey}
+  onDataReceived={handleData}
+/>
+              `}
+            />
+          </div>
+
+          <div className='space-y-4'>
+            <h3 className='text-lg font-semibold'>Pagination</h3>
+            <CodeBlock
+              language='typescript'
+              code={`
+<ApiFetcher 
+  endpoint="/api-management/organizations/institutions?page=1&limit=5"
+  apiKey={apiKey}
+  onDataReceived={handleData}
+/>
+              `}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       <Alert>
         <AlertDescription>
-          To use these APIs, you need an API key. Contact the administrator to
-          get your API key.
+          For security reasons, make sure to keep your API key confidential and
+          never expose it in client-side code. Contact the administrator if you
+          need a new API key or have any questions.
         </AlertDescription>
       </Alert>
-
-      <Accordion type='single' collapsible className='space-y-4'>
-        <AccordionItem value='institutions' className='border rounded-lg'>
-          <AccordionTrigger className='px-4 hover:no-underline'>
-            <div className='flex items-center gap-2'>
-              <span className='font-semibold'>Institutions API</span>
-              <Badge variant='secondary'>GET</Badge>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className='px-4 pb-4 space-y-6'>
-            {/* List Institutions */}
-            <div className='space-y-4'>
-              <div className='flex items-center gap-2'>
-                <h3 className='text-lg font-semibold'>List Institutions</h3>
-                <Badge variant='outline'>GET</Badge>
-              </div>
-              <CodeBlock
-                language='bash'
-                code={`
-GET /api/api-management/organizations/institutions
-
-# Query Parameters
-?search=string    # Search by name
-?isActive=boolean # Filter by status
-?page=number     # Page number
-?limit=number    # Items per page
-
-# Response
-{
-  "data": [
-    {
-      "id": "string",
-      "name": "string",
-      "counselling_code": "string",
-      "institution_type": "string",
-      "category": "string",
-      "is_active": boolean
-    }
-  ],
-  "metadata": {
-    "total": number,
-    "page": number,
-    "limit": number,
-    "totalPages": number
-  }
-}
-                `}
-              />
-            </div>
-
-            {/* Get Institution */}
-            <div className='space-y-4'>
-              <div className='flex items-center gap-2'>
-                <h3 className='text-lg font-semibold'>
-                  Get Institution Details
-                </h3>
-                <Badge variant='outline'>GET</Badge>
-              </div>
-              <CodeBlock
-                language='bash'
-                code={`
-GET /api/v1/institutions/:id
-
-# Response
-{
-  "data": {
-    "id": "string",
-    "name": "string",
-    "counselling_code": "string",
-    "institution_type": "string",
-    "category": "string",
-    "is_active": boolean,
-    "created_at": "string",
-    "updated_at": "string"
-  }
-}
-                `}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value='degrees' className='border rounded-lg'>
-          <AccordionTrigger className='px-4 hover:no-underline'>
-            <div className='flex items-center gap-2'>
-              <span className='font-semibold'>Degrees API</span>
-              <Badge variant='secondary'>GET</Badge>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className='px-4 pb-4 space-y-6'>
-            {/* List Degrees */}
-            <div className='space-y-4'>
-              <div className='flex items-center gap-2'>
-                <h3 className='text-lg font-semibold'>List Degrees</h3>
-                <Badge variant='outline'>GET</Badge>
-              </div>
-              <CodeBlock
-                language='bash'
-                code={`
-GET /api/v1/degrees
-
-# Query Parameters
-?search=string         # Search by name
-?institution_id=string # Filter by institution
-?isActive=boolean     # Filter by status
-?page=number          # Page number
-?limit=number         # Items per page
-
-# Response
-{
-  "data": [
-    {
-      "id": "string",
-      "degree_name": "string",
-      "degree_type": "ug" | "pg",
-      "institution_id": "string",
-      "is_active": boolean,
-      "institution": {
-        "name": "string",
-        "counselling_code": "string"
-      }
-    }
-  ],
-  "metadata": {
-    "total": number,
-    "page": number,
-    "limit": number,
-    "totalPages": number
-  }
-}
-                `}
-              />
-            </div>
-
-            {/* Get Degree */}
-            <div className='space-y-4'>
-              <div className='flex items-center gap-2'>
-                <h3 className='text-lg font-semibold'>Get Degree Details</h3>
-                <Badge variant='outline'>GET</Badge>
-              </div>
-              <CodeBlock
-                language='bash'
-                code={`
-GET /api/v1/degrees/:id
-
-# Response
-{
-  "data": {
-    "id": "string",
-    "degree_name": "string",
-    "degree_type": "ug" | "pg",
-    "institution_id": "string",
-    "is_active": boolean,
-    "created_at": "string",
-    "updated_at": "string",
-    "institution": {
-      "id": "string",
-      "name": "string",
-      "counselling_code": "string"
-    }
-  }
-}
-                `}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value='departments' className='border rounded-lg'>
-          <AccordionTrigger className='px-4 hover:no-underline'>
-            <div className='flex items-center gap-2'>
-              <span className='font-semibold'>Departments API</span>
-              <Badge variant='secondary'>GET</Badge>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className='px-4 pb-4 space-y-6'>
-            {/* List Departments */}
-            <div className='space-y-4'>
-              <div className='flex items-center gap-2'>
-                <h3 className='text-lg font-semibold'>List Departments</h3>
-                <Badge variant='outline'>GET</Badge>
-              </div>
-              <CodeBlock
-                language='bash'
-                code={`
-GET /api/v1/departments
-
-# Query Parameters
-?search=string         # Search by name
-?institution_id=string # Filter by institution
-?degree_id=string     # Filter by degree
-?isActive=boolean     # Filter by status
-?page=number          # Page number
-?limit=number         # Items per page
-
-# Response
-{
-  "data": [
-    {
-      "id": "string",
-      "department_name": "string",
-      "department_code": "string",
-      "institution_id": "string",
-      "degree_id": "string",
-      "is_active": boolean,
-      "institution": {
-        "name": "string"
-      },
-      "degree": {
-        "degree_name": "string"
-      }
-    }
-  ],
-  "metadata": {
-    "total": number,
-    "page": number,
-    "limit": number,
-    "totalPages": number
-  }
-}
-                `}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value='programs' className='border rounded-lg'>
-          <AccordionTrigger className='px-4 hover:no-underline'>
-            <div className='flex items-center gap-2'>
-              <span className='font-semibold'>Programs API</span>
-              <Badge variant='secondary'>GET</Badge>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className='px-4 pb-4 space-y-6'>
-            {/* List Programs */}
-            <div className='space-y-4'>
-              <div className='flex items-center gap-2'>
-                <h3 className='text-lg font-semibold'>List Programs</h3>
-                <Badge variant='outline'>GET</Badge>
-              </div>
-              <CodeBlock
-                language='bash'
-                code={`
-GET /api/v1/programs
-
-# Query Parameters
-?search=string         # Search by name
-?institution_id=string # Filter by institution
-?degree_id=string     # Filter by degree
-?department_id=string # Filter by department
-?isActive=boolean     # Filter by status
-?page=number          # Page number
-?limit=number         # Items per page
-
-# Response
-{
-  "data": [
-    {
-      "id": "string",
-      "program_name": "string",
-      "program_id": "string",
-      "institution_id": "string",
-      "degree_id": "string",
-      "department_id": "string",
-      "is_active": boolean,
-      "institution": {
-        "name": "string"
-      },
-      "degree": {
-        "degree_name": "string"
-      },
-      "department": {
-        "department_name": "string"
-      }
-    }
-  ],
-  "metadata": {
-    "total": number,
-    "page": number,
-    "limit": number,
-    "totalPages": number
-  }
-}
-                `}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value='courses' className='border rounded-lg'>
-          <AccordionTrigger className='px-4 hover:no-underline'>
-            <div className='flex items-center gap-2'>
-              <span className='font-semibold'>Courses API</span>
-              <Badge variant='secondary'>GET</Badge>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className='px-4 pb-4 space-y-6'>
-            {/* List Courses */}
-            <div className='space-y-4'>
-              <div className='flex items-center gap-2'>
-                <h3 className='text-lg font-semibold'>List Courses</h3>
-                <Badge variant='outline'>GET</Badge>
-              </div>
-              <CodeBlock
-                language='bash'
-                code={`
-GET /api/v1/courses
-
-# Query Parameters
-?search=string         # Search by name or code
-?institution_id=string # Filter by institution
-?degree_id=string     # Filter by degree
-?department_id=string # Filter by department
-?program_id=string    # Filter by program
-?isActive=boolean     # Filter by status
-?page=number          # Page number
-?limit=number         # Items per page
-
-# Response
-{
-  "data": [
-    {
-      "id": "string",
-      "course_name": "string",
-      "course_code": "string",
-      "institution_id": "string",
-      "degree_id": "string",
-      "department_id": "string",
-      "program_id": "string",
-      "is_active": boolean,
-      "institution": {
-        "name": "string"
-      },
-      "degree": {
-        "degree_name": "string"
-      },
-      "department": {
-        "department_name": "string"
-      },
-      "program": {
-        "program_name": "string"
-      }
-    }
-  ],
-  "metadata": {
-    "total": number,
-    "page": number,
-    "limit": number,
-    "totalPages": number
-  }
-}
-                `}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value='semesters' className='border rounded-lg'>
-          <AccordionTrigger className='px-4 hover:no-underline'>
-            <div className='flex items-center gap-2'>
-              <span className='font-semibold'>Semesters API</span>
-              <Badge variant='secondary'>GET</Badge>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className='px-4 pb-4 space-y-6'>
-            {/* List Semesters */}
-            <div className='space-y-4'>
-              <div className='flex items-center gap-2'>
-                <h3 className='text-lg font-semibold'>List Semesters</h3>
-                <Badge variant='outline'>GET</Badge>
-              </div>
-              <CodeBlock
-                language='bash'
-                code={`
-GET /api/v1/semesters
-
-# Query Parameters
-?search=string         # Search by name or code
-?institution_id=string # Filter by institution
-?degree_id=string     # Filter by degree
-?department_id=string # Filter by department
-?program_id=string    # Filter by program
-?course_id=string     # Filter by course
-?semester_type=string # Filter by type (even/odd)
-?isActive=boolean     # Filter by status
-?page=number          # Page number
-?limit=number         # Items per page
-
-# Response
-{
-  "data": [
-    {
-      "id": "string",
-      "semester_name": "string",
-      "semester_code": "string",
-      "semester_type": "even" | "odd",
-      "institution_id": "string",
-      "degree_id": "string",
-      "department_id": "string",
-      "program_id": "string",
-      "course_id": "string",
-      "is_active": boolean,
-      "institution": {
-        "name": "string"
-      },
-      "degree": {
-        "degree_name": "string"
-      },
-      "department": {
-        "department_name": "string"
-      },
-      "program": {
-        "program_name": "string"
-      },
-      "course": {
-        "course_name": "string"
-      }
-    }
-  ],
-  "metadata": {
-    "total": number,
-    "page": number,
-    "limit": number,
-    "totalPages": number
-  }
-}
-                `}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value='sections' className='border rounded-lg'>
-          <AccordionTrigger className='px-4 hover:no-underline'>
-            <div className='flex items-center gap-2'>
-              <span className='font-semibold'>Sections API</span>
-              <Badge variant='secondary'>GET</Badge>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className='px-4 pb-4 space-y-6'>
-            {/* List Sections */}
-            <div className='space-y-4'>
-              <div className='flex items-center gap-2'>
-                <h3 className='text-lg font-semibold'>List Sections</h3>
-                <Badge variant='outline'>GET</Badge>
-              </div>
-              <CodeBlock
-                language='bash'
-                code={`
-GET /api/v1/sections
-
-# Query Parameters
-?search=string         # Search by name or code
-?institution_id=string # Filter by institution
-?degree_id=string     # Filter by degree
-?department_id=string # Filter by department
-?program_id=string    # Filter by program
-?course_id=string     # Filter by course
-?semester_id=string   # Filter by semester
-?isActive=boolean     # Filter by status
-?page=number          # Page number
-?limit=number         # Items per page
-
-# Response
-{
-  "data": [
-    {
-      "id": "string",
-      "section_name": "string",
-      "section_code": "string",
-      "institution_id": "string",
-      "degree_id": "string",
-      "department_id": "string",
-      "program_id": "string",
-      "course_id": "string",
-      "semester_id": "string",
-      "is_active": boolean,
-      "institution": {
-        "name": "string"
-      },
-      "degree": {
-        "degree_name": "string"
-      },
-      "department": {
-        "department_name": "string"
-      },
-      "program": {
-        "program_name": "string"
-      },
-      "course": {
-        "course_name": "string"
-      },
-      "semester": {
-        "semester_name": "string"
-      }
-    }
-  ],
-  "metadata": {
-    "total": number,
-    "page": number,
-    "limit": number,
-    "totalPages": number
-  }
-}
-                `}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
     </div>
   );
 }
