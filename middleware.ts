@@ -11,6 +11,8 @@ const PUBLIC_PATHS = [
   '/auth/complete-profile'
 ];
 
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
+
 // Helper to check if path is public
 const isPublicPath = (path: string) =>
   PUBLIC_PATHS.includes(path) ||
@@ -23,6 +25,7 @@ export async function middleware(req: NextRequest) {
     const res = NextResponse.next();
     const supabase = createMiddlewareClient({ req, res });
     const currentPath = req.nextUrl.pathname;
+    const origin = req.headers.get('origin');
 
     // Skip middleware for public paths
     if (isPublicPath(currentPath)) {
@@ -101,6 +104,24 @@ export async function middleware(req: NextRequest) {
     // Cache control for authenticated routes
     res.headers.set('Cache-Control', 'no-store, must-revalidate');
 
+    // Add CORS headers
+    if (
+      origin &&
+      (allowedOrigins.includes(origin) ||
+        process.env.NODE_ENV === 'development')
+    ) {
+      res.headers.set('Access-Control-Allow-Origin', origin);
+      res.headers.set(
+        'Access-Control-Allow-Methods',
+        'GET, POST, PUT, DELETE, OPTIONS'
+      );
+      res.headers.set(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization'
+      );
+      res.headers.set('Access-Control-Max-Age', '86400');
+    }
+
     return res;
   } catch (error) {
     // Log the error with context
@@ -127,6 +148,7 @@ export const config = {
     '/courses/:path*',
     '/profile/:path*',
     '/users/:path*',
+    '/api/:path*',
     // Match all paths except public ones
     '/((?!_next/static|_next/image|favicon.ico|api|auth/login|auth/callback|auth/complete-profile).*)'
   ]
