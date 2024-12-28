@@ -2,7 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { corsHeaders } from '@/lib/api-keys/cors';
+import { corsHeaders } from '@/lib/cors';
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
@@ -10,6 +10,7 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
+    // Add CORS headers to response
     const response = NextResponse.next();
     Object.entries(corsHeaders).forEach(([key, value]) => {
       response.headers.set(key, value);
@@ -39,7 +40,6 @@ export async function GET(request: NextRequest) {
       .eq('key_value', hashedKey)
       .eq('is_active', true)
       .single();
-
 
     // Check RLS policies
     console.log('4. Checking RLS policies');
@@ -162,15 +162,18 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    return NextResponse.json({
-      data: sections || [],
-      metadata: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: count ? Math.ceil(count / limit) : 0
-      }
-    });
+    return NextResponse.json(
+      {
+        data: sections || [],
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: count ? Math.ceil(count / limit) : 0
+        }
+      },
+      { headers: corsHeaders }
+    );
   } catch (error) {
     console.error('Error fetching sections:', error);
     return NextResponse.json(

@@ -1,4 +1,3 @@
-// middleware.ts
 import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -101,18 +100,6 @@ export async function middleware(req: NextRequest) {
     // Cache control for authenticated routes
     res.headers.set('Cache-Control', 'no-store, must-revalidate');
 
-    // Add CORS headers
-    res.headers.set('Access-Control-Allow-Origin', '*');
-    res.headers.set(
-      'Access-Control-Allow-Methods',
-      'GET, POST, PUT, DELETE, OPTIONS'
-    );
-    res.headers.set(
-      'Access-Control-Allow-Headers',
-      'Content-Type, Authorization'
-    );
-    res.headers.set('Access-Control-Max-Age', '86400');
-
     return res;
   } catch (error) {
     // Log the error with context
@@ -131,9 +118,9 @@ export const config = {
   matcher: [
     // Protected routes
     '/system/:path*',
-    '/organizations/:path*',
     '/settings/:path*',
     '/reports/:path*',
+    '/organizations/:path*',
     '/analytics/:path*',
     '/academic/:path*',
     '/courses/:path*',
