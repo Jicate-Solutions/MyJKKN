@@ -101,18 +101,6 @@ export async function middleware(req: NextRequest) {
     // Cache control for authenticated routes
     res.headers.set('Cache-Control', 'no-store, must-revalidate');
 
-    // Add CORS headers
-    res.headers.set('Access-Control-Allow-Origin', '*'); // Or specify allowed origins
-    res.headers.set(
-      'Access-Control-Allow-Methods',
-      'GET, POST, PUT, DELETE, OPTIONS'
-    );
-    res.headers.set(
-      'Access-Control-Allow-Headers',
-      'Content-Type, Authorization'
-    );
-    res.headers.set('Access-Control-Max-Age', '86400');
-
     return res;
   } catch (error) {
     // Log the error with context
