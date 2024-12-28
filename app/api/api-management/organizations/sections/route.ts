@@ -2,7 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { corsHeaders } from '@/lib/api-keys/cors';
+import { corsHeaders } from '@/lib/cors';
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
@@ -10,6 +10,11 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
+    const response = NextResponse.next();
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
+
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
