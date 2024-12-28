@@ -27,16 +27,81 @@ export default function ApiGuidelinesContent() {
           <h2 className='text-xl font-semibold'>Getting Started</h2>
 
           <div className='space-y-4'>
-            <h3 className='text-lg font-semibold'>1. API Key Setup</h3>
+            <h3 className='text-lg font-semibold'>
+              1. Create a API Fetcher Component{' '}
+            </h3>
             <p>
-              Your API key is required for authentication. Keep it secure and
-              never expose it in client-side code.
+              Import and use our reusable ApiFetcher component for easy API
+              integration:
             </p>
             <p>
-              Format:{' '}
-              <code className='bg-muted px-2 py-1 rounded'>
-                jk_[hash]_[identifier]
-              </code>
+             
+              <CodeBlock
+                language='typescript'
+                code={`
+import React, { useEffect, useState } from 'react';
+import { useToast } from "@/components/ui/use-toast";
+
+interface ApiFetcherProps {
+  endpoint: string;
+  onDataReceived: (data: any) => void;
+  apiKey?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  body?: any;
+}
+
+const DEFAULT_API_KEY = 'jk_11644c4e5143c0aff198cc19b26cb3f8_m50nz55a';
+const BASE_URL = 'https://my-jkkn-nine.vercel.app/api';
+
+export const ApiFetcher: React.FC<ApiFetcherProps> = ({
+  endpoint,
+  onDataReceived,
+  apiKey = DEFAULT_API_KEY,
+  method = 'GET',
+  body
+}) => {
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(\`\${BASE_URL}\${endpoint}\`, {
+          method,
+          headers: {
+            'Authorization': \`Bearer \${apiKey}\`,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          ...(body && { body: JSON.stringify(body) }),
+          mode: 'cors',
+        });
+
+        if (!response.ok) {
+          throw new Error(\`HTTP error! status: \${response.status}\`);
+        }
+
+        const result = await response.json();
+        onDataReceived(result);
+      } catch (error) {
+        console.error('Error:', error);
+        toast({
+          title: "Error",
+          description: "Failed to fetch data. Please try again later.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, [endpoint, apiKey, method, body, onDataReceived, toast]);
+
+  return isLoading ? <div>Loading...</div> : null;
+};
+            `}
+              />
             </p>
             <CodeBlock
               language='typescript'
