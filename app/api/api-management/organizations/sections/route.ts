@@ -2,7 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { corsHeaders } from '@/lib/cors';
+import { corsHeaders } from '@/lib/api-keys/cors';
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
@@ -20,6 +20,8 @@ export async function GET(request: NextRequest) {
 
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
+
+    console.log('1. Auth header:', authHeader);
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'API key is required in Authorization header' },
@@ -37,6 +39,10 @@ export async function GET(request: NextRequest) {
       .eq('key_value', hashedKey)
       .eq('is_active', true)
       .single();
+
+
+    // Check RLS policies
+    console.log('4. Checking RLS policies');
 
     if (keyError || !keyData) {
       return NextResponse.json(
