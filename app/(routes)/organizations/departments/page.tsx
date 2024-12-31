@@ -20,6 +20,8 @@ import {
 import { BeatLoader } from 'react-spinners';
 import { DepartmentFilters } from './_components/department-filters';
 import { DepartmentList } from './_components/department-list';
+import DownloadDepartmentTemplateButton from './_components/download-department-template';
+import BulkUploadDepartments from './_components/bulk-upload-departments';
 
 export default function DepartmentsPage() {
   const {
@@ -84,12 +86,16 @@ export default function DepartmentsPage() {
               Manage departments for institutions
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/organizations/departments/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Department
-            </Link>
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <DownloadDepartmentTemplateButton />
+            <BulkUploadDepartments />
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/organizations/departments/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add Department
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card>

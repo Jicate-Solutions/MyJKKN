@@ -18,6 +18,8 @@ import {
 import { BeatLoader } from 'react-spinners';
 import { CourseFilters } from './_components/course-filters';
 import { CourseList } from './_components/course-list';
+import DownloadCourseTemplateButton from './_components/download-course-template';
+import BulkUploadCourses from './_components/bulk-upload-courses';
 
 export default function CoursesPage() {
   const {
@@ -82,12 +84,16 @@ export default function CoursesPage() {
               Manage academic courses
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/organizations/courses/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Course
-            </Link>
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <DownloadCourseTemplateButton />
+            <BulkUploadCourses />
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/organizations/courses/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add Course
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card>

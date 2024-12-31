@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/breadcrumb';
 import { SemesterFilters } from './_components/semester-filters';
 import { SemesterList } from './_components/semester-list';
+import DownloadSemesterTemplateButton from './_components/download-semester-template';
+import BulkUploadSemesters from './_components/bulk-upload-semesters';
 
 export default function SemestersPage() {
   const {
@@ -82,12 +84,16 @@ export default function SemestersPage() {
               Manage academic semesters
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/organizations/semesters/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Semester
-            </Link>
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <DownloadSemesterTemplateButton />
+            <BulkUploadSemesters />
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/organizations/semesters/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add Semester
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card>
