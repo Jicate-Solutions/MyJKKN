@@ -81,33 +81,42 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase.from('sections').select(
       `
-        *,
-        institution:institutions (
-          id,
-          name,
-          counselling_code
-        ),
-        degree:degrees (
-          id,
-          degree_name
-        ),
-        department:departments (
-          id,
-          department_name
-        ),
-        program:programs (
-          id,
-          program_name
-        ),
-        course:courses (
-          id,
-          course_name
-        ),
-        semester:semesters (
-          id,
-          semester_name
-        )
-      `,
+      *,
+      institution:institutions (
+        id,
+        name,
+        counselling_code,
+        institution_type,
+        category
+      ),
+      degree:degrees (
+        id,
+        degree_id,
+        degree_name,
+        degree_type
+      ),
+      department:departments (
+        id,
+        department_code,
+        department_name
+      ),
+      program:programs (
+        id,
+        program_id,
+        program_name
+      ),
+      course:courses (
+        id,
+        course_code,
+        course_name
+      ),
+      semester:semesters (
+        id,
+        semester_code,
+        semester_name,
+        semester_type
+      )
+    `,
       { count: 'exact' }
     );
 

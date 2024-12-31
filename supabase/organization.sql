@@ -343,3 +343,19 @@ create policy "Allow individual delete access"
     on public.sections for delete
     to authenticated
     using ( true );
+
+
+-- For each related table, ensure there's a policy for API key access
+CREATE POLICY "Enable read access for API keys" ON public.degrees
+FOR SELECT TO public
+USING (
+  EXISTS (
+    SELECT 1 FROM api_keys
+    WHERE key_value = current_setting('request.header.apikey', true)::text
+    AND is_active = true 
+    AND (expires_at IS NULL OR expires_at > now())
+    AND (permissions->>'read')::boolean = true
+  )
+);
+
+-- Repeat for programs, courses, and semester tables
