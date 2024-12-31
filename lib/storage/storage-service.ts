@@ -207,4 +207,87 @@ export class StorageService {
       };
     }
   }
+
+  static async uploadStaffImage(
+    file: File,
+    staffId: string
+  ): Promise<{ publicUrl: string | null; error: Error | null }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { session },
+        error: sessionError
+      } = await this.supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        throw new Error('Authentication required');
+      }
+
+      // Remove existing staff image if any
+      await this.deleteExistingStaffImage(staffId);
+
+      // Create a unique filename
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${staffId}/${fileName}`;
+
+      // Upload the new file
+      const { error: uploadError } = await this.supabase.storage
+        .from('staff-images')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = this.supabase.storage
+        .from('staff-images')
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading staff image:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  private static async deleteExistingStaffImage(
+    staffId: string
+  ): Promise<void> {
+    try {
+      const { data: existingFiles } = await this.supabase.storage
+        .from('staff-images')
+        .list(staffId);
+
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map((f) => `${staffId}/${f.name}`);
+        await this.supabase.storage.from('staff-images').remove(filesToRemove);
+      }
+    } catch (error) {
+      console.error('Error deleting existing staff image:', error);
+    }
+  }
+
+  static async deleteStaffImage(
+    staffId: string
+  ): Promise<{ error: Error | null }> {
+    try {
+      await this.deleteExistingStaffImage(staffId);
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting staff image:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
 }

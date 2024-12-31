@@ -192,6 +192,27 @@ export class DepartmentService {
     }
   }
 
+  static async getDepartmentsByInstitution(
+    institutionId: string
+  ): Promise<Department[]> {
+    try {
+      const { data: departments, error } = await this.supabase
+        .from('departments')
+        .select('*')
+        .eq('institution_id', institutionId)
+        .eq('is_active', true)
+        .order('department_name');
+
+      if (error) throw error;
+
+      return departments || [];
+    } catch (error) {
+      console.error('Error fetching departments by institution:', error);
+      toast.error('Failed to load departments');
+      return [];
+    }
+  }
+
   static async getDepartmentsByInstitutionAndDegree(
     institutionId: string,
     degreeId: string
