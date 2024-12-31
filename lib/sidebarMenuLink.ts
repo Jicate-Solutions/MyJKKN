@@ -216,32 +216,25 @@ export function GetPages(pathname: string): Group[] {
         }
       ]
     },
-    // {
-    //   groupLabel: 'Content Management',
-    //   menus: [
-    //     {
-    //       href: '/content/announcements',
-    //       label: 'Announcements',
-    //       active: pathname === '/content/announcements',
-    //       icon: Bell,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/content/events',
-    //       label: 'Event Management',
-    //       active: pathname === '/content/events',
-    //       icon: CalendarDays,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/content/notifications',
-    //       label: 'Notifications',
-    //       active: pathname === '/content/notifications',
-    //       icon: Bell,
-    //       submenus: []
-    //     }
-    //   ]
-    // },
+    {
+      groupLabel: 'Staff Management',
+      menus: [
+        {
+          href: '/staff/category',
+          label: 'Staff Category',
+          active: pathname === '/staff/category',
+          icon: Tags,
+          submenus: []
+        },
+        {
+          href: '/staff/list',
+          label: 'Staff List',
+          active: pathname === '/staff/list',
+          icon: Users,
+          submenus: []
+        }
+      ]
+    },
     // {
     //   groupLabel: 'Academic Management',
     //   menus: [
