@@ -20,6 +20,8 @@ import {
 import { BeatLoader } from 'react-spinners';
 import { DegreeFilters } from './_components/degree-filters';
 import { DegreeList } from './_components/degree-list';
+import DownloadDegreeTemplateButton from './_components/download-degree-template';
+import BulkUploadDegrees from './_components/bulk-upload-degrees';
 
 export default function DegreesPage() {
   const {
@@ -81,15 +83,19 @@ export default function DegreesPage() {
           <div>
             <h1 className='text-2xl font-bold py-1'>Degrees</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage degrees for institutions
+              Manage your educational degrees
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/organizations/degrees/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Degree
-            </Link>
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <DownloadDegreeTemplateButton />
+            <BulkUploadDegrees />
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/organizations/degrees/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add Degree
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card>

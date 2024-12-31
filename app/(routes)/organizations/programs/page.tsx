@@ -19,6 +19,8 @@ import { BeatLoader } from 'react-spinners';
 
 import { ProgramFilters } from './_components/program-filters';
 import { ProgramList } from './_components/program-list';
+import DownloadProgramTemplateButton from './_components/download-program-template';
+import BulkUploadPrograms from './_components/bulk-upload-programs';
 
 export default function ProgramsPage() {
   const {
@@ -83,12 +85,16 @@ export default function ProgramsPage() {
               Manage academic programs
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/organizations/programs/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Program
-            </Link>
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <DownloadProgramTemplateButton />
+            <BulkUploadPrograms />
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/organizations/programs/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add Program
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card>

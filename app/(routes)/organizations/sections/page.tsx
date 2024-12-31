@@ -82,12 +82,14 @@ export default function SectionsPage() {
               Manage class sections
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/organizations/sections/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Section
-            </Link>
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/organizations/sections/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add Section
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card>

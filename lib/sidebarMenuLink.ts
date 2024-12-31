@@ -33,7 +33,9 @@ import {
   LucideIcon,
   LayoutGrid,
   Building,
-  Boxes
+  Boxes,
+  CalendarClock,
+  UserSearch
 } from 'lucide-react';
 import { MdLocalFireDepartment } from 'react-icons/md';
 
@@ -235,46 +237,32 @@ export function GetPages(pathname: string): Group[] {
         }
       ]
     },
-    // {
-    //   groupLabel: 'Academic Management',
-    //   menus: [
-    //     {
-    //       href: '/academic/institutions',
-    //       label: 'Institutions',
-    //       active: pathname === '/academic/institutions',
-    //       icon: Building2,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/academic/departments',
-    //       label: 'Departments',
-    //       active: pathname === '/academic/departments',
-    //       icon: School,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/academic/programs',
-    //       label: 'Programs',
-    //       active: pathname === '/academic/programs',
-    //       icon: GraduationCap,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/academic/courses',
-    //       label: 'Courses',
-    //       active: pathname === '/academic/courses',
-    //       icon: BookOpen,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/academic/enrollments',
-    //       label: 'Enrollments',
-    //       active: pathname === '/academic/enrollments',
-    //       icon: ClipboardCheck,
-    //       submenus: []
-    //     }
-    //   ]
-    // },
+    {
+      groupLabel: 'Academic Management',
+      menus: [
+        {
+          href: '/academic/years',
+          label: 'Academic Years',
+          active: pathname === '/academic/years',
+          icon: CalendarDays,
+          submenus: []
+        },
+        {
+          href: '/academic/staff-planning',
+          label: 'Staff Planning',
+          active: pathname === '/academic/staff-planning',
+          icon: UserSearch,
+          submenus: []
+        },
+        {
+          href: '/academic/timetables',
+          label: 'Timetables',
+          active: pathname === '/academic/timetables',
+          icon: CalendarClock,
+          submenus: []
+        }
+      ]
+    },
     // {
     //   groupLabel: 'Support & Feedback',
     //   menus: [

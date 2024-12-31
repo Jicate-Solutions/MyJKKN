@@ -19,6 +19,8 @@ import {
 import { BeatLoader } from 'react-spinners';
 import { InstitutionList } from './_components/institution-list';
 import { InstitutionFilter } from './_components/institution-filters';
+import BulkUploadInstitutions from './_components/bulk-upload-institutions';
+import DownloadTemplateButton from './_components/download-template-button';
 
 export default function InstitutionsPage() {
   const {
@@ -83,12 +85,16 @@ export default function InstitutionsPage() {
               Manage your educational institutions
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/organizations/institutions/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Institution
-            </Link>
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <DownloadTemplateButton />
+            <BulkUploadInstitutions />
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/organizations/institutions/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add Institution
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card>
