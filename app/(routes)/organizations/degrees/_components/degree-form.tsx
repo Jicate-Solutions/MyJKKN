@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
 import { Degree } from '@/types/organizations';
-import { DegreeService } from '@/lib/services/degree-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -31,7 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { useEffect } from 'react';
-import { OrganizationService } from '@/lib/services/organization-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 
 const degreeSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),

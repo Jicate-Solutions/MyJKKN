@@ -1,14 +1,12 @@
-// hooks/use-degrees.ts
-
 import { useState, useCallback } from 'react';
-import { DegreeService } from '@/lib/services/degree-service';
-import type { Degree, DegreeFilters } from '@/types/organizations';
+import { SemesterService } from '@/lib/services/organization/semester-service';
+import type { Semester, SemesterFilters } from '@/types/organizations';
 
-export function useDegrees(initialFilters: DegreeFilters = {}) {
-  const [degrees, setDegrees] = useState<Degree[]>([]);
+export function useSemesters(initialFilters: SemesterFilters = {}) {
+  const [semesters, setSemesters] = useState<Semester[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<DegreeFilters>(initialFilters);
+  const [filters, setFilters] = useState<SemesterFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
     total: 0,
     page: 1,
@@ -16,22 +14,22 @@ export function useDegrees(initialFilters: DegreeFilters = {}) {
     totalPages: 0
   });
 
-  const fetchDegrees = useCallback(
-    async (newFilters?: DegreeFilters) => {
+  const fetchSemesters = useCallback(
+    async (newFilters?: SemesterFilters) => {
       try {
         setLoading(true);
         setError(null);
         const currentFilters = newFilters || filters;
 
-        const result = await DegreeService.getDegrees(currentFilters);
-        setDegrees(result.data);
+        const result = await SemesterService.getSemesters(currentFilters);
+        setSemesters(result.data);
         setMetadata(result.metadata);
 
         if (newFilters) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching degrees:', err);
+        console.error('Error fetching semesters:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
@@ -41,35 +39,35 @@ export function useDegrees(initialFilters: DegreeFilters = {}) {
   );
 
   const updateFilters = useCallback(
-    (newFilters: Partial<DegreeFilters>) => {
+    (newFilters: Partial<SemesterFilters>) => {
       const updatedFilters = {
         ...filters,
         ...newFilters,
         page: 1 // Reset to first page when filters change
       };
       setFilters(updatedFilters);
-      fetchDegrees(updatedFilters);
+      fetchSemesters(updatedFilters);
     },
-    [filters, fetchDegrees]
+    [filters, fetchSemesters]
   );
 
   const changePage = useCallback(
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchDegrees(updatedFilters);
+      fetchSemesters(updatedFilters);
     },
-    [filters, fetchDegrees]
+    [filters, fetchSemesters]
   );
 
   return {
-    degrees,
+    semesters,
     loading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
-    fetchDegrees
+    fetchSemesters
   };
 }

@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
-import { ApplicationService } from '@/lib/services/application-service';
+import { ApplicationService } from '@/lib/services/application/application-service';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/card';
 import { SupportContactField } from './support-contact-field';
 import { ApiEndpointField } from './api-endpoint-field';
-import { CategoryService } from '@/lib/services/category-service';
+import { CategoryService } from '@/lib/services/application/category-service';
 
 // Add this type inside your component
 type CategoryOption = {

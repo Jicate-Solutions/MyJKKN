@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { CategoryService } from '@/lib/services/category-service';
+import { CategoryService } from '@/lib/services/application/category-service';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,

@@ -1,14 +1,12 @@
-// hooks/use-departments.ts
-
 import { useState, useCallback } from 'react';
-import { DepartmentService } from '@/lib/services/department-service';
-import type { Department, DepartmentFilters } from '@/types/organizations';
+import { SectionService } from '@/lib/services/organization/section-service';
+import type { Section, SectionFilters } from '@/types/organizations';
 
-export function useDepartments(initialFilters: DepartmentFilters = {}) {
-  const [departments, setDepartments] = useState<Department[]>([]);
+export function useSections(initialFilters: SectionFilters = {}) {
+  const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<DepartmentFilters>(initialFilters);
+  const [filters, setFilters] = useState<SectionFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
     total: 0,
     page: 1,
@@ -16,22 +14,22 @@ export function useDepartments(initialFilters: DepartmentFilters = {}) {
     totalPages: 0
   });
 
-  const fetchDepartments = useCallback(
-    async (newFilters?: DepartmentFilters) => {
+  const fetchSections = useCallback(
+    async (newFilters?: SectionFilters) => {
       try {
         setLoading(true);
         setError(null);
         const currentFilters = newFilters || filters;
 
-        const result = await DepartmentService.getDepartments(currentFilters);
-        setDepartments(result.data);
+        const result = await SectionService.getSections(currentFilters);
+        setSections(result.data);
         setMetadata(result.metadata);
 
         if (newFilters) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching departments:', err);
+        console.error('Error fetching sections:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
@@ -41,35 +39,35 @@ export function useDepartments(initialFilters: DepartmentFilters = {}) {
   );
 
   const updateFilters = useCallback(
-    (newFilters: Partial<DepartmentFilters>) => {
+    (newFilters: Partial<SectionFilters>) => {
       const updatedFilters = {
         ...filters,
         ...newFilters,
         page: 1 // Reset to first page when filters change
       };
       setFilters(updatedFilters);
-      fetchDepartments(updatedFilters);
+      fetchSections(updatedFilters);
     },
-    [filters, fetchDepartments]
+    [filters, fetchSections]
   );
 
   const changePage = useCallback(
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchDepartments(updatedFilters);
+      fetchSections(updatedFilters);
     },
-    [filters, fetchDepartments]
+    [filters, fetchSections]
   );
 
   return {
-    departments,
+    sections,
     loading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
-    fetchDepartments
+    fetchSections
   };
 }

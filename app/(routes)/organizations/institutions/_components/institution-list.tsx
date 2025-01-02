@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Institution } from '@/types/organizations';
-import { OrganizationService } from '@/lib/services/organization-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {

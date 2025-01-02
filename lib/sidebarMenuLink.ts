@@ -35,30 +35,28 @@ import {
   Building,
   Boxes,
   CalendarClock,
-  UserSearch
+  UserSearch,
+  Flame
 } from 'lucide-react';
-import { MdLocalFireDepartment } from 'react-icons/md';
 
-type Submenu = {
+interface MenuItem {
   href: string;
   label: string;
+  icon: LucideIcon;
   active: boolean;
-};
+  submenus: Array<{
+    href: string;
+    label: string;
+    active: boolean;
+  }>;
+}
 
-type Menu = {
-  href: string;
-  label: string;
-  active: boolean;
-  icon: LucideIcon | React.ElementType; // ideally this should be more strictly typed
-  submenus: Submenu[];
-};
+interface MenuGroup {
+  groupLabel?: string;
+  menus: MenuItem[];
+}
 
-type Group = {
-  groupLabel: string;
-  menus: Menu[];
-};
-
-export function GetPages(pathname: string): Group[] {
+export function GetPages(pathname: string): MenuGroup[] {
   return [
     {
       groupLabel: 'Overview',
@@ -185,7 +183,7 @@ export function GetPages(pathname: string): Group[] {
           href: '/organizations/departments',
           label: 'Departments',
           active: pathname.startsWith('/organizations/departments'),
-          icon: MdLocalFireDepartment,
+          icon: Flame,
           submenus: []
         },
         {

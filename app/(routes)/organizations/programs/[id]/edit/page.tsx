@@ -9,7 +9,7 @@ import { ProgramForm } from '../../_components/program-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { ProgramService } from '@/lib/services/program-service';
+import { ProgramService } from '@/lib/services/organization/program-service';
 import type { Program } from '@/types/organizations';
 import {
   Breadcrumb,

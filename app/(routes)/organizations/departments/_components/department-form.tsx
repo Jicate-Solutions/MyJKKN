@@ -9,9 +9,9 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
 import { Department } from '@/types/organizations';
-import { DepartmentService } from '@/lib/services/department-service';
-import { OrganizationService } from '@/lib/services/organization-service';
-import { DegreeService } from '@/lib/services/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import { Button } from '@/components/ui/button';
 import {
   Form,

@@ -7,7 +7,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, PenSquare } from 'lucide-react';
-import { SectionService } from '@/lib/services/section-service';
+import { SectionService } from '@/lib/services/organization/section-service';
 import type { Section } from '@/types/organizations';
 import {
   Breadcrumb,

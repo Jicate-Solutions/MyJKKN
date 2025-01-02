@@ -23,10 +23,10 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { ProgramService } from '@/lib/services/program-service';
-import { OrganizationService } from '@/lib/services/organization-service';
-import { DegreeService } from '@/lib/services/degree-service';
-import { DepartmentService } from '@/lib/services/department-service';
+import { ProgramService } from '@/lib/services/organization/program-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
 
 interface Institution {
   id: string;

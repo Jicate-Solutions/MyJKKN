@@ -10,7 +10,7 @@ import { DegreeForm } from '../../_components/degree-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { DegreeService } from '@/lib/services/degree-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import type { Degree } from '@/types/organizations';
 import {
   Breadcrumb,

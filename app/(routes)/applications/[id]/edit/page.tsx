@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ApplicationForm } from '../../_components/application-form';
-import { ApplicationService } from '@/lib/services/application-service';
+import { ApplicationService } from '@/lib/services/application/application-service';
 import { Application } from '@/types/applications';
 import { BeatLoader } from 'react-spinners';
 import {

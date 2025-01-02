@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
-import { CategoryService } from '@/lib/services/category-service';
+import { CategoryService } from '@/lib/services/application/category-service';
 import { Category } from '@/types/categories';
 import { Button } from '@/components/ui/button';
 import { ContentLayout } from '@/components/layout/content-layout';

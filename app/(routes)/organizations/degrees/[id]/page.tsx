@@ -9,7 +9,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, PenSquare } from 'lucide-react';
-import { DegreeService } from '@/lib/services/degree-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import type { Degree } from '@/types/organizations';
 import {
   Breadcrumb,

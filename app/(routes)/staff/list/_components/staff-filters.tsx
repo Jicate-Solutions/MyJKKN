@@ -15,8 +15,8 @@ import {
 import { useDebounce } from '@/hooks/use-debounce';
 import { CategoryService } from '@/lib/services/staff/category-service';
 import { StaffFilters as StaffFilterType } from '@/types/staff';
-import { OrganizationService } from '@/lib/services/organization-service';
-import { DepartmentService } from '@/lib/services/department-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
 
 interface StaffFiltersProps {
   filters: StaffFilterType;

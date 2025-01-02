@@ -8,7 +8,7 @@ import { SemesterForm } from '../../_components/semester-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { SemesterService } from '@/lib/services/semester-service';
+import { SemesterService } from '@/lib/services/organization/semester-service';
 import type { Semester } from '@/types/organizations';
 import {
   Breadcrumb,

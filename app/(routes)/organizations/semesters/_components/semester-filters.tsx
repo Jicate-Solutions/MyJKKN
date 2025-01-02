@@ -11,11 +11,11 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/use-debounce';
-import { OrganizationService } from '@/lib/services/organization-service';
-import { DegreeService } from '@/lib/services/degree-service';
-import { DepartmentService } from '@/lib/services/department-service';
-import { ProgramService } from '@/lib/services/program-service';
-import { CourseService } from '@/lib/services/course-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
+import { ProgramService } from '@/lib/services/organization/program-service';
+import { CourseService } from '@/lib/services/organization/course-service';
 import { SemesterFilters as SemesterFilterType } from '@/types/organizations';
 
 interface SemesterFiltersProps {

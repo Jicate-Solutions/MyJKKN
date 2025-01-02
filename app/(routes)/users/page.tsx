@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { UserService } from '@/lib/services/user-service';
+import { UserService } from '@/lib/services/users/user-service';
 import { UserStats, UserFilters } from '@/types/users';
 import { Profile } from '@/types/auth';
 import { Button } from '@/components/ui/button';

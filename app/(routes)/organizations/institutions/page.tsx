@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { useInstitutions } from '@/hooks/use-institutions';
+import { useInstitutions } from '@/hooks/organization/use-institutions';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,

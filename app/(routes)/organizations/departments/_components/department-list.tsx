@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Department } from '@/types/organizations';
-import { DepartmentService } from '@/lib/services/department-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {

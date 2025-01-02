@@ -11,9 +11,9 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/use-debounce';
-import { DegreeService } from '@/lib/services/degree-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import { ProgramFilters as ProgramFilterType } from '@/types/organizations';
-import { OrganizationService } from '@/lib/services/organization-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 
 interface Institution {
   id: string;

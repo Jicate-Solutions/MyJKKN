@@ -9,7 +9,7 @@ import { InstitutionForm } from '../../_components/institution-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 import type { Institution } from '@/types/organizations';
 import {
   Breadcrumb,

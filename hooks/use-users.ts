@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
-import { UserService } from '@/lib/services/user-service';
-import { UserList, UserFilters } from '@/types/users';
+import { UserService } from '@/lib/services/users/user-service';
+import { UserFilters } from '@/types/users';
+import { Profile } from '@/types/auth';
 
 export function useUsers(initialFilters: UserFilters = {}) {
-  const [users, setUsers] = useState<UserList[]>([]);
+  const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState({

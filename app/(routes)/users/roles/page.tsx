@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Profile } from '@/types/auth';
@@ -16,7 +16,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { RolesList } from './_components/roles-list';
-import { UserService } from '@/lib/services/user-service';
+import { UserService } from '@/lib/services/users/user-service';
 import toast from 'react-hot-toast';
 import { UserFilters } from '@/types/users';
 import { UserFiltersComponent } from '../_components/user-filters';
@@ -68,7 +68,7 @@ export default function RolesPage() {
   };
 
   // Update fetchUsers to use filters
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await UserService.getUsers(filters);
@@ -80,14 +80,14 @@ export default function RolesPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [filters]);
 
   // Update useEffect to depend on filters
   useEffect(() => {
     if (isSuperAdmin) {
       fetchUsers();
     }
-  }, [isSuperAdmin, filters]);
+  }, [isSuperAdmin, fetchUsers]);
 
   const handleRoleUpdate = async (userId: string, newRole: string) => {
     try {

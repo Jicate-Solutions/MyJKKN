@@ -10,7 +10,7 @@ import { DepartmentForm } from '../../_components/department-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { DepartmentService } from '@/lib/services/department-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
 import type { Department } from '@/types/organizations';
 import {
   Breadcrumb,

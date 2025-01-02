@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { OrganizationService } from '@/lib/services/organization-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 
 const validateRow = (row: any) => {
   const requiredFields = [

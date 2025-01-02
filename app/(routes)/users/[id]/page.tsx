@@ -4,7 +4,7 @@ import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Profile } from '@/types/auth';
-import { UserService } from '@/lib/services/user-service';
+import { UserService } from '@/lib/services/users/user-service';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { BeatLoader } from 'react-spinners';
 import {

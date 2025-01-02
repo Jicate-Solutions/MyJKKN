@@ -1,13 +1,14 @@
-// hooks/use-programs.ts
-import { useState, useCallback } from 'react';
-import { ProgramService } from '@/lib/services/program-service';
-import type { Program, ProgramFilters } from '@/types/organizations';
+// hooks/use-degrees.ts
 
-export function usePrograms(initialFilters: ProgramFilters = {}) {
-  const [programs, setPrograms] = useState<Program[]>([]);
+import { useState, useCallback } from 'react';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import type { Degree, DegreeFilters } from '@/types/organizations';
+
+export function useDegrees(initialFilters: DegreeFilters = {}) {
+  const [degrees, setDegrees] = useState<Degree[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<ProgramFilters>(initialFilters);
+  const [filters, setFilters] = useState<DegreeFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
     total: 0,
     page: 1,
@@ -15,22 +16,22 @@ export function usePrograms(initialFilters: ProgramFilters = {}) {
     totalPages: 0
   });
 
-  const fetchPrograms = useCallback(
-    async (newFilters?: ProgramFilters) => {
+  const fetchDegrees = useCallback(
+    async (newFilters?: DegreeFilters) => {
       try {
         setLoading(true);
         setError(null);
         const currentFilters = newFilters || filters;
 
-        const result = await ProgramService.getPrograms(currentFilters);
-        setPrograms(result.data);
+        const result = await DegreeService.getDegrees(currentFilters);
+        setDegrees(result.data);
         setMetadata(result.metadata);
 
         if (newFilters) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching programs:', err);
+        console.error('Error fetching degrees:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
@@ -40,35 +41,35 @@ export function usePrograms(initialFilters: ProgramFilters = {}) {
   );
 
   const updateFilters = useCallback(
-    (newFilters: Partial<ProgramFilters>) => {
+    (newFilters: Partial<DegreeFilters>) => {
       const updatedFilters = {
         ...filters,
         ...newFilters,
         page: 1 // Reset to first page when filters change
       };
       setFilters(updatedFilters);
-      fetchPrograms(updatedFilters);
+      fetchDegrees(updatedFilters);
     },
-    [filters, fetchPrograms]
+    [filters, fetchDegrees]
   );
 
   const changePage = useCallback(
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchPrograms(updatedFilters);
+      fetchDegrees(updatedFilters);
     },
-    [filters, fetchPrograms]
+    [filters, fetchDegrees]
   );
 
   return {
-    programs,
+    degrees,
     loading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
-    fetchPrograms
+    fetchDegrees
   };
 }
