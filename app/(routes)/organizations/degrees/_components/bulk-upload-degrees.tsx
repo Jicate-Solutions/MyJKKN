@@ -22,8 +22,8 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { DegreeService } from '@/lib/services/degree-service';
-import { OrganizationService } from '@/lib/services/organization-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 
 const validateRow = async (row: any, institutions: any[]) => {
   const requiredFields = [

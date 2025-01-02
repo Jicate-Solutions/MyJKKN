@@ -13,9 +13,8 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import { Building2, Users, LibrarySquare, LayoutDashboard } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization-service';
-import { ApplicationService } from '@/lib/services/application-service';
-import { UserService } from '@/lib/services/user-service';
+import { ApplicationService } from '@/lib/services/application/application-service';
+import { UserService } from '@/lib/services/users/user-service';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Card,
@@ -33,6 +32,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 
 interface DashboardMetrics {
   totalInstitutions: number;

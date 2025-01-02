@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { useSemesters } from '@/hooks/use-semesters';
+import { useSemesters } from '@/hooks/organization/use-semesters';
 import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
 import {

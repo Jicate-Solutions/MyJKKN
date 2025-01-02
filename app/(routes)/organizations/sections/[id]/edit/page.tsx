@@ -8,7 +8,7 @@ import { SectionForm } from '../../_components/section-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { SectionService } from '@/lib/services/section-service';
+import { SectionService } from '@/lib/services/organization/section-service';
 import type { Section } from '@/types/organizations';
 import {
   Breadcrumb,

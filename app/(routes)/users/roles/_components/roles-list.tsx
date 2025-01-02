@@ -112,7 +112,8 @@ export function RolesList({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>User</TableHead>
+              <TableHead>S.No</TableHead>
+              <TableHead>User Name</TableHead>
               <TableHead>Current Role</TableHead>
               <TableHead>New Role</TableHead>
               <TableHead>Last Updated</TableHead>

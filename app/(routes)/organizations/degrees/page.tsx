@@ -7,7 +7,6 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { useDegrees } from '@/hooks/use-degrees';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
@@ -22,6 +21,7 @@ import { DegreeFilters } from './_components/degree-filters';
 import { DegreeList } from './_components/degree-list';
 import DownloadDegreeTemplateButton from './_components/download-degree-template';
 import BulkUploadDegrees from './_components/bulk-upload-degrees';
+import { useDegrees } from '@/hooks/organization/use-degrees';
 
 export default function DegreesPage() {
   const {

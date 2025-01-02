@@ -5,8 +5,7 @@ import type {
   UpdateApplicationDTO
 } from '@/types/applications';
 import { toast } from 'react-hot-toast';
-import { CategoryService } from './category-service';
-import { ApiError, handleApiError } from '../api-errors';
+import { CategoryService } from '@/lib/services/application/category-service';
 
 export interface ApplicationListResponse {
   data: Application[];
@@ -34,10 +33,8 @@ export class ApplicationService {
       // Build query parameters
       const params = new URLSearchParams();
 
-
       // Debug log
-    console.log('Filters:', filters);
-
+      console.log('Filters:', filters);
 
       if (filters.category) params.append('category', filters.category);
       if (filters.search) params.append('search', filters.search);
@@ -46,15 +43,15 @@ export class ApplicationService {
       if (filters.page) params.append('page', String(filters.page));
       if (filters.limit) params.append('limit', String(filters.limit));
 
-       // Debug log
-    console.log('Request URL:', `/api/applications?${params.toString()}`);
+      // Debug log
+      console.log('Request URL:', `/api/applications?${params.toString()}`);
 
       const response = await fetch(`/api/applications?${params.toString()}`);
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to fetch applications');
       }
-      const data =  await response.json();
+      const data = await response.json();
       return data;
     } catch (error) {
       console.error('Error fetching applications:', error);
@@ -76,7 +73,9 @@ export class ApplicationService {
     }
   }
 
-  static async createApplication(data: CreateApplicationDTO): Promise<Application> {
+  static async createApplication(
+    data: CreateApplicationDTO
+  ): Promise<Application> {
     try {
       // Validate support contact if provided
       if (data.support_contact) {
@@ -89,7 +88,9 @@ export class ApplicationService {
       if (data.api_endpoints && data.api_endpoints.length > 0) {
         data.api_endpoints.forEach((endpoint, index) => {
           if (!this.validateEndpointConfig(endpoint)) {
-            throw new Error(`Invalid configuration for API endpoint ${index + 1}`);
+            throw new Error(
+              `Invalid configuration for API endpoint ${index + 1}`
+            );
           }
         });
       }
@@ -103,7 +104,6 @@ export class ApplicationService {
       });
 
       const responseData = await response.json();
-
 
       if (!response.ok) {
         if (response.status === 409) {
@@ -123,7 +123,6 @@ export class ApplicationService {
     }
   }
 
-
   static async updateApplication(
     id: string,
     data: UpdateApplicationDTO
@@ -140,7 +139,9 @@ export class ApplicationService {
       if (data.api_endpoints && data.api_endpoints.length > 0) {
         data.api_endpoints.forEach((endpoint, index) => {
           if (!this.validateEndpointConfig(endpoint)) {
-            throw new Error(`Invalid configuration for API endpoint ${index + 1}`);
+            throw new Error(
+              `Invalid configuration for API endpoint ${index + 1}`
+            );
           }
         });
       }
@@ -214,16 +215,20 @@ export class ApplicationService {
 
   // Method to get categories and subcategories for form
   static async getCategoryOptions(): Promise<{
-    categories: { label: string; value: string; subcategories: { label: string; value: string; }[] }[];
+    categories: {
+      label: string;
+      value: string;
+      subcategories: { label: string; value: string }[];
+    }[];
   }> {
     try {
       const categories = await CategoryService.getCategories();
 
       return {
-        categories: categories.map(category => ({
+        categories: categories.map((category) => ({
           label: category.name,
           value: category.id,
-          subcategories: category.subcategories.map(sub => ({
+          subcategories: category.subcategories.map((sub) => ({
             label: sub.name,
             value: sub.id
           }))
@@ -245,7 +250,7 @@ export class ApplicationService {
       if (!category) return false;
 
       if (subcategoryId) {
-        return category.subcategories.some(sub => sub.id === subcategoryId);
+        return category.subcategories.some((sub) => sub.id === subcategoryId);
       }
 
       return true;
@@ -253,7 +258,6 @@ export class ApplicationService {
       return false;
     }
   }
-
 
   static getAvailableRoles(): string[] {
     return ['student', 'faculty', 'staff', 'administrator', 'super_admin'];
@@ -279,7 +283,6 @@ export class ApplicationService {
     return ['public', 'restricted', 'confidential'];
   }
 
-
   // Add this helper method in ApplicationService class
   static validateEndpointConfig(endpoint: ApiEndpoint): boolean {
     return (
@@ -288,6 +291,4 @@ export class ApplicationService {
       ['GET', 'POST', 'PUT', 'DELETE'].includes(endpoint.method)
     );
   }
-
-
 }

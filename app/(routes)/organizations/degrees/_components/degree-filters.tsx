@@ -13,7 +13,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/use-debounce';
-import { OrganizationService } from '@/lib/services/organization-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeFilters as DegreeFilterType } from '@/types/organizations';
 
 interface DegreeFiltersProps {

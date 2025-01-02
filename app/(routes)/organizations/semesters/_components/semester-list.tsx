@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Semester } from '@/types/organizations';
-import { SemesterService } from '@/lib/services/semester-service';
+import { SemesterService } from '@/lib/services/organization/semester-service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {

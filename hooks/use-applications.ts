@@ -5,7 +5,7 @@ import {
   ApplicationService,
   ApplicationFilters,
   ApplicationListResponse
-} from '@/lib/services/application-service';
+} from '@/lib/services/application/application-service';
 import type { Application } from '@/types/applications';
 
 export function useApplications(initialFilters: ApplicationFilters = {}) {

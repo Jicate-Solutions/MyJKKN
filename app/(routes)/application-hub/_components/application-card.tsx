@@ -30,9 +30,18 @@ export function ApplicationCard({ application }: ApplicationCardProps) {
       <CardHeader className='space-y-2 p-5 pb-3'>
         <div className='flex items-start justify-between space-x-2'>
           <div className='flex flex-col flex-1'>
-            <CardTitle className='line-clamp-1 text-lg font-semibold'>
-              {application.name}
-            </CardTitle>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <CardTitle className='line-clamp-1 text-lg font-semibold cursor-pointer'>
+                    {application.name}
+                  </CardTitle>
+                </TooltipTrigger>
+                <TooltipContent side='top' className='max-w-[300px]'>
+                  <p className='text-sm'>{application.name}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <span className='text-xs mt-2 text-muted-foreground'>
               {application.category?.name || 'Uncategorized'}
             </span>

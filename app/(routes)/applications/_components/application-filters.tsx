@@ -10,9 +10,9 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { CategoryService } from '@/lib/services/category-service';
+import { CategoryService } from '@/lib/services/application/category-service';
 import { Category } from '@/types/categories';
-import type { ApplicationFilters as Filters } from '@/lib/services/application-service';
+import type { ApplicationFilters as Filters } from '@/lib/services/application/application-service';
 import { useDebounce } from '@/hooks/use-debounce';
 
 interface ApplicationFiltersProps {

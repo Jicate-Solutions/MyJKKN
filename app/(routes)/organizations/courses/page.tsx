@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { useCourses } from '@/hooks/use-courses';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
@@ -20,6 +19,7 @@ import { CourseFilters } from './_components/course-filters';
 import { CourseList } from './_components/course-list';
 import DownloadCourseTemplateButton from './_components/download-course-template';
 import BulkUploadCourses from './_components/bulk-upload-courses';
+import { useCourses } from '@/hooks/organization/use-courses';
 
 export default function CoursesPage() {
   const {

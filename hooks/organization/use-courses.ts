@@ -1,12 +1,12 @@
 import { useState, useCallback } from 'react';
-import { SemesterService } from '@/lib/services/semester-service';
-import type { Semester, SemesterFilters } from '@/types/organizations';
+import { CourseService } from '@/lib/services/organization/course-service';
+import type { Course, CourseFilters } from '@/types/organizations';
 
-export function useSemesters(initialFilters: SemesterFilters = {}) {
-  const [semesters, setSemesters] = useState<Semester[]>([]);
+export function useCourses(initialFilters: CourseFilters = {}) {
+  const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<SemesterFilters>(initialFilters);
+  const [filters, setFilters] = useState<CourseFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
     total: 0,
     page: 1,
@@ -14,22 +14,22 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
     totalPages: 0
   });
 
-  const fetchSemesters = useCallback(
-    async (newFilters?: SemesterFilters) => {
+  const fetchCourses = useCallback(
+    async (newFilters?: CourseFilters) => {
       try {
         setLoading(true);
         setError(null);
         const currentFilters = newFilters || filters;
 
-        const result = await SemesterService.getSemesters(currentFilters);
-        setSemesters(result.data);
+        const result = await CourseService.getCourses(currentFilters);
+        setCourses(result.data);
         setMetadata(result.metadata);
 
         if (newFilters) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching semesters:', err);
+        console.error('Error fetching courses:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
@@ -39,35 +39,35 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
   );
 
   const updateFilters = useCallback(
-    (newFilters: Partial<SemesterFilters>) => {
+    (newFilters: Partial<CourseFilters>) => {
       const updatedFilters = {
         ...filters,
         ...newFilters,
         page: 1 // Reset to first page when filters change
       };
       setFilters(updatedFilters);
-      fetchSemesters(updatedFilters);
+      fetchCourses(updatedFilters);
     },
-    [filters, fetchSemesters]
+    [filters, fetchCourses]
   );
 
   const changePage = useCallback(
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchSemesters(updatedFilters);
+      fetchCourses(updatedFilters);
     },
-    [filters, fetchSemesters]
+    [filters, fetchCourses]
   );
 
   return {
-    semesters,
+    courses,
     loading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
-    fetchSemesters
+    fetchCourses
   };
 }

@@ -12,7 +12,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { Application } from '@/types/applications';
-import { ApplicationService } from '@/lib/services/application-service';
+import { ApplicationService } from '@/lib/services/application/application-service';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,

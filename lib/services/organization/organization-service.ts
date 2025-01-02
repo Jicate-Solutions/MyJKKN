@@ -9,18 +9,23 @@ import type {
   InstitutionFilters,
   OrganizationListResponse
 } from '@/types/organizations';
-import { StorageService } from '../storage/storage-service';
+import { StorageService } from '@/lib/storage/storage-service';
 
 export class OrganizationService {
   private static supabase = createClientComponentClient();
 
-  static async checkCodeExists(counsellingCode: string, excludeId?: string): Promise<boolean> {
+  static async checkCodeExists(
+    counsellingCode: string,
+    excludeId?: string
+  ): Promise<boolean> {
     try {
       let query = this.supabase
         .from('institutions')
         .select('id')
-        .or(`counselling_code.eq.${counsellingCode.toUpperCase()},name.ilike.${counsellingCode}`);
-      
+        .or(
+          `counselling_code.eq.${counsellingCode.toUpperCase()},name.ilike.${counsellingCode}`
+        );
+
       // If excludeId is provided (for editing), exclude that institution
       if (excludeId) {
         query = query.neq('id', excludeId);
@@ -312,7 +317,9 @@ export class OrganizationService {
     }
   }
 
-  static async getInstitutionNames(isActive?: boolean): Promise<{ id: string; name: string; counselling_code: string; }[]> {
+  static async getInstitutionNames(
+    isActive?: boolean
+  ): Promise<{ id: string; name: string; counselling_code: string }[]> {
     try {
       let query = this.supabase
         .from('institutions')

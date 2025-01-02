@@ -11,7 +11,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/use-debounce';
-import { CategoryService } from '@/lib/services/category-service';
+import { CategoryService } from '@/lib/services/application/category-service';
 import { Category } from '@/types/categories';
 
 interface ApplicationHubFiltersProps {
@@ -45,15 +45,15 @@ export function ApplicationHubFilters({
   };
 
   return (
-    <div className="mb-6 space-y-4">
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+    <div className='mb-6 space-y-4'>
+      <div className='grid gap-4 md:grid-cols-2'>
+        <div className='relative'>
+          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
           <Input
-            placeholder="Search applications..."
+            placeholder='Search applications...'
             onChange={handleSearchChange}
             defaultValue={filters.search}
-            className="pl-10"
+            className='pl-10'
           />
         </div>
 
@@ -62,10 +62,10 @@ export function ApplicationHubFilters({
           onValueChange={handleCategoryChange}
         >
           <SelectTrigger>
-            <SelectValue placeholder="Select category" />
+            <SelectValue placeholder='Select category' />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value='all'>All Categories</SelectItem>
             {categories.map((category) => (
               <SelectItem key={category.id} value={category.id}>
                 {category.name}

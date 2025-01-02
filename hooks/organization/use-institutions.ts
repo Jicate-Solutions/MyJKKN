@@ -1,8 +1,8 @@
 // hooks/use-institutions.ts
 
 import { useState, useCallback } from 'react';
-import { OrganizationService } from '@/lib/services/organization-service';
 import type { Institution, InstitutionFilters } from '@/types/organizations';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 
 export function useInstitutions(initialFilters: InstitutionFilters = {}) {
   const [institutions, setInstitutions] = useState<Institution[]>([]);

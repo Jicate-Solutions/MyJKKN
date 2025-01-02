@@ -37,7 +37,7 @@ interface CollapseMenuButtonProps {
   label: string;
   active: boolean;
   submenus: Submenu[];
-  isOpen: boolean | undefined;
+  isOpen?: boolean;
 }
 
 export function CollapseMenuButton({

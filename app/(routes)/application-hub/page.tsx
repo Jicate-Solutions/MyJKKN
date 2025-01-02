@@ -6,7 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card } from '@/components/ui/card';
 import { useApplications } from '@/hooks/use-applications';
 import { ApplicationHubFilters } from './_components/application-hub-filters';
-import { CategoryService } from '@/lib/services/category-service';
+import { CategoryService } from '@/lib/services/application/category-service';
 import { Category } from '@/types/categories';
 import { BeatLoader } from 'react-spinners';
 import {

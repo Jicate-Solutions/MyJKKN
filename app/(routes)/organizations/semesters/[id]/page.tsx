@@ -7,7 +7,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, PenSquare } from 'lucide-react';
-import { SemesterService } from '@/lib/services/semester-service';
+import { SemesterService } from '@/lib/services/organization/semester-service';
 import type { Semester } from '@/types/organizations';
 import {
   Breadcrumb,

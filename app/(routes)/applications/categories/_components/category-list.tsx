@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { MoreVertical, Plus, Edit, Trash2, RefreshCw } from 'lucide-react';
 import { Category, Subcategory } from '@/types/categories';
-import { CategoryService } from '@/lib/services/category-service';
+import { CategoryService } from '@/lib/services/application/category-service';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -38,16 +38,20 @@ import { EditSubcategoryModal } from './edit-subcategory-modal';
 interface CategoryListProps {
   categories: Category[];
   onRefresh: () => void;
-  
 }
 
 export function CategoryList({ categories, onRefresh }: CategoryListProps) {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
-  const [addingSubcategoryTo, setAddingSubcategoryTo] = useState<string | null>(null);
+  const [addingSubcategoryTo, setAddingSubcategoryTo] = useState<string | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(false);
-  const [editingSubcategory, setEditingSubcategory] = useState<Subcategory | null>(null);
-  const [deletingSubcategory, setDeletingSubcategory] = useState<string | null>(null);
+  const [editingSubcategory, setEditingSubcategory] =
+    useState<Subcategory | null>(null);
+  const [deletingSubcategory, setDeletingSubcategory] = useState<string | null>(
+    null
+  );
 
   const handleDelete = async () => {
     if (!deletingCategory) return;
@@ -81,7 +85,7 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className='space-y-4'>
       <div className='flex justify-end'>
         <Button
           variant='outline'
@@ -94,57 +98,64 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
         </Button>
       </div>
 
-      <div className="rounded-md border">
+      <div className='rounded-md border'>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[200px]">Name</TableHead>
-              <TableHead className="hidden md:table-cell">Description</TableHead>
+              <TableHead className='w-[200px]'>Name</TableHead>
+              <TableHead className='hidden md:table-cell'>
+                Description
+              </TableHead>
               <TableHead>Subcategories</TableHead>
-              <TableHead className="w-[70px]">Actions</TableHead>
+              <TableHead className='w-[70px]'>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {categories.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={4}
+                  className='h-24 text-center text-muted-foreground'
+                >
                   No categories found
                 </TableCell>
               </TableRow>
             ) : (
               categories.map((category) => (
                 <TableRow key={category.id}>
-                  <TableCell className="font-medium">{category.name}</TableCell>
-                  <TableCell className="hidden md:table-cell">
+                  <TableCell className='font-medium'>{category.name}</TableCell>
+                  <TableCell className='hidden md:table-cell'>
                     {category.description || '-'}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className='flex flex-wrap gap-1.5'>
                       {category.subcategories.map((sub) => (
                         <Badge
                           key={sub.id}
-                          variant="secondary"
-                          className="group relative flex items-center gap-1.5 pr-1.5"
+                          variant='secondary'
+                          className='group relative flex items-center gap-1.5 pr-1.5'
                         >
-                          <span className="max-w-[150px] truncate">{sub.name}</span>
-                          <div className="flex items-center opacity-0 transition-opacity group-hover:opacity-100">
+                          <span className='max-w-[150px] truncate'>
+                            {sub.name}
+                          </span>
+                          <div className='flex items-center opacity-0 transition-opacity group-hover:opacity-100'>
                             <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 p-0 hover:bg-secondary"
+                              variant='ghost'
+                              size='icon'
+                              className='h-5 w-5 p-0 hover:bg-secondary'
                               onClick={() => setEditingSubcategory(sub)}
                             >
-                              <Edit className="h-3 w-3" />
-                              <span className="sr-only">Edit {sub.name}</span>
+                              <Edit className='h-3 w-3' />
+                              <span className='sr-only'>Edit {sub.name}</span>
                             </Button>
                             <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 p-0 text-destructive hover:bg-destructive/10"
+                              variant='ghost'
+                              size='icon'
+                              className='h-5 w-5 p-0 text-destructive hover:bg-destructive/10'
                               onClick={() => setDeletingSubcategory(sub.id)}
                             >
-                              <Trash2 className="h-3 w-3" />
-                              <span className="sr-only">Delete {sub.name}</span>
+                              <Trash2 className='h-3 w-3' />
+                              <span className='sr-only'>Delete {sub.name}</span>
                             </Button>
                           </div>
                         </Badge>
@@ -155,34 +166,36 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 p-0 hover:bg-secondary"
+                          variant='ghost'
+                          size='icon'
+                          className='h-8 w-8 p-0 hover:bg-secondary'
                         >
-                          <span className="sr-only">Open menu for {category.name}</span>
-                          <MoreVertical className="h-4 w-4" />
+                          <span className='sr-only'>
+                            Open menu for {category.name}
+                          </span>
+                          <MoreVertical className='h-4 w-4' />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[200px]">
+                      <DropdownMenuContent align='end' className='w-[200px]'>
                         <DropdownMenuItem
                           onClick={() => setAddingSubcategoryTo(category.id)}
-                          className="cursor-pointer"
+                          className='cursor-pointer'
                         >
-                          <Plus className="mr-2 h-4 w-4" />
+                          <Plus className='mr-2 h-4 w-4' />
                           Add Subcategory
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setEditingCategory(category)}
-                          className="cursor-pointer"
+                          className='cursor-pointer'
                         >
-                          <Edit className="mr-2 h-4 w-4" />
+                          <Edit className='mr-2 h-4 w-4' />
                           Edit Category
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setDeletingCategory(category.id)}
-                          className="cursor-pointer text-destructive focus:bg-destructive/10"
+                          className='cursor-pointer text-destructive focus:bg-destructive/10'
                         >
-                          <Trash2 className="mr-2 h-4 w-4" />
+                          <Trash2 className='mr-2 h-4 w-4' />
                           Delete Category
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -219,19 +232,21 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
         open={!!deletingCategory}
         onOpenChange={() => setDeletingCategory(null)}
       >
-        <AlertDialogContent className="sm:max-w-[425px]">
+        <AlertDialogContent className='sm:max-w-[425px]'>
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-xl">Delete Category</AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground">
-              This will permanently delete the category and all its subcategories.
-              This action cannot be undone.
+            <AlertDialogTitle className='text-xl'>
+              Delete Category
+            </AlertDialogTitle>
+            <AlertDialogDescription className='text-muted-foreground'>
+              This will permanently delete the category and all its
+              subcategories. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+          <AlertDialogFooter className='gap-2'>
+            <AlertDialogCancel className='mt-0'>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-destructive hover:bg-destructive/90"
+              className='bg-destructive hover:bg-destructive/90'
               disabled={isLoading}
             >
               {isLoading ? 'Deleting...' : 'Delete Category'}
@@ -254,18 +269,21 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
         open={!!deletingSubcategory}
         onOpenChange={() => setDeletingSubcategory(null)}
       >
-        <AlertDialogContent className="sm:max-w-[425px]">
+        <AlertDialogContent className='sm:max-w-[425px]'>
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-xl">Delete Subcategory</AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground">
-              Are you sure you want to delete this subcategory? This action cannot be undone.
+            <AlertDialogTitle className='text-xl'>
+              Delete Subcategory
+            </AlertDialogTitle>
+            <AlertDialogDescription className='text-muted-foreground'>
+              Are you sure you want to delete this subcategory? This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel className="mt-0">Cancel</AlertDialogCancel>
+          <AlertDialogFooter className='gap-2'>
+            <AlertDialogCancel className='mt-0'>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteSubcategory}
-              className="bg-destructive hover:bg-destructive/90"
+              className='bg-destructive hover:bg-destructive/90'
               disabled={isLoading}
             >
               {isLoading ? 'Deleting...' : 'Delete'}

@@ -8,7 +8,7 @@ import { CourseForm } from '../../_components/course-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { CourseService } from '@/lib/services/course-service';
+import { CourseService } from '@/lib/services/organization/course-service';
 import type { Course } from '@/types/organizations';
 import {
   Breadcrumb,
