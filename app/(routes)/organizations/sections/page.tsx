@@ -16,8 +16,10 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { BeatLoader } from 'react-spinners';
-import { SectionList } from './_components/section-list';
 import { SectionFilters } from './_components/section-filters';
+import { SectionList } from './_components/section-list';
+import DownloadSectionTemplateButton from './_components/download-section-template';
+import BulkUploadSections from './_components/bulk-upload-sections';
 
 export default function SectionsPage() {
   const {
@@ -83,6 +85,8 @@ export default function SectionsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
+            <DownloadSectionTemplateButton />
+            <BulkUploadSections />
             <Button className='w-full sm:w-auto' asChild>
               <Link href='/organizations/sections/new'>
                 <Plus className='mr-2 h-4 w-4' />
