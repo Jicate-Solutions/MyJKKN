@@ -113,7 +113,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
             </p>
           </div>
           <Button asChild>
-            <Link href={`/staff/${id}/edit`}>
+            <Link href={`/staff/list/${id}/edit`}>
               <PenSquare className='mr-2 h-4 w-4' />
               Edit Staff
             </Link>

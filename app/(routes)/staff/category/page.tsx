@@ -18,6 +18,8 @@ import { BeatLoader } from 'react-spinners';
 import { useCategories } from '@/hooks/staff/use-categories';
 import { CategoryFilters } from './_components/category-filters';
 import { CategoryList } from './_components/category-list';
+import DownloadCategoryTemplateButton from './_components/download-category-template';
+import BulkUploadCategories from './_components/bulk-upload-categories';
 
 export default function CategoriesPage() {
   const {
@@ -82,12 +84,16 @@ export default function CategoriesPage() {
               Manage employment categories for staff members
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/staff/category/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Category
-            </Link>
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <DownloadCategoryTemplateButton />
+            <BulkUploadCategories />
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/staff/category/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add Category
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card>
