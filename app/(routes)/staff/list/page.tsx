@@ -20,6 +20,8 @@ import { BeatLoader } from 'react-spinners';
 import { useStaff } from '@/hooks/staff/use-staff';
 import { StaffFilters } from './_components/staff-filters';
 import { StaffList } from './_components/staff-list';
+import DownloadStaffTemplateButton from './_components/download-staff-template';
+import BulkUploadStaff from './_components/bulk-upload-staff';
 
 export default function StaffPage() {
   const {
@@ -78,12 +80,16 @@ export default function StaffPage() {
               Manage staff members
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/staff/list/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Staff
-            </Link>
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <DownloadStaffTemplateButton />
+            <BulkUploadStaff />
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/staff/list/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add Staff
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card>
