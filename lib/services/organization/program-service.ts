@@ -192,4 +192,18 @@ export class ProgramService {
       throw error;
     }
   }
+
+  static async getProgramsByDepartment(departmentId: string) {
+    try {
+      const { data: programs } = await this.supabase
+        .from('programs')
+        .select('*')
+        .eq('department_id', departmentId)
+        .eq('is_active', true);
+      return programs || [];
+    } catch (error) {
+      console.error('Error fetching programs:', error);
+      return [];
+    }
+  }
 }

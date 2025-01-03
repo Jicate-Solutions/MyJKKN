@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import { Upload } from 'lucide-react';
+import { Upload, X, FileText } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import {
@@ -25,21 +25,14 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { CategoryService } from '@/lib/services/staff/category-service';
 
-const validateRow = async (row: any, rowNumber: number) => {
+const validateRow = async (row: any): Promise<ValidationResult> => {
+  const errors: string[] = [];
+
   // Check required fields
   if (!row.category_name) {
-    return {
-      isValid: false,
-      errors: 'Category name is required'
-    };
-  }
-
-  // Validate category name length
-  if (row.category_name.length < 2) {
-    return {
-      isValid: false,
-      errors: 'Category name must be at least 2 characters long'
-    };
+    errors.push('Category name is required');
+  } else if (row.category_name.length < 2) {
+    errors.push('Category name must be at least 2 characters long');
   }
 
   try {
@@ -54,37 +47,46 @@ const validateRow = async (row: any, rowNumber: number) => {
       data.length > 0 &&
       data[0].category_name.toLowerCase() === row.category_name.toLowerCase()
     ) {
-      return {
-        isValid: false,
-        errors: 'Category name already exists'
-      };
+      errors.push('Category name already exists');
     }
   } catch (error) {
     console.error('Error checking category existence:', error);
   }
 
   return {
-    isValid: true,
-    errors: null
+    isValid: errors.length === 0,
+    errors: errors
   };
 };
+
+interface ValidationResult {
+  isValid: boolean;
+  errors: string[];
+}
 
 export default function BulkUploadCategories() {
   const [isOpen, setIsOpen] = useState(false);
   const [previewData, setPreviewData] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.xlsx')) {
+      toast.error('Please upload an Excel (.xlsx) file');
+      return;
+    }
+
+    setSelectedFile(file);
+    await processFile(file);
+  };
+
+  const processFile = async (file: File) => {
     try {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      if (!file.name.endsWith('.xlsx')) {
-        toast.error('Please upload an Excel (.xlsx) file');
-        return;
-      }
-
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -93,7 +95,7 @@ export default function BulkUploadCategories() {
       // Validate each row
       const validatedData = await Promise.all(
         jsonData.map(async (row: any, index) => {
-          const validation = await validateRow(row, index + 2);
+          const validation = await validateRow(row);
           return {
             ...row,
             rowNumber: index + 2,
@@ -111,11 +113,17 @@ export default function BulkUploadCategories() {
     }
   };
 
+  const clearFile = () => {
+    setSelectedFile(null);
+    setPreviewData([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleUpload = async () => {
     try {
       setIsUploading(true);
-
-      // Filter valid rows
       const validRows = previewData.filter((row) => row.isValid);
 
       if (validRows.length === 0) {
@@ -123,41 +131,33 @@ export default function BulkUploadCategories() {
         return;
       }
 
-      // Process rows in batches
-      const batchSize = 50;
-      const batches = [];
-      for (let i = 0; i < validRows.length; i += batchSize) {
-        batches.push(validRows.slice(i, i + batchSize));
-      }
-
       let successCount = 0;
       let errorCount = 0;
 
-      for (const batch of batches) {
-        const promises = batch.map((row) => {
-          const categoryData = {
-            category_name: row.category_name,
-            description: row.description || null,
-            is_active: true
-          };
+      const promises = validRows.map((row) => {
+        const categoryData = {
+          category_name: row.category_name,
+          description: row.description || null,
+          is_active: true
+        };
 
-          return CategoryService.createCategory(categoryData)
-            .then(() => {
-              successCount++;
-            })
-            .catch((error) => {
-              console.error('Error creating category:', error);
-              errorCount++;
-            });
-        });
+        return CategoryService.createCategory(categoryData)
+          .then(() => {
+            successCount++;
+          })
+          .catch((error) => {
+            console.error('Error creating category:', error);
+            errorCount++;
+          });
+      });
 
-        await Promise.all(promises);
-      }
+      await Promise.all(promises);
 
       toast.success(
         `Successfully uploaded ${successCount} categories. ${errorCount} failed.`
       );
       setIsOpen(false);
+      clearFile();
       router.refresh();
     } catch (error) {
       console.error('Error uploading categories:', error);
@@ -170,18 +170,10 @@ export default function BulkUploadCategories() {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <div className='relative'>
-          <Button variant='outline' className='w-full sm:w-auto'>
-            <Upload className='mr-2 h-4 w-4' />
-            Bulk Upload
-          </Button>
-          <Input
-            type='file'
-            accept='.xlsx'
-            onChange={handleFileUpload}
-            className='absolute inset-0 opacity-0 cursor-pointer'
-          />
-        </div>
+        <Button variant='outline' className='w-full sm:w-auto'>
+          <Upload className='mr-2 h-4 w-4' />
+          Bulk Upload
+        </Button>
       </DialogTrigger>
       <DialogContent className='max-w-4xl max-h-[80vh] overflow-y-auto'>
         <DialogHeader>
@@ -189,51 +181,95 @@ export default function BulkUploadCategories() {
         </DialogHeader>
 
         <div className='mt-4'>
-          <div className='rounded-md border'>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Row</TableHead>
-                  <TableHead>Category Name</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Errors</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {previewData.map((row) => (
-                  <TableRow key={row.rowNumber}>
-                    <TableCell>{row.rowNumber}</TableCell>
-                    <TableCell>{row.category_name}</TableCell>
-                    <TableCell>{row.description || 'N/A'}</TableCell>
-                    <TableCell>
-                      <Badge variant={row.isValid ? 'success' : 'destructive'}>
-                        {row.isValid ? 'Valid' : 'Invalid'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className='text-destructive'>
-                      {row.errors}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          {!selectedFile ? (
+            <div className='flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg'>
+              <input
+                type='file'
+                accept='.xlsx'
+                onChange={handleFileSelect}
+                className='hidden'
+                ref={fileInputRef}
+              />
+              <Upload className='h-8 w-8 mb-4 text-muted-foreground' />
+              <Button
+                variant='secondary'
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Select Excel File
+              </Button>
+              <p className='mt-2 text-sm text-muted-foreground'>
+                Only .xlsx files are supported
+              </p>
+            </div>
+          ) : (
+            <div className='space-y-4'>
+              <div className='flex items-center justify-between'>
+                <div className='flex items-center space-x-2'>
+                  <FileText className='h-5 w-5 text-muted-foreground' />
+                  <span>{selectedFile.name}</span>
+                </div>
+                <Button variant='ghost' size='sm' onClick={clearFile}>
+                  <X className='h-4 w-4 mr-2' />
+                  Clear
+                </Button>
+              </div>
+
+              <div className='rounded-md border'>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Row</TableHead>
+                      <TableHead>Category Name</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Errors</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {previewData.map((row) => (
+                      <TableRow key={row.rowNumber}>
+                        <TableCell>{row.rowNumber}</TableCell>
+                        <TableCell>{row.category_name}</TableCell>
+                        <TableCell>{row.description || 'N/A'}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={row.isValid ? 'success' : 'destructive'}
+                          >
+                            {row.isValid ? 'Valid' : 'Invalid'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className='text-destructive max-w-[200px] truncate'>
+                          {row.errors?.join(', ')}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
 
           <div className='mt-4 flex justify-end space-x-2'>
             <Button
               variant='outline'
-              onClick={() => setIsOpen(false)}
+              onClick={() => {
+                setIsOpen(false);
+                clearFile();
+              }}
               disabled={isUploading}
             >
               Cancel
             </Button>
-            <Button
-              onClick={handleUpload}
-              disabled={isUploading || !previewData.some((row) => row.isValid)}
-            >
-              {isUploading ? 'Uploading...' : 'Upload Valid Rows'}
-            </Button>
+            {selectedFile && (
+              <Button
+                onClick={handleUpload}
+                disabled={
+                  isUploading || !previewData.some((row) => row.isValid)
+                }
+              >
+                {isUploading ? 'Uploading...' : 'Upload Valid Rows'}
+              </Button>
+            )}
           </div>
         </div>
       </DialogContent>
