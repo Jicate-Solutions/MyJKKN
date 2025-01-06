@@ -232,4 +232,21 @@ export class SemesterService {
       throw error;
     }
   }
+
+  static async getSemestersByProgram(programId: string) {
+    try {
+      const { data, error } = await this.supabase
+        .from('semesters')
+        .select('*')
+        .eq('program_id', programId)
+        .eq('is_active', true)
+        .order('semester_name');
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching semesters by program:', error);
+      throw error;
+    }
+  }
 }

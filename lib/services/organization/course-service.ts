@@ -203,7 +203,7 @@ export class CourseService {
 
   static async getCoursesByProgram(programId: string): Promise<Course[]> {
     try {
-      const { data: courses, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from('courses')
         .select('*')
         .eq('program_id', programId)
@@ -211,8 +211,7 @@ export class CourseService {
         .order('course_name');
 
       if (error) throw error;
-
-      return courses || [];
+      return data || [];
     } catch (error) {
       console.error('Error fetching courses by program:', error);
       throw error;
