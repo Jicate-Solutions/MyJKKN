@@ -2,17 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { UserRole } from '@/types/auth';
-
-interface User {
-  id: string;
-  role: UserRole;
-  email?: string;
-  [key: string]: any;
-}
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any>(null);
   const supabase = createClientComponentClient();
 
   useEffect(() => {
@@ -53,7 +45,7 @@ export function useAuth() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, []);
 
   return { user };
 }
