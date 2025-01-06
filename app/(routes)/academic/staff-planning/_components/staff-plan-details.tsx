@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { Edit } from 'lucide-react';
 import { StaffPlan, StaffPlanCourse } from '@/types/staff-planning';
-import { StaffPlanService } from '@/lib/services/staff/staff-plan-service';
+import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { Button } from '@/components/ui/button';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

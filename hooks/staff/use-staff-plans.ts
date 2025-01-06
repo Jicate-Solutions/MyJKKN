@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { StaffPlanService } from '@/lib/services/staff/staff-plan-service';
+import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { StaffPlan, StaffPlanFilters } from '@/types/staff-planning';
 
 export function useStaffPlans(initialFilters: StaffPlanFilters = {}) {
