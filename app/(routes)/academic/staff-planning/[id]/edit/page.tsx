@@ -19,7 +19,7 @@ interface EditStaffPlanPageProps {
 }
 
 export default function EditStaffPlanPage({ params }: EditStaffPlanPageProps) {
-  const resolvedParams = use(params);
+  const { id } = use(params);
 
   return (
     <ContentLayout title='Edit Staff Plan'>
@@ -58,7 +58,7 @@ export default function EditStaffPlanPage({ params }: EditStaffPlanPageProps) {
         </div>
 
         <Card className='p-6'>
-          <StaffPlanForm isEditing id={resolvedParams.id} />
+          <StaffPlanForm id={id} isEditing />
         </Card>
       </div>
     </ContentLayout>

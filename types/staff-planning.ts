@@ -1,5 +1,15 @@
-export interface StaffPlan {
-  id: string;
+// First, let's create a base interface for staff plan course data
+export interface StaffPlanCourseDto {
+  course_id: string;
+  staff_id: string;
+  hours_allocated: number;
+  is_coordinator: boolean;
+  is_combined: boolean;
+  staff_type: string;
+}
+
+// Create base staff plan data interface
+export interface StaffPlanBaseData {
   institution_id: string;
   degree_id: string;
   program_id: string;
@@ -10,10 +20,15 @@ export interface StaffPlan {
   start_date: string;
   end_date: string;
   is_active: boolean;
+}
+
+// Full staff plan interface with all properties
+export interface StaffPlan extends StaffPlanBaseData {
+  id: string;
   created_at: string;
   updated_at: string;
   courses?: StaffPlanCourse[];
-  // Include related data
+  // Related data
   institution?: {
     id: string;
     name: string;
@@ -40,15 +55,10 @@ export interface StaffPlan {
   };
 }
 
-export interface StaffPlanCourse {
+// Staff plan course with full data
+export interface StaffPlanCourse extends StaffPlanCourseDto {
   id: string;
   staff_plan_id: string;
-  course_id: string;
-  staff_id: string;
-  hours_allocated: number;
-  is_coordinator: boolean;
-  is_combined: boolean;
-  staff_type: string;
   created_at: string;
   updated_at: string;
   course?: {
@@ -64,26 +74,14 @@ export interface StaffPlanCourse {
   };
 }
 
-export interface CreateStaffPlanDto {
-  institution_id: string;
-  degree_id: string;
-  program_id: string;
-  department_id: string;
-  semester_id: string;
-  section: string;
-  academic_year_id: string;
-  start_date: string;
-  end_date: string;
-  courses: {
-    course_id: string;
-    staff_id: string;
-    hours_allocated: number;
-    is_coordinator: boolean;
-    is_combined: boolean;
-    staff_type: string;
-  }[];
+// DTOs for creating and updating
+export interface CreateStaffPlanDto extends StaffPlanBaseData {
+  courses: StaffPlanCourseDto[]; // Make courses required and use the DTO interface
 }
 
+export interface UpdateStaffPlanDto extends CreateStaffPlanDto {}
+
+// Filters and response interfaces remain the same
 export interface StaffPlanFilters {
   search?: string;
   institution_id?: string;

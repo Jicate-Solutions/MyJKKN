@@ -42,6 +42,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
+import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 
 interface StaffPlanListProps {
   staffPlans: StaffPlan[];
@@ -69,10 +70,10 @@ export function StaffPlanList({
 
     try {
       setIsLoading(true);
-      // Add delete functionality when needed
+      await StaffPlanService.deleteStaffPlan(planToDelete.id);
+      onRefresh(); // Refresh the list after deletion
+      setPlanToDelete(null); // Reset the selected plan
       toast.success('Staff plan deleted successfully');
-      setPlanToDelete(null);
-      onRefresh();
     } catch (error) {
       console.error('Error deleting staff plan:', error);
       toast.error('Failed to delete staff plan');
@@ -82,7 +83,7 @@ export function StaffPlanList({
   };
 
   return (
-    <div className='space-y-4'>
+    <div className='space-y-4 mt-6'>
       <div className='rounded-md border'>
         <Table>
           <TableHeader>
