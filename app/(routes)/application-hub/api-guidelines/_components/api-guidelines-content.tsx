@@ -1,13 +1,6 @@
 'use client';
 
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger
-} from '@/components/ui/accordion';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { CodeBlock } from '@/components/code-block';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -34,8 +27,7 @@ export default function ApiGuidelinesContent() {
               Import and use our reusable ApiFetcher component for easy API
               integration:
             </p>
-            <p>
-             
+            <div>
               <CodeBlock
                 language='typescript'
                 code={`
@@ -102,7 +94,7 @@ export const ApiFetcher: React.FC<ApiFetcherProps> = ({
 };
             `}
               />
-            </p>
+            </div>
             <CodeBlock
               language='typescript'
               code={`

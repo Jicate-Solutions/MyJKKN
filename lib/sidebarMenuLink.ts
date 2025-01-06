@@ -39,6 +39,34 @@ import {
   Flame
 } from 'lucide-react';
 
+// Define available roles
+type UserRole =
+  | 'super_admin'
+  | 'administrator'
+  | 'staff'
+  | 'student'
+  | 'faculty'
+  | 'guest';
+
+// Update menu access with proper types
+const MENU_ACCESS: Record<string, UserRole[]> = {
+  OVERVIEW: ['super_admin', 'administrator', 'staff', 'faculty'],
+  USER_MANAGEMENT: ['super_admin', 'administrator'],
+  APPLICATIONS: [
+    'super_admin',
+    'administrator',
+    'staff',
+    'faculty',
+    'student',
+    'guest'
+  ],
+  APPLICATION_MANAGEMENT: ['super_admin', 'administrator', 'staff'],
+  ORGANIZATION_MANAGEMENT: ['super_admin', 'administrator', 'staff'],
+  STAFF_MANAGEMENT: ['super_admin', 'administrator', 'staff'],
+  ACADEMIC_MANAGEMENT: ['super_admin', 'administrator', 'staff'],
+  SYSTEM: ['super_admin']
+} as const;
+
 interface MenuItem {
   href: string;
   label: string;
@@ -56,8 +84,11 @@ interface MenuGroup {
   menus: MenuItem[];
 }
 
-export function GetPages(pathname: string): MenuGroup[] {
-  return [
+export function GetPages(pathname: string, userRole?: UserRole): MenuGroup[] {
+  // If no role provided, return empty menu
+  if (!userRole) return [];
+
+  const menuGroups = [
     {
       groupLabel: 'Overview',
       menus: [
@@ -80,13 +111,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Users,
           submenus: []
         },
-        // {
-        //   href: '/users/new',
-        //   label: 'Add New User',
-        //   active: pathname === '/users/new',
-        //   icon: UserPlus,
-        //   submenus: []
-        // },
         {
           href: '/users/roles',
           label: 'Roles & Permissions',
@@ -94,13 +118,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Shield,
           submenus: []
         }
-        // {
-        //   href: '/users/activity',
-        //   label: 'User Activity Logs',
-        //   active: pathname === '/users/activity',
-        //   icon: ClipboardList,
-        //   submenus: []
-        // }
       ]
     },
     {
@@ -378,4 +395,13 @@ export function GetPages(pathname: string): MenuGroup[] {
     //   ]
     // }
   ];
+
+  // Improve the filter with type safety
+  return menuGroups.filter((group) => {
+    const groupName = group.groupLabel?.toUpperCase().replace(/ /g, '_');
+    if (!groupName) return false;
+
+    const allowedRoles = MENU_ACCESS[groupName as keyof typeof MENU_ACCESS];
+    return allowedRoles?.includes(userRole as UserRole) ?? false;
+  });
 }
