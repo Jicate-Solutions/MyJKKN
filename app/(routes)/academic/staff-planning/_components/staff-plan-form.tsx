@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
 import { StaffPlan } from '@/types/staff-planning';
-import { StaffPlanService } from '@/lib/services/staff/staff-plan-service';
+import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
