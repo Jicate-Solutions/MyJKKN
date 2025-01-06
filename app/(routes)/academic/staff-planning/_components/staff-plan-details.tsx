@@ -28,9 +28,16 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { SectionService } from '@/lib/services/organization/section-service';
 
 interface StaffPlanDetailsProps {
   id: string;
+}
+
+interface Section {
+  id: string;
+  section_code: string;
+  section_name: string;
 }
 
 export function StaffPlanDetailsPage({ id }: StaffPlanDetailsProps) {
@@ -39,6 +46,7 @@ export function StaffPlanDetailsPage({ id }: StaffPlanDetailsProps) {
   const [courses, setCourses] = useState<StaffPlanCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sectionData, setSectionData] = useState<Section | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -48,8 +56,26 @@ export function StaffPlanDetailsPage({ id }: StaffPlanDetailsProps) {
           StaffPlanService.getStaffPlan(id),
           StaffPlanService.getStaffPlanCourses(id)
         ]);
+
         setStaffPlan(planData);
         setCourses(coursesData);
+
+        // Fetch section data if we have semester ID and section code
+        if (planData.semester_id && planData.section) {
+          try {
+            const sections = await SectionService.getSectionsBySemester(
+              planData.semester_id
+            );
+            const matchingSection = sections.find(
+              (s) => s.section_code === planData.section
+            );
+            if (matchingSection) {
+              setSectionData(matchingSection);
+            }
+          } catch (sectionError) {
+            console.error('Error loading section data:', sectionError);
+          }
+        }
       } catch (error) {
         console.error('Error loading staff plan:', error);
         setError('Failed to load staff plan details');
@@ -157,7 +183,13 @@ export function StaffPlanDetailsPage({ id }: StaffPlanDetailsProps) {
               </div>
               <div>
                 <p className='font-medium'>Section</p>
-                <p className='text-muted-foreground'>{staffPlan.section}</p>
+                <p className='text-muted-foreground'>
+                  {sectionData ? (
+                    <>{sectionData.section_name}</>
+                  ) : (
+                    staffPlan?.section || 'N/A'
+                  )}
+                </p>
               </div>
             </CardContent>
           </Card>

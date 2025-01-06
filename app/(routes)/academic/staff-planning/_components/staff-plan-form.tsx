@@ -38,6 +38,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Plus, Trash2 } from 'lucide-react';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { BeatLoader } from 'react-spinners';
+import { SectionService } from '@/lib/services/organization/section-service';
 
 const staffPlanSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -79,7 +80,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const [loading, setLoading] = useState(isEditing);
   const [staffPlan, setStaffPlan] = useState<StaffPlan | null>(null);
 
-  // Initialize arrays with empty arrays instead of undefined
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -94,6 +94,9 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   >([]);
   const [semesters, setSemesters] = useState<
     Array<{ id: string; semester_name: string }>
+  >([]);
+  const [sections, setSections] = useState<
+    Array<{ id: string; section_name: string; section_code: string }>
   >([]);
   const [academicYears, setAcademicYears] = useState<
     Array<{ id: string; academic_year_name: string }>
@@ -127,17 +130,23 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const watchedDegreeId = form.watch('degree_id');
   const watchedDepartmentId = form.watch('department_id');
   const watchedProgramId = form.watch('program_id');
+  const watchedSemesterId = form.watch('semester_id');
 
-  // Load existing staff plan data when editing
+  // Load staff plan data for editing
   useEffect(() => {
     async function loadStaffPlan() {
       if (isEditing && id) {
         try {
+          setLoading(true);
           const [planData, coursesData] = await Promise.all([
             StaffPlanService.getStaffPlan(id),
             StaffPlanService.getStaffPlanCourses(id)
           ]);
-          setStaffPlan({ ...planData, courses: coursesData });
+
+          setStaffPlan({
+            ...planData,
+            courses: coursesData
+          });
         } catch (error) {
           console.error('Error loading staff plan:', error);
           toast.error('Failed to load staff plan');
@@ -149,162 +158,160 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     loadStaffPlan();
   }, [id, isEditing]);
 
-  // Reset form when staff plan data is loaded
+  // Load initial data and set form values for editing
   useEffect(() => {
-    if (staffPlan) {
-      form.reset({
-        institution_id: staffPlan.institution_id,
-        degree_id: staffPlan.degree_id,
-        department_id: staffPlan.department_id,
-        program_id: staffPlan.program_id,
-        semester_id: staffPlan.semester_id,
-        section: staffPlan.section,
-        academic_year_id: staffPlan.academic_year_id,
-        start_date: new Date(staffPlan.start_date),
-        end_date: new Date(staffPlan.end_date),
-        courses: staffPlan.courses || [],
-        is_active: staffPlan.is_active
-      });
-    }
-  }, [staffPlan, form]);
-
-  // Load initial data
-  useEffect(() => {
-    async function loadInitialData() {
-      try {
-        const [institutionsData, academicYearsData] = await Promise.all([
-          OrganizationService.getInstitutionNames(true),
-          AcademicYearService.getAcademicYears({ isActive: true })
-        ]);
-        setInstitutions(institutionsData || []);
-        setAcademicYears(academicYearsData?.data || []);
-      } catch (error) {
-        console.error('Error loading initial data:', error);
-        toast.error('Failed to load form data');
-      }
-    }
-    loadInitialData();
-  }, []);
-
-  // Load dependent data when editing
-  useEffect(() => {
-    async function loadDependentData() {
+    async function loadInitialEditData() {
       if (staffPlan) {
         try {
-          // Load degrees
-          if (staffPlan.institution_id) {
-            const degreesData = await DegreeService.getDegreesByInstitution(
-              staffPlan.institution_id
-            );
-            setDegrees(degreesData);
-          }
+          // Load all dependent data in parallel
+          const [
+            institutionsData,
+            degreesData,
+            departmentsData,
+            programsData,
+            semestersData,
+            sectionsData,
+            academicYearsData,
+            coursesData,
+            staffData
+          ] = await Promise.all([
+            OrganizationService.getInstitutionNames(true),
+            DegreeService.getDegreesByInstitution(staffPlan.institution_id),
+            DepartmentService.getDepartmentsByDegree(staffPlan.degree_id),
+            ProgramService.getProgramsByDepartment(staffPlan.department_id),
+            SemesterService.getSemestersByProgram(staffPlan.program_id),
+            SectionService.getSectionsBySemester(staffPlan.semester_id),
+            AcademicYearService.getAcademicYears({ isActive: true }),
+            CourseService.getCoursesByProgram(staffPlan.program_id),
+            StaffService.getStaff({ isActive: true })
+          ]);
 
-          // Load departments
-          if (staffPlan.degree_id) {
-            const departmentsData =
-              await DepartmentService.getDepartmentsByDegree(
-                staffPlan.degree_id
-              );
-            setDepartments(departmentsData);
-          }
+          // Set all dropdown options
+          setInstitutions(institutionsData);
+          setDegrees(degreesData);
+          setDepartments(departmentsData);
+          setPrograms(programsData);
+          setSemesters(semestersData);
+          setSections(sectionsData);
+          setAcademicYears(academicYearsData.data);
+          setCourses(coursesData);
+          setStaffMembers(staffData.data);
 
-          // Load programs
-          if (staffPlan.department_id) {
-            const programsData = await ProgramService.getProgramsByDepartment(
-              staffPlan.department_id
-            );
-            setPrograms(programsData);
-          }
-
-          // Load semesters and courses
-          if (staffPlan.program_id) {
-            const [semestersData, coursesData] = await Promise.all([
-              SemesterService.getSemestersByProgram(staffPlan.program_id),
-              CourseService.getCoursesByProgram(staffPlan.program_id)
-            ]);
-            setSemesters(semestersData);
-            setCourses(coursesData);
-          }
+          // Set form values
+          form.reset({
+            institution_id: staffPlan.institution_id,
+            degree_id: staffPlan.degree_id,
+            department_id: staffPlan.department_id,
+            program_id: staffPlan.program_id,
+            semester_id: staffPlan.semester_id,
+            section: staffPlan.section,
+            academic_year_id: staffPlan.academic_year_id,
+            start_date: new Date(staffPlan.start_date),
+            end_date: new Date(staffPlan.end_date),
+            courses:
+              staffPlan.courses?.map((course) => ({
+                course_id: course.course_id,
+                staff_id: course.staff_id,
+                hours_allocated: course.hours_allocated,
+                is_coordinator: course.is_coordinator,
+                is_combined: course.is_combined,
+                staff_type: course.staff_type
+              })) || [],
+            is_active: staffPlan.is_active
+          });
         } catch (error) {
-          console.error('Error loading dependent data:', error);
-          toast.error('Failed to load some form data');
+          console.error('Error loading initial edit data:', error);
+          toast.error('Failed to load form data');
         }
+      } else {
+        // Load only institutions and academic years for new form
+        const loadInitialData = async () => {
+          try {
+            const [institutionsData, academicYearsData, staffData] =
+              await Promise.all([
+                OrganizationService.getInstitutionNames(true),
+                AcademicYearService.getAcademicYears({ isActive: true }),
+                StaffService.getStaff({ isActive: true })
+              ]);
+            setInstitutions(institutionsData);
+            setAcademicYears(academicYearsData.data);
+            setStaffMembers(staffData.data);
+          } catch (error) {
+            console.error('Error loading initial data:', error);
+            toast.error('Failed to load form data');
+          }
+        };
+        loadInitialData();
       }
     }
-    loadDependentData();
-  }, [staffPlan]);
 
-  // Load staff members
-  useEffect(() => {
-    async function loadStaffMembers() {
-      try {
-        const result = await StaffService.getStaff({ isActive: true });
-        setStaffMembers(result.data);
-      } catch (error) {
-        console.error('Error loading staff members:', error);
-      }
-    }
-    loadStaffMembers();
-  }, []);
+    loadInitialEditData();
+  }, [staffPlan, form]);
 
-  // Add back the watch effects after the staffPlan loading effect
+  // Cascading dropdowns
   useEffect(() => {
-    async function loadDegrees() {
-      if (watchedInstitutionId) {
+    if (watchedInstitutionId && !isEditing) {
+      const loadDegrees = async () => {
         try {
           const data = await DegreeService.getDegreesByInstitution(
             watchedInstitutionId
           );
           setDegrees(data);
+          form.setValue('degree_id', '');
+          form.setValue('department_id', '');
+          form.setValue('program_id', '');
+          form.setValue('semester_id', '');
+          form.setValue('section', '');
         } catch (error) {
           console.error('Error loading degrees:', error);
         }
-      } else {
-        setDegrees([]);
-      }
+      };
+      loadDegrees();
     }
-    loadDegrees();
-  }, [watchedInstitutionId]);
+  }, [watchedInstitutionId, isEditing, form]);
 
   useEffect(() => {
-    async function loadDepartments() {
-      if (watchedDegreeId) {
+    if (watchedDegreeId && !isEditing) {
+      const loadDepartments = async () => {
         try {
           const data = await DepartmentService.getDepartmentsByDegree(
             watchedDegreeId
           );
           setDepartments(data);
+          form.setValue('department_id', '');
+          form.setValue('program_id', '');
+          form.setValue('semester_id', '');
+          form.setValue('section', '');
         } catch (error) {
           console.error('Error loading departments:', error);
         }
-      } else {
-        setDepartments([]);
-      }
+      };
+      loadDepartments();
     }
-    loadDepartments();
-  }, [watchedDegreeId]);
+  }, [watchedDegreeId, isEditing, form]);
 
   useEffect(() => {
-    async function loadPrograms() {
-      if (watchedDepartmentId) {
+    if (watchedDepartmentId && !isEditing) {
+      const loadPrograms = async () => {
         try {
           const data = await ProgramService.getProgramsByDepartment(
             watchedDepartmentId
           );
           setPrograms(data);
+          form.setValue('program_id', '');
+          form.setValue('semester_id', '');
+          form.setValue('section', '');
         } catch (error) {
           console.error('Error loading programs:', error);
         }
-      } else {
-        setPrograms([]);
-      }
+      };
+      loadPrograms();
     }
-    loadPrograms();
-  }, [watchedDepartmentId]);
+  }, [watchedDepartmentId, isEditing, form]);
 
   useEffect(() => {
-    async function loadProgramData() {
-      if (watchedProgramId) {
+    if (watchedProgramId && !isEditing) {
+      const loadProgramData = async () => {
         try {
           const [semestersData, coursesData] = await Promise.all([
             SemesterService.getSemestersByProgram(watchedProgramId),
@@ -312,16 +319,32 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           ]);
           setSemesters(semestersData);
           setCourses(coursesData);
+          form.setValue('semester_id', '');
+          form.setValue('section', '');
         } catch (error) {
           console.error('Error loading program data:', error);
         }
-      } else {
-        setSemesters([]);
-        setCourses([]);
-      }
+      };
+      loadProgramData();
     }
-    loadProgramData();
-  }, [watchedProgramId]);
+  }, [watchedProgramId, isEditing, form]);
+
+  useEffect(() => {
+    if (watchedSemesterId && !isEditing) {
+      const loadSections = async () => {
+        try {
+          const data = await SectionService.getSectionsBySemester(
+            watchedSemesterId
+          );
+          setSections(data);
+          form.setValue('section', '');
+        } catch (error) {
+          console.error('Error loading sections:', error);
+        }
+      };
+      loadSections();
+    }
+  }, [watchedSemesterId, isEditing, form]);
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -341,7 +364,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         toast.success('Staff plan created successfully');
       }
 
-      router.push('/staff/planning');
+      router.push('/academic/staff-planning');
       router.refresh();
     } catch (error) {
       console.error('Form submission error:', error);
@@ -537,9 +560,27 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Section</FormLabel>
-                    <FormControl>
-                      <Input placeholder='Enter section' {...field} />
-                    </FormControl>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={!form.watch('semester_id')}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select section' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {sections.map((section) => (
+                          <SelectItem
+                            key={section.id}
+                            value={section.section_code}
+                          >
+                            {section.section_name} ({section.section_code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

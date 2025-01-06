@@ -17,7 +17,7 @@ import {
 import { BeatLoader } from 'react-spinners';
 import { StaffPlanFilters } from './_components/staff-plan-filters';
 import { StaffPlanList } from './_components/staff-plan-list';
-import { useStaffPlans } from '@/hooks/staff/use-staff-plans';
+import { useStaffPlans } from '@/hooks/academic/use-staff-plans';
 
 export default function StaffPlanningPage() {
   const {
