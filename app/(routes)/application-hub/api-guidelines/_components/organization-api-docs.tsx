@@ -17,7 +17,7 @@ import { CopyIcon } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 
-export default function ApiGuidelinesContent() {
+export default function OrganizationApiDocs() {
   const [copied, setCopied] = useState(false);
   const [activeModule, setActiveModule] = useState('institutions');
   const { toast } = useToast();
@@ -64,11 +64,6 @@ The API returns paginated responses in this format:
 For ${module} data, the structure includes: ${fields}
 
 Please show me a complete implementation using Next.js 14, TypeScript, and TailwindCSS that follows best practices for API data fetching and error handling.`;
-
-  const aiPrompt = aiPromptTemplate(
-    'institutions',
-    'id, name, counselling_code, category, institution_type, is_active, created_at, updated_at'
-  );
 
   // Basic Examples
   const basicExamples = {
@@ -522,10 +517,9 @@ export default function CoursesList() {
   return (
     <div className='py-4 space-y-6'>
       <div className='space-y-4'>
-        <h1 className='text-2xl font-bold'>API Documentation</h1>
+        <h1 className='text-2xl font-bold'>Organization API Documentation</h1>
         <p className='text-muted-foreground'>
-          A comprehensive guide to access organization data through our API
-          system
+          Comprehensive guides for all organization management modules
         </p>
       </div>
 
@@ -534,9 +528,9 @@ export default function CoursesList() {
         <AlertDescription className='mt-2'>
           <ol className='list-decimal list-inside space-y-1'>
             <li>Get your API key from an administrator</li>
-            <li>Import the ApiFetcher component in your application</li>
-            <li>Make API requests by specifying endpoint and your API key</li>
-            <li>Handle the returned data in your components</li>
+            <li>Choose which module you need to access</li>
+            <li>Make API requests using the correct endpoint</li>
+            <li>Handle the returned data in your application</li>
           </ol>
         </AlertDescription>
       </Alert>

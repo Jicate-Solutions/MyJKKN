@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
 import ApiGuidelinesContent from './_components/api-guidelines-content';
+import OrganizationApiDocs from './_components/organization-api-docs';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -12,6 +13,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card } from '@/components/ui/card';
 import Link from 'next/link';
 import { ApiNav } from './_components/api-nav';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export const metadata: Metadata = {
   title: 'API Guidelines | Organization Management',
@@ -44,9 +46,23 @@ export default function ApiGuidelinesPage() {
           </p>
         </div>
         <ApiNav />
-        <Card className='p-6'>
-          <ApiGuidelinesContent />
-        </Card>
+
+        <Tabs defaultValue='basic'>
+          <TabsList className='w-full'>
+            <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
+            <TabsTrigger value='advanced'>All Modules</TabsTrigger>
+          </TabsList>
+          <TabsContent value='basic'>
+            <Card className='p-6'>
+              <ApiGuidelinesContent />
+            </Card>
+          </TabsContent>
+          <TabsContent value='advanced'>
+            <Card className='p-6'>
+              <OrganizationApiDocs />
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </ContentLayout>
   );
