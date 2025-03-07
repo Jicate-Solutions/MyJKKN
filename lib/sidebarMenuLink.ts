@@ -36,7 +36,10 @@ import {
   Boxes,
   CalendarClock,
   UserSearch,
-  Flame
+  Flame,
+  FolderTree,
+  Calendar,
+  FileBarChart
 } from 'lucide-react';
 
 interface MenuItem {
@@ -356,6 +359,54 @@ export function GetPages(pathname: string): MenuGroup[] {
         //   icon: Globe,
         //   submenus: []
         // }
+      ]
+    },
+    {
+      groupLabel: 'Resource Management',
+      menus: [
+        {
+          href: '/resources',
+          label: 'Resources',
+          icon: Boxes,
+          active: pathname.startsWith('/resources'),
+          submenus: [
+            {
+              href: '/resources/dashboard',
+              label: 'Dashboard',
+              active: pathname === '/resources/dashboard'
+            },
+            {
+              href: '/resources/resources',
+              label: 'All Resources',
+              active: pathname === '/resources/resources'
+            },
+            {
+              href: '/resources/categories',
+              label: 'Categories',
+              active: pathname === '/resources/categories'
+            },
+            {
+              href: '/resources/reservations',
+              label: 'Reservations',
+              active: pathname === '/resources/reservations'
+            },
+            {
+              href: '/resources/policies',
+              label: 'Sharing Policies',
+              active: pathname === '/resources/policies'
+            },
+            {
+              href: '/resources/reports',
+              label: 'Usage Reports',
+              active: pathname === '/resources/reports'
+            },
+            {
+              href: '/resources/requests',
+              label: 'Resource Requests',
+              active: pathname === '/resources/requests'
+            }
+          ]
+        }
       ]
     }
     // {
