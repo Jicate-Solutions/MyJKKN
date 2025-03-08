@@ -1,4 +1,9 @@
 ---
+description: 
+globs: 
+alwaysApply: false
+---
+---
 description: Cursor Rule File for Full-Stack Applications
 globs: 
 alwaysApply: true
