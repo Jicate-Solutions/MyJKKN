@@ -95,6 +95,19 @@ create policy "Enable read access for all users"
     on departments for select
     using (true);
 
+-- Add API key access policy for departments
+create policy "Enable read access for API keys" on public.departments
+    for select to public
+    using (
+      EXISTS (
+        SELECT 1 FROM api_keys
+        WHERE key_value = current_setting('request.header.apikey', true)::text
+        AND is_active = true 
+        AND (expires_at IS NULL OR expires_at > now())
+        AND (permissions->>'read')::boolean = true
+      )
+    );
+
 -- Policy for insert
 create policy "Enable insert for authenticated users only"
     on departments for insert
@@ -360,4 +373,54 @@ USING (
   )
 );
 
--- Repeat for programs, courses, and semester tables
+-- Add API key access policy for programs
+CREATE POLICY "Enable read access for API keys" ON public.programs
+FOR SELECT TO public
+USING (
+  EXISTS (
+    SELECT 1 FROM api_keys
+    WHERE key_value = current_setting('request.header.apikey', true)::text
+    AND is_active = true 
+    AND (expires_at IS NULL OR expires_at > now())
+    AND (permissions->>'read')::boolean = true
+  )
+);
+
+-- Add API key access policy for courses
+CREATE POLICY "Enable read access for API keys" ON public.courses
+FOR SELECT TO public
+USING (
+  EXISTS (
+    SELECT 1 FROM api_keys
+    WHERE key_value = current_setting('request.header.apikey', true)::text
+    AND is_active = true 
+    AND (expires_at IS NULL OR expires_at > now())
+    AND (permissions->>'read')::boolean = true
+  )
+);
+
+-- Add API key access policy for semesters
+CREATE POLICY "Enable read access for API keys" ON public.semesters
+FOR SELECT TO public
+USING (
+  EXISTS (
+    SELECT 1 FROM api_keys
+    WHERE key_value = current_setting('request.header.apikey', true)::text
+    AND is_active = true 
+    AND (expires_at IS NULL OR expires_at > now())
+    AND (permissions->>'read')::boolean = true
+  )
+);
+
+-- Add API key access policy for sections
+CREATE POLICY "Enable read access for API keys" ON public.sections
+FOR SELECT TO public
+USING (
+  EXISTS (
+    SELECT 1 FROM api_keys
+    WHERE key_value = current_setting('request.header.apikey', true)::text
+    AND is_active = true 
+    AND (expires_at IS NULL OR expires_at > now())
+    AND (permissions->>'read')::boolean = true
+  )
+);
