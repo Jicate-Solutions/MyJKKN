@@ -152,10 +152,8 @@ export class ReservationService {
         `
           *,
           resource:resources(id, resource_name, resource_type),
-          user:profiles(id, name, email),
           requester_institution:institutions(id, name),
-          requester_department:departments(id, department_name),
-          approver:profiles(id, name)
+          requester_department:departments(id, department_name)
         `,
         { count: 'exact' }
       );
@@ -205,7 +203,7 @@ export class ReservationService {
       const totalPages = count ? Math.ceil(count / limit) : 0;
 
       return {
-        data: data as Reservation[],
+        data: data as unknown as Reservation[],
         metadata: {
           total: count || 0,
           page,
@@ -228,17 +226,15 @@ export class ReservationService {
           `
           *,
           resource:resources(id, resource_name, resource_type),
-          user:profiles(id, name, email),
           requester_institution:institutions(id, name),
-          requester_department:departments(id, department_name),
-          approver:profiles(id, name)
+          requester_department:departments(id, department_name)
         `
         )
         .eq('id', id)
         .single();
 
       if (error) throw error;
-      return data as Reservation;
+      return data as unknown as Reservation;
     } catch (error) {
       console.error('Error fetching reservation:', error);
       toast.error('Failed to fetch reservation details');
@@ -254,17 +250,15 @@ export class ReservationService {
           `
           *,
           resource:resources(id, resource_name, resource_type),
-          user:profiles(id, name, email),
           requester_institution:institutions(id, name),
-          requester_department:departments(id, department_name),
-          approver:profiles(id, name)
+          requester_department:departments(id, department_name)
         `
         )
         .eq('user_id', userId)
         .order('start_datetime', { ascending: true });
 
       if (error) throw error;
-      return data as Reservation[];
+      return data as unknown as Reservation[];
     } catch (error) {
       console.error('Error fetching user reservations:', error);
       toast.error('Failed to fetch your reservations');
@@ -283,7 +277,9 @@ export class ReservationService {
         .select(
           `
           *,
-          user:profiles(id, name, email)
+          resource:resources(id, resource_name, resource_type),
+          requester_institution:institutions(id, name),
+          requester_department:departments(id, department_name)
         `
         )
         .eq('resource_id', resourceId)
@@ -293,7 +289,7 @@ export class ReservationService {
         .order('start_datetime', { ascending: true });
 
       if (error) throw error;
-      return data as Reservation[];
+      return data as unknown as Reservation[];
     } catch (error) {
       console.error('Error fetching resource reservations:', error);
       toast.error('Failed to fetch resource schedule');

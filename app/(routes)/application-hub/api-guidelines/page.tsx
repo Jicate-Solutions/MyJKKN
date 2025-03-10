@@ -50,16 +50,10 @@ export default function ApiGuidelinesPage() {
         <Tabs defaultValue='basic'>
           <TabsList className='w-full'>
             <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
-            <TabsTrigger value='advanced'>All Modules</TabsTrigger>
           </TabsList>
           <TabsContent value='basic'>
             <Card className='p-6'>
               <ApiGuidelinesContent />
-            </Card>
-          </TabsContent>
-          <TabsContent value='advanced'>
-            <Card className='p-6'>
-              <OrganizationApiDocs />
             </Card>
           </TabsContent>
         </Tabs>

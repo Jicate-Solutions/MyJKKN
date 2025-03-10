@@ -201,7 +201,6 @@ export interface Reservation {
   };
   user?: {
     id: string;
-    name: string;
     email: string;
   };
   requester_institution?: {
@@ -214,7 +213,7 @@ export interface Reservation {
   };
   approver?: {
     id: string;
-    name: string;
+    email: string;
   };
 }
 

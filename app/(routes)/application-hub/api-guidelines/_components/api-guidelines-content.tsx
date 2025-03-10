@@ -253,6 +253,7 @@ export default function InstitutionsList() {
   );
 }`,
 
+
     departments: `'use client';
 
 import { useState } from 'react';
@@ -262,47 +263,116 @@ import { Badge } from '@/components/ui/badge';
 
 interface Department {
   id: string;
-  name: string;
-  code: string;
+  department_name: string;
+  department_code: string;
   institution_id: string;
+  degree_id: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  degree?: {
+    id: string;
+    degree_id: string;
+    degree_name: string;
+  };
 }
 
 interface ApiResponse {
   data: Department[];
   metadata: {
     page: number;
-    totalPages: number;
+    limit: number;
     total: number;
+    totalPages: number;
   };
 }
 
 export default function DepartmentsList() {
   const [departments, setDepartments] = useState<ApiResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleData = (data: unknown) => {
-    setDepartments(data as ApiResponse);
+  const fetchDepartments = async (apiKey: string) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('/api/api-management/organizations/departments?page=1&limit=10', {
+        headers: {
+          'Authorization': \`Bearer \${apiKey}\`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || \`API error: \${response.status}\`);
+      }
+      
+      const data = await response.json();
+      setDepartments(data);
+    } catch (err) {
+      setError(err.message || 'Failed to fetch departments');
+      console.error('Error fetching departments:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
     <main className="container mx-auto p-6 space-y-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold mb-2">Departments API Example</h1>
+        <p className="text-gray-600 mb-4">
+          This example demonstrates how to fetch departments using the API. You can filter by institution_id, 
+          degree_id, search term, and active status.
+        </p>
+        <div className="bg-gray-100 p-4 rounded-md">
+          <h2 className="text-lg font-semibold mb-2">API Parameters:</h2>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><code>page</code>: Page number (default: 1)</li>
+            <li><code>limit</code>: Items per page (default: 10)</li>
+            <li><code>search</code>: Search by department name or code</li>
+            <li><code>institution_id</code>: Filter by institution ID</li>
+            <li><code>degree_id</code>: Filter by degree ID</li>
+            <li><code>isActive</code>: Filter by active status (true/false)</li>
+          </ul>
+        </div>
+      </div>
+      
       <ApiFetcher
         endpoint="/api-management/organizations/departments"
         apiKey="your_api_key_here"
-        onDataReceived={handleData}
+        onDataReceived={(data) => setDepartments(data as ApiResponse)}
       />
 
+      {isLoading && <p>Loading departments...</p>}
+      {error && <p className="text-red-500">Error: {error}</p>}
+      
       {departments?.data.map((department) => (
         <Card key={department.id} className="p-6">
           <div className="space-y-4">
             <div className="flex justify-between items-start">
               <div>
-                <h2 className="text-xl font-semibold">{department.name}</h2>
+                <h2 className="text-xl font-semibold">{department.department_name}</h2>
                 <p className="text-sm text-muted-foreground">
-                  Code: {department.code}
+                  Code: {department.department_code}
                 </p>
+                {department.institution && (
+                  <p className="text-sm text-muted-foreground">
+                    Institution: {department.institution.name}
+                  </p>
+                )}
+                {department.degree && (
+                  <p className="text-sm text-muted-foreground">
+                    Degree: {department.degree.degree_name}
+                  </p>
+                )}
               </div>
               <Badge variant={department.is_active ? 'default' : 'secondary'}>
                 {department.is_active ? 'Active' : 'Inactive'}
@@ -315,6 +385,7 @@ export default function DepartmentsList() {
   );
 }`,
 
+
     programs: `'use client';
 
 import { useState } from 'react';
@@ -324,13 +395,29 @@ import { Badge } from '@/components/ui/badge';
 
 interface Program {
   id: string;
-  name: string;
-  code: string;
+  program_id: string;
+  program_name: string;
+  institution_id: string;
   department_id: string;
   degree_id: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  department?: {
+    id: string;
+    department_name: string;
+    department_code: string;
+  };
+  degree?: {
+    id: string;
+    degree_id: string;
+    degree_name: string;
+  };
 }
 
 interface ApiResponse {
@@ -362,9 +449,9 @@ export default function ProgramsList() {
           <div className="space-y-4">
             <div className="flex justify-between items-start">
               <div>
-                <h2 className="text-xl font-semibold">{program.name}</h2>
+                <h2 className="text-xl font-semibold">{program.program_name}</h2>
                 <p className="text-sm text-muted-foreground">
-                  Code: {program.code}
+                  Code: {program.program_id}
                 </p>
               </div>
               <Badge variant={program.is_active ? 'default' : 'secondary'}>
@@ -377,6 +464,7 @@ export default function ProgramsList() {
     </main>
   );
 }`,
+
 
     degrees: `'use client';
 
@@ -440,6 +528,7 @@ export default function DegreesList() {
   );
 }`,
 
+
     courses: `'use client';
 
 import { useState } from 'react';
@@ -449,14 +538,35 @@ import { Badge } from '@/components/ui/badge';
 
 interface Course {
   id: string;
-  title: string;
-  code: string;
-  description: string;
-  credit_hours: number;
+  course_code: string;
+  course_name: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
   program_id: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  department?: {
+    id: string;
+    department_name: string;
+    department_code: string;
+  };
+  program?: {
+    id: string;
+    program_id: string;
+    program_name: string;
+  };
+  degree?: {
+    id: string;
+    degree_id: string;
+    degree_name: string;
+  };
 }
 
 interface ApiResponse {
@@ -488,11 +598,20 @@ export default function CoursesList() {
           <div className="space-y-4">
             <div className="flex justify-between items-start">
               <div>
-                <h2 className="text-xl font-semibold">{course.title}</h2>
+                <h2 className="text-xl font-semibold">{course.course_name}</h2>
                 <p className="text-sm text-muted-foreground">
-                  Code: {course.code} | Credits: {course.credit_hours}
+                  Code: {course.course_code}
                 </p>
-                <p className="text-sm mt-2">{course.description}</p>
+                {course.institution && (
+                  <p className="text-sm text-muted-foreground">
+                    Institution: {course.institution.name}
+                  </p>
+                )}
+                {course.program && (
+                  <p className="text-sm text-muted-foreground">
+                    Program: {course.program.program_name}
+                  </p>
+                )}
               </div>
               <Badge variant={course.is_active ? 'default' : 'secondary'}>
                 {course.is_active ? 'Active' : 'Inactive'}
@@ -511,12 +630,12 @@ export default function CoursesList() {
     institutions:
       'id, name, counselling_code, category, institution_type, is_active, created_at, updated_at',
     departments:
-      'id, name, code, institution_id, is_active, created_at, updated_at',
+      'id, department_name, department_code, institution_id, degree_id, is_active, created_at, updated_at',
     programs:
-      'id, name, code, department_id, degree_id, is_active, created_at, updated_at',
+      'id, program_id, program_name, institution_id, department_id, degree_id, is_active, created_at, updated_at',
     degrees: 'id, name, abbreviation, level, is_active, created_at, updated_at',
     courses:
-      'id, title, code, description, credit_hours, program_id, is_active, created_at, updated_at'
+      'id, course_code, course_name, institution_id, degree_id, department_id, program_id, is_active, created_at, updated_at'
   };
 
   return (
@@ -634,9 +753,9 @@ export default function CoursesList() {
     {
       // ${module} data fields
       ${moduleFields[module as keyof typeof moduleFields]
-        .split(', ')
-        .map((field) => `"${field}": "value"`)
-        .join(',\n      ')}
+                                .split(', ')
+                                .map((field) => `"${field}": "value"`)
+                                .join(',\n      ')}
     }
     // More items...
   ],
