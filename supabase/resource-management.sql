@@ -557,4 +557,36 @@ BEGIN
     
     RETURN v_report_id;
 END;
-$$ LANGUAGE plpgsql; 
+$$ LANGUAGE plpgsql;
+
+-- Function to handle reservation completion and update usage reports
+CREATE OR REPLACE FUNCTION handle_reservation_completion()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only proceed if the status is being changed to 'completed'
+    IF NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
+        -- Get the resource details
+        DECLARE
+            v_resource_id UUID;
+            v_start_date DATE;
+            v_end_date DATE;
+        BEGIN
+            v_resource_id := NEW.resource_id;
+            v_start_date := DATE(NEW.start_datetime);
+            v_end_date := DATE(NEW.end_datetime);
+            
+            -- Call the generate_usage_report function to create or update the report
+            PERFORM generate_usage_report(v_resource_id, v_start_date, v_end_date);
+        END;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to automatically generate usage reports when a reservation is completed
+CREATE TRIGGER generate_usage_report_on_completion
+AFTER UPDATE ON public.reservations
+FOR EACH ROW
+WHEN (NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed'))
+EXECUTE FUNCTION handle_reservation_completion(); 

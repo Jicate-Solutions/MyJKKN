@@ -202,6 +202,7 @@ export interface Reservation {
   user?: {
     id: string;
     email: string;
+    full_name?: string | null;
   };
   requester_institution?: {
     id: string;
