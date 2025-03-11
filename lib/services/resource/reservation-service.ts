@@ -10,6 +10,7 @@ import type {
   ReservationListResponse
 } from '@/types/resources';
 import { ResourceService } from './resource-service';
+import { UsageReportService } from './usage-report-service';
 
 export class ReservationService {
   private static supabase = createClientComponentClient();
@@ -234,6 +235,20 @@ export class ReservationService {
         .single();
 
       if (error) throw error;
+
+      // Fetch user data separately
+      if (data) {
+        const { data: userData, error: userError } = await this.supabase
+          .from('profiles')
+          .select('id, email, full_name')
+          .eq('id', data.user_id)
+          .single();
+
+        if (!userError && userData) {
+          data.user = userData;
+        }
+      }
+
       return data as unknown as Reservation;
     } catch (error) {
       console.error('Error fetching reservation:', error);
@@ -258,6 +273,25 @@ export class ReservationService {
         .order('start_datetime', { ascending: true });
 
       if (error) throw error;
+
+      // Fetch user data for each reservation
+      if (data && data.length > 0) {
+        const userIds = [...new Set(data.map((item) => item.user_id))];
+
+        const { data: usersData, error: usersError } = await this.supabase
+          .from('profiles')
+          .select('id, email, full_name')
+          .in('id', userIds);
+
+        if (!usersError && usersData) {
+          const userMap = new Map(usersData.map((user) => [user.id, user]));
+
+          data.forEach((reservation) => {
+            reservation.user = userMap.get(reservation.user_id) || undefined;
+          });
+        }
+      }
+
       return data as unknown as Reservation[];
     } catch (error) {
       console.error('Error fetching user reservations:', error);
@@ -285,10 +319,28 @@ export class ReservationService {
         .eq('resource_id', resourceId)
         .gte('start_datetime', startDate)
         .lte('end_datetime', endDate)
-        .in('status', ['pending', 'approved'])
-        .order('start_datetime', { ascending: true });
+        .in('status', ['pending', 'approved']);
 
       if (error) throw error;
+
+      // Fetch user data for each reservation
+      if (data && data.length > 0) {
+        const userIds = [...new Set(data.map((item) => item.user_id))];
+
+        const { data: usersData, error: usersError } = await this.supabase
+          .from('profiles')
+          .select('id, email, full_name')
+          .in('id', userIds);
+
+        if (!usersError && usersData) {
+          const userMap = new Map(usersData.map((user) => [user.id, user]));
+
+          data.forEach((reservation) => {
+            reservation.user = userMap.get(reservation.user_id) || undefined;
+          });
+        }
+      }
+
       return data as unknown as Reservation[];
     } catch (error) {
       console.error('Error fetching resource reservations:', error);
@@ -371,6 +423,16 @@ export class ReservationService {
 
   static async completeReservation(id: string): Promise<Reservation> {
     try {
+      // First get the reservation to get its details
+      const { data: reservation, error: getError } = await this.supabase
+        .from('reservations')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (getError) throw getError;
+
+      // Update the reservation status
       const { data, error } = await this.supabase
         .from('reservations')
         .update({
@@ -381,6 +443,27 @@ export class ReservationService {
         .single();
 
       if (error) throw error;
+
+      // Generate or update the usage report for this resource and date range
+      try {
+        const startDate = new Date(reservation.start_datetime);
+        const endDate = new Date(reservation.end_datetime);
+
+        // Format dates as YYYY-MM-DD
+        const formattedStartDate = startDate.toISOString().split('T')[0];
+        const formattedEndDate = endDate.toISOString().split('T')[0];
+
+        // Generate or update the usage report
+        await UsageReportService.generateUsageReport({
+          resource_id: reservation.resource_id,
+          start_date: formattedStartDate,
+          end_date: formattedEndDate
+        });
+      } catch (reportError) {
+        console.error('Error generating usage report:', reportError);
+        // Don't throw this error as we still want to mark the reservation as completed
+      }
+
       return data as Reservation;
     } catch (error) {
       console.error('Error completing reservation:', error);

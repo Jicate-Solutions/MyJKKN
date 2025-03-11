@@ -146,6 +146,7 @@ export function CategoryList() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>S.No</TableHead>
                   <TableHead>Category Name</TableHead>
                   <TableHead>Parent Category</TableHead>
                   <TableHead>Description</TableHead>
@@ -155,8 +156,9 @@ export function CategoryList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categories.map((category) => (
+                {categories.map((category, index) => (
                   <TableRow key={category.id}>
+                    <TableCell className='font-medium'>{index + 1}</TableCell>
                     <TableCell className='font-medium'>
                       <div className='flex items-center'>
                         <FolderTree className='h-4 w-4 mr-2 text-muted-foreground' />

@@ -74,11 +74,11 @@ export function useUsageReports(initialFilters: UsageReportFilters = {}) {
         });
         // Refresh the list
         fetchReports();
-        return report;
+        return report.id;
       } catch (err) {
         console.error('Error generating usage report:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
-        return null;
+        throw err; // Re-throw the error to be caught by the caller
       } finally {
         setLoading(false);
       }
