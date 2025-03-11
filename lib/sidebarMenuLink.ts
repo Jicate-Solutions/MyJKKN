@@ -335,32 +335,7 @@ export function GetPages(pathname: string): MenuGroup[] {
     //     }
     //   ]
     // },
-    {
-      groupLabel: 'System',
-      menus: [
-        // {
-        //   href: '/system/database',
-        //   label: 'Database Management',
-        //   active: pathname === '/system/database',
-        //   icon: Database,
-        //   submenus: []
-        // },
-        {
-          href: '/system/api-management',
-          label: 'API Management',
-          active: pathname === '/system/api-management',
-          icon: Key,
-          submenus: []
-        }
-        // {
-        //   href: '/system/localization',
-        //   label: 'Localization',
-        //   active: pathname === '/system/localization',
-        //   icon: Globe,
-        //   submenus: []
-        // }
-      ]
-    },
+
     {
       groupLabel: 'Resource Management',
       menus: [
@@ -407,6 +382,32 @@ export function GetPages(pathname: string): MenuGroup[] {
             }
           ]
         }
+      ]
+    },
+    {
+      groupLabel: 'System',
+      menus: [
+        // {
+        //   href: '/system/database',
+        //   label: 'Database Management',
+        //   active: pathname === '/system/database',
+        //   icon: Database,
+        //   submenus: []
+        // },
+        {
+          href: '/system/api-management',
+          label: 'API Management',
+          active: pathname === '/system/api-management',
+          icon: Key,
+          submenus: []
+        }
+        // {
+        //   href: '/system/localization',
+        //   label: 'Localization',
+        //   active: pathname === '/system/localization',
+        //   icon: Globe,
+        //   submenus: []
+        // }
       ]
     }
     // {

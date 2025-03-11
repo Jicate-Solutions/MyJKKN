@@ -414,13 +414,10 @@ export interface ResourceRequest {
 
   // Include related data
   requester?: {
-    id: string;
-    name: string;
     email: string;
   };
   approver?: {
-    id: string;
-    name: string;
+    email: string;
   };
 }
 

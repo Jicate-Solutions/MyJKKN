@@ -35,10 +35,17 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 import { Pagination } from '@/components/pagination';
 import { useUsageReports } from '@/hooks/resource/use-usage-reports';
 import { UsageReport } from '@/types/resources';
 import { EmptyState } from '@/components/empty-state';
+import { ExportDropdown } from './export-dropdown';
 
 export function ReportsTable() {
   const { reports, loading, error, metadata, changePage, fetchReports } =
@@ -124,60 +131,132 @@ export function ReportsTable() {
 
   return (
     <div className='space-y-4'>
-      <div className='rounded-md border'>
+      <div className='rounded-md border overflow-auto'>
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className='w-[50px]'>S.No</TableHead>
               <TableHead>Resource</TableHead>
-              <TableHead>Period</TableHead>
+              <TableHead className='hidden md:table-cell'>Period</TableHead>
               <TableHead>Utilization</TableHead>
-              <TableHead>Reservations</TableHead>
-              <TableHead>Unique Users</TableHead>
-              <TableHead>Generated</TableHead>
-              <TableHead className='w-[100px]'>Actions</TableHead>
+              <TableHead className='hidden sm:table-cell'>
+                Reservations
+              </TableHead>
+              <TableHead className='hidden lg:table-cell'>
+                Unique Users
+              </TableHead>
+              <TableHead className='hidden md:table-cell'>Generated</TableHead>
+              <TableHead className='w-[80px] text-right'>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {reports.map((report) => (
+            {reports.map((report, index) => (
               <TableRow key={report.id}>
+                <TableCell>{index + 1}</TableCell>
                 <TableCell className='font-medium'>
-                  {report.resource?.resource_name || 'Unknown Resource'}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span>
+                          {report.resource?.resource_name || 'Unknown Resource'}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className='sm:hidden'>
+                        <div className='space-y-1 text-xs'>
+                          <p>
+                            <strong>Reservations:</strong>{' '}
+                            {report.metrics.reservation_count}
+                          </p>
+                          <p>
+                            <strong>Unique Users:</strong>{' '}
+                            {report.metrics.unique_users}
+                          </p>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </TableCell>
-                <TableCell>
+                <TableCell className='hidden md:table-cell'>
                   {formatDate(report.start_date)} -{' '}
                   {formatDate(report.end_date)}
                 </TableCell>
                 <TableCell>
-                  {report.metrics.utilization_percentage.toFixed(1)}%
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className='md:hidden inline-block'>
+                          {report.metrics.utilization_percentage.toFixed(1)}%
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className='md:hidden'>
+                        <div className='space-y-1 text-xs'>
+                          <p>
+                            <strong>Period:</strong>{' '}
+                            {formatDate(report.start_date)} -{' '}
+                            {formatDate(report.end_date)}
+                          </p>
+                          <p>
+                            <strong>Generated:</strong>{' '}
+                            {formatDate(report.created_at)}
+                          </p>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <span className='hidden md:inline-block'>
+                    {report.metrics.utilization_percentage.toFixed(1)}%
+                  </span>
                 </TableCell>
-                <TableCell>{report.metrics.reservation_count}</TableCell>
-                <TableCell>{report.metrics.unique_users}</TableCell>
-                <TableCell>{formatDate(report.created_at)}</TableCell>
-                <TableCell>
+                <TableCell className='hidden sm:table-cell'>
+                  {report.metrics.reservation_count}
+                </TableCell>
+                <TableCell className='hidden lg:table-cell'>
+                  {report.metrics.unique_users}
+                </TableCell>
+                <TableCell className='hidden md:table-cell'>
+                  {formatDate(report.created_at)}
+                </TableCell>
+                <TableCell className='text-right p-2'>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant='ghost' size='icon'>
+                      <Button variant='ghost' size='icon' className='h-8 w-8'>
                         <MoreHorizontal className='h-4 w-4' />
                         <span className='sr-only'>Open menu</span>
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align='end'>
-                      <DropdownMenuItem asChild>
-                        <Link href={`/resources/reports/${report.id}`}>
+                    <DropdownMenuContent
+                      align='end'
+                      side='left'
+                      className='w-[160px]'
+                    >
+                      <DropdownMenuItem asChild className='cursor-pointer'>
+                        <Link
+                          href={`/resources/reports/${report.id}`}
+                          className='flex w-full items-center'
+                        >
                           <Eye className='mr-2 h-4 w-4' />
-                          View Details
+                          <span>View Details</span>
                         </Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Download className='mr-2 h-4 w-4' />
-                        Export Report
+                      <DropdownMenuItem asChild>
+                        <div
+                          className='w-full flex items-center cursor-pointer'
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ExportDropdown
+                            reports={reports}
+                            singleReport={report}
+                            variant='ghost'
+                            size='icon'
+                          />
+                        </div>
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        className='text-destructive'
+                        className='text-destructive cursor-pointer'
                         onClick={() => openDeleteDialog(report.id)}
                       >
                         <Trash2 className='mr-2 h-4 w-4' />
-                        Delete
+                        <span>Delete</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
