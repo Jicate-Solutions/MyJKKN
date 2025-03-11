@@ -107,14 +107,9 @@ export class ResourceRequestService {
       const to = from + limit - 1;
 
       // Start building the query
-      let query = this.supabase.from('resource_requests').select(
-        `
-          *,
-          requester:profiles(id, name, email),
-          approver:profiles(id, name)
-        `,
-        { count: 'exact' }
-      );
+      let query = this.supabase
+        .from('resource_requests')
+        .select('*', { count: 'exact' });
 
       // Apply filters
       if (search) {
@@ -150,8 +145,31 @@ export class ResourceRequestService {
       // Calculate total pages
       const totalPages = count ? Math.ceil(count / limit) : 0;
 
+      // Fetch user information for each request
+      const requests = data as ResourceRequest[];
+      const userIds = [...new Set(requests.map((req) => req.requester_id))];
+
+      if (userIds.length > 0) {
+        const { data: users, error: usersError } = await this.supabase
+          .from('profiles')
+          .select('id, email')
+          .in('id', userIds);
+
+        if (!usersError && users) {
+          const userMap = new Map(users.map((user) => [user.id, user]));
+
+          // Add user information to requests
+          requests.forEach((request) => {
+            const user = userMap.get(request.requester_id);
+            if (user) {
+              request.requester = { email: user.email };
+            }
+          });
+        }
+      }
+
       return {
-        data: data as ResourceRequest[],
+        data: requests,
         metadata: {
           total: count || 0,
           page,
@@ -170,18 +188,41 @@ export class ResourceRequestService {
     try {
       const { data, error } = await this.supabase
         .from('resource_requests')
-        .select(
-          `
-          *,
-          requester:profiles(id, name, email),
-          approver:profiles(id, name)
-        `
-        )
+        .select('*')
         .eq('id', id)
         .single();
 
       if (error) throw error;
-      return data as ResourceRequest;
+
+      const request = data as ResourceRequest;
+
+      // Fetch requester information
+      if (request.requester_id) {
+        const { data: requester, error: requesterError } = await this.supabase
+          .from('profiles')
+          .select('email')
+          .eq('id', request.requester_id)
+          .single();
+
+        if (!requesterError && requester) {
+          request.requester = { email: requester.email };
+        }
+      }
+
+      // Fetch approver information if available
+      if (request.approver_id) {
+        const { data: approver, error: approverError } = await this.supabase
+          .from('profiles')
+          .select('email')
+          .eq('id', request.approver_id)
+          .single();
+
+        if (!approverError && approver) {
+          request.approver = { email: approver.email };
+        }
+      }
+
+      return request;
     } catch (error) {
       console.error('Error fetching resource request:', error);
       toast.error('Failed to fetch resource request details');
@@ -195,18 +236,63 @@ export class ResourceRequestService {
     try {
       const { data, error } = await this.supabase
         .from('resource_requests')
-        .select(
-          `
-          *,
-          requester:profiles(id, name, email),
-          approver:profiles(id, name)
-        `
-        )
+        .select('*')
         .eq('requester_id', userId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as ResourceRequest[];
+
+      const requests = data as ResourceRequest[];
+
+      // Add requester information since we already know the user ID
+      requests.forEach((request) => {
+        request.requester = { email: '' }; // We'll fetch this separately
+      });
+
+      // Fetch user email
+      const { data: user, error: userError } = await this.supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', userId)
+        .single();
+
+      if (!userError && user) {
+        requests.forEach((request) => {
+          request.requester = { email: user.email };
+        });
+      }
+
+      // Fetch approver information for all requests
+      const approverIds = [
+        ...new Set(
+          requests
+            .filter((req) => req.approver_id)
+            .map((req) => req.approver_id)
+        )
+      ];
+
+      if (approverIds.length > 0) {
+        const { data: approvers, error: approversError } = await this.supabase
+          .from('profiles')
+          .select('id, email')
+          .in('id', approverIds as string[]);
+
+        if (!approversError && approvers) {
+          const approverMap = new Map(approvers.map((user) => [user.id, user]));
+
+          // Add approver information to requests
+          requests.forEach((request) => {
+            if (request.approver_id) {
+              const approver = approverMap.get(request.approver_id);
+              if (approver) {
+                request.approver = { email: approver.email };
+              }
+            }
+          });
+        }
+      }
+
+      return requests;
     } catch (error) {
       console.error('Error fetching user resource requests:', error);
       toast.error('Failed to fetch your resource requests');

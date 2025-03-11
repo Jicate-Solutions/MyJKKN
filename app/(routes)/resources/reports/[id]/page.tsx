@@ -41,6 +41,7 @@ import { UsageReportService } from '@/lib/services/resource/usage-report-service
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { UsageReport } from '@/types/resources';
+import { ExportDropdown } from '../_components/export-dropdown';
 
 interface ReportDetailsPageProps {
   params: Promise<{
@@ -215,10 +216,7 @@ export default function ReportDetailsPage({ params }: ReportDetailsPageProps) {
                 <span>Back to Reports</span>
               </Link>
             </Button>
-            <Button className='h-9 gap-1'>
-              <Download className='h-4 w-4' />
-              <span>Export</span>
-            </Button>
+            <ExportDropdown reports={[]} singleReport={report} />
           </div>
         </div>
 

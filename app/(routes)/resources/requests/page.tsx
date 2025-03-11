@@ -31,37 +31,38 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { ReportsTable } from './_components/reports-table';
-import { ReportFilters } from './_components/report-filters';
-import { ExportDropdown } from './_components/export-dropdown';
-import { useUsageReports } from '@/hooks/resource/use-usage-reports';
+import { RequestsTable } from './_components/requests-table';
+import { RequestFilters } from './_components/request-filters';
+import { useResourceRequests } from '@/hooks/resource/use-resource-requests';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger
 } from '@/components/ui/collapsible';
 
-export default function ReportsPage() {
-  const { fetchReports, updateFilters, reports } = useUsageReports();
+export default function ResourceRequestsPage() {
+  const { fetchRequests, updateFilters } = useResourceRequests();
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
 
   const handleRefresh = useCallback(() => {
-    fetchReports();
-    toast.success('Reports refreshed');
-  }, [fetchReports]);
+    fetchRequests();
+    toast.success('Resource requests refreshed');
+  }, [fetchRequests]);
 
   const handleResetFilters = useCallback(() => {
     updateFilters({
-      resource_id: undefined,
-      start_date: undefined,
-      end_date: undefined,
+      search: undefined,
+      requester_id: undefined,
+      resource_type: undefined,
+      priority: undefined,
+      status: undefined,
       page: 1
     });
     toast.success('Filters reset');
   }, [updateFilters]);
 
   return (
-    <ContentLayout title='Usage Reports'>
+    <ContentLayout title='Resource Requests'>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -77,7 +78,7 @@ export default function ReportsPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Usage Reports</BreadcrumbPage>
+            <BreadcrumbPage>Resource Requests</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -85,9 +86,9 @@ export default function ReportsPage() {
       <div className='space-y-6 mt-4'>
         <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
           <div>
-            <h1 className='text-2xl font-bold py-1'>Usage Reports</h1>
+            <h1 className='text-2xl font-bold py-1'>Resource Requests</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              View and generate resource usage reports
+              Manage requests for new resources and equipment
             </p>
           </div>
           <div className='flex flex-wrap gap-2'>
@@ -109,11 +110,10 @@ export default function ReportsPage() {
               <FilterX className='h-4 w-4' />
               <span className='hidden sm:inline'>Reset Filters</span>
             </Button>
-
             <Button asChild className='h-9 gap-1'>
-              <Link href='/resources/reports/new'>
+              <Link href='/resources/requests/new'>
                 <PlusCircle className='h-4 w-4' />
-                <span>Generate Report</span>
+                <span>New Request</span>
               </Link>
             </Button>
           </div>
@@ -122,7 +122,7 @@ export default function ReportsPage() {
         <Card>
           <CardHeader className='pb-3'>
             <div className='flex items-center justify-between'>
-              <CardTitle>Usage Reports</CardTitle>
+              <CardTitle>Resource Requests</CardTitle>
               <Collapsible open={isFiltersOpen} onOpenChange={setIsFiltersOpen}>
                 <CollapsibleTrigger asChild>
                   <Button variant='outline' size='sm' className='h-8 gap-1'>
@@ -138,7 +138,7 @@ export default function ReportsPage() {
               </Collapsible>
             </div>
             <CardDescription>
-              View and manage resource usage reports
+              View and manage resource acquisition requests
             </CardDescription>
 
             <Collapsible
@@ -151,7 +151,7 @@ export default function ReportsPage() {
                   <Suspense
                     fallback={<Skeleton className='h-[100px] w-full' />}
                   >
-                    <ReportFilters onApply={() => setIsFiltersOpen(false)} />
+                    <RequestFilters onApply={() => setIsFiltersOpen(false)} />
                   </Suspense>
                 </div>
               </CollapsibleContent>
@@ -160,7 +160,7 @@ export default function ReportsPage() {
           <Separator />
           <CardContent className='pt-6'>
             <Suspense fallback={<Skeleton className='h-[400px] w-full' />}>
-              <ReportsTable />
+              <RequestsTable />
             </Suspense>
           </CardContent>
         </Card>
