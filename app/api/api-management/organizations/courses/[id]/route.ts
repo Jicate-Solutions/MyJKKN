@@ -12,12 +12,6 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    // Add CORS headers to response
-    const response = NextResponse.next();
-    Object.entries(corsHeaders).forEach(([key, value]) => {
-      response.headers.set(key, value);
-    });
-
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({
       cookies: () => cookieStore
@@ -109,7 +103,8 @@ export async function GET(
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    return NextResponse.json(course);
+    // Return response with CORS headers directly
+    return NextResponse.json(course, { headers: corsHeaders });
   } catch (error) {
     console.error('Error fetching course:', error);
     return NextResponse.json(

@@ -10,12 +10,6 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
-    // Add CORS headers to response
-    const response = NextResponse.next();
-    Object.entries(corsHeaders).forEach(([key, value]) => {
-      response.headers.set(key, value);
-    });
-
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({
       cookies: () => cookieStore
@@ -43,16 +37,18 @@ export async function GET(request: NextRequest) {
       .single();
 
     // Check RLS policies
-
     if (keyError || !keyData) {
-      return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401, headers: corsHeaders }
+      );
     }
 
     // Check if key has expired
     if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
       return NextResponse.json(
         { error: 'API key has expired' },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       );
     }
 
@@ -60,7 +56,7 @@ export async function GET(request: NextRequest) {
     if (!keyData.permissions?.read) {
       return NextResponse.json(
         { error: 'API key does not have read permission' },
-        { status: 403 }
+        { status: 403, headers: corsHeaders }
       );
     }
 
@@ -122,6 +118,7 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
+    // Return response with CORS headers directly
     return NextResponse.json(
       {
         data: degrees || [],
