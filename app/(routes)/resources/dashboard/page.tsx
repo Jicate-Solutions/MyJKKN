@@ -15,7 +15,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
-import { ResourceDashboard } from '../_components/resource-dashboard';
+import { ResourceStatsDashboard } from '../_components/resource-stats-dashboard';
 import { BeatLoader } from 'react-spinners';
 
 export default function ResourcesPage() {
@@ -102,7 +102,7 @@ export default function ResourcesPage() {
 
         <Card>
           <CardContent className='p-6'>
-            <ResourceDashboard />
+            <ResourceStatsDashboard />
           </CardContent>
         </Card>
       </div>

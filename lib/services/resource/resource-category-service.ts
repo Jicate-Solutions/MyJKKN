@@ -12,6 +12,7 @@ import type {
 
 export class ResourceCategoryService {
   private static supabase = createClientComponentClient();
+  private static useMockData = false; // Set to false to use real data from Supabase
 
   static async createResourceCategory(
     data: CreateResourceCategoryDto

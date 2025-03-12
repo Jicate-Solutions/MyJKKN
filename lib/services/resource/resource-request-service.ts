@@ -12,6 +12,7 @@ import type {
 
 export class ResourceRequestService {
   private static supabase = createClientComponentClient();
+  private static useMockData = false; // Set to false to use real data from Supabase
 
   static async createResourceRequest(
     data: CreateResourceRequestDto
@@ -152,7 +153,7 @@ export class ResourceRequestService {
       if (userIds.length > 0) {
         const { data: users, error: usersError } = await this.supabase
           .from('profiles')
-          .select('id, email')
+          .select('id, email, full_name')
           .in('id', userIds);
 
         if (!usersError && users) {
@@ -162,7 +163,11 @@ export class ResourceRequestService {
           requests.forEach((request) => {
             const user = userMap.get(request.requester_id);
             if (user) {
-              request.requester = { email: user.email };
+              request.requester = {
+                id: user.id,
+                email: user.email,
+                full_name: user.full_name
+              };
             }
           });
         }
@@ -200,12 +205,16 @@ export class ResourceRequestService {
       if (request.requester_id) {
         const { data: requester, error: requesterError } = await this.supabase
           .from('profiles')
-          .select('email')
+          .select('id, email, full_name')
           .eq('id', request.requester_id)
           .single();
 
         if (!requesterError && requester) {
-          request.requester = { email: requester.email };
+          request.requester = {
+            id: requester.id,
+            email: requester.email,
+            full_name: requester.full_name
+          };
         }
       }
 
@@ -213,12 +222,16 @@ export class ResourceRequestService {
       if (request.approver_id) {
         const { data: approver, error: approverError } = await this.supabase
           .from('profiles')
-          .select('email')
+          .select('id, email, full_name')
           .eq('id', request.approver_id)
           .single();
 
         if (!approverError && approver) {
-          request.approver = { email: approver.email };
+          request.approver = {
+            id: approver.id,
+            email: approver.email,
+            full_name: approver.full_name
+          };
         }
       }
 
@@ -244,21 +257,20 @@ export class ResourceRequestService {
 
       const requests = data as ResourceRequest[];
 
-      // Add requester information since we already know the user ID
-      requests.forEach((request) => {
-        request.requester = { email: '' }; // We'll fetch this separately
-      });
-
       // Fetch user email
       const { data: user, error: userError } = await this.supabase
         .from('profiles')
-        .select('email')
+        .select('id, email, full_name')
         .eq('id', userId)
         .single();
 
       if (!userError && user) {
         requests.forEach((request) => {
-          request.requester = { email: user.email };
+          request.requester = {
+            id: user.id,
+            email: user.email,
+            full_name: user.full_name
+          };
         });
       }
 
@@ -274,7 +286,7 @@ export class ResourceRequestService {
       if (approverIds.length > 0) {
         const { data: approvers, error: approversError } = await this.supabase
           .from('profiles')
-          .select('id, email')
+          .select('id, email, full_name')
           .in('id', approverIds as string[]);
 
         if (!approversError && approvers) {
@@ -285,7 +297,11 @@ export class ResourceRequestService {
             if (request.approver_id) {
               const approver = approverMap.get(request.approver_id);
               if (approver) {
-                request.approver = { email: approver.email };
+                request.approver = {
+                  id: approver.id,
+                  email: approver.email,
+                  full_name: approver.full_name
+                };
               }
             }
           });

@@ -10,89 +10,21 @@ import type {
   ResourceListResponse
 } from '@/types/resources';
 
-// Mock data for development
-const MOCK_RESOURCES: Resource[] = [
-  {
-    id: 'res-1',
-    resource_name: 'Microscope Lab',
-    resource_type: 'laboratory',
-    category_id: 'cat-1',
-    description: 'Advanced microscopy laboratory with electron microscopes',
-    institution_id: 'inst-1',
-    department_id: 'dept-1',
-    building: 'Science Building',
-    room: '301',
-    specifications: { brand: 'Zeiss', model: 'EM900', year: 2020 },
-    acquisition_date: '2020-05-15',
-    value: 75000,
-    condition: 'excellent',
-    availability_schedule: { weekdays: '8:00-18:00', weekends: '10:00-16:00' },
-    is_shareable: true,
-    sharing_restrictions: 'Requires trained operator',
-    maintenance_schedule: 'Quarterly',
-    owner_type: 'department',
-    owner_id: 'dept-1',
-    is_active: true,
-    created_at: '2020-05-15T00:00:00Z',
-    updated_at: '2023-01-10T00:00:00Z',
-    institution: {
-      id: 'inst-1',
-      name: 'University of Science',
-      counselling_code: 'UOS'
-    },
-    department: {
-      id: 'dept-1',
-      department_code: 'BIO',
-      department_name: 'Biology Department'
-    },
-    category: {
-      id: 'cat-1',
-      category_name: 'Laboratory Equipment'
-    }
-  },
-  {
-    id: 'res-2',
-    resource_name: 'Chemistry Lab',
-    resource_type: 'laboratory',
-    category_id: 'cat-1',
-    description: 'Fully equipped chemistry laboratory',
-    institution_id: 'inst-1',
-    department_id: 'dept-2',
-    building: 'Science Building',
-    room: '201',
-    specifications: { capacity: 30, fume_hoods: 10 },
-    acquisition_date: '2019-08-20',
-    value: 120000,
-    condition: 'good',
-    availability_schedule: { weekdays: '9:00-17:00', weekends: 'closed' },
-    is_shareable: true,
-    sharing_restrictions: 'Requires supervision',
-    maintenance_schedule: 'Monthly',
-    owner_type: 'department',
-    owner_id: 'dept-2',
-    is_active: true,
-    created_at: '2019-08-20T00:00:00Z',
-    updated_at: '2023-02-15T00:00:00Z',
-    institution: {
-      id: 'inst-1',
-      name: 'University of Science',
-      counselling_code: 'UOS'
-    },
-    department: {
-      id: 'dept-2',
-      department_code: 'CHEM',
-      department_name: 'Chemistry Department'
-    },
-    category: {
-      id: 'cat-1',
-      category_name: 'Laboratory Equipment'
+export class ResourceService {
+  private static getSupabaseClient() {
+    try {
+      const client = createClientComponentClient();
+      console.log('Supabase client initialized successfully');
+      return client;
+    } catch (error) {
+      console.error('Error initializing Supabase client:', error);
+      toast.error('Failed to connect to the database');
+      throw error;
     }
   }
-];
 
-export class ResourceService {
-  private static supabase = createClientComponentClient();
-  private static useMockData = false; // Set to false to use the actual database
+  private static supabase = ResourceService.getSupabaseClient();
+  private static useMockData = false; // Set to false to use real data from Supabase
 
   static async createResource(data: CreateResourceDto): Promise<Resource> {
     try {
@@ -191,74 +123,7 @@ export class ResourceService {
     filters: ResourceFilters = {}
   ): Promise<ResourceListResponse> {
     try {
-      if (this.useMockData) {
-        // Return mock data
-        const {
-          search,
-          institution_id,
-          department_id,
-          resource_type,
-          category_id,
-          isActive,
-          page = 1,
-          limit = 10
-        } = filters;
-
-        let filteredResources = [...MOCK_RESOURCES];
-
-        // Apply filters
-        if (search) {
-          filteredResources = filteredResources.filter((r) =>
-            r.resource_name.toLowerCase().includes(search.toLowerCase())
-          );
-        }
-
-        if (institution_id) {
-          filteredResources = filteredResources.filter(
-            (r) => r.institution_id === institution_id
-          );
-        }
-
-        if (department_id) {
-          filteredResources = filteredResources.filter(
-            (r) => r.department_id === department_id
-          );
-        }
-
-        if (resource_type) {
-          filteredResources = filteredResources.filter(
-            (r) => r.resource_type === resource_type
-          );
-        }
-
-        if (category_id) {
-          filteredResources = filteredResources.filter(
-            (r) => r.category_id === category_id
-          );
-        }
-
-        if (isActive !== undefined) {
-          filteredResources = filteredResources.filter(
-            (r) => r.is_active === isActive
-          );
-        }
-
-        // Calculate pagination
-        const total = filteredResources.length;
-        const totalPages = Math.ceil(total / limit);
-        const from = (page - 1) * limit;
-        const to = Math.min(from + limit, total);
-
-        return {
-          data: filteredResources.slice(from, to),
-          metadata: {
-            total,
-            page,
-            limit,
-            totalPages
-          }
-        };
-      }
+      console.log('Fetching resources with filters:', filters);
 
       const {
         search,
@@ -335,9 +200,15 @@ export class ResourceService {
       query = query.range(from, to);
 
       // Execute the query
+      console.log('Executing Supabase query...');
       const { data, error, count } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase query error:', error);
+        throw error;
+      }
+
+      console.log(`Query successful, received ${data?.length || 0} resources`);
 
       // Calculate total pages
       const totalPages = count ? Math.ceil(count / limit) : 0;
@@ -360,15 +231,6 @@ export class ResourceService {
 
   static async getResource(id: string): Promise<Resource> {
     try {
-      if (this.useMockData) {
-        // Find the resource in mock data or return the first one
-        const resource = MOCK_RESOURCES.find((r) => r.id === id);
-        if (!resource) {
-          throw new Error('Resource not found');
-        }
-        return resource;
-      }
-
       const { data, error } = await this.supabase
         .from('resources')
         .select(
@@ -396,13 +258,6 @@ export class ResourceService {
     ownerId: string
   ): Promise<Resource[]> {
     try {
-      if (this.useMockData) {
-        // Filter resources by owner type and id
-        return MOCK_RESOURCES.filter(
-          (r) => r.owner_type === ownerType && r.owner_id === ownerId
-        );
-      }
-
       const { data, error } = await this.supabase
         .from('resources')
         .select(
