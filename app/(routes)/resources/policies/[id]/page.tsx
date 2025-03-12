@@ -308,8 +308,8 @@ export default function PolicyDetailsPage({ params }: PolicyDetailsPageProps) {
           <Share2 className='h-12 w-12 mx-auto text-muted-foreground' />
           <h2 className='mt-4 text-xl font-semibold'>Policy Not Found</h2>
           <p className='mt-2 text-muted-foreground'>
-            The sharing policy you're looking for doesn't exist or has been
-            removed.
+            The sharing policy you&apos;re looking for doesn&apos;t exist or has
+            been removed.
           </p>
           <Button
             variant='outline'
