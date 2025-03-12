@@ -147,15 +147,19 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    return NextResponse.json({
-      data: semesters || [],
-      metadata: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: count ? Math.ceil(count / limit) : 0
-      }
-    });
+    // Return response with CORS headers directly
+    return NextResponse.json(
+      {
+        data: semesters || [],
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: count ? Math.ceil(count / limit) : 0
+        }
+      },
+      { headers: corsHeaders }
+    );
   } catch (error) {
     console.error('Error fetching semesters:', error);
     return NextResponse.json(

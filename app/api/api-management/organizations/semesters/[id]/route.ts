@@ -105,7 +105,8 @@ export async function GET(
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    return NextResponse.json(semester);
+    // Return response with CORS headers directly
+    return NextResponse.json(semester, { headers: corsHeaders });
   } catch (error) {
     console.error('Error fetching semester:', error);
     return NextResponse.json(

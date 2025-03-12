@@ -10,12 +10,6 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
-    // Add CORS headers to response
-    const response = NextResponse.next();
-    Object.entries(corsHeaders).forEach(([key, value]) => {
-      response.headers.set(key, value);
-    });
-
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
@@ -171,6 +165,7 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
+    // Return response with CORS headers directly
     return NextResponse.json(
       {
         data: sections || [],
