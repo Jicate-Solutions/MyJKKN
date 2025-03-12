@@ -4,17 +4,42 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { corsHeaders } from '@/lib/api-keys/cors';
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders });
+// Enhanced OPTIONS handler for CORS preflight requests
+export async function OPTIONS(request: NextRequest) {
+  // Log the origin of the request
+  console.log(
+    'CORS preflight request from origin:',
+    request.headers.get('origin')
+  );
+
+  // Return a response with CORS headers
+  return new NextResponse(null, {
+    status: 204, // No content
+    headers: {
+      ...corsHeaders,
+      'Access-Control-Allow-Origin': request.headers.get('origin') || '*',
+      'Access-Control-Max-Age': '86400' // 24 hours
+    }
+  });
 }
 
 export async function GET(request: NextRequest) {
   try {
-    console.log('Programs API request received:', request.url);
+    // Get the origin from the request headers
+    const origin = request.headers.get('origin') || '*';
+    console.log('Programs API request received from origin:', origin);
+    console.log('Programs API request URL:', request.url);
     console.log(
       'Request headers:',
       Object.fromEntries(request.headers.entries())
     );
+
+    // Create enhanced CORS headers with the specific origin
+    const enhancedCorsHeaders = {
+      ...corsHeaders,
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Credentials': 'true'
+    };
 
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({
@@ -27,7 +52,7 @@ export async function GET(request: NextRequest) {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'API key is required in Authorization header' },
-        { status: 401, headers: corsHeaders }
+        { status: 401, headers: enhancedCorsHeaders }
       );
     }
 
@@ -51,21 +76,21 @@ export async function GET(request: NextRequest) {
     if (keyError || !keyData) {
       return NextResponse.json(
         { error: 'Invalid API key' },
-        { status: 401, headers: corsHeaders }
+        { status: 401, headers: enhancedCorsHeaders }
       );
     }
 
     if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
       return NextResponse.json(
         { error: 'API key has expired' },
-        { status: 401, headers: corsHeaders }
+        { status: 401, headers: enhancedCorsHeaders }
       );
     }
 
     if (!keyData.permissions?.read) {
       return NextResponse.json(
         { error: 'API key does not have read permission' },
-        { status: 403, headers: corsHeaders }
+        { status: 403, headers: enhancedCorsHeaders }
       );
     }
 
@@ -99,56 +124,21 @@ export async function GET(request: NextRequest) {
       console.error('Error counting programs:', countError);
     }
 
-    let query = supabase.from('programs').select(
-      `
-      *,
-      institution:institutions (
-        id,
-        name,
-        counselling_code
-      ),
-      degree:degrees (
-        id,
-        degree_id,
-        degree_name
-      ),
-      department:departments (
-        id,
-        department_code,
-        department_name
-      )
-    `,
-      { count: 'exact' }
-    );
-
-    if (search) {
-      query = query.or(
-        `program_id.ilike.%${search}%,program_name.ilike.%${search}%`
-      );
-    }
-
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
-
-    if (degreeId) {
-      query = query.eq('degree_id', degreeId);
-    }
-
-    if (departmentId) {
-      query = query.eq('department_id', departmentId);
-    }
-
-    if (isActive !== null) {
-      query = query.eq('is_active', isActive === 'true');
-    }
-
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-
-    query = query.range(from, to).order('created_at', { ascending: false });
-
-    const { data: programs, error, count } = await query;
+    // Set the API key as a request header for RLS policies
+    const {
+      data: programs,
+      error,
+      count
+    } = await supabase.rpc('get_programs', {
+      p_page: page,
+      p_limit: limit,
+      p_search: search || null,
+      p_institution_id: institutionId || null,
+      p_degree_id: degreeId || null,
+      p_department_id: departmentId || null,
+      p_is_active:
+        isActive === 'true' ? true : isActive === 'false' ? false : null
+    });
 
     console.log('Programs query result:', {
       count,
@@ -158,7 +148,10 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error fetching programs:', error);
-      throw error;
+      return NextResponse.json(
+        { error: error.message || 'Error fetching programs' },
+        { status: 500, headers: enhancedCorsHeaders }
+      );
     }
 
     await supabase
@@ -180,7 +173,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(response, {
       headers: {
-        ...corsHeaders,
+        ...enhancedCorsHeaders,
         'Cache-Control': 'no-store, max-age=0'
       }
     });
@@ -190,7 +183,11 @@ export async function GET(request: NextRequest) {
       { error: 'Internal server error' },
       {
         status: 500,
-        headers: corsHeaders
+        headers: {
+          ...corsHeaders,
+          'Access-Control-Allow-Origin': request.headers.get('origin') || '*',
+          'Access-Control-Allow-Credentials': 'true'
+        }
       }
     );
   }
