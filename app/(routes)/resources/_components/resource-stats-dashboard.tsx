@@ -36,22 +36,69 @@ import { useResourceCategories } from '@/hooks/resource/use-resource-categories'
 import { useSharingPolicies } from '@/hooks/resource/use-sharing-policies';
 import { useUsageReports } from '@/hooks/resource/use-usage-reports';
 
-export function ResourceDashboard() {
+export function ResourceStatsDashboard() {
   // Fetch data for statistics
-  const { resources, loading: resourcesLoading } = useResources({ limit: 100 });
-  const { reservations, loading: reservationsLoading } = useReservations({
+  const {
+    resources,
+    loading: resourcesLoading,
+    fetchResources,
+    error
+  } = useResources({ limit: 100 });
+  const {
+    reservations,
+    loading: reservationsLoading,
+    fetchReservations,
+    error: reservationsError
+  } = useReservations({
     limit: 100
   });
-  const { requests, loading: requestsLoading } = useResourceRequests({
+  const {
+    requests,
+    loading: requestsLoading,
+    fetchRequests,
+    error: requestsError
+  } = useResourceRequests({
     limit: 100
   });
-  const { categories, loading: categoriesLoading } = useResourceCategories({
+  const {
+    categories,
+    loading: categoriesLoading,
+    fetchCategories,
+    error: categoriesError
+  } = useResourceCategories({
     limit: 100
   });
-  const { policies, loading: policiesLoading } = useSharingPolicies({
+  const {
+    policies,
+    loading: policiesLoading,
+    fetchPolicies,
+    error: policiesError
+  } = useSharingPolicies({
     limit: 100
   });
-  const { reports, loading: reportsLoading } = useUsageReports({ limit: 100 });
+  const {
+    reports,
+    loading: reportsLoading,
+    fetchReports,
+    error: reportsError
+  } = useUsageReports({ limit: 100 });
+
+  // Fetch all data on component mount
+  useEffect(() => {
+    fetchResources();
+    fetchReservations();
+    fetchRequests();
+    fetchCategories();
+    fetchPolicies();
+    fetchReports();
+  }, [
+    fetchResources,
+    fetchReservations,
+    fetchRequests,
+    fetchCategories,
+    fetchPolicies,
+    fetchReports
+  ]);
 
   // Calculate statistics
   const resourceStats = {
@@ -117,6 +164,71 @@ export function ResourceDashboard() {
     categoriesLoading ||
     policiesLoading ||
     reportsLoading;
+
+  // Add console logs for debugging
+  useEffect(() => {
+    console.log('Component mounted, fetching data...');
+
+    // Log any errors from the hooks
+    if (error) console.error('Resource error:', error);
+    if (reservationsError)
+      console.error('Reservations error:', reservationsError);
+    if (requestsError) console.error('Requests error:', requestsError);
+    if (categoriesError) console.error('Categories error:', categoriesError);
+    if (policiesError) console.error('Policies error:', policiesError);
+    if (reportsError) console.error('Reports error:', reportsError);
+
+    console.log(
+      'Resources loading:',
+      resourcesLoading,
+      'count:',
+      resources.length
+    );
+    console.log(
+      'Reservations loading:',
+      reservationsLoading,
+      'count:',
+      reservations.length
+    );
+    console.log(
+      'Requests loading:',
+      requestsLoading,
+      'count:',
+      requests.length
+    );
+    console.log(
+      'Categories loading:',
+      categoriesLoading,
+      'count:',
+      categories.length
+    );
+    console.log(
+      'Policies loading:',
+      policiesLoading,
+      'count:',
+      policies.length
+    );
+    console.log('Reports loading:', reportsLoading, 'count:', reports.length);
+  }, [
+    resourcesLoading,
+    reservationsLoading,
+    requestsLoading,
+    categoriesLoading,
+    policiesLoading,
+    reportsLoading,
+    resources.length,
+    reservations.length,
+    requests.length,
+    categories.length,
+    policies.length,
+    reports.length,
+    error,
+    reservationsError,
+    requestsError,
+    categoriesError,
+    policiesError,
+    reportsError
+  ]);
 
   return (
     <div className='space-y-6'>
@@ -201,19 +313,19 @@ export function ResourceDashboard() {
             )}
           </CardContent>
         </Card>
-        </div>
+      </div>
 
       {/* Detailed Statistics */}
       <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
         {/* Resource Statistics Card */}
         <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                  <CardTitle className='text-lg font-medium'>
+          <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+            <CardTitle className='text-lg font-medium'>
               Resource Overview
-                  </CardTitle>
-                  <Building2 className='h-5 w-5 text-muted-foreground' />
-                </CardHeader>
-                <CardContent>
+            </CardTitle>
+            <Building2 className='h-5 w-5 text-muted-foreground' />
+          </CardHeader>
+          <CardContent>
             {isLoading ? (
               <div className='space-y-2'>
                 <Skeleton className='h-4 w-full' />
@@ -296,7 +408,7 @@ export function ResourceDashboard() {
                 </div>
               </div>
             )}
-                </CardContent>
+          </CardContent>
           <CardFooter>
             <Link
               href='/resources/resources'
@@ -305,17 +417,17 @@ export function ResourceDashboard() {
               View all resources
             </Link>
           </CardFooter>
-              </Card>
+        </Card>
 
         {/* Reservation Statistics Card */}
         <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                  <CardTitle className='text-lg font-medium'>
+          <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+            <CardTitle className='text-lg font-medium'>
               Reservation Status
-                  </CardTitle>
-                  <Calendar className='h-5 w-5 text-muted-foreground' />
-                </CardHeader>
-                <CardContent>
+            </CardTitle>
+            <Calendar className='h-5 w-5 text-muted-foreground' />
+          </CardHeader>
+          <CardContent>
             {isLoading ? (
               <div className='space-y-2'>
                 <Skeleton className='h-4 w-full' />
@@ -375,12 +487,12 @@ export function ResourceDashboard() {
                       <div className='text-lg font-semibold'>
                         {reservationStats.upcoming}
                       </div>
-              </Card>
+                    </Card>
                   </div>
                 </div>
               </div>
             )}
-                </CardContent>
+          </CardContent>
           <CardFooter>
             <Link
               href='/resources/reservations'
@@ -389,17 +501,17 @@ export function ResourceDashboard() {
               View all reservations
             </Link>
           </CardFooter>
-              </Card>
+        </Card>
 
         {/* Request Statistics Card */}
         <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                  <CardTitle className='text-lg font-medium'>
-                    Resource Requests
-                  </CardTitle>
-                  <ClipboardList className='h-5 w-5 text-muted-foreground' />
-                </CardHeader>
-                <CardContent>
+          <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+            <CardTitle className='text-lg font-medium'>
+              Resource Requests
+            </CardTitle>
+            <ClipboardList className='h-5 w-5 text-muted-foreground' />
+          </CardHeader>
+          <CardContent>
             {isLoading ? (
               <div className='space-y-2'>
                 <Skeleton className='h-4 w-full' />
@@ -481,7 +593,7 @@ export function ResourceDashboard() {
                 </div>
               </div>
             )}
-                </CardContent>
+          </CardContent>
           <CardFooter>
             <Link
               href='/resources/requests'
@@ -526,7 +638,7 @@ export function ResourceDashboard() {
                   <span className='text-sm'>Generated Reports</span>
                   <span className='font-medium'>{reports.length}</span>
                 </div>
-          </div>
+              </div>
             )}
           </CardContent>
           <CardFooter className='flex justify-between'>
@@ -576,15 +688,15 @@ export function ResourceDashboard() {
                   <div className='flex items-center justify-between'>
                     <span className='text-sm'>Active Resources</span>
                     <span className='font-medium'>{resourceStats.active}</span>
-          </div>
+                  </div>
                   <div className='flex items-center justify-between'>
                     <span className='text-sm'>Inactive Resources</span>
                     <span className='font-medium'>
                       {resourceStats.total - resourceStats.active}
                     </span>
-          </div>
-          </div>
-          </div>
+                  </div>
+                </div>
+              </div>
             )}
           </CardContent>
           <CardFooter>
@@ -596,7 +708,7 @@ export function ResourceDashboard() {
             </Link>
           </CardFooter>
         </Card>
-          </div>
+      </div>
     </div>
   );
 }

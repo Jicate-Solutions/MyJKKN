@@ -12,6 +12,7 @@ import type {
 
 export class SharingPolicyService {
   private static supabase = createClientComponentClient();
+  private static useMockData = false; // Set to false to use real data from Supabase
 
   static async createSharingPolicy(
     data: CreateSharingPolicyDto

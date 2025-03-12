@@ -14,6 +14,7 @@ import { UsageReportService } from './usage-report-service';
 
 export class ReservationService {
   private static supabase = createClientComponentClient();
+  private static useMockData = false; // Set to false to use real data from Supabase
 
   static async createReservation(
     data: CreateReservationDto
@@ -53,9 +54,7 @@ export class ReservationService {
       return reservation as Reservation;
     } catch (error) {
       console.error('Error creating reservation:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to create reservation'
-      );
+      toast.error('Failed to create reservation');
       throw error;
     }
   }
