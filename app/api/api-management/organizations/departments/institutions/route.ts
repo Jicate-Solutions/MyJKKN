@@ -10,12 +10,6 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
-    // Add CORS headers to response
-    const response = NextResponse.next();
-    Object.entries(corsHeaders).forEach(([key, value]) => {
-      response.headers.set(key, value);
-    });
-
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({
       cookies: () => cookieStore
@@ -121,17 +115,21 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
-    return NextResponse.json({
-      data: result,
-      metadata: {
-        total: result.length,
-        institutions_count: institutions.length,
-        departments_count: result.reduce(
-          (acc, item) => acc + item.departments.length,
-          0
-        )
-      }
-    });
+    // Return response with CORS headers directly
+    return NextResponse.json(
+      {
+        data: result,
+        metadata: {
+          total: result.length,
+          institutions_count: institutions.length,
+          departments_count: result.reduce(
+            (acc, item) => acc + item.departments.length,
+            0
+          )
+        }
+      },
+      { headers: corsHeaders }
+    );
   } catch (error) {
     console.error('Error fetching institutions and departments:', error);
     return NextResponse.json(
