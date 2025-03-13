@@ -1,25 +1,56 @@
-// lib/api-keys/api-key-service.ts
+import { createHash } from 'crypto';
+import { createClient } from '@supabase/supabase-js';
+import { v4 as uuidv4 } from 'uuid';
 
-import { createHash, randomBytes } from 'crypto';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { ApiKey, CreateApiKeyInput, UpdateApiKeyInput } from '@/types/api-keys';
-import { toast } from 'react-hot-toast';
+// Define ApiKey types here since there seems to be an issue with the import
+interface ApiKey {
+  id: string;
+  name: string;
+  key_value: string;
+  created_by: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  is_active: boolean;
+  permissions: string[] | { read: boolean; write: boolean };
+  organization_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CreateApiKeyInput {
+  name: string;
+  isActive: boolean;
+  permissions: string[] | { read: boolean; write: boolean };
+  organizationId: string | null;
+}
+
+interface UpdateApiKeyInput {
+  name?: string;
+  isActive?: boolean;
+  permissions?: string[] | { read: boolean; write: boolean };
+  organizationId?: string | null;
+}
+
+// Function to hash API key
+export async function hashApiKey(apiKey: string): Promise<string> {
+  return createHash('sha256').update(apiKey).digest('hex');
+}
 
 export class ApiKeyService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+  );
 
-  // Generate a secure API key
+  // Generate a random API key
   private static generateKeyValue(): string {
-    const prefix = 'jk';
-    const randomString = randomBytes(24).toString('hex');
-    const timestamp = Date.now().toString(36);
-    const key = `${prefix}_${randomString}_${timestamp}`;
+    const key = `jkkn_${uuidv4().replace(/-/g, '')}`;
     return key;
   }
 
   // Hash an API key for verification
-  private static hashKey(key: string): string {
-    return createHash('sha256').update(key).digest('hex');
+  private static async hashKey(key: string): Promise<string> {
+    return hashApiKey(key);
   }
 
   // Create a new API key
@@ -28,31 +59,31 @@ export class ApiKeyService {
   ): Promise<{ key: ApiKey; plainTextKey: string } | null> {
     try {
       const plainTextKey = this.generateKeyValue();
-      const hashedKey = this.hashKey(plainTextKey);
+      const hashedKey = await this.hashKey(plainTextKey);
 
       const { data: key, error } = await this.supabase
         .from('api_keys')
         .insert({
-          name: input.name,
           key_value: hashedKey,
-          expires_at: input.expires_at || null,
-          permissions: input.permissions || { read: true, write: false }
+          name: input.name,
+          is_active: input.isActive,
+          permissions: input.permissions,
+          organization_id: input.organizationId,
         })
-        .select()
+        .select('*')
         .single();
 
-      if (error) throw error;
-
-      if (!key) {
-        throw new Error('Failed to create API key');
+      if (error) {
+        console.error('Error creating API key:', error);
+        return null;
       }
 
       return {
         key,
-        plainTextKey
+        plainTextKey,
       };
     } catch (error) {
-      console.error('Error creating API key:', error);
+      console.error('Error in createApiKey:', error);
       return null;
     }
   }
@@ -65,11 +96,14 @@ export class ApiKeyService {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching API keys:', error);
+        throw error;
+      }
 
       return keys || [];
     } catch (error) {
-      console.error('Error fetching API keys:', error);
+      console.error('Error in getApiKeys:', error);
       return [];
     }
   }
@@ -84,19 +118,22 @@ export class ApiKeyService {
         .from('api_keys')
         .update({
           name: input.name,
-          is_active: input.is_active,
-          expires_at: input.expires_at,
-          permissions: input.permissions
+          is_active: input.isActive,
+          permissions: input.permissions,
+          organization_id: input.organizationId,
         })
         .eq('id', id)
-        .select()
+        .select('*')
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error updating API key:', error);
+        throw error;
+      }
 
       return key;
     } catch (error) {
-      console.error('Error updating API key:', error);
+      console.error('Error in updateApiKey:', error);
       return null;
     }
   }
@@ -109,11 +146,14 @@ export class ApiKeyService {
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error deleting API key:', error);
+        throw error;
+      }
 
       return true;
     } catch (error) {
-      console.error('Error deleting API key:', error);
+      console.error('Error in deleteApiKey:', error);
       return false;
     }
   }
@@ -121,7 +161,7 @@ export class ApiKeyService {
   // Verify an API key
   static async verifyApiKey(key: string): Promise<boolean> {
     try {
-      const hashedKey = this.hashKey(key);
+      const hashedKey = await this.hashKey(key);
 
       const { data: apiKey, error } = await this.supabase
         .from('api_keys')
@@ -130,49 +170,41 @@ export class ApiKeyService {
         .eq('is_active', true)
         .single();
 
-      if (error) return false;
-
-      if (!apiKey) return false;
-
-      // Check if key has expired
-      if (apiKey.expires_at && new Date(apiKey.expires_at) < new Date()) {
+      if (error || !apiKey) {
+        console.error('API key verification failed:', error);
         return false;
       }
 
-      // Update last used timestamp
-      await this.supabase
-        .from('api_keys')
-        .update({ last_used_at: new Date().toISOString() })
-        .eq('id', apiKey.id);
+      // Check if the API key has expired
+      if (apiKey.expires_at && new Date(apiKey.expires_at) < new Date()) {
+        console.error('API key has expired');
+        return false;
+      }
 
       return true;
     } catch (error) {
-      console.error('Error verifying API key:', error);
+      console.error('Error in verifyApiKey:', error);
       return false;
     }
   }
 
-  // Generate a test API key (for development/testing only)
-  static async generateTestApiKey(): Promise<{
-    key: ApiKey;
-    plainTextKey: string;
-  } | null> {
+  // Generate a test API key for development
+  static async generateTestApiKey(): Promise<{ key: ApiKey; plainTextKey: string } | null> {
     try {
       const result = await this.createApiKey({
         name: 'Test API Key',
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours from now
-        permissions: { read: true, write: false }
+        isActive: true,
+        permissions: ['read', 'write'],
+        organizationId: null,
       });
 
       if (!result) {
         throw new Error('Failed to create test API key');
       }
 
-      toast.success('Test API key created successfully');
       return result;
     } catch (error) {
       console.error('Error generating test API key:', error);
-      toast.error('Failed to create test API key');
       return null;
     }
   }
