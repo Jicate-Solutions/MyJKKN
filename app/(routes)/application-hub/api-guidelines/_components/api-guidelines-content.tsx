@@ -475,12 +475,18 @@ import { Badge } from '@/components/ui/badge';
 
 interface Degree {
   id: string;
-  name: string;
-  abbreviation: string;
-  level: string;
+  degree_id: string;
+  degree_name: string;
+  degree_type: string;
+  institution_id: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
 }
 
 interface ApiResponse {
@@ -489,6 +495,7 @@ interface ApiResponse {
     page: number;
     totalPages: number;
     total: number;
+    limit: number;
   };
 }
 
@@ -501,6 +508,25 @@ export default function DegreesList() {
 
   return (
     <main className="container mx-auto p-6 space-y-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold mb-2">Degrees API Example</h1>
+        <p className="text-gray-600 mb-4">
+          This example demonstrates how to fetch degrees using the API. You can filter by institution_id, 
+          degree_type, search term, and active status.
+        </p>
+        <div className="bg-gray-100 p-4 rounded-md">
+          <h2 className="text-lg font-semibold mb-2">API Parameters:</h2>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><code>page</code>: Page number (default: 1)</li>
+            <li><code>limit</code>: Items per page (default: 10)</li>
+            <li><code>search</code>: Search by degree ID or name</li>
+            <li><code>institution_id</code>: Filter by institution ID</li>
+            <li><code>degree_type</code>: Filter by degree type</li>
+            <li><code>isActive</code>: Filter by active status (true/false)</li>
+          </ul>
+        </div>
+      </div>
+      
       <ApiFetcher
         endpoint="/api-management/organizations/degrees"
         apiKey="your_api_key_here"
@@ -512,10 +538,15 @@ export default function DegreesList() {
           <div className="space-y-4">
             <div className="flex justify-between items-start">
               <div>
-                <h2 className="text-xl font-semibold">{degree.name}</h2>
+                <h2 className="text-xl font-semibold">{degree.degree_name}</h2>
                 <p className="text-sm text-muted-foreground">
-                  {degree.abbreviation} - {degree.level}
+                  ID: {degree.degree_id} - Type: {degree.degree_type}
                 </p>
+                {degree.institution && (
+                  <p className="text-sm text-muted-foreground">
+                    Institution: {degree.institution.name}
+                  </p>
+                )}
               </div>
               <Badge variant={degree.is_active ? 'default' : 'secondary'}>
                 {degree.is_active ? 'Active' : 'Inactive'}
@@ -566,6 +597,7 @@ interface Course {
     id: string;
     degree_id: string;
     degree_name: string;
+    degree_type: string;
   };
 }
 
@@ -602,16 +634,6 @@ export default function CoursesList() {
                 <p className="text-sm text-muted-foreground">
                   Code: {course.course_code}
                 </p>
-                {course.institution && (
-                  <p className="text-sm text-muted-foreground">
-                    Institution: {course.institution.name}
-                  </p>
-                )}
-                {course.program && (
-                  <p className="text-sm text-muted-foreground">
-                    Program: {course.program.program_name}
-                  </p>
-                )}
               </div>
               <Badge variant={course.is_active ? 'default' : 'secondary'}>
                 {course.is_active ? 'Active' : 'Inactive'}
@@ -633,7 +655,7 @@ export default function CoursesList() {
       'id, department_name, department_code, institution_id, degree_id, is_active, created_at, updated_at',
     programs:
       'id, program_id, program_name, institution_id, department_id, degree_id, is_active, created_at, updated_at',
-    degrees: 'id, name, abbreviation, level, is_active, created_at, updated_at',
+    degrees: 'id, degree_id, degree_name, degree_type, institution_id, is_active, created_at, updated_at',
     courses:
       'id, course_code, course_name, institution_id, degree_id, department_id, program_id, is_active, created_at, updated_at'
   };
