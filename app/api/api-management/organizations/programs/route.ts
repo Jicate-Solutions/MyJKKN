@@ -76,8 +76,36 @@ export async function GET(request: NextRequest) {
     const departmentId = url.searchParams.get('department_id');
     const isActive = url.searchParams.get('isActive');
 
-    // First, let's check if there are any departments at all
-    const { count: totalCount, error: countError } = await supabase
+    // For Supabase RLS policies, we need to set the apikey directly in the request header
+    // Since we can't directly modify the headers in the Supabase client, we'll use a workaround
+    
+    // Create a new Supabase client with the API key in the headers
+    // This approach uses the createClient method which allows us to set global headers
+    const { createClient } = await import('@supabase/supabase-js');
+    
+    // Get the Supabase URL and anon key from the environment
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Supabase URL or anon key is missing');
+    }
+    
+    // Create a custom Supabase client with the API key in the headers
+    const supabaseWithApiKey = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          apikey: hashedKey
+        }
+      }
+    });
+    
+    // Create a direct database connection with the API key in the header
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    // Build query with proper filters
+    let query = supabaseWithApiKey
       .from('programs')
       .select(
         `
@@ -100,30 +128,6 @@ export async function GET(request: NextRequest) {
       `,
         { count: 'exact' }
       );
-
-    // Build query
-
-    let query = supabase.from('programs').select(
-      `
-      *,
-      institution:institutions (
-        id,
-        name,
-        counselling_code
-      ),
-      degree:degrees (
-        id,
-        degree_id,
-        degree_name
-      ),
-      department:departments (
-        id,
-        department_code,
-        department_name
-      )
-    `,
-      { count: 'exact' }
-    );
 
     // Apply filters
     if (search) {
@@ -149,9 +153,6 @@ export async function GET(request: NextRequest) {
     }
 
     // Apply pagination
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-
     query = query.range(from, to).order('created_at', { ascending: false });
 
     // Execute query
@@ -165,6 +166,12 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
+    // Add the API key to the response headers to ensure it's passed to Supabase
+    const responseHeaders = {
+      ...corsHeaders,
+      'apikey': hashedKey
+    };
+
     return NextResponse.json({
       data: programs || [],
       metadata: {
@@ -173,7 +180,7 @@ export async function GET(request: NextRequest) {
         limit,
         totalPages: count ? Math.ceil(count / limit) : 0
       }
-    });
+    }, { headers: responseHeaders });
   } catch (error) {
     console.error('Error fetching programs:', error);
     return NextResponse.json(
