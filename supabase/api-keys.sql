@@ -12,6 +12,20 @@ BEGIN
   -- Get the API key from the request header
   api_key_value := current_setting('request.header.x-api-key', true);
   
+  -- If no API key is provided, try the apikey header
+  IF api_key_value IS NULL THEN
+    api_key_value := current_setting('request.header.apikey', true);
+  END IF;
+  
+  -- If still no API key, try the authorization header
+  IF api_key_value IS NULL THEN
+    api_key_value := current_setting('request.header.authorization', true);
+    -- Extract token from Bearer format if present
+    IF api_key_value IS NOT NULL AND api_key_value LIKE 'Bearer %' THEN
+      api_key_value := substring(api_key_value FROM 8);
+    END IF;
+  END IF;
+  
   -- If no API key is provided, return false
   IF api_key_value IS NULL THEN
     RETURN false;
@@ -22,6 +36,10 @@ BEGIN
   WHERE key_value = api_key_value
   AND is_active = true
   AND (expires_at IS NULL OR expires_at > now());
+  
+  -- Log for debugging (will appear in Supabase logs)
+  PERFORM pg_notify('api_key_debug', 'Checking key: ' || coalesce(api_key_value, 'NULL') || 
+                   ', Found: ' || coalesce(api_key_record.id::text, 'NULL'));
   
   -- If API key not found or inactive, return false
   IF api_key_record IS NULL THEN
