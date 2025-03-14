@@ -341,7 +341,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       menus: [
         {
           href: '/resources',
-          label: 'Resources',
+          label: 'Physical Resources',
           icon: Boxes,
           active: pathname.startsWith('/resources'),
           submenus: [
@@ -379,6 +379,34 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/resources/requests',
               label: 'Resource Requests',
               active: pathname === '/resources/requests'
+            }
+          ]
+        },
+        {
+          href: '/digital-resources',
+          label: 'Digital Resources',
+          icon: FileBarChart,
+          active: pathname.startsWith('/digital-resources'),
+          submenus: [
+            {
+              href: '/digital-resources',
+              label: 'Dashboard',
+              active: pathname === '/digital-resources'
+            },
+            {
+              href: '/digital-resources/resources',
+              label: 'All Resources',
+              active: pathname === '/digital-resources/resources'
+            },
+              {
+              href: '/digital-resources/categories',
+              label: 'Categories',
+              active: pathname === '/digital-resources/categories'
+            },
+            {
+              href: '/digital-resources/reservations',
+              label: 'Reservations',
+              active: pathname === '/digital-resources/reservations'
             }
           ]
         }

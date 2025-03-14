@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useResources } from '@/hooks/resource/use-resources';
-import { ResourceFilters } from '@/types/resources';
+import { useDigitalResources } from '@/hooks/resource/use-digital-resources';
+import { DigitalResourceFilters } from '@/types/digital-resources';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
@@ -50,9 +50,11 @@ import {
   Trash2,
   AlertTriangle
 } from 'lucide-react';
-import { ResourceFiltersComponent } from './resource-filters';
+import { toast } from 'sonner';
+import { DIGITAL_RESOURCE_TYPES, ACCESS_METHODS, OWNER_TYPES } from '@/types/digital-resources';
+import { DigitalResourceFiltersComponent } from './digital-resource-filters';
 
-export function ResourceList() {
+export default function DigitalResourceList() {
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -67,13 +69,13 @@ export function ResourceList() {
     filters,
     updateFilters,
     changePage,
-    fetchResources,
-    deleteResource
-  } = useResources();
+    fetchDigitalResources,
+    deleteDigitalResource
+  } = useDigitalResources();
 
   useEffect(() => {
-    fetchResources();
-  }, [fetchResources]);
+    fetchDigitalResources();
+  }, [fetchDigitalResources]);
 
   const handleSearch = () => {
     updateFilters({ search: searchQuery });
@@ -85,7 +87,7 @@ export function ResourceList() {
     }
   };
 
-  const handleFilterChange = (newFilters: Partial<ResourceFilters>) => {
+  const handleFilterChange = (newFilters: Partial<DigitalResourceFilters>) => {
     updateFilters(newFilters);
   };
 
@@ -99,27 +101,29 @@ export function ResourceList() {
 
     try {
       setDeletingResource(true);
-      await deleteResource(resourceToDelete);
+      await deleteDigitalResource(resourceToDelete);
       setDeleteDialogOpen(false);
+      toast.success('Digital resource deleted successfully');
     } catch (error) {
-      console.error('Error deleting resource:', error);
+      console.error('Error deleting digital resource:', error);
+      toast.error('Failed to delete digital resource');
     } finally {
       setDeletingResource(false);
       setResourceToDelete(null);
     }
   };
 
-  const getConditionBadge = (condition: string) => {
+  const getAccessMethodBadge = (method: string) => {
     const colorMap: Record<string, string> = {
-      excellent: 'bg-green-100 text-green-800',
-      good: 'bg-blue-100 text-blue-800',
-      fair: 'bg-yellow-100 text-yellow-800',
-      poor: 'bg-red-100 text-red-800'
+      'online': 'bg-blue-100 text-blue-800',
+      'download': 'bg-green-100 text-green-800',
+      'api': 'bg-purple-100 text-purple-800',
+      'physical_media': 'bg-yellow-100 text-yellow-800'
     };
 
     return (
-      <Badge className={colorMap[condition] || 'bg-gray-100 text-gray-800'}>
-        {condition.charAt(0).toUpperCase() + condition.slice(1)}
+      <Badge className={colorMap[method] || 'bg-gray-100 text-gray-800'}>
+        {method.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
       </Badge>
     );
   };
@@ -128,7 +132,7 @@ export function ResourceList() {
     return (
       <div className='text-center py-10'>
         <p className='text-red-500'>Error: {error}</p>
-        <Button onClick={() => fetchResources()} className='mt-4'>
+        <Button onClick={() => fetchDigitalResources()} className='mt-4'>
           Try Again
         </Button>
       </div>
@@ -142,7 +146,7 @@ export function ResourceList() {
           <div className='relative'>
             <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
             <Input
-              placeholder='Search resources...'
+              placeholder='Search digital resources...'
               className='pl-8 w-[250px]'
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -161,7 +165,7 @@ export function ResourceList() {
           </Button>
         </div>
         <div className='flex items-center space-x-2'>
-          <Button variant='outline' onClick={() => fetchResources()}>
+          <Button variant='outline' onClick={() => fetchDigitalResources()}>
             <RefreshCw className='h-4 w-4 mr-2' />
             Refresh
           </Button>
@@ -170,7 +174,7 @@ export function ResourceList() {
 
       {showFilters && (
         <Card className='p-4'>
-          <ResourceFiltersComponent
+          <DigitalResourceFiltersComponent
             filters={filters}
             onFilterChange={handleFilterChange}
           />
@@ -179,12 +183,12 @@ export function ResourceList() {
 
       {loading ? (
         <div className='text-center py-10'>
-          <p className='text-muted-foreground'>Loading resources...</p>
+          <p className='text-muted-foreground'>Loading digital resources...</p>
         </div>
       ) : resources.length === 0 ? (
         <div className='text-center py-10'>
-          <p className='text-muted-foreground'>No resources found</p>
-          <Button onClick={() => fetchResources()} className='mt-4'>
+          <p className='text-muted-foreground'>No digital resources found</p>
+          <Button onClick={() => fetchDigitalResources()} className='mt-4'>
             <RefreshCw className='h-4 w-4 mr-2' />
             Refresh
           </Button>
@@ -199,9 +203,9 @@ export function ResourceList() {
                   <TableHead>Name</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Condition</TableHead>
-                  <TableHead>Shareable</TableHead>
+                  <TableHead>Access Method</TableHead>
+                  <TableHead>License Users</TableHead>
+                  <TableHead>Owner</TableHead>
                   <TableHead className='text-right'>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -211,39 +215,28 @@ export function ResourceList() {
                     <TableCell>{index + 1}</TableCell>
                     <TableCell className='font-medium'>
                       <Link
-                        href={`/resources/${resource.id}`}
+                        href={`/digital-resources/${resource.id}`}
                         className='hover:underline'
                       >
-                        {resource.resource_name}
+                        {resource.digital_resource_name}
                       </Link>
                     </TableCell>
                     <TableCell>
-                      {resource.resource_type.charAt(0).toUpperCase() +
-                        resource.resource_type.slice(1)}
+                      {Object.entries(DIGITAL_RESOURCE_TYPES).find(([_, value]) => value === resource.type)?.[0]?.replace(/_/g, ' ') || resource.type}
                     </TableCell>
                     <TableCell>
                       {resource.category?.category_name || 'N/A'}
                     </TableCell>
                     <TableCell>
-                      {resource.building
-                        ? `${resource.building}${
-                            resource.room ? `, Room ${resource.room}` : ''
-                          }`
+                      {getAccessMethodBadge(resource.access_method)}
+                    </TableCell>
+                    <TableCell>
+                      {resource.license_information?.allowed_users 
+                        ? `${resource.license_information.allowed_users} users` 
                         : 'N/A'}
                     </TableCell>
                     <TableCell>
-                      {getConditionBadge(resource.condition)}
-                    </TableCell>
-                    <TableCell>
-                      {resource.is_shareable ? (
-                        <Badge variant='outline' className='bg-green-50'>
-                          Yes
-                        </Badge>
-                      ) : (
-                        <Badge variant='outline' className='bg-red-50'>
-                          No
-                        </Badge>
-                      )}
+                      {Object.entries(OWNER_TYPES).find(([_, value]) => value === resource.owner_type)?.[0]?.replace(/_/g, ' ') || resource.owner_type}
                     </TableCell>
                     <TableCell className='text-right'>
                       <DropdownMenu>
@@ -254,20 +247,20 @@ export function ResourceList() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align='end'>
-                          <Link href={`/resources/${resource.id}`}>
+                          <Link href={`/digital-resources/${resource.id}`}>
                             <DropdownMenuItem>
                               <Eye className='h-4 w-4 mr-2' />
                               View
                             </DropdownMenuItem>
                           </Link>
-                          <Link href={`/resources/${resource.id}/edit`}>
+                          <Link href={`/digital-resources/${resource.id}/edit`}>
                             <DropdownMenuItem>
                               <PenSquare className='h-4 w-4 mr-2' />
                               Edit
                             </DropdownMenuItem>
                           </Link>
                           <Link
-                            href={`/resources/reservations/new?resource_id=${resource.id}`}
+                            href={`/digital-resources/reservations/new?resource_id=${resource.id}`}
                           >
                             <DropdownMenuItem>
                               <Calendar className='h-4 w-4 mr-2' />
@@ -301,16 +294,12 @@ export function ResourceList() {
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className='flex items-center gap-2'>
-              <AlertTriangle className='h-5 w-5 text-red-500' />
-              Confirm Deletion
-            </DialogTitle>
+            <DialogTitle>Confirm Deletion</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this resource? This action cannot
-              be undone.
+              Are you sure you want to delete this digital resource? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className='flex space-x-2 justify-end'>
+          <DialogFooter>
             <Button
               variant='outline'
               onClick={() => setDeleteDialogOpen(false)}
