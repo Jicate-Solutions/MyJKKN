@@ -10,6 +10,12 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
+    // Add CORS headers to response
+    const response = NextResponse.next();
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
+
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({
       cookies: () => cookieStore
@@ -17,16 +23,33 @@ export async function GET(request: NextRequest) {
 
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
+    console.log('1. Auth header:', authHeader);
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Also check for x-api-key header
+    const xApiKey = request.headers.get('x-api-key');
+    
+    // Also check for apikey header
+    const apiKeyHeader = request.headers.get('apikey');
+    
+    // Use the first available key
+    let apiKey = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
+    } else if (xApiKey) {
+      apiKey = xApiKey;
+    } else if (apiKeyHeader) {
+      apiKey = apiKeyHeader;
+    }
+    
+    if (!apiKey) {
       return NextResponse.json(
-        { error: 'API key is required in Authorization header' },
+        { error: 'API key is required in Authorization, x-api-key, or apikey header' },
         { status: 401, headers: corsHeaders }
       );
     }
 
-    const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
     const hashedKey = createHash('sha256').update(apiKey).digest('hex');
+    console.log('2. Hashed key:', hashedKey);
 
     // Verify API key
     const { data: keyData, error: keyError } = await supabase
@@ -35,6 +58,19 @@ export async function GET(request: NextRequest) {
       .eq('key_value', hashedKey)
       .eq('is_active', true)
       .single();
+
+    console.log('3. Key verification:', {
+      found: !!keyData,
+      error: keyError?.message,
+      keyData: keyData
+        ? {
+            id: keyData.id,
+            name: keyData.name,
+            is_active: keyData.is_active,
+            permissions: keyData.permissions
+          }
+        : null
+    });
 
     // Check RLS policies
     if (keyError || !keyData) {
@@ -62,6 +98,7 @@ export async function GET(request: NextRequest) {
 
     // Get query parameters
     const url = new URL(request.url);
+    console.log('4. Query params:', Object.fromEntries(url.searchParams));
 
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '10');
@@ -82,6 +119,8 @@ export async function GET(request: NextRequest) {
     `,
       { count: 'exact' }
     );
+
+    console.log('5. Building query with filters');
 
     // Apply filters
     if (search) {
@@ -110,6 +149,18 @@ export async function GET(request: NextRequest) {
     // Execute query
     const { data: degrees, error, count } = await query;
 
+    console.log('6. Query result:', {
+      success: !!degrees,
+      error: error?.message,
+      count,
+      firstRecord: degrees?.[0]
+        ? {
+            id: degrees[0].id,
+            degree_name: degrees[0].degree_name
+          }
+        : null
+    });
+
     if (error) throw error;
 
     // Update last used timestamp
@@ -124,9 +175,9 @@ export async function GET(request: NextRequest) {
         data: degrees || [],
         metadata: {
           total: count || 0,
-          page: 1,
-          limit: 10,
-          totalPages: count ? Math.ceil(count / 10) : 0
+          page,
+          limit,
+          totalPages: count ? Math.ceil(count / limit) : 0
         }
       },
       { headers: corsHeaders }
