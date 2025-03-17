@@ -32,6 +32,7 @@ BEGIN
   END IF;
   
   -- Find the API key in the database
+  -- Note: We're not hashing the key here because the API routes are already sending hashed keys
   SELECT * INTO api_key_record FROM api_keys
   WHERE key_value = api_key_value
   AND is_active = true
