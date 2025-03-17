@@ -106,7 +106,6 @@ export interface DigitalResource {
 }
 
 export interface CreateDigitalResourceDto {
-  digital_resource_id?: string;
   digital_resource_name: string;
   type: DigitalResourceType;
   category_id: string;

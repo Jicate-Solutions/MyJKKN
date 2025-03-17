@@ -134,7 +134,7 @@ export default function DigitalResourceDetailsPage() {
             onClick={() => router.push('/digital-resources')}
             className="flex items-center"
           >
-            <ChevronLeft className="h-4 w-4 mr-1" />
+            <ChevronLeft className="h-4 w-4" />
             Back to Digital Resources
           </Button>
         </div>
@@ -177,17 +177,15 @@ export default function DigitalResourceDetailsPage() {
       </Breadcrumb>
       
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => router.push('/digital-resources')}
-            className="flex items-center"
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Back to Digital Resources
-          </Button>
-        </div>
+      <div className="flex flex-col gap-2 py-4">
+        <h1 className="text-3xl font-bold tracking-tight flex items-center">
+          {resource.digital_resource_name}
+          <span className="ml-3">{getStatusBadge()}</span>
+        </h1>
+        <p className="text-muted-foreground">
+          ID: {resource.digital_resource_id} • Type: {resource.type}
+        </p>
+      </div>
         
         <div className="flex space-x-2">
           <Button variant="outline" onClick={handleEdit}>
@@ -201,17 +199,9 @@ export default function DigitalResourceDetailsPage() {
         </div>
       </div>
       
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center">
-          {resource.digital_resource_name}
-          <span className="ml-3">{getStatusBadge()}</span>
-        </h1>
-        <p className="text-muted-foreground">
-          ID: {resource.digital_resource_id} • Type: {resource.type}
-        </p>
-      </div>
+     
       
-      <Tabs defaultValue="details" className="w-full">
+      <Tabs defaultValue="details" className="w-full mt-2">
         <TabsList className="grid w-full max-w-md grid-cols-3">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="access">Access</TabsTrigger>

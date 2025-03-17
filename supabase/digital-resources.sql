@@ -1,6 +1,9 @@
 -- Enable UUID extension if not enabled
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Create sequence for digital resource IDs
+CREATE SEQUENCE IF NOT EXISTS digital_resource_id_seq START 1;
+
 -- Create digital_resource_categories table
 CREATE TABLE public.digital_resource_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -35,6 +38,33 @@ CREATE TABLE public.digital_resources (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
+
+-- Create function to generate digital resource IDs
+CREATE OR REPLACE FUNCTION generate_digital_resource_id()
+RETURNS TRIGGER AS $$
+DECLARE
+    next_id INTEGER;
+    formatted_id VARCHAR(50);
+BEGIN
+    -- Get the next ID from the sequence
+    SELECT nextval('digital_resource_id_seq') INTO next_id;
+    
+    -- Format the ID as DG-RES-00001, DG-RES-00002, etc.
+    formatted_id := 'DG-RES-' || LPAD(next_id::TEXT, 5, '0');
+    
+    -- Set the digital_resource_id field
+    NEW.digital_resource_id := formatted_id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to automatically generate digital resource IDs
+CREATE TRIGGER set_digital_resource_id
+BEFORE INSERT ON public.digital_resources
+FOR EACH ROW
+WHEN (NEW.digital_resource_id IS NULL)
+EXECUTE FUNCTION generate_digital_resource_id();
 
 -- Add indexes for digital_resources
 CREATE INDEX idx_digital_resources_name ON public.digital_resources(digital_resource_name);
@@ -148,6 +178,47 @@ ON public.digital_resources
 FOR SELECT
 TO authenticated
 USING (is_active = true);
+
+-- Create policy for administrators to insert digital resources
+CREATE POLICY "Administrators can create digital resources"
+ON public.digital_resources
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM profiles
+    WHERE profiles.id = auth.uid()
+    AND profiles.role = ANY(ARRAY['administrator', 'super_admin'])
+  )
+);
+
+-- Create policy for administrators to update digital resources
+CREATE POLICY "Administrators can update digital resources"
+ON public.digital_resources
+FOR UPDATE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM profiles
+    WHERE profiles.id = auth.uid()
+    AND profiles.role = ANY(ARRAY['administrator', 'super_admin'])
+  )
+);
+
+-- Create policy for administrators to delete digital resources
+CREATE POLICY "Administrators can delete digital resources"
+ON public.digital_resources
+FOR DELETE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM profiles
+    WHERE profiles.id = auth.uid()
+    AND profiles.role = ANY(ARRAY['administrator', 'super_admin'])
+  )
+);
+
+
 
 -- Create policy for authenticated users to view their own reservations
 CREATE POLICY "Users can view their own digital reservations"
