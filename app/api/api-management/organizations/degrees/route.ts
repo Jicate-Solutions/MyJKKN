@@ -17,10 +17,7 @@ export async function GET(request: NextRequest) {
     });
 
     const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({
-      cookies: () => cookieStore
-    });
-
+    
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
     console.log('1. Auth header:', authHeader);
@@ -48,8 +45,25 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Hash the key for verification in our code
     const hashedKey = createHash('sha256').update(apiKey).digest('hex');
     console.log('2. Hashed key:', hashedKey);
+    
+    // Create a new supabase client
+    const supabase = createRouteHandlerClient({
+      cookies: () => cookieStore
+    });
+    
+    // Create a custom fetch function that includes the API key
+    const customFetch = (url: string, options: RequestInit = {}) => {
+      const headers = new Headers(options.headers || {});
+      headers.set('apikey', apiKey);
+      return fetch(url, { ...options, headers });
+    };
+    
+    // Override the fetch method
+    const originalFetch = global.fetch;
+    global.fetch = customFetch as typeof fetch;
 
     // Verify API key
     const { data: keyData, error: keyError } = await supabase
@@ -58,6 +72,9 @@ export async function GET(request: NextRequest) {
       .eq('key_value', hashedKey)
       .eq('is_active', true)
       .single();
+      
+    // Restore original fetch
+    global.fetch = originalFetch;
 
     console.log('3. Key verification:', {
       found: !!keyData,
@@ -107,6 +124,9 @@ export async function GET(request: NextRequest) {
     const degreeType = url.searchParams.get('degree_type');
     const isActive = url.searchParams.get('isActive');
 
+    // Override fetch again for the data queries
+    global.fetch = customFetch as typeof fetch;
+
     // Build query
     let query = supabase.from('degrees').select(
       `
@@ -148,6 +168,9 @@ export async function GET(request: NextRequest) {
 
     // Execute query
     const { data: degrees, error, count } = await query;
+    
+    // Restore original fetch
+    global.fetch = originalFetch;
 
     console.log('6. Query result:', {
       success: !!degrees,
