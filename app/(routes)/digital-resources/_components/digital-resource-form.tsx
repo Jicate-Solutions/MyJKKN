@@ -51,7 +51,6 @@ import { useDigitalResourceCategories } from '@/hooks/resource/use-digital-resou
 
 // Define the form schema using zod
 const formSchema = z.object({
-  digital_resource_id: z.string().min(1, 'Resource ID is required'),
   digital_resource_name: z.string().min(1, 'Resource name is required'),
   type: z.string().min(1, 'Resource type is required'),
   category_id: z.string().min(1, 'Category is required'),
@@ -131,7 +130,6 @@ export function DigitalResourceForm({
   const getDefaultValues = (): FormValues => {
     if (!initialData) {
       return {
-        digital_resource_id: '',
         digital_resource_name: '',
         type: '',
         category_id: '',
@@ -160,7 +158,6 @@ export function DigitalResourceForm({
 
     // Transform the initialData to match the form schema
     return {
-      digital_resource_id: initialData.digital_resource_id,
       digital_resource_name: initialData.digital_resource_name,
       type: initialData.type,
       category_id: initialData.category_id,
@@ -286,36 +283,36 @@ export function DigitalResourceForm({
     }
   };
 
-  // Helper functions for array fields
-  const addTimeRestriction = () => {
-    if (!timeRestriction.trim()) return;
-    
-    const currentRestrictions = form.getValues('access_availability')?.time_restrictions || [];
-    form.setValue('access_availability.time_restrictions', [...currentRestrictions, timeRestriction]);
-    setTimeRestriction('');
-  };
-
-  const removeTimeRestriction = (index: number) => {
-    const currentRestrictions = form.getValues('access_availability')?.time_restrictions || [];
-    form.setValue(
-      'access_availability.time_restrictions',
-      currentRestrictions.filter((_, i) => i !== index)
-    );
-  };
-
+  // Handler functions for array fields
   const addUsageConstraint = () => {
     if (!usageConstraint.trim()) return;
     
-    const currentConstraints = form.getValues('license_information')?.usage_constraints || [];
-    form.setValue('license_information.usage_constraints', [...currentConstraints, usageConstraint]);
+    const currentConstraints = form.getValues('license_information.usage_constraints') || [];
+    form.setValue('license_information.usage_constraints', [...currentConstraints, usageConstraint.trim()]);
     setUsageConstraint('');
   };
 
   const removeUsageConstraint = (index: number) => {
-    const currentConstraints = form.getValues('license_information')?.usage_constraints || [];
+    const currentConstraints = form.getValues('license_information.usage_constraints') || [];
     form.setValue(
       'license_information.usage_constraints',
       currentConstraints.filter((_, i) => i !== index)
+    );
+  };
+
+  const addTimeRestriction = () => {
+    if (!timeRestriction.trim()) return;
+    
+    const currentRestrictions = form.getValues('access_availability.time_restrictions') || [];
+    form.setValue('access_availability.time_restrictions', [...currentRestrictions, timeRestriction.trim()]);
+    setTimeRestriction('');
+  };
+
+  const removeTimeRestriction = (index: number) => {
+    const currentRestrictions = form.getValues('access_availability.time_restrictions') || [];
+    form.setValue(
+      'access_availability.time_restrictions',
+      currentRestrictions.filter((_, i) => i !== index)
     );
   };
 
@@ -323,7 +320,7 @@ export function DigitalResourceForm({
     if (!sharingRestriction.trim()) return;
     
     const currentRestrictions = form.getValues('sharing_restrictions') || [];
-    form.setValue('sharing_restrictions', [...currentRestrictions, sharingRestriction]);
+    form.setValue('sharing_restrictions', [...currentRestrictions, sharingRestriction.trim()]);
     setSharingRestriction('');
   };
 
@@ -379,19 +376,6 @@ export function DigitalResourceForm({
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <FormField
-                control={form.control}
-                name="digital_resource_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Resource ID</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter resource ID" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
               <FormField
                 control={form.control}
                 name="digital_resource_name"
@@ -630,6 +614,303 @@ export function DigitalResourceForm({
                 )}
               />
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>License Information</CardTitle>
+            <CardDescription>
+              Specify the license details for this digital resource
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="license_information.allowed_users"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Allowed Users</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        placeholder="Number of allowed users" 
+                        {...field} 
+                        onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
+                        value={field.value || ''}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Maximum number of users allowed to access this resource
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="license_information.expiration_date"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Expiration Date</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="date" 
+                        placeholder="License expiration date" 
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      When the license expires
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="space-y-4">
+              <FormLabel>Usage Constraints</FormLabel>
+              <div className="flex items-center space-x-2">
+                <Input
+                  placeholder="Add usage constraint"
+                  value={usageConstraint}
+                  onChange={(e) => setUsageConstraint(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addUsageConstraint();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={addUsageConstraint}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {form.getValues('license_information.usage_constraints')?.map((constraint, index) => (
+                  <div key={index} className="flex items-center justify-between p-2 border rounded-md">
+                    <span>{constraint}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeUsageConstraint(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Access Availability</CardTitle>
+            <CardDescription>
+              Define when and how the resource can be accessed
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <FormField
+              control={form.control}
+              name="access_availability.concurrency_limits"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Concurrency Limits</FormLabel>
+                  <FormControl>
+                    <Input 
+                      type="number" 
+                      placeholder="Maximum concurrent users" 
+                      {...field} 
+                      onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
+                      value={field.value || ''}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Maximum number of users who can access the resource simultaneously
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="space-y-4">
+              <FormLabel>Time Restrictions</FormLabel>
+              <div className="flex items-center space-x-2">
+                <Input
+                  placeholder="Add time restriction (e.g., 'Weekdays 9AM-5PM')"
+                  value={timeRestriction}
+                  onChange={(e) => setTimeRestriction(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addTimeRestriction();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={addTimeRestriction}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {form.getValues('access_availability.time_restrictions')?.map((restriction, index) => (
+                  <div key={index} className="flex items-center justify-between p-2 border rounded-md">
+                    <span>{restriction}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeTimeRestriction(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Sharing Restrictions</CardTitle>
+            <CardDescription>
+              Define any restrictions on sharing this resource
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <Input
+                  placeholder="Add sharing restriction"
+                  value={sharingRestriction}
+                  onChange={(e) => setSharingRestriction(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addSharingRestriction();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={addSharingRestriction}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {form.getValues('sharing_restrictions')?.map((restriction, index) => (
+                  <div key={index} className="flex items-center justify-between p-2 border rounded-md">
+                    <span>{restriction}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeSharingRestriction(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Maintenance Schedule</CardTitle>
+            <CardDescription>
+              Define the maintenance schedule for this resource
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="maintenance_schedule.last_update"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Last Update</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="date" 
+                        placeholder="Last update date" 
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="maintenance_schedule.next_scheduled_update"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Next Scheduled Update</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="date" 
+                        placeholder="Next update date" 
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Status</CardTitle>
+            <CardDescription>
+              Set the active status of this resource
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FormField
+              control={form.control}
+              name="is_active"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">
+                      Active Status
+                    </FormLabel>
+                    <FormDescription>
+                      When active, this resource will be visible to users
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
           </CardContent>
         </Card>
         <CardFooter className="flex justify-between">

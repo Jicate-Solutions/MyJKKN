@@ -253,7 +253,7 @@ export default function DigitalResourceList() {
                               View
                             </DropdownMenuItem>
                           </Link>
-                          <Link href={`/digital-resources/${resource.id}/edit`}>
+                          <Link href={`/digital-resources/edit/${resource.id}`}>
                             <DropdownMenuItem>
                               <PenSquare className='h-4 w-4 mr-2' />
                               Edit

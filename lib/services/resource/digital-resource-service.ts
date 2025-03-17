@@ -30,7 +30,6 @@ export class DigitalResourceService {
       const { data: resource, error } = await this.supabase
         .from('digital_resources')
         .insert({
-          digital_resource_id: data.digital_resource_id,
           digital_resource_name: data.digital_resource_name,
           type: data.type,
           category_id: data.category_id,
@@ -65,7 +64,6 @@ export class DigitalResourceService {
       const { data: resource, error } = await this.supabase
         .from('digital_resources')
         .update({
-          digital_resource_id: data.digital_resource_id,
           digital_resource_name: data.digital_resource_name,
           type: data.type,
           category_id: data.category_id,
