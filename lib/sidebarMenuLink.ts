@@ -340,73 +340,73 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Resource Management',
       menus: [
         {
-          href: '/resources',
+          href: '/resources/physical-resources',
           label: 'Physical Resources',
           icon: Boxes,
-          active: pathname.startsWith('/resources'),
+          active: pathname.startsWith('/resources/physical-resources'),
           submenus: [
             {
-              href: '/resources/dashboard',
+              href: '/resources/physical-resources/dashboard',
               label: 'Dashboard',
-              active: pathname === '/resources/dashboard'
+              active: pathname === '/resources/physical-resources/dashboard'
             },
             {
-              href: '/resources/resources',
+              href: '/resources/physical-resources/resources',
               label: 'All Resources',
-              active: pathname === '/resources/resources'
+              active: pathname === '/resources/physical-resources/resources'
             },
             {
-              href: '/resources/categories',
+              href: '/resources/physical-resources/categories',
               label: 'Categories',
-              active: pathname === '/resources/categories'
+              active: pathname === '/resources/physical-resources/categories'
             },
             {
-              href: '/resources/reservations',
+              href: '/resources/physical-resources/reservations',
               label: 'Reservations',
-              active: pathname === '/resources/reservations'
+              active: pathname === '/resources/physical-resources/reservations'
             },
             {
-              href: '/resources/policies',
+              href: '/resources/physical-resources/policies',
               label: 'Sharing Policies',
-              active: pathname === '/resources/policies'
+              active: pathname === '/resources/physical-resources/policies'
             },
             {
-              href: '/resources/reports',
+              href: '/resources/physical-resources/reports',
               label: 'Usage Reports',
-              active: pathname === '/resources/reports'
+              active: pathname === '/resources/physical-resources/reports'
             },
             {
-              href: '/resources/requests',
+              href: '/resources/physical-resources/requests',
               label: 'Resource Requests',
-              active: pathname === '/resources/requests'
+              active: pathname === '/resources/physical-resources/requests'
             }
           ]
         },
         {
-          href: '/digital-resources',
+          href: '/resources/digital-resources',
           label: 'Digital Resources',
           icon: FileBarChart,
-          active: pathname.startsWith('/digital-resources'),
+          active: pathname.startsWith('/resources/digital-resources'),
           submenus: [
             {
-              href: '/digital-resources',
+              href: '/resources/digital-resources/dashboard',
               label: 'Dashboard',
-              active: pathname === '/digital-resources'
+              active: pathname === '/resources/digital-resources/dashboard'
             },
             {
-              href: '/digital-resources/resources',
+              href: '/resources/digital-resources/resources',
               label: 'All Resources',
-              active: pathname === '/digital-resources/resources'
-            },
-              {
-              href: '/digital-resources/categories',
-              label: 'Categories',
-              active: pathname === '/digital-resources/categories'
+              active: pathname === '/resources/digital-resources/resources'
             },
             {
-              href: '/digital-resources/reservations',
+              href: '/resources/digital-resources/categories',
+              label: 'Categories',
+              active: pathname === '/resources/digital-resources/categories'
+            },
+            {
+              href: '/resources/digital-resources/reservations',
               label: 'Reservations',
-              active: pathname === '/digital-resources/reservations'
+              active: pathname === '/resources/digital-resources/reservations'
             }
           ]
         }

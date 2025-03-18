@@ -358,6 +358,17 @@ CREATE POLICY "Enable insert for authenticated admin users" ON public.usage_repo
         )
     );
 
+CREATE POLICY "Enable delete for authenticated admin users" ON public.usage_reports
+    FOR DELETE
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.id = auth.uid()
+            AND profiles.role IN ('administrator', 'super_admin')
+        )
+    );
+
 -- RLS policies for resource_requests
 CREATE POLICY "Enable read access for authenticated users" ON public.resource_requests
     FOR SELECT
