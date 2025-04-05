@@ -1,10 +1,11 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { User, Settings, LayoutDashboard, LogOut } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { Button } from '@/components/ui/button';
-import { ROLE_LABELS } from '@/lib/constants/profile';
+import { RoleService } from '@/lib/services/roles/role-service';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -16,9 +17,34 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import { CustomRole } from '@/types/auth';
 
 export function UserNav() {
   const { user, signOut } = useAuth();
+  const [roleName, setRoleName] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchRoleName = async () => {
+      if (user?.role) {
+        try {
+          const roles = await RoleService.getAssignableRoles();
+          const role = roles.find((r) => r.role_key === user.role);
+          if (role) {
+            setRoleName(role.role_name);
+          } else {
+            // Fallback to role key if role not found
+            setRoleName(user.role);
+          }
+        } catch (error) {
+          console.error('Error fetching role name:', error);
+          // Fallback to role key in case of error
+          setRoleName(user.role);
+        }
+      }
+    };
+
+    fetchRoleName();
+  }, [user?.role]);
 
   if (!user) return null;
 
@@ -65,7 +91,7 @@ export function UserNav() {
               {user.email}
             </p>
             <Badge variant='secondary' className='w-fit text-xs'>
-              {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
+              {roleName || user.role}
             </Badge>
           </div>
         </DropdownMenuLabel>

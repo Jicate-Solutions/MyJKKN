@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Profile } from '@/types/auth';
 import { Shield, AlertCircle, ChevronRight, ChevronLeft } from 'lucide-react';
 import { ROLE_LABELS } from '@/lib/constants/profile';
@@ -33,6 +33,8 @@ import {
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
+import { CustomRole } from '@/types/auth';
+import { RoleService } from '@/lib/services/roles/role-service';
 
 interface RolesListProps {
   users: Profile[];
@@ -62,6 +64,26 @@ export function RolesList({
     currentRole: string;
     userName: string;
   } | null>(null);
+  const [availableRoles, setAvailableRoles] = useState<CustomRole[]>([]);
+  const [isLoadingRoles, setIsLoadingRoles] = useState(true);
+
+  // Fetch available roles
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        setIsLoadingRoles(true);
+        const roles = await RoleService.getAssignableRoles();
+        setAvailableRoles(roles);
+      } catch (error) {
+        console.error('Error fetching roles:', error);
+        toast.error('Failed to load available roles');
+      } finally {
+        setIsLoadingRoles(false);
+      }
+    };
+
+    fetchRoles();
+  }, []);
 
   const handleRoleChange = (
     userId: string,
@@ -106,6 +128,11 @@ export function RolesList({
     return format(new Date(date), 'MMM d, yyyy');
   };
 
+  const getRoleName = (roleKey: string) => {
+    const role = availableRoles.find((r) => r.role_key === roleKey);
+    return role ? role.role_name : roleKey;
+  };
+
   return (
     <div className='space-y-4'>
       <div className='rounded-md border'>
@@ -147,34 +174,36 @@ export function RolesList({
                 <TableCell>
                   <div className='flex items-center gap-2'>
                     <Shield className='h-4 w-4 text-muted-foreground' />
-                    <span>
-                      {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
-                    </span>
+                    <span>{getRoleName(user.role)}</span>
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Select
-                    defaultValue={user.role}
-                    onValueChange={(value) =>
-                      handleRoleChange(
-                        user.id,
-                        value,
-                        user.role,
-                        user.full_name || user.email
-                      )
-                    }
-                  >
-                    <SelectTrigger className='w-[200px]'>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(ROLE_LABELS).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isLoadingRoles ? (
+                    <div className='w-[200px] h-10 bg-muted animate-pulse rounded' />
+                  ) : (
+                    <Select
+                      defaultValue={user.role}
+                      onValueChange={(value) =>
+                        handleRoleChange(
+                          user.id,
+                          value,
+                          user.role,
+                          user.full_name || user.email
+                        )
+                      }
+                    >
+                      <SelectTrigger className='w-[200px]'>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableRoles.map((role) => (
+                          <SelectItem key={role.role_key} value={role.role_key}>
+                            {role.role_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </TableCell>
                 <TableCell>{formatDate(user.updated_at)}</TableCell>
               </TableRow>
@@ -253,42 +282,21 @@ export function RolesList({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Role Change</AlertDialogTitle>
-            <div className='space-y-2'>
-              <div className='flex items-center gap-2 text-amber-500'>
-                <AlertCircle className='h-5 w-5' />
-                <span>This action requires confirmation</span>
-              </div>
-              <p>
-                Are you sure you want to change{' '}
-                <span className='font-medium'>{pendingUpdate?.userName}</span>
-                role from{' '}
-                <span className='font-medium'>
-                  {pendingUpdate?.currentRole &&
-                    ROLE_LABELS[
-                      pendingUpdate.currentRole as keyof typeof ROLE_LABELS
-                    ]}
-                </span>{' '}
-                to{' '}
-                <span className='font-medium'>
-                  {pendingUpdate?.newRole &&
-                    ROLE_LABELS[
-                      pendingUpdate.newRole as keyof typeof ROLE_LABELS
-                    ]}
-                </span>
-                ?
-              </p>
-              <p className='text-muted-foreground'>
-                This will modify their access permissions across the system.
-              </p>
-            </div>
+            <AlertDialogDescription>
+              Are you sure you want to change {pendingUpdate?.userName}&apos;s
+              role from &quot;
+              {pendingUpdate && getRoleName(pendingUpdate.currentRole)}&quot; to
+              &quot;{pendingUpdate && getRoleName(pendingUpdate.newRole)}&quot;?
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isUpdating}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmRoleUpdate}
               disabled={isUpdating}
+              className='bg-primary'
             >
-              {isUpdating ? 'Updating...' : 'Confirm Change'}
+              {isUpdating ? 'Updating...' : 'Update Role'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

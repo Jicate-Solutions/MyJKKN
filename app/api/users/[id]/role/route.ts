@@ -3,6 +3,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { SYSTEM_ROLES } from '@/types/auth';
 
 export async function PATCH(
   request: NextRequest,
@@ -45,13 +46,30 @@ export async function PATCH(
       .eq('id', session.user.id)
       .single();
 
-    if (currentUserError || currentUser.role !== 'super_admin') {
+    if (currentUserError || currentUser.role !== SYSTEM_ROLES.SUPER_ADMIN) {
       return NextResponse.json(
         {
           success: false,
           error: 'Only super admins can update roles'
         },
         { status: 403 }
+      );
+    }
+
+    // Verify the role exists in custom_roles table
+    const { data: validRole, error: validRoleError } = await supabase
+      .from('custom_roles')
+      .select('role_key')
+      .eq('role_key', role)
+      .single();
+
+    if (validRoleError || !validRole) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Invalid role'
+        },
+        { status: 400 }
       );
     }
 
@@ -72,8 +90,11 @@ export async function PATCH(
       );
     }
 
-    // Prevent modifying super admin roles
-    if (targetUser.role === 'super_admin' && role !== 'super_admin') {
+    // Special check: Prevent modifying another super admin's role
+    if (
+      targetUser.role === SYSTEM_ROLES.SUPER_ADMIN &&
+      role !== SYSTEM_ROLES.SUPER_ADMIN
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -83,7 +104,7 @@ export async function PATCH(
       );
     }
 
-    // Update role
+    // Update the user's role
     const { data: updatedUser, error: updateError } = await supabase
       .from('profiles')
       .update({
@@ -95,7 +116,13 @@ export async function PATCH(
       .single();
 
     if (updateError) {
-      throw updateError;
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Failed to update role'
+        },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
@@ -103,7 +130,7 @@ export async function PATCH(
       user: updatedUser
     });
   } catch (error) {
-    console.error('Role update error:', error);
+    console.error('Error updating user role:', error);
     return NextResponse.json(
       {
         success: false,

@@ -1,5 +1,5 @@
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Profile } from '@/types/auth';
+import { Profile, UserRole } from '@/types/auth';
 import { UserFilters, UserListResponse, UserStats } from '@/types/users';
 import { toast } from 'react-hot-toast';
 
@@ -8,7 +8,11 @@ export class UserService {
 
   static async getUsers(filters: UserFilters = {}): Promise<UserListResponse> {
     try {
-      // Start building the query
+      const page = filters.page || 1;
+      const limit = filters.limit || 10;
+      const start = (page - 1) * limit;
+      const end = start + limit - 1;
+
       let query = this.supabase
         .from('profiles')
         .select('*', { count: 'exact' });
@@ -18,26 +22,22 @@ export class UserService {
         query = query.eq('role', filters.role);
       }
 
+      if (filters.isActive !== undefined) {
+        query = query.eq('is_active', filters.isActive);
+      }
+
       if (filters.search) {
         query = query.or(
-          `full_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%`
+          `email.ilike.%${filters.search}%,full_name.ilike.%${filters.search}%`
         );
       }
 
-      // Apply pagination
-      const page = filters.page || 1;
-      const limit = filters.limit || 10;
-      const start = (page - 1) * limit;
-      const end = start + limit - 1;
-
-      query = query.range(start, end).order('created_at', { ascending: false });
-
-      // Execute query
-      const { data, error, count } = await query;
+      // Pagination
+      const { data, error, count } = await query.range(start, end);
 
       if (error) throw error;
 
-      const totalPages = count ? Math.ceil(count / limit) : 0;
+      const totalPages = Math.ceil((count || 0) / limit);
 
       return {
         data: data || [],
@@ -58,48 +58,77 @@ export class UserService {
 
   static async getUserStats(): Promise<UserStats> {
     try {
-      const { data, error } = await this.supabase
+      // Get total users
+      const { count: total, error: totalError } = await this.supabase
+        .from('profiles')
+        .select('*', { count: 'exact' });
+
+      if (totalError) throw totalError;
+
+      // Get active users
+      const { count: active, error: activeError } = await this.supabase
+        .from('profiles')
+        .select('*', { count: 'exact' })
+        .eq('is_active', true);
+
+      if (activeError) throw activeError;
+
+      // Get inactive users
+      const { count: inactive, error: inactiveError } = await this.supabase
+        .from('profiles')
+        .select('*', { count: 'exact' })
+        .eq('is_active', false);
+
+      if (inactiveError) throw inactiveError;
+
+      // Get all profiles with role data
+      const { data: profiles, error: profilesError } = await this.supabase
         .from('profiles')
         .select('role');
 
-      if (error) throw error;
+      if (profilesError) throw profilesError;
 
-      const stats: UserStats = {
-        total: data.length,
-        active: 0,
-        inactive: 0,
-        byRole: {},
-        byInstitution: {}
-      };
-
-      // Calculate stats
-      data.forEach((profile) => {
-        // Count by role only
-        stats.byRole[profile.role] = (stats.byRole[profile.role] || 0) + 1;
+      // Count roles manually on the client side
+      const byRole: Record<string, number> = {};
+      profiles?.forEach((profile) => {
+        if (profile.role) {
+          byRole[profile.role] = (byRole[profile.role] || 0) + 1;
+        }
       });
 
-      return stats;
+      // Get counts by institution (if applicable)
+      const byInstitution: Record<string, number> = {};
+
+      return {
+        total: total || 0,
+        active: active || 0,
+        inactive: inactive || 0,
+        byRole,
+        byInstitution
+      };
     } catch (error) {
       console.error('Error fetching user stats:', error);
       throw error;
     }
   }
 
-  static async getCurrentUserProfile() {
+  static async getCurrentUserProfile(): Promise<{
+    data: Profile | null;
+    error: Error | null;
+  }> {
     try {
-      const supabase = createClientComponentClient();
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
+      const { data: session, error: sessionError } =
+        await this.supabase.auth.getSession();
 
-      if (!session?.user) {
-        return { data: null, error: new Error('No authenticated session') };
+      if (sessionError) throw sessionError;
+      if (!session.session) {
+        return { data: null, error: new Error('No active session') };
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('profiles')
         .select('*')
-        .eq('id', session.user.id)
+        .eq('id', session.session.user.id)
         .single();
 
       if (error) throw error;
@@ -140,14 +169,9 @@ export class UserService {
         body: JSON.stringify({ role: newRole })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to update role');
-      }
-
-      if (!data.success) {
-        throw new Error('Role update failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update role');
       }
     } catch (error) {
       console.error('Error updating user role:', error);
@@ -158,7 +182,6 @@ export class UserService {
     }
   }
 
-  // Update the deactivateUser method
   static async deactivateUser(userId: string): Promise<void> {
     try {
       const response = await fetch(`/api/users/${userId}/deactivate`, {
@@ -209,6 +232,21 @@ export class UserService {
     } catch (error) {
       console.error('Error checking admin status:', error);
       return false;
+    }
+  }
+
+  static async getUsersWithRoles(): Promise<Profile[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('profiles')
+        .select('*')
+        .order('full_name');
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching users with roles:', error);
+      throw error;
     }
   }
 }

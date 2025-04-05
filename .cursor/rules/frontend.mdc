@@ -1,0 +1,88 @@
+---
+description: Rules for React components
+globs: *.tsx, *.jsx, **/components/**/*.ts
+alwaysApply: false
+---
+Scope: *.tsx, *.jsx, **/components/**/*.ts
+
+# Frontend Component Rules
+
+## React Component Structure
+- Use functional components with hooks instead of class components.
+- Always mark client components with 'use client' directive at the top.
+- Separate concerns: UI rendering, data fetching, and business logic.
+- Keep components focused on a single responsibility.
+- Extract reusable UI elements into separate components.
+
+## React 19 & Next.js 15 Features
+- Utilize React 19's automatic memoization for optimized rendering.
+- Use React's new Actions API for form submissions when appropriate.
+- Take advantage of Next.js 15's server actions for server-side mutations.
+- Implement streaming and server components for improved performance.
+- Use Suspense boundaries for loading states and progressive rendering.
+
+## Component Pattern
+```tsx
+// Server components pattern
+export default async function EntityPage() {
+  return (
+    <div>
+      <Suspense fallback={<LoadingSkeleton />}>
+        <EntityList />
+      </Suspense>
+    </div>
+  );
+}
+
+// Client components pattern
+'use client';
+
+import { useState } from 'react';
+import { useEntityQuery } from '@/hooks/entity/use-entity-query';
+
+export function EntityList() {
+  const [filters, setFilters] = useState({
+    page: 1,
+    limit: 10,
+  });
+  
+  const { data, isLoading } = useEntityQuery(filters);
+  
+  // Component rendering logic
+}
+```
+
+## Shadcn Components Usage
+- Use Shadcn components as the first choice for UI elements.
+- Maintain consistent styling across Shadcn component usage.
+- Extend Shadcn components with composition rather than modification.
+- Implement Shadcn themes properly for light/dark mode support.
+- Use the Shadcn form components with React Hook Form for consistent form implementation.
+
+## Styling with TailwindCSS
+- Use Tailwind CSS for styling; avoid inline styles.
+- Follow mobile-first responsive design principles.
+- Use Tailwind's configuration for custom design tokens.
+- Organize related Tailwind classes with consistent ordering.
+- Extract repeated class combinations into components or custom utility classes.
+- Follow consistent spacing, color, and typography systems.
+
+## Form Handling
+- Use React Hook Form with zod for validation.
+- Implement proper error handling and validation feedback.
+- Use controlled components for complex form elements.
+- Optimize form re-renders with proper field registration.
+
+## State Management
+- Use React Query for server state management.
+- Use React context or Zustand for complex client state.
+- Prefer local component state for UI-only concerns.
+- Implement optimistic updates for mutations.
+
+## Performance Optimizations
+- Use the `useCallback` and `useMemo` hooks for expensive operations.
+- Implement proper list virtualization for long lists.
+- Use Next.js image optimization for images.
+- Implement proper code-splitting with dynamic imports.
+- Avoid prop drilling with proper component composition.
+- Use dynamic content loading with Suspense boundaries.

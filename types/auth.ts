@@ -1,11 +1,15 @@
 // User role types
-export type UserRole =
-  | 'super_admin'
-  | 'administrator'
-  | 'faculty'
-  | 'student'
-  | 'staff'
-  | 'guest';
+export type UserRole = string;
+
+// Legacy role constants for backward compatibility
+export const SYSTEM_ROLES = {
+  SUPER_ADMIN: 'super_admin',
+  ADMINISTRATOR: 'administrator',
+  FACULTY: 'faculty',
+  STUDENT: 'student',
+  STAFF: 'staff',
+  GUEST: 'guest'
+} as const;
 
 export type Institution =
   | 'jkkn_dental'
@@ -50,6 +54,35 @@ export interface ProfileUpdate {
   profile_completed?: boolean;
 }
 
+// Custom role interface
+export interface CustomRole {
+  id: string;
+  role_key: string;
+  role_name: string;
+  description: string | null;
+  is_system_role: boolean;
+  permissions: Record<string, boolean>;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+// Custom role creation interface
+export interface CustomRoleCreate {
+  role_key: string;
+  role_name: string;
+  description?: string | null;
+  permissions?: Record<string, boolean>;
+  is_system_role?: boolean;
+}
+
+// Custom role update interface
+export interface CustomRoleUpdate {
+  role_name?: string;
+  description?: string | null;
+  permissions?: Record<string, boolean>;
+}
+
 // Database definition for Supabase
 export interface Database {
   public: {
@@ -58,6 +91,11 @@ export interface Database {
         Row: Profile;
         Insert: Omit<Profile, 'created_at' | 'updated_at' | 'last_login'>;
         Update: ProfileUpdate;
+      };
+      custom_roles: {
+        Row: CustomRole;
+        Insert: Omit<CustomRole, 'id' | 'created_at' | 'updated_at'>;
+        Update: CustomRoleUpdate;
       };
     };
   };

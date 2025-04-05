@@ -1,0 +1,178 @@
+---
+description: Rules for TypeScript type definitions
+globs: types/**/*.ts, **/types/**/*.ts, **/*.d.ts
+alwaysApply: false
+---
+Scope: types/**/*.ts, **/types/**/*.ts, **/*.d.ts
+
+# TypeScript Types Rules
+
+## Type Definition Structure
+- Define entity types with proper interfaces or type aliases.
+- Use Zod schemas for validation and type inference.
+- Keep type definitions organized by entity or domain.
+- Export types from a central location for each entity.
+
+## Type Definition Pattern
+```typescript
+// types/entity.ts
+import { z } from 'zod';
+import type { Database } from './supabase';
+
+// Base Zod schema
+export const entitySchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters'),
+  code: z.string().min(2).max(50),
+  description: z.string().optional(),
+  isActive: z.boolean().default(true),
+  // Other fields
+});
+
+// TypeScript types from Zod schema
+export type CreateEntityDto = z.infer<typeof entitySchema>;
+
+// Entity with database fields
+export type Entity = CreateEntityDto & {
+  id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+// Database type from Supabase schema
+export type EntityRecord = Database['public']['Tables']['entities']['Row'];
+
+// Filter types for queries
+export interface EntityFilters {
+  search?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+}
+
+// Response types
+export interface EntityListResponse {
+  data: Entity[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+```
+
+## Supabase Types
+- Generate and use Supabase types from the database schema.
+- Keep generated types separate from application types.
+- Use proper type mapping between Supabase and application types.
+
+## Supabase Type Generation
+```typescript
+// types/supabase.ts
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+export interface Database {
+  public: {
+    Tables: {
+      entities: {
+        Row: {
+          id: string;
+          name: string;
+          code: string;
+          description: string | null;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          code: string;
+          description?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          code?: string;
+          description?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      // Other tables
+    };
+    // Views, Functions, etc.
+  };
+}
+```
+
+## Use of Zod
+- Use Zod for runtime validation and TypeScript type generation.
+- Create consistent validation schema patterns.
+- Define reusable schema fragments for common patterns.
+- Implement proper error handling for validation errors.
+
+## Type Utilities
+- Create utility types for common patterns.
+- Use TypeScript utility types (Partial, Omit, Pick, etc.) appropriately.
+- Define discriminated unions for state management.
+- Use generic types for reusable components and functions.
+
+## Type Utility Examples
+```typescript
+// types/utils.ts
+export type AsyncState<T> = 
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: T }
+  | { status: 'error'; error: Error };
+
+export type Paginated<T> = {
+  data: T[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+};
+
+export type WithId<T> = T & { id: string };
+
+export type FormState<T> = {
+  values: T;
+  errors: Partial<Record<keyof T, string>>;
+  touched: Partial<Record<keyof T, boolean>>;
+  isSubmitting: boolean;
+  isValid: boolean;
+};
+```
+
+## Type Safety
+- Enable strict TypeScript checking in tsconfig.json.
+- Avoid using `any` type; use `unknown` when type is uncertain.
+- Use proper type narrowing with type guards.
+- Define proper return types for all functions.
+- Use exhaustive type checking for switch statements.
+
+## Custom Type Declarations
+- Create declaration files for third-party libraries that lack types.
+- Extend existing type declarations when needed.
+- Use proper module augmentation for global types.
+
+## API Response Types
+- Define consistent response type structures.
+- Use proper error response types.
+- Type API endpoints with request and response types.

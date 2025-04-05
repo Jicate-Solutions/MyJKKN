@@ -1,0 +1,149 @@
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
+import { SYSTEM_ROLES } from '@/types/auth';
+
+export async function GET(request: NextRequest) {
+  const supabase = createRouteHandlerClient({ cookies });
+
+  try {
+    // Check authentication and authorization
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user is super_admin
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single();
+
+    if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+      return NextResponse.json(
+        { error: 'Only super admins can manage roles' },
+        { status: 403 }
+      );
+    }
+
+    // Get all roles
+    const { data: roles, error: rolesError } = await supabase
+      .from('custom_roles')
+      .select('*')
+      .order('role_name');
+
+    if (rolesError) {
+      return NextResponse.json(
+        { error: 'Failed to fetch roles' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(roles);
+  } catch (error) {
+    console.error('Error handling roles request:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const supabase = createRouteHandlerClient({ cookies });
+
+  try {
+    // Check authentication and authorization
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user is super_admin
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single();
+
+    if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+      return NextResponse.json(
+        { error: 'Only super admins can manage roles' },
+        { status: 403 }
+      );
+    }
+
+    // Parse request body
+    const { role_key, role_name, description, permissions } =
+      await request.json();
+
+    // Validate required fields
+    if (!role_key || !role_name) {
+      return NextResponse.json(
+        { error: 'Role key and name are required' },
+        { status: 400 }
+      );
+    }
+
+    // Check if role_key already exists
+    const { data: existingRole, error: existingRoleError } = await supabase
+      .from('custom_roles')
+      .select('id')
+      .eq('role_key', role_key)
+      .maybeSingle();
+
+    if (existingRoleError) {
+      return NextResponse.json(
+        { error: 'Failed to check for existing role' },
+        { status: 500 }
+      );
+    }
+
+    if (existingRole) {
+      return NextResponse.json(
+        { error: 'A role with this key already exists' },
+        { status: 409 }
+      );
+    }
+
+    // Create the new role
+    const { data: newRole, error: createError } = await supabase
+      .from('custom_roles')
+      .insert([
+        {
+          role_key,
+          role_name,
+          description,
+          permissions: permissions || {},
+          is_system_role: false,
+          created_by: session.user.id
+        }
+      ])
+      .select()
+      .single();
+
+    if (createError) {
+      return NextResponse.json(
+        { error: 'Failed to create role' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(newRole, { status: 201 });
+  } catch (error) {
+    console.error('Error creating role:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
