@@ -11,14 +11,7 @@ import { UserList } from './_components/user-list';
 import { UserFiltersComponent } from './_components/user-filters';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
+import { PageBreadcrumb } from '@/components/navigation';
 import { BeatLoader } from 'react-spinners';
 import { Plus, Download } from 'lucide-react';
 
@@ -113,42 +106,31 @@ export default function UsersPage() {
 
   return (
     <ContentLayout title='Users'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Users</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <div className='flex justify-between items-center'>
+        <div className='space-y-1'>
+          <PageBreadcrumb
+            items={[{ label: 'Home', href: '/' }, { label: 'Users' }]}
+          />
+          <h2 className='text-2xl font-bold'>User Management</h2>
+          <p className='text-sm text-muted-foreground'>
+            View and manage user accounts
+          </p>
+        </div>
+        <div className='flex items-center gap-4'>
+          <Button variant='outline'>
+            <Download className='mr-2 h-4 w-4' />
+            Export
+          </Button>
+          <Button asChild>
+            <Link href='/users/new'>
+              <Plus className='mr-2 h-4 w-4' />
+              Add User
+            </Link>
+          </Button>
+        </div>
+      </div>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex justify-between items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Users</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage and monitor user accounts
-            </p>
-          </div>
-          <div className='flex items-center gap-4'>
-            <Button variant='outline'>
-              <Download className='mr-2 h-4 w-4' />
-              Export
-            </Button>
-            <Button asChild>
-              <Link href='/users/new'>
-                <Plus className='mr-2 h-4 w-4' />
-                Add User
-              </Link>
-            </Button>
-          </div>
-        </div>
-
         {stats && (
           <div className='grid gap-4 md:grid-cols-4'>
             <Card>

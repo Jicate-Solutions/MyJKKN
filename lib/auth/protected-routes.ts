@@ -1,23 +1,31 @@
+import { SYSTEM_ROLES } from '@/types/auth';
+
 export const PROTECTED_ROUTES = {
   ADMIN_ONLY: {
     paths: ['/system', '/organizations/', '/staff/', '/academic/', '/users/'],
-    roles: ['administrator', 'super_admin']
+    roles: [SYSTEM_ROLES.ADMINISTRATOR, SYSTEM_ROLES.SUPER_ADMIN]
   },
   USER_ONLY: {
     paths: ['/profile'],
-    roles: ['student', 'faculty', 'staff', 'administrator', 'super_admin']
+    roles: [
+      SYSTEM_ROLES.STUDENT,
+      SYSTEM_ROLES.FACULTY,
+      SYSTEM_ROLES.STAFF,
+      SYSTEM_ROLES.ADMINISTRATOR,
+      SYSTEM_ROLES.SUPER_ADMIN
+    ]
   },
   SUPER_ADMIN_ONLY: {
-    paths: ['/users/roles'],
-    roles: ['super_admin']
+    paths: ['/users/roles', '/users/role-management'],
+    roles: [SYSTEM_ROLES.SUPER_ADMIN]
   }
   //   STAFF_ONLY: {
   //     paths: ['/reports', '/analytics'],
-  //     roles: ['administrator', 'super_admin', 'staff']
+  //     roles: [SYSTEM_ROLES.ADMINISTRATOR, SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.STAFF]
   //   },
   //   FACULTY_ONLY: {
   //     paths: ['/academic', '/courses'],
-  //     roles: ['administrator', 'super_admin', 'faculty']
+  //     roles: [SYSTEM_ROLES.ADMINISTRATOR, SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.FACULTY]
   //   }
 } as const;
 

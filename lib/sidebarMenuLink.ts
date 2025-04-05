@@ -39,8 +39,10 @@ import {
   Flame,
   FolderTree,
   Calendar,
-  FileBarChart
+  FileBarChart,
+  PlusCircle
 } from 'lucide-react';
+import { CustomRole } from '@/types/auth';
 
 interface MenuItem {
   href: string;
@@ -58,6 +60,37 @@ interface MenuGroup {
   groupLabel?: string;
   menus: MenuItem[];
 }
+
+// Define permissions required for each menu item
+interface MenuPermissions {
+  [menuPath: string]: string; // Maps menu path to required permission key
+}
+
+export const MENU_PERMISSIONS: MenuPermissions = {
+  '/users': 'view_users',
+  '/users/roles': 'assign_roles',
+  '/users/role-management': 'manage_roles',
+  '/academic/years': 'view_academic_years',
+  '/academic/staff-planning': 'manage_staff',
+  '/academic/timetables': 'manage_timetables',
+  '/applications': 'view_applications',
+  '/applications/new': 'manage_applications',
+  '/applications/categories': 'manage_application_categories',
+  '/organizations/institutions': 'view_institutions',
+  '/organizations/degrees': 'view_degrees',
+  '/organizations/departments': 'view_departments',
+  '/organizations/programs': 'view_programs',
+  '/organizations/courses': 'view_courses',
+  '/organizations/semesters': 'view_semesters',
+  '/organizations/sections': 'view_sections',
+  '/staff/category': 'view_staff_categories',
+  '/staff/list': 'view_staff',
+  '/resources/physical-resources': 'view_physical_resources',
+  '/resources/digital-resources': 'view_digital_resources',
+  '/system/api-management': 'manage_api',
+  '/example-module': 'view_module',
+  '/example-module/new': 'create_module_items'
+};
 
 export function GetPages(pathname: string): MenuGroup[] {
   return [
@@ -92,9 +125,16 @@ export function GetPages(pathname: string): MenuGroup[] {
         // },
         {
           href: '/users/roles',
-          label: 'Roles & Permissions',
+          label: 'Roles Assignment',
           active: pathname === '/users/roles',
           icon: Shield,
+          submenus: []
+        },
+        {
+          href: '/users/role-management',
+          label: 'Role Management',
+          active: pathname === '/users/role-management',
+          icon: Settings,
           submenus: []
         }
         // {
@@ -337,6 +377,26 @@ export function GetPages(pathname: string): MenuGroup[] {
     // },
 
     {
+      groupLabel: 'Example Module',
+      menus: [
+        {
+          href: '/example-module',
+          label: 'Example Dashboard',
+          active: pathname === '/example-module',
+          icon: Box,
+          submenus: []
+        },
+        {
+          href: '/example-module/new',
+          label: 'Add New Item',
+          active: pathname === '/example-module/new',
+          icon: PlusCircle,
+          submenus: []
+        }
+      ]
+    },
+
+    {
       groupLabel: 'Resource Management',
       menus: [
         {
@@ -458,4 +518,75 @@ export function GetPages(pathname: string): MenuGroup[] {
     //   ]
     // }
   ];
+}
+
+// New function to filter menus based on user role permissions
+export function GetRoleBasedPages(
+  pathname: string,
+  userRole?: CustomRole | null
+): MenuGroup[] {
+  const allMenus = GetPages(pathname);
+
+  // Super admin gets all menus
+  if (userRole?.role_key === 'super_admin') {
+    return allMenus;
+  }
+
+  // If no role provided or no permissions, only show Dashboard
+  if (!userRole || !userRole.permissions) {
+    return [
+      {
+        groupLabel: 'Overview',
+        menus: [
+          {
+            href: '/',
+            label: 'Dashboard',
+            active: pathname === '/',
+            icon: Home,
+            submenus: []
+          }
+        ]
+      }
+    ];
+  }
+
+  // Filter menus based on permissions
+  return allMenus
+    .map((group) => {
+      // Filter main menus
+      const filteredMenus = group.menus
+        .filter((menu) => {
+          // Dashboard is always visible
+          if (menu.href === '/') return true;
+
+          // Check if user has permission for this menu
+          const requiredPermission = MENU_PERMISSIONS[menu.href];
+          if (!requiredPermission) return true; // No specific permission required
+
+          return userRole.permissions[requiredPermission] === true;
+        })
+        .map((menu) => {
+          // Filter submenus as well
+          if (menu.submenus.length === 0) return menu;
+
+          const filteredSubmenus = menu.submenus.filter((submenu) => {
+            const requiredPermission = MENU_PERMISSIONS[submenu.href];
+            if (!requiredPermission) return true;
+
+            return userRole.permissions[requiredPermission] === true;
+          });
+
+          return {
+            ...menu,
+            submenus: filteredSubmenus
+          };
+        });
+
+      // Only include groups that have menus after filtering
+      return {
+        ...group,
+        menus: filteredMenus
+      };
+    })
+    .filter((group) => group.menus.length > 0); // Remove empty groups
 }

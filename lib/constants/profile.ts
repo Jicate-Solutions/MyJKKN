@@ -1,5 +1,7 @@
 // lib/constants/profile.ts
 
+import { SYSTEM_ROLES } from '@/types/auth';
+
 export const INSTITUTIONS = [
   { value: 'jkkn_dental', label: 'JKKN Dental College' },
   { value: 'jkkn_pharmacy', label: 'JKKN College of Pharmacy' },
@@ -73,11 +75,55 @@ export const DEPARTMENTS = {
   jkkn_NV: ['10th Standard']
 } as const;
 
-export const ROLE_LABELS = {
-  student: 'Student',
-  faculty: 'Faculty',
-  administrator: 'Administrator',
-  super_admin: 'Super Administrator',
-  staff: 'Staff',
-  guest: 'Guest'
+// Keep the static mapping for backward compatibility
+export const ROLE_LABELS: Record<string, string> = {
+  [SYSTEM_ROLES.STUDENT]: 'Student',
+  [SYSTEM_ROLES.FACULTY]: 'Faculty',
+  [SYSTEM_ROLES.ADMINISTRATOR]: 'Administrator',
+  [SYSTEM_ROLES.SUPER_ADMIN]: 'Super Administrator',
+  [SYSTEM_ROLES.STAFF]: 'Staff',
+  [SYSTEM_ROLES.GUEST]: 'Guest'
 } as const;
+
+// Default permissions for new roles
+export const DEFAULT_ROLE_PERMISSIONS = {
+  view_dashboard: true,
+  view_profile: true
+};
+
+// Permission categories for UI
+export const PERMISSION_CATEGORIES = [
+  {
+    name: 'User Management',
+    permissions: [
+      { key: 'view_users', label: 'View Users' },
+      { key: 'manage_users', label: 'Manage Users' },
+      { key: 'assign_roles', label: 'Assign Roles' }
+    ]
+  },
+  {
+    name: 'Academic',
+    permissions: [
+      { key: 'view_courses', label: 'View Courses' },
+      { key: 'manage_courses', label: 'Manage Courses' },
+      { key: 'view_students', label: 'View Students' },
+      { key: 'manage_grades', label: 'Manage Grades' }
+    ]
+  },
+  {
+    name: 'Resources',
+    permissions: [
+      { key: 'view_resources', label: 'View Resources' },
+      { key: 'reserve_resources', label: 'Reserve Resources' },
+      { key: 'manage_resources', label: 'Manage Resources' }
+    ]
+  },
+  {
+    name: 'Administration',
+    permissions: [
+      { key: 'view_reports', label: 'View Reports' },
+      { key: 'manage_content', label: 'Manage Content' },
+      { key: 'system_settings', label: 'System Settings' }
+    ]
+  }
+];

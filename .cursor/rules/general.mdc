@@ -1,0 +1,76 @@
+---
+description: General rules for all files in your project
+globs: *
+alwaysApply: true
+---
+
+# General Project Rules
+
+## Code Style & Structure
+- Use TypeScript for all development with strict type checking enabled.
+- Follow consistent naming conventions: PascalCase for components/types, camelCase for variables/functions.
+- Keep files under 300 lines of code when possible.
+- Split complex logic into smaller, reusable functions.
+- Use meaningful comments for complex logic, but prefer self-documenting code.
+- Always use proper indentation (2 spaces) and consistent formatting.
+
+## Performance
+- Minimize unnecessary re-renders with proper hooks usage and memoization.
+- Implement code-splitting and lazy loading for large components/pages.
+- Optimize bundle size by avoiding unnecessary dependencies.
+- Use server components where possible to reduce client-side JavaScript.
+
+## Project Structure
+- Maintain a clear and organized folder structure with separation of concerns:
+  ```
+  /app
+    /(routes)                # Route groups with pages
+      /(auth)                # Auth-protected routes
+      /(public)              # Public routes
+      /[entity]/             # Entity-specific routes
+        page.tsx             # Server component (page entry)
+        [id]/                # Dynamic route (detail pages)
+        _components/         # Page-specific components
+    /api                     # API routes
+    /auth                    # Auth-related components
+
+  /components
+    /ui                      # Shared UI components
+    /layout                  # Layout components
+    /forms                   # Form components
+
+  /lib
+    /query                   # Query client setup
+    /services                # Service layer for data fetching
+    /supabase                # Supabase client setup
+      /schema                # Supabase table definitions and SQL queries
+    /storage                 # File and data storage utilities
+    /utils                   # Utility functions
+
+  /hooks                     # Custom React hooks
+  /types                     # TypeScript types
+  /styles                    # Global styles
+  /public                    # Static assets
+  ```
+
+## Error Handling
+- Implement proper error boundaries at appropriate levels.
+- Use consistent error handling patterns across the application.
+- Always handle promise rejections and catch exceptions.
+- Provide user-friendly error messages while logging detailed errors for debugging.
+
+## Accessibility & Internationalization
+- Ensure components are accessible (use proper ARIA attributes).
+- Support dark mode with appropriate color contrasts.
+- Use semantic HTML elements wherever possible.
+- Implement internationalization for text content when required.
+
+## Version Control
+- Write clear, descriptive commit messages.
+- Create meaningful pull request descriptions.
+- Keep pull requests focused on a single feature or fix.
+
+## Development Workflow
+- Always write tests for critical functionality.
+- Use feature flags for new features when appropriate.
+- Document complex implementations and architectural decisions.
