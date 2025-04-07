@@ -97,25 +97,19 @@ export const PERMISSION_CATEGORIES = [
     name: 'User Management',
     permissions: [
       { key: 'view_users', label: 'View Users' },
-      { key: 'manage_users', label: 'Manage Users' },
       { key: 'assign_roles', label: 'Assign Roles' },
       { key: 'manage_roles', label: 'Manage Roles' }
     ]
   },
   {
-    name: 'Academic',
+    name: 'Application Hub',
     permissions: [
-      { key: 'view_courses', label: 'View Courses' },
-      { key: 'manage_courses', label: 'Manage Courses' },
-      { key: 'view_students', label: 'View Students' },
-      { key: 'manage_grades', label: 'Manage Grades' },
-      { key: 'view_academic_years', label: 'View Academic Years' },
-      { key: 'manage_staff', label: 'Manage Staff' },
-      { key: 'manage_timetables', label: 'Manage Timetables' }
+      { key: 'view_applications', label: 'View Applications' },
+      { key: 'view_api_guidelines', label: 'View API Guidelines' }
     ]
   },
   {
-    name: 'Applications',
+    name: 'Applications Management',
     permissions: [
       { key: 'view_applications', label: 'View Applications' },
       { key: 'manage_applications', label: 'Manage Applications' },
@@ -145,32 +139,63 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    name: 'Resources',
+    name: 'Academic',
     permissions: [
-      { key: 'view_resources', label: 'View Resources' },
-      { key: 'reserve_resources', label: 'Reserve Resources' },
-      { key: 'manage_resources', label: 'Manage Resources' },
+      { key: 'view_academic_years', label: 'View Academic Years' },
+      { key: 'manage_staff', label: 'Manage Staff' },
+      { key: 'manage_timetables', label: 'Manage Timetables' }
+    ]
+  },
+  {
+    name: 'Physical Resources Management',
+    permissions: [
+      {
+        key: 'view_physical_resources_dashboard',
+        label: 'View Physical Resources Dashboard'
+      },
       { key: 'view_physical_resources', label: 'View Physical Resources' },
-      { key: 'view_digital_resources', label: 'View Digital Resources' }
+      {
+        key: 'view_physical_resources_categories',
+        label: 'View Physical Resources Categories'
+      },
+      {
+        key: 'view_physical_resources_reservations',
+        label: 'View Physical Resources Reservations'
+      },
+      {
+        key: 'view_physical_resources_policies',
+        label: 'View Physical Resources Policies'
+      },
+      {
+        key: 'view_physical_resources_reports',
+        label: 'View Physical Resources Reports'
+      },
+      {
+        key: 'view_physical_resources_requests',
+        label: 'View Physical Resources Requests'
+      }
+    ]
+  },
+  {
+    name: 'Digital Resources Management',
+    permissions: [
+      {
+        key: 'view_digital_resources_dashboard',
+        label: 'View Digital Resources Dashboard'
+      },
+      { key: 'view_digital_resources', label: 'View Digital Resources' },
+      {
+        key: 'view_digital_resources_categories',
+        label: 'View Digital Resources Categories'
+      },
+      {
+        key: 'view_digital_resources_reservations',
+        label: 'View Digital Resources Reservations'
+      }
     ]
   },
   {
     name: 'System',
     permissions: [{ key: 'manage_api', label: 'Manage API' }]
-  },
-  {
-    name: 'Example Module',
-    permissions: [
-      { key: 'view_module', label: 'View Module' },
-      { key: 'create_module_items', label: 'Create Module Items' }
-    ]
-  },
-  {
-    name: 'Administration',
-    permissions: [
-      { key: 'view_reports', label: 'View Reports' },
-      { key: 'manage_content', label: 'Manage Content' },
-      { key: 'system_settings', label: 'System Settings' }
-    ]
   }
 ];

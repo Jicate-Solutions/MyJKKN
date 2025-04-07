@@ -84,7 +84,7 @@ export function RoleManagementList({
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(5);
+  const [pageSize, setPageSize] = useState(10);
 
   const handleDeleteClick = (role: CustomRole) => {
     setRoleToDelete(role);
@@ -335,17 +335,17 @@ export function RoleManagementList({
               value={pageSize.toString()}
               onValueChange={(value) => {
                 setPageSize(Number(value));
-                setCurrentPage(1); // Reset to first page when changing page size
+                setCurrentPage(1);
               }}
             >
               <SelectTrigger className='h-8 w-[70px]'>
-                <SelectValue placeholder={pageSize.toString()} />
+                <SelectValue placeholder='10' />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value='5'>5</SelectItem>
                 <SelectItem value='10'>10</SelectItem>
                 <SelectItem value='20'>20</SelectItem>
                 <SelectItem value='50'>50</SelectItem>
+                <SelectItem value='100'>100</SelectItem>
               </SelectContent>
             </Select>
 
