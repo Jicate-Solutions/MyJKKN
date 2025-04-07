@@ -85,7 +85,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/sections': 'view_sections',
   '/staff/category': 'view_staff_categories',
   '/staff/list': 'view_staff',
-  '/resources/physical-resources': 'view_physical_resources',
+  '/resources/physical-resources': 'view_resources',
   '/resources/digital-resources': 'view_digital_resources',
   '/system/api-management': 'manage_api',
   '/example-module': 'view_module',

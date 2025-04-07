@@ -34,8 +34,11 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle
+  CardTitle,
+  CardFooter
 } from '@/components/ui/card';
+import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
+import { AlertCircle } from 'lucide-react';
 
 interface EditRoleDialogProps {
   open: boolean;
@@ -72,6 +75,8 @@ export function EditRoleDialog({
 }: EditRoleDialogProps) {
   const [allPermissionKeys, setAllPermissionKeys] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPermissionCheck, setShowPermissionCheck] = useState(false);
+  const [missingPermissions, setMissingPermissions] = useState<string[]>([]);
 
   // Check if this is the super_admin role
   const isSuperAdmin = role.role_key === SYSTEM_ROLES.SUPER_ADMIN;
@@ -146,6 +151,26 @@ export function EditRoleDialog({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Function to check for missing permissions
+  const checkMissingPermissions = () => {
+    // Get all permission keys from PERMISSION_CATEGORIES
+    const definedPermissionKeys: string[] = [];
+    PERMISSION_CATEGORIES.forEach((category) => {
+      category.permissions.forEach((permission) => {
+        definedPermissionKeys.push(permission.key);
+      });
+    });
+
+    // Check all menu permissions against defined permissions
+    const menuPermissionValues = Object.values(MENU_PERMISSIONS);
+    const missing = menuPermissionValues.filter(
+      (permKey) => !definedPermissionKeys.includes(permKey)
+    );
+
+    setMissingPermissions(missing);
+    setShowPermissionCheck(true);
   };
 
   return (
@@ -246,6 +271,51 @@ export function EditRoleDialog({
                         Super Admin has all permissions. These settings cannot
                         be modified.
                       </p>
+                    </div>
+                  )}
+
+                  {/* Diagnostic tool for admin users */}
+                  {role.role_key === SYSTEM_ROLES.SUPER_ADMIN && (
+                    <div className='mb-4'>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        onClick={checkMissingPermissions}
+                        className='w-full'
+                      >
+                        Check for Missing Permissions
+                      </Button>
+
+                      {showPermissionCheck && (
+                        <div className='mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md'>
+                          <div className='flex items-start'>
+                            <AlertCircle className='h-5 w-5 text-yellow-500 mr-2 mt-0.5' />
+                            <div>
+                              <p className='text-sm font-medium text-yellow-800 mb-1'>
+                                Permission Configuration Status
+                              </p>
+                              {missingPermissions.length === 0 ? (
+                                <p className='text-sm text-green-600'>
+                                  All menu permissions are correctly defined! ✓
+                                </p>
+                              ) : (
+                                <>
+                                  <p className='text-sm text-yellow-700 mb-1'>
+                                    Found {missingPermissions.length}{' '}
+                                    permission(s) used in menus but not defined
+                                    in PERMISSION_CATEGORIES:
+                                  </p>
+                                  <ul className='text-xs text-yellow-700 list-disc pl-5'>
+                                    {missingPermissions.map((perm) => (
+                                      <li key={perm}>{perm}</li>
+                                    ))}
+                                  </ul>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
