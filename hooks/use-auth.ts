@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createAdminClient } from '@/lib/supabase/client';
+import type { Profile } from '@/types/supabase';
 
 export function useAuth() {
-  const [user, setUser] = useState<any>(null);
-  const supabase = createClientComponentClient();
+  const [user, setUser] = useState<(Profile & { id: string }) | null>(null);
+  const supabase = createAdminClient();
 
   useEffect(() => {
     const getUser = async () => {
@@ -16,11 +17,13 @@ export function useAuth() {
         // Get user role from your profiles table
         const { data: profile } = await supabase
           .from('profiles')
-          .select('role')
+          .select('*')
           .eq('id', user.id)
           .single();
 
-        setUser({ ...user, role: profile?.role });
+        if (profile) {
+          setUser({ ...profile, id: user.id });
+        }
       }
     };
 
@@ -32,11 +35,13 @@ export function useAuth() {
       if (session?.user) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('role')
+          .select('*')
           .eq('id', session.user.id)
           .single();
 
-        setUser({ ...session.user, role: profile?.role });
+        if (profile) {
+          setUser({ ...profile, id: session.user.id });
+        }
       } else {
         setUser(null);
       }

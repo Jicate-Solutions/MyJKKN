@@ -1,4 +1,4 @@
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
+import { createServerClient, CookieOptions } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { PROTECTED_ROUTES } from './lib/auth/protected-routes';
@@ -17,11 +17,31 @@ const isPublicPath = (path: string) =>
   path.startsWith('/api') ||
   path.includes('favicon.ico');
 
-export async function middleware(req: NextRequest) {
+export async function middleware(request: NextRequest) {
   try {
     const res = NextResponse.next();
-    const supabase = createMiddlewareClient({ req, res });
-    const currentPath = req.nextUrl.pathname;
+
+    // Create supabase client
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          async get(name: string) {
+            const cookie = request.cookies.get(name);
+            return cookie?.value ?? '';
+          },
+          async set(name: string, value: string, options: CookieOptions) {
+            res.cookies.set({ name, value });
+          },
+          async remove(name: string, options: CookieOptions) {
+            res.cookies.delete(name);
+          }
+        }
+      }
+    );
+
+    const currentPath = request.nextUrl.pathname;
 
     // Skip middleware for public paths
     if (isPublicPath(currentPath)) {
@@ -36,11 +56,11 @@ export async function middleware(req: NextRequest) {
 
     if (sessionError) {
       console.error('Session error:', sessionError);
-      return NextResponse.redirect(new URL('/auth/login', req.url));
+      return NextResponse.redirect(new URL('/auth/login', request.url));
     }
 
     if (!session) {
-      const redirectUrl = new URL('/auth/login', req.url);
+      const redirectUrl = new URL('/auth/login', request.url);
       redirectUrl.searchParams.set('redirectedFrom', currentPath);
       return NextResponse.redirect(redirectUrl);
     }
@@ -52,7 +72,7 @@ export async function middleware(req: NextRequest) {
 
       if (refreshError || !refreshedSession.session) {
         console.error('Session refresh error:', refreshError);
-        return NextResponse.redirect(new URL('/auth/login', req.url));
+        return NextResponse.redirect(new URL('/auth/login', request.url));
       }
     }
 
@@ -70,7 +90,7 @@ export async function middleware(req: NextRequest) {
 
     if (profileError) {
       console.error('Profile fetch error:', profileError);
-      return NextResponse.redirect(new URL('/unauthorized', req.url));
+      return NextResponse.redirect(new URL('/unauthorized', request.url));
     }
 
     // Check profile completion
@@ -78,7 +98,9 @@ export async function middleware(req: NextRequest) {
       !profile.profile_completed &&
       !currentPath.includes('/auth/complete-profile')
     ) {
-      return NextResponse.redirect(new URL('/auth/complete-profile', req.url));
+      return NextResponse.redirect(
+        new URL('/auth/complete-profile', request.url)
+      );
     }
 
     // Check protected routes access
@@ -89,7 +111,7 @@ export async function middleware(req: NextRequest) {
           console.warn(
             `Access denied to ${currentPath} for role ${profile.role}`
           );
-          return NextResponse.redirect(new URL('/unauthorized', req.url));
+          return NextResponse.redirect(new URL('/unauthorized', request.url));
         }
 
         // Add role info to headers for protected routes
@@ -105,12 +127,12 @@ export async function middleware(req: NextRequest) {
     // Log the error with context
     console.error('Middleware critical error:', {
       error,
-      path: req.nextUrl.pathname,
+      path: request.nextUrl.pathname,
       timestamp: new Date().toISOString()
     });
 
     // Redirect to error page for critical failures
-    return NextResponse.redirect(new URL('/error', req.url));
+    return NextResponse.redirect(new URL('/error', request.url));
   }
 }
 

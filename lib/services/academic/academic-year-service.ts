@@ -1,6 +1,6 @@
 // lib/services/academic/academic-year-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   AcademicYear,
@@ -11,7 +11,7 @@ import type {
 } from '@/types/academics';
 
 export class AcademicYearService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   static async createAcademicYear(
     data: CreateAcademicYearDto

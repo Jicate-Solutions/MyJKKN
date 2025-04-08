@@ -306,4 +306,129 @@ export function ItemActions({
    - Provide clear, user-friendly messages for permission denials
    - Log unauthorized access attempts for security monitoring
 
+# Migration Guide: Supabase Auth Helpers to SSR
 
+## Background
+
+The `@supabase/auth-helpers-nextjs` package is now deprecated and has been replaced with the new `@supabase/ssr` package. This guide provides instructions on how to update your codebase to use the new package.
+
+## Steps to Update
+
+1. Install the new package:
+
+```bash
+npm install @supabase/ssr
+```
+
+2. Update imports in your code:
+
+```typescript
+// Old imports
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
+
+// New imports
+import { createBrowserClient } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
+```
+
+3. Update client-side usage:
+
+```typescript
+// Old
+const supabase = createClientComponentClient<Database>();
+
+// New
+const supabase = createBrowserClient<Database>(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+```
+
+4. Update server-side usage (API routes, Server Actions, etc.):
+
+```typescript
+// Old
+const supabase = createRouteHandlerClient<Database>({ cookies });
+
+// New
+const cookieStore = cookies();
+const supabase = createServerClient<Database>(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
+      },
+      set(name: string, value: string, options: any) {
+        cookieStore.set(name, value, options);
+      },
+      remove(name: string, options: any) {
+        cookieStore.set(name, '', { ...options, maxAge: 0 });
+      },
+    },
+  }
+);
+```
+
+5. Update middleware:
+
+```typescript
+// Old
+const supabase = createMiddlewareClient({ req, res });
+
+// New
+const supabase = createServerClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    cookies: {
+      get(name: string) {
+        return req.cookies.get(name)?.value;
+      },
+      set(name: string, value: string, options: any) {
+        req.cookies.set({
+          name,
+          value,
+          ...options,
+        });
+        res.cookies.set({
+          name,
+          value,
+          ...options,
+        });
+      },
+      remove(name: string, options: any) {
+        req.cookies.set({
+          name,
+          value: '',
+          ...options,
+        });
+        res.cookies.set({
+          name,
+          value: '',
+          ...options,
+        });
+      },
+    },
+  }
+);
+```
+
+6. Update package.json and remove the old dependency:
+
+```bash
+npm remove @supabase/auth-helpers-nextjs
+```
+
+## Alternative Approach Using Client/Server Files
+
+This project includes reusable client and server utility files:
+
+- `lib/supabase/client.ts` - For client-side usage
+- `lib/supabase/server.ts` - For server-side usage
+
+These files provide consistent configuration and can be imported throughout the app.

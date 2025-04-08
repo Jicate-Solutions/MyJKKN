@@ -43,7 +43,7 @@ export const ApiFetcher: React.FC<ApiFetcherProps> = ({
             Accept: 'application/json',
             'Content-Type': 'application/json'
           },
-          ...(body && { body: JSON.stringify(body) }),
+          body: body ? JSON.stringify(body) : undefined,
           mode: 'cors'
         });
 

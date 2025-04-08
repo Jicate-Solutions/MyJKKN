@@ -102,10 +102,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Resource Management
 
   // physical Resources
-  '/resources/physical-resources/dashboard': 'view_physical_resources_dashboard',
+  '/resources/physical-resources/dashboard':
+    'view_physical_resources_dashboard',
   '/resources/physical-resources/resources': 'view_physical_resources',
-  '/resources/physical-resources/categories': 'view_physical_resources_categories',
-  '/resources/physical-resources/reservations': 'view_physical_resources_reservations',
+  '/resources/physical-resources/categories':
+    'view_physical_resources_categories',
+  '/resources/physical-resources/reservations':
+    'view_physical_resources_reservations',
   '/resources/physical-resources/policies': 'view_physical_resources_policies',
   '/resources/physical-resources/reports': 'view_physical_resources_reports',
   '/resources/physical-resources/requests': 'view_physical_resources_requests',
@@ -113,9 +116,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // digital Resources
   '/resources/digital-resources/dashboard': 'view_digital_resources_dashboard',
   '/resources/digital-resources/resources': 'view_digital_resources',
-  '/resources/digital-resources/categories': 'view_digital_resources_categories',
-  '/resources/digital-resources/reservations': 'view_digital_resources_reservations',
-  
+  '/resources/digital-resources/categories':
+    'view_digital_resources_categories',
+  '/resources/digital-resources/reservations':
+    'view_digital_resources_reservations',
 
   // System Management
   '/system/api-management': 'manage_api'
@@ -404,26 +408,6 @@ export function GetPages(pathname: string): MenuGroup[] {
     //     }
     //   ]
     // },
-
-    {
-      groupLabel: 'Example Module',
-      menus: [
-        {
-          href: '/example-module',
-          label: 'Example Dashboard',
-          active: pathname === '/example-module',
-          icon: Box,
-          submenus: []
-        },
-        {
-          href: '/example-module/new',
-          label: 'Add New Item',
-          active: pathname === '/example-module/new',
-          icon: PlusCircle,
-          submenus: []
-        }
-      ]
-    },
 
     {
       groupLabel: 'Resource Management',

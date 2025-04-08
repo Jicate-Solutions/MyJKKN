@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { corsHeaders } from '@/lib/cors';
 import { createHash } from 'crypto';
+import type { Database } from '@/types/supabase';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,10 +13,24 @@ export async function GET(request: NextRequest) {
       response.headers.set(key, value);
     });
 
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({
-      cookies: () => cookieStore
-    });
+    const cookieStore = await cookies();
+    const supabase = createServerClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
+          set(name: string, value: string, options: any) {
+            cookieStore.set(name, value, options);
+          },
+          remove(name: string, options: any) {
+            cookieStore.set(name, '', { ...options, maxAge: 0 });
+          }
+        }
+      }
+    );
 
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');

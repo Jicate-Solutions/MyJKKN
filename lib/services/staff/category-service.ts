@@ -1,4 +1,4 @@
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   EmploymentCategory,
@@ -9,7 +9,7 @@ import type {
 } from '@/types/staff';
 
 export class CategoryService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   static async createCategory(
     data: CreateEmploymentCategoryDto

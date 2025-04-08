@@ -1,6 +1,6 @@
 // lib/services/resource/reservation-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   Reservation,
@@ -14,7 +14,7 @@ import { UsageReportService } from './usage-report-service';
 
 
 export class ReservationService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
   private static useMockData = false; // Set to false to use real data from Supabase
 
   static async createReservation(

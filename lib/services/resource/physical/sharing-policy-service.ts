@@ -1,6 +1,6 @@
 // lib/services/resource/sharing-policy-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   SharingPolicy,
@@ -11,7 +11,7 @@ import type {
 } from '@/types/resources';
 
 export class SharingPolicyService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
   private static useMockData = false; // Set to false to use real data from Supabase
 
   static async createSharingPolicy(

@@ -1,6 +1,6 @@
 // lib/services/organization-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   Institution,
@@ -12,7 +12,7 @@ import type {
 import { StorageService } from '@/lib/storage/storage-service';
 
 export class OrganizationService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   static async checkCodeExists(
     counsellingCode: string,

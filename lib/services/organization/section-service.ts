@@ -1,4 +1,4 @@
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   Section,
@@ -9,7 +9,7 @@ import type {
 } from '@/types/organizations';
 
 export class SectionService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   static async createSection(data: CreateSectionDto): Promise<Section> {
     try {

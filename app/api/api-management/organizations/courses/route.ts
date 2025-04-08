@@ -1,8 +1,9 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { corsHeaders } from '@/lib/api-keys/cors';
+import { createServerClient } from '@supabase/ssr';
+import type { Database } from '@/types/supabase';
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
@@ -16,18 +17,16 @@ export async function GET(request: NextRequest) {
       response.headers.set(key, value);
     });
 
-    const cookieStore = cookies();
-    
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
     console.log('1. Auth header:', authHeader);
 
     // Also check for x-api-key header
     const xApiKey = request.headers.get('x-api-key');
-    
+
     // Also check for apikey header
     const apiKeyHeader = request.headers.get('apikey');
-    
+
     // Use the first available key
     let apiKey = null;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -37,10 +36,13 @@ export async function GET(request: NextRequest) {
     } else if (apiKeyHeader) {
       apiKey = apiKeyHeader;
     }
-    
+
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'API key is required in Authorization, x-api-key, or apikey header' },
+        {
+          error:
+            'API key is required in Authorization, x-api-key, or apikey header'
+        },
         { status: 401, headers: corsHeaders }
       );
     }
@@ -48,23 +50,37 @@ export async function GET(request: NextRequest) {
     // Hash the key for verification in our code
     const hashedKey = createHash('sha256').update(apiKey).digest('hex');
     console.log('2. Hashed key:', hashedKey);
-    
-    // Create a new supabase client
-    const supabase = createRouteHandlerClient({
-      cookies: () => cookieStore
-    });
-    
+
+    const cookieStore = await cookies();
+    const supabase = createServerClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
+          set(name: string, value: string, options: any) {
+            cookieStore.set(name, value, options);
+          },
+          remove(name: string, options: any) {
+            cookieStore.set(name, '', { ...options, maxAge: 0 });
+          }
+        }
+      }
+    );
+
     // Set the API key in the request header for RLS policies
     const customHeaders = new Headers();
     customHeaders.set('apikey', apiKey);
-    
+
     // Create a custom fetch function that includes the API key
     const customFetch = (url: string, options: RequestInit = {}) => {
       const headers = new Headers(options.headers || {});
       headers.set('apikey', apiKey);
       return fetch(url, { ...options, headers });
     };
-    
+
     // Override the fetch method
     const originalFetch = global.fetch;
     global.fetch = customFetch as typeof fetch;
@@ -76,7 +92,7 @@ export async function GET(request: NextRequest) {
       .eq('key_value', hashedKey)
       .eq('is_active', true)
       .single();
-      
+
     // Restore original fetch
     global.fetch = originalFetch;
 
@@ -221,7 +237,7 @@ export async function GET(request: NextRequest) {
 
     // Execute query
     const { data: courses, error, count } = await query;
-    
+
     // Restore original fetch
     global.fetch = originalFetch;
 

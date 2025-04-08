@@ -1,9 +1,9 @@
 // lib/auth/auth-service.ts
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Database, Profile, ProfileUpdate } from '@/types/auth';
+import { Profile, ProfileUpdate } from '@/types/supabase';
 import { toast } from 'react-hot-toast';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
-const supabase = createClientComponentClient<Database>();
+const supabase = createClientSupabaseClient();
 
 export class AuthService {
   static async signInWithGoogle() {
