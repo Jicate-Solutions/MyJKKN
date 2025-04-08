@@ -1,10 +1,10 @@
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Profile, UserRole } from '@/types/auth';
 import { UserFilters, UserListResponse, UserStats } from '@/types/users';
 import { toast } from 'react-hot-toast';
 
 export class UserService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   static async getUsers(filters: UserFilters = {}): Promise<UserListResponse> {
     try {

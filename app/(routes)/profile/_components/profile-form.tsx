@@ -38,8 +38,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import type { Database } from '@/types/auth';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface ProfileFormProps {
   user: Profile;
@@ -48,7 +47,7 @@ interface ProfileFormProps {
 
 export function ProfileForm({ user, onComplete }: ProfileFormProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const supabase = createClientComponentClient<Database>();
+  const supabase = createClientSupabaseClient();
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),

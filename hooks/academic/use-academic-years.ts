@@ -27,7 +27,19 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
           currentFilters
         );
         setAcademicYears(result.data);
-        setMetadata(result.metadata);
+
+        // Ensure we have all required metadata fields
+        const total = result.metadata.total || 0;
+        const page = currentFilters.page || 1;
+        const limit = currentFilters.limit || 10;
+        const totalPages = Math.ceil(total / limit);
+
+        setMetadata({
+          total,
+          page,
+          limit,
+          totalPages
+        });
 
         if (newFilters) {
           setFilters(newFilters);

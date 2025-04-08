@@ -1,4 +1,4 @@
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Database } from '@/types/auth';
 
 const BUCKETS = {
@@ -10,7 +10,7 @@ const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 export class StorageService {
-  private static supabase = createClientComponentClient<Database>();
+  private static supabase = createClientSupabaseClient();
 
   private static async validateFile(file: File): Promise<void> {
     // Validate file type

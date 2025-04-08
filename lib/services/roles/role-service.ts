@@ -1,4 +1,4 @@
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   CustomRole,
   CustomRoleCreate,
@@ -9,7 +9,7 @@ import { toast } from 'react-hot-toast';
 import { DEFAULT_ROLE_PERMISSIONS } from '@/lib/constants/profile';
 
 export class RoleService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   /**
    * Ensures that the super_admin role exists with all permissions enabled

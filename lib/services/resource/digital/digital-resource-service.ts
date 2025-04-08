@@ -1,6 +1,6 @@
 // lib/services/resource/digital-resource-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   DigitalResource,
@@ -13,7 +13,7 @@ import type {
 export class DigitalResourceService {
   private static getSupabaseClient() {
     try {
-      const client = createClientComponentClient();
+      const client = createClientSupabaseClient();
       console.log('Supabase client initialized successfully');
       return client;
     } catch (error) {

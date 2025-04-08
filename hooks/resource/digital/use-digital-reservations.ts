@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   DigitalReservation,
   DigitalReservationFilters,
@@ -11,11 +11,14 @@ import type {
   ReservationStatus
 } from '@/types/digital-resources';
 
-export function useDigitalReservations(initialFilters: DigitalReservationFilters = {}) {
+export function useDigitalReservations(
+  initialFilters: DigitalReservationFilters = {}
+) {
   const [reservations, setReservations] = useState<DigitalReservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<DigitalReservationFilters>(initialFilters);
+  const [filters, setFilters] =
+    useState<DigitalReservationFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
     total: 0,
     page: 1,
@@ -23,7 +26,7 @@ export function useDigitalReservations(initialFilters: DigitalReservationFilters
     totalPages: 0
   });
 
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
 
   const fetchReservations = useCallback(
     async (newFilters?: DigitalReservationFilters) => {
@@ -92,69 +95,87 @@ export function useDigitalReservations(initialFilters: DigitalReservationFilters
           // Fetch related data if we have reservations
           if (data && data.length > 0) {
             // Get unique IDs for related entities
-            const resourceIds = [...new Set(data.map(item => item.digital_resource_id))];
-            const userIds = [...new Set(data.map(item => item.user_id))];
-            const approverIds = [...new Set(data.filter(item => item.approver_id).map(item => item.approver_id))];
-            
+            const resourceIds = [
+              ...new Set(data.map((item) => item.digital_resource_id))
+            ];
+            const userIds = [...new Set(data.map((item) => item.user_id))];
+            const approverIds = [
+              ...new Set(
+                data
+                  .filter((item) => item.approver_id)
+                  .map((item) => item.approver_id)
+              )
+            ];
+
             // Fetch digital resources
             const { data: resources, error: resourcesError } = await supabase
               .from('digital_resources')
               .select('id, digital_resource_name, type')
               .in('id', resourceIds);
-              
+
             if (resourcesError) {
-              console.warn('Error fetching related digital resources:', resourcesError);
+              console.warn(
+                'Error fetching related digital resources:',
+                resourcesError
+              );
             }
-            
+
             // Fetch users
             const { data: users, error: usersError } = await supabase
               .from('profiles')
               .select('id, email, full_name')
               .in('id', userIds);
-              
+
             if (usersError) {
               console.warn('Error fetching related users:', usersError);
             }
-            
+
             // Fetch approvers if any
             let approvers: any[] = [];
             if (approverIds.length > 0) {
-              const { data: approversData, error: approversError } = await supabase
-                .from('profiles')
-                .select('id, email')
-                .in('id', approverIds);
-                
+              const { data: approversData, error: approversError } =
+                await supabase
+                  .from('profiles')
+                  .select('id, email')
+                  .in('id', approverIds);
+
               if (approversError) {
-                console.warn('Error fetching related approvers:', approversError);
+                console.warn(
+                  'Error fetching related approvers:',
+                  approversError
+                );
               } else {
                 approvers = approversData || [];
               }
             }
-            
+
             // Create lookup maps for faster access
             const resourceMap = (resources || []).reduce((map, resource) => {
               map[resource.id] = resource;
               return map;
             }, {} as Record<string, any>);
-            
+
             const userMap = (users || []).reduce((map, user) => {
               map[user.id] = user;
               return map;
             }, {} as Record<string, any>);
-            
+
             const approverMap = approvers.reduce((map, approver) => {
               map[approver.id] = approver;
               return map;
             }, {} as Record<string, any>);
-            
+
             // Enrich reservation data with related entities
-            const enrichedData = data.map(reservation => ({
+            const enrichedData = data.map((reservation) => ({
               ...reservation,
-              digital_resource: resourceMap[reservation.digital_resource_id] || null,
+              digital_resource:
+                resourceMap[reservation.digital_resource_id] || null,
               user: userMap[reservation.user_id] || null,
-              approver: reservation.approver_id ? approverMap[reservation.approver_id] || null : null
+              approver: reservation.approver_id
+                ? approverMap[reservation.approver_id] || null
+                : null
             }));
-            
+
             setReservations(enrichedData as DigitalReservation[]);
           } else {
             setReservations(data as DigitalReservation[]);
@@ -176,15 +197,21 @@ export function useDigitalReservations(initialFilters: DigitalReservationFilters
         } catch (queryError: unknown) {
           // Check if this is a missing table error
           if (
-            typeof queryError === 'object' && 
-            queryError !== null && 
-            'message' in queryError && 
-            typeof queryError.message === 'string' && 
+            typeof queryError === 'object' &&
+            queryError !== null &&
+            'message' in queryError &&
+            typeof queryError.message === 'string' &&
             queryError.message.includes('does not exist')
           ) {
-            setError('The digital_reservations table does not exist in the database. Please run the SQL setup script.');
+            setError(
+              'The digital_reservations table does not exist in the database. Please run the SQL setup script.'
+            );
           } else {
-            setError(queryError instanceof Error ? queryError.message : 'An error occurred while querying reservations');
+            setError(
+              queryError instanceof Error
+                ? queryError.message
+                : 'An error occurred while querying reservations'
+            );
           }
           // Set empty data
           setReservations([]);
@@ -197,7 +224,11 @@ export function useDigitalReservations(initialFilters: DigitalReservationFilters
         }
       } catch (err) {
         console.error('Error fetching digital reservations:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred while processing reservations');
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'An error occurred while processing reservations'
+        );
         // Set empty data
         setReservations([]);
       } finally {
@@ -264,46 +295,62 @@ export function useDigitalReservations(initialFilters: DigitalReservationFilters
         if (policy && policy.max_concurrent_users) {
           try {
             // Try to use the RPC function if it exists
-            const { data: conflicts, error: conflictError } = await supabase.rpc(
-              'check_digital_reservation_conflict',
-              {
+            const { data: conflicts, error: conflictError } =
+              await supabase.rpc('check_digital_reservation_conflict', {
                 p_digital_resource_id: data.digital_resource_id,
                 p_start_datetime: data.reservation_start,
                 p_end_datetime: data.reservation_end,
                 p_max_concurrent_users: policy.max_concurrent_users,
                 p_reservation_id: null
-              }
-            );
+              });
 
             if (conflictError) {
-              console.warn('RPC function error, falling back to manual check:', conflictError);
+              console.warn(
+                'RPC function error, falling back to manual check:',
+                conflictError
+              );
               // Fall back to manual check
             } else if (conflicts) {
-              toast.error('This digital resource is not available for the requested time');
+              toast.error(
+                'This digital resource is not available for the requested time'
+              );
               return null;
             }
           } catch (rpcError) {
-            console.warn('RPC function not available, falling back to manual check:', rpcError);
+            console.warn(
+              'RPC function not available, falling back to manual check:',
+              rpcError
+            );
             // Fall back to manual check - query existing reservations that overlap
-            const { data: existingReservations, error: reservationsError } = await supabase
-              .from('digital_reservations')
-              .select('id')
-              .eq('digital_resource_id', data.digital_resource_id)
-              .eq('status', 'approved')
-              .or(`reservation_start.lte.${data.reservation_end},reservation_end.gte.${data.reservation_start}`);
+            const { data: existingReservations, error: reservationsError } =
+              await supabase
+                .from('digital_reservations')
+                .select('id')
+                .eq('digital_resource_id', data.digital_resource_id)
+                .eq('status', 'approved')
+                .or(
+                  `reservation_start.lte.${data.reservation_end},reservation_end.gte.${data.reservation_start}`
+                );
 
             if (reservationsError) throw reservationsError;
 
             // Check if the number of concurrent reservations exceeds the limit
-            if (existingReservations && existingReservations.length >= policy.max_concurrent_users) {
-              toast.error('This digital resource is not available for the requested time');
+            if (
+              existingReservations &&
+              existingReservations.length >= policy.max_concurrent_users
+            ) {
+              toast.error(
+                'This digital resource is not available for the requested time'
+              );
               return null;
             }
           }
         }
 
         // Set status based on policy
-        const status: ReservationStatus = policy?.approval_required ? 'pending' : 'approved';
+        const status: ReservationStatus = policy?.approval_required
+          ? 'pending'
+          : 'approved';
 
         // Create the reservation
         const { data: reservation, error } = await supabase
@@ -325,7 +372,7 @@ export function useDigitalReservations(initialFilters: DigitalReservationFilters
 
         // Refresh the list
         fetchReservations();
-        
+
         toast.success('Reservation created successfully');
         return reservation;
       } catch (err) {
@@ -370,21 +417,24 @@ export function useDigitalReservations(initialFilters: DigitalReservationFilters
 
           if (policy && policy.max_concurrent_users) {
             // Check availability with new dates
-            const { data: conflicts, error: conflictError } = await supabase.rpc(
-              'check_digital_reservation_conflict',
-              {
+            const { data: conflicts, error: conflictError } =
+              await supabase.rpc('check_digital_reservation_conflict', {
                 p_digital_resource_id: currentReservation.digital_resource_id,
-                p_start_datetime: data.reservation_start || currentReservation.reservation_start,
-                p_end_datetime: data.reservation_end || currentReservation.reservation_end,
+                p_start_datetime:
+                  data.reservation_start ||
+                  currentReservation.reservation_start,
+                p_end_datetime:
+                  data.reservation_end || currentReservation.reservation_end,
                 p_max_concurrent_users: policy.max_concurrent_users,
                 p_reservation_id: id
-              }
-            );
+              });
 
             if (conflictError) throw conflictError;
 
             if (conflicts) {
-              toast.error('This digital resource is not available for the requested time');
+              toast.error(
+                'This digital resource is not available for the requested time'
+              );
               return null;
             }
           }

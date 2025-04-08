@@ -8,7 +8,7 @@ import type {
   UpdateDigitalResourceCategoryDto
 } from '@/types/digital-resources';
 import { toast } from 'react-hot-toast';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export function useDigitalResourceCategories(initialFilters: DigitalResourceCategoryFilters = {}) {
   const [categories, setCategories] = useState<DigitalResourceCategory[]>([]);
@@ -22,7 +22,7 @@ export function useDigitalResourceCategories(initialFilters: DigitalResourceCate
     totalPages: 0
   });
 
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
 
   const fetchCategories = useCallback(
     async (newFilters?: DigitalResourceCategoryFilters) => {

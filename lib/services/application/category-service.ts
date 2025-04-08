@@ -1,6 +1,6 @@
 // lib/services/category-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   Category,
@@ -12,7 +12,7 @@ import type {
 } from '@/types/categories';
 
 export class CategoryService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   // Get all categories with subcategories
   static async getCategories(): Promise<Category[]> {

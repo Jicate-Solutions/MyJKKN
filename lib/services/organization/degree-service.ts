@@ -1,6 +1,6 @@
 // lib/services/degree-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   Degree,
@@ -11,7 +11,7 @@ import type {
 } from '@/types/organizations';
 
 export class DegreeService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   static async createDegree(data: CreateDegreeDto): Promise<Degree> {
     try {

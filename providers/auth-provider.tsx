@@ -13,12 +13,13 @@ import { useRouter } from 'next/navigation';
 import { Profile } from '@/types/auth';
 import { AuthService } from '@/lib/auth/auth-service';
 import { toast } from 'react-hot-toast';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createBrowserClient } from '@supabase/ssr';
 import {
   AuthChangeEvent,
   RealtimePostgresChangesPayload
 } from '@supabase/supabase-js';
 import { useSessionSync } from '@/hooks/use-session-sync';
+import { Database } from '@/types/supabase';
 
 interface AuthContextType {
   user: Profile | null;
@@ -38,27 +39,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
   const refreshUser = useCallback(async () => {
     try {
       setLoading(true);
       const profile = await AuthService.getUserProfile();
-      
+
       if (!profile) {
         // If no profile, check if we're actually logged in
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session }
+        } = await supabase.auth.getSession();
         if (!session) {
           setUser(null);
           return;
         }
       }
-      
+
       setUser(profile);
     } catch (error) {
       console.error('Error refreshing user:', error);
       // On error, verify session and redirect if needed
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session }
+      } = await supabase.auth.getSession();
       if (!session) {
         setUser(null);
         router.push('/auth/login');

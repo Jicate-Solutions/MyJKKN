@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -35,6 +34,7 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { INSTITUTIONS, DEPARTMENTS } from '@/lib/constants/profile';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 const completeProfileSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -49,7 +49,7 @@ export default function CompleteProfile() {
   const [isLoading, setIsLoading] = useState(true);
   const [userEmail, setUserEmail] = useState<string>('');
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
 
   const form = useForm<FormData>({
     resolver: zodResolver(completeProfileSchema),

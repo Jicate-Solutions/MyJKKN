@@ -1,4 +1,4 @@
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   Program,
@@ -9,7 +9,7 @@ import type {
 } from '@/types/organizations';
 
 export class ProgramService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   static async createProgram(data: CreateProgramDto): Promise<Program> {
     try {

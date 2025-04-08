@@ -1,6 +1,6 @@
 // lib/services/resource/usage-report-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   UsageReport,
@@ -10,7 +10,7 @@ import type {
 } from '@/types/resources';
 
 export class UsageReportService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
   private static useMockData = false; // Set to false to use the actual database
 
   static async generateUsageReport(

@@ -1,6 +1,6 @@
 // lib/services/staff/staff-service.ts
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { Staff, StaffFilters, StaffListResponse } from '@/types/staff';
 
 interface CreateStaffDto {
@@ -31,7 +31,7 @@ interface UpdateStaffDto extends Partial<CreateStaffDto> {
 }
 
 export class StaffService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   static async createStaff(data: CreateStaffDto): Promise<Staff> {
     try {

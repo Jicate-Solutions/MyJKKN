@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,11 +13,12 @@ import {
 import { FcGoogle } from 'react-icons/fc';
 import { toast } from 'react-hot-toast';
 import { BeatLoader } from 'react-spinners';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
 
   // Check if user is already logged in
   useEffect(() => {

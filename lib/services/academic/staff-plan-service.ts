@@ -1,4 +1,4 @@
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   StaffPlan,
   CreateStaffPlanDto,
@@ -8,7 +8,7 @@ import type {
 } from '@/types/staff-planning';
 
 export class StaffPlanService {
-  private static supabase = createClientComponentClient();
+  private static supabase = createClientSupabaseClient();
 
   static async createStaffPlan(data: CreateStaffPlanDto): Promise<StaffPlan> {
     try {
