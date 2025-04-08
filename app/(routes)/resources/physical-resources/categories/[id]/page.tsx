@@ -4,7 +4,7 @@ import { use } from 'react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ResourceCategoryService } from '@/lib/services/resource/physical/resource-category-service';
 import { ResourceService } from '@/lib/services/resource/physical/resource-service';
 import { ResourceCategory, Resource } from '@/types/resources';
@@ -57,7 +57,7 @@ export default function CategoryDetailPage({
 }: CategoryDetailPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState<ResourceCategory | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
@@ -135,13 +135,17 @@ export default function CategoryDetailPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+                <Link href='/resources/physical-resources/dashboard'>
+                  Resource Management
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/categories'>Categories</Link>
+                <Link href='/resources/physical-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -171,13 +175,17 @@ export default function CategoryDetailPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources'>Resource Management</Link>
+                <Link href='/resources/physical-resources'>
+                  Resource Management
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/categories'>Categories</Link>
+                <Link href='/resources/physical-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -190,7 +198,9 @@ export default function CategoryDetailPage({
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>Error: {error}</p>
           <Button variant='outline' asChild>
-            <Link href='/resources/physical-resources/categories'>Back to Categories</Link>
+            <Link href='/resources/physical-resources/categories'>
+              Back to Categories
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -210,13 +220,17 @@ export default function CategoryDetailPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources'>Resource Management</Link>
+                <Link href='/resources/physical-resources'>
+                  Resource Management
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/categories'>Categories</Link>
+                <Link href='/resources/physical-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -229,7 +243,9 @@ export default function CategoryDetailPage({
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>Category not found</p>
           <Button variant='outline' asChild>
-            <Link href='/resources/physical-resources/categories'>Back to Categories</Link>
+            <Link href='/resources/physical-resources/categories'>
+              Back to Categories
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -248,13 +264,17 @@ export default function CategoryDetailPage({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources'>Resource Management</Link>
+              <Link href='/resources/physical-resources'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/categories'>Categories</Link>
+              <Link href='/resources/physical-resources/categories'>
+                Categories
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -370,7 +390,9 @@ export default function CategoryDetailPage({
                 <h3 className='text-lg font-medium'>
                   Resources in this Category
                 </h3>
-                <Link href={`/resources/physical-resources/new?category_id=${category.id}`}>
+                <Link
+                  href={`/resources/physical-resources/new?category_id=${category.id}`}
+                >
                   <Button variant='outline' size='sm'>
                     Add Resource
                   </Button>
@@ -382,7 +404,9 @@ export default function CategoryDetailPage({
                   <p className='text-muted-foreground'>
                     No resources in this category yet
                   </p>
-                  <Link href={`/resources/physical-resources/new?category_id=${category.id}`}>
+                  <Link
+                    href={`/resources/physical-resources/new?category_id=${category.id}`}
+                  >
                     <Button className='mt-2'>Add Resource</Button>
                   </Link>
                 </div>
@@ -438,7 +462,9 @@ export default function CategoryDetailPage({
                             </Badge>
                           </TableCell>
                           <TableCell className='text-right'>
-                            <Link href={`/resources/physical-resources/${resource.id}`}>
+                            <Link
+                              href={`/resources/physical-resources/${resource.id}`}
+                            >
                               <Button variant='ghost' size='sm'>
                                 View
                               </Button>

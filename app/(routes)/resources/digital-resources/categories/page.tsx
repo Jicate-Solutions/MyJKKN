@@ -21,36 +21,32 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
+  DialogTitle
 } from '@/components/ui/dialog';
 import { useDigitalResourceCategories } from '@/hooks/resource/digital/use-digital-resource-categories';
 import { toast } from 'sonner';
 import { BeatLoader } from 'react-spinners';
 import { CategoryList } from './_components/category-list';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { DigitalResourceCategory } from '@/types/digital-resources';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export default function DigitalResourceCategoriesPage() {
   const router = useRouter();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<DigitalResourceCategory | null>(null);
+  const [selectedCategory, setSelectedCategory] =
+    useState<DigitalResourceCategory | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const { 
-    categories, 
-    loading, 
-    error, 
-    fetchCategories,
-    deleteCategory
-  } = useDigitalResourceCategories({
-    isActive: true,
-    limit: 100
-  });
-  
-  const supabase = createClientComponentClient();
-  
+  const { categories, loading, error, fetchCategories, deleteCategory } =
+    useDigitalResourceCategories({
+      isActive: true,
+      limit: 100
+    });
+
+  const supabase = createClientSupabaseClient();
+
   // Check authentication
   useEffect(() => {
     const checkSession = async () => {
@@ -110,9 +106,9 @@ export default function DigitalResourceCategoriesPage() {
 
   if (authLoading) {
     return (
-      <ContentLayout title="Digital Resource Categories">
-        <div className="flex justify-center items-center p-8">
-          <BeatLoader color="#3498db" />
+      <ContentLayout title='Digital Resource Categories'>
+        <div className='flex justify-center items-center p-8'>
+          <BeatLoader color='#3498db' />
         </div>
       </ContentLayout>
     );
@@ -120,13 +116,13 @@ export default function DigitalResourceCategoriesPage() {
 
   if (authError) {
     return (
-      <ContentLayout title="Digital Resource Categories">
-        <div className="text-center py-8">
-          <p className="text-destructive">{authError}</p>
+      <ContentLayout title='Digital Resource Categories'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>{authError}</p>
           <Button
-            variant="outline"
+            variant='outline'
             onClick={() => router.push('/auth/login')}
-            className="mt-4"
+            className='mt-4'
           >
             Try Again
           </Button>
@@ -136,18 +132,18 @@ export default function DigitalResourceCategoriesPage() {
   }
 
   return (
-    <ContentLayout title="Digital Resource Categories">
+    <ContentLayout title='Digital Resource Categories'>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/">Home</Link>
+              <Link href='/'>Home</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/resources/digital-resources">Digital Resources</Link>
+              <Link href='/resources/digital-resources'>Digital Resources</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -157,31 +153,35 @@ export default function DigitalResourceCategoriesPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="space-y-6 mt-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
+      <div className='space-y-6 mt-4'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
           <div>
-            <h1 className="text-2xl font-bold py-1">Digital Resource Categories</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
+            <h1 className='text-2xl font-bold py-1'>
+              Digital Resource Categories
+            </h1>
+            <p className='text-sm sm:text-base text-muted-foreground'>
               Manage categories for digital resources
             </p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button 
-              className="w-full sm:w-auto" 
-              onClick={() => router.push('/resources/digital-resources/categories/new')}
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <Button
+              className='w-full sm:w-auto'
+              onClick={() =>
+                router.push('/resources/digital-resources/categories/new')
+              }
             >
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus className='mr-2 h-4 w-4' />
               Add Category
             </Button>
           </div>
         </div>
 
         <Card>
-          <CardContent className="p-6">
-            <CategoryList 
-              categories={categories} 
-              onEdit={handleEdit} 
-              onDelete={openDeleteDialog} 
+          <CardContent className='p-6'>
+            <CategoryList
+              categories={categories}
+              onEdit={handleEdit}
+              onDelete={openDeleteDialog}
             />
           </CardContent>
         </Card>
@@ -193,19 +193,21 @@ export default function DigitalResourceCategoriesPage() {
           <DialogHeader>
             <DialogTitle>Delete Category</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete the category &quot;{selectedCategory?.category_name}&quot;? This action cannot be undone.
+              Are you sure you want to delete the category &quot;
+              {selectedCategory?.category_name}&quot;? This action cannot be
+              undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant='outline'
               onClick={() => setIsDeleteDialogOpen(false)}
               disabled={isSubmitting}
             >
               Cancel
             </Button>
-            <Button 
-              variant="destructive"
+            <Button
+              variant='destructive'
               onClick={handleDeleteCategory}
               disabled={isSubmitting}
             >

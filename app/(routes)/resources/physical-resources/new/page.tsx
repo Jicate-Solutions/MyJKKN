@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -22,7 +22,7 @@ export default function NewResourcePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const categoryId = searchParams.get('category_id');
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,13 +88,17 @@ export default function NewResourcePage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+              <Link href='/resources/physical-resources/dashboard'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/resources'>Resources</Link>
+              <Link href='/resources/physical-resources/resources'>
+                Resources
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
