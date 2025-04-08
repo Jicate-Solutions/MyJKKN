@@ -3,8 +3,7 @@
 import React, { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { ContentLayout } from '@/components/layout/content-layout';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, Loader2 } from 'lucide-react';
 import {
@@ -18,6 +17,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { CategoryForm } from '../../_components/category-form';
 import { DigitalResourceCategory } from '@/types/digital-resources';
+import { ContentLayout } from '@/components/layout/content-layout';
 
 interface EditCategoryPageProps {
   params: Promise<{
@@ -28,9 +28,11 @@ interface EditCategoryPageProps {
 export default function EditDigitalResourceCategoryPage({ params }: EditCategoryPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
   const [loading, setLoading] = useState(true);
-  const [category, setCategory] = useState<DigitalResourceCategory | null>(null);
+  const [category, setCategory] = useState<DigitalResourceCategory | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

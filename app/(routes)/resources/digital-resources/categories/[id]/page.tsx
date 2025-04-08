@@ -3,8 +3,11 @@
 import React, { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { DigitalResourceCategory, DigitalResource } from '@/types/digital-resources';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  DigitalResourceCategory,
+  DigitalResource
+} from '@/types/digital-resources';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -54,9 +57,11 @@ export default function DigitalResourceCategoryDetailPage({
 }: CategoryDetailPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
   const [loading, setLoading] = useState(true);
-  const [category, setCategory] = useState<DigitalResourceCategory | null>(null);
+  const [category, setCategory] = useState<DigitalResourceCategory | null>(
+    null
+  );
   const [resources, setResources] = useState<DigitalResource[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,23 +124,23 @@ export default function DigitalResourceCategoryDetailPage({
     ) {
       try {
         setLoading(true);
-        
+
         // Check if there are resources using this category
         if (resources.length > 0) {
           toast.error('Cannot delete category with associated resources');
           setLoading(false);
           return;
         }
-        
+
         const { error } = await supabase
           .from('digital_resource_categories')
           .delete()
           .eq('id', category.id);
-          
+
         if (error) {
           throw new Error(error.message);
         }
-        
+
         toast.success('Category deleted successfully');
         router.push('/resources/digital-resources/categories');
       } catch (error) {
@@ -162,13 +167,17 @@ export default function DigitalResourceCategoryDetailPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/digital-resources'>Digital Resources</Link>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/digital-resources/categories'>Categories</Link>
+                <Link href='/resources/digital-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -198,13 +207,17 @@ export default function DigitalResourceCategoryDetailPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/digital-resources'>Digital Resources</Link>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/digital-resources/categories'>Categories</Link>
+                <Link href='/resources/digital-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -217,7 +230,9 @@ export default function DigitalResourceCategoryDetailPage({
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>Error: {error}</p>
           <Button variant='outline' asChild>
-            <Link href='/resources/digital-resources/categories'>Back to Categories</Link>
+            <Link href='/resources/digital-resources/categories'>
+              Back to Categories
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -237,13 +252,17 @@ export default function DigitalResourceCategoryDetailPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/digital-resources'>Digital Resources</Link>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/digital-resources/categories'>Categories</Link>
+                <Link href='/resources/digital-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -256,7 +275,9 @@ export default function DigitalResourceCategoryDetailPage({
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>Category not found</p>
           <Button variant='outline' asChild>
-            <Link href='/resources/digital-resources/categories'>Back to Categories</Link>
+            <Link href='/resources/digital-resources/categories'>
+              Back to Categories
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -281,7 +302,9 @@ export default function DigitalResourceCategoryDetailPage({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/digital-resources/categories'>Categories</Link>
+              <Link href='/resources/digital-resources/categories'>
+                Categories
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -302,7 +325,9 @@ export default function DigitalResourceCategoryDetailPage({
             </p>
           </div>
           <div className='flex space-x-2'>
-            <Link href={`/resources/digital-resources/categories/${category.id}/edit`}>
+            <Link
+              href={`/resources/digital-resources/categories/${category.id}/edit`}
+            >
               <Button variant='outline'>
                 <Edit className='h-4 w-4 mr-2' />
                 Edit
@@ -366,7 +391,9 @@ export default function DigitalResourceCategoryDetailPage({
                 <h3 className='text-lg font-medium'>
                   Resources in this Category
                 </h3>
-                <Link href={`/resources/digital-resources/new?category_id=${category.id}`}>
+                <Link
+                  href={`/resources/digital-resources/new?category_id=${category.id}`}
+                >
                   <Button variant='outline' size='sm'>
                     Add Resource
                   </Button>
@@ -378,7 +405,9 @@ export default function DigitalResourceCategoryDetailPage({
                   <p className='text-muted-foreground'>
                     No resources in this category yet
                   </p>
-                  <Link href={`/resources/digital-resources/new?category_id=${category.id}`}>
+                  <Link
+                    href={`/resources/digital-resources/new?category_id=${category.id}`}
+                  >
                     <Button className='mt-2'>Add Resource</Button>
                   </Link>
                 </div>
@@ -406,7 +435,8 @@ export default function DigitalResourceCategoryDetailPage({
                             </Link>
                           </TableCell>
                           <TableCell>
-                            {resource.type.charAt(0).toUpperCase() + resource.type.slice(1).replace(/-/g, ' ')}
+                            {resource.type.charAt(0).toUpperCase() +
+                              resource.type.slice(1).replace(/-/g, ' ')}
                           </TableCell>
                           <TableCell>
                             {resource.access_method.replace(/-/g, ' ')}
@@ -423,7 +453,9 @@ export default function DigitalResourceCategoryDetailPage({
                             </Badge>
                           </TableCell>
                           <TableCell className='text-right'>
-                            <Link href={`/resources/digital-resources/${resource.id}`}>
+                            <Link
+                              href={`/resources/digital-resources/${resource.id}`}
+                            >
                               <Button variant='ghost' size='sm'>
                                 View
                               </Button>

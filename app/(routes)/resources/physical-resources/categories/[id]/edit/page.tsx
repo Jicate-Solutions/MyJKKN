@@ -4,8 +4,7 @@ import { use } from 'react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { CategoryForm } from '../../_components/category-form';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ResourceCategoryService } from '@/lib/services/resource/physical/resource-category-service';
 import { ResourceCategory } from '@/types/resources';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -20,6 +19,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { CategoryForm } from '../../_components/category-form';
 
 interface EditCategoryPageProps {
   params: Promise<{
@@ -30,7 +30,7 @@ interface EditCategoryPageProps {
 export default function EditCategoryPage({ params }: EditCategoryPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState<ResourceCategory | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,13 +77,17 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources'>Resource Management</Link>
+                <Link href='/resources/physical-resources'>
+                  Resource Management
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/categories'>Categories</Link>
+                <Link href='/resources/physical-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -113,13 +117,17 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources'>Resource Management</Link>
+                <Link href='/resources/physical-resources'>
+                  Resource Management
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/categories'>Categories</Link>
+                <Link href='/resources/physical-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -132,7 +140,9 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>{error}</p>
           <Button variant='outline' asChild>
-            <Link href='/resources/physical-resources/categories'>Back to Categories</Link>
+            <Link href='/resources/physical-resources/categories'>
+              Back to Categories
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -152,13 +162,17 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources'>Resource Management</Link>
+                <Link href='/resources/physical-resources'>
+                  Resource Management
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/categories'>Categories</Link>
+                <Link href='/resources/physical-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -171,7 +185,9 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>Category not found</p>
           <Button variant='outline' asChild>
-            <Link href='/resources/physical-resources/categories'>Back to Categories</Link>
+            <Link href='/resources/physical-resources/categories'>
+              Back to Categories
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -190,13 +206,17 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+              <Link href='/resources/physical-resources/dashboard'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/categories'>Categories</Link>
+              <Link href='/resources/physical-resources/categories'>
+                Categories
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

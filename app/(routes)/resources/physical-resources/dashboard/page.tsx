@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -20,7 +20,7 @@ import { BeatLoader } from 'react-spinners';
 
 export default function ResourcesPage() {
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientSupabaseClient();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
