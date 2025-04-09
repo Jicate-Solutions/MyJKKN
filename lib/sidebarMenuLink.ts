@@ -81,6 +81,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/applications/new': 'manage_applications',
   '/applications/categories': 'manage_application_categories',
 
+  // Admissions Management
+  '/admissions': 'view_admissions',
+  '/admissions/new': 'create_admissions',
+
   // Organization Management
   '/organizations/institutions': 'view_institutions',
   '/organizations/degrees': 'view_degrees',
@@ -236,6 +240,25 @@ export function GetPages(pathname: string): MenuGroup[] {
         //   icon: MessageCircle,
         //   submenus: []
         // }
+      ]
+    },
+    {
+      groupLabel: 'Admissions Management',
+      menus: [
+        {
+          href: '/admissions',
+          label: 'All Admissions',
+          active: pathname === '/admissions',
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          href: '/admissions/new',
+          label: 'New Admission',
+          active: pathname === '/admissions/new',
+          icon: PlusCircle,
+          submenus: []
+        }
       ]
     },
     {

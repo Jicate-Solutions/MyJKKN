@@ -1,0 +1,767 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { getSupabaseClient } from '@/lib/supabase/client';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
+import { Button } from '@/components/ui/button';
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage
+} from '@/components/ui/form';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card } from '@/components/ui/card';
+import { BasicDetailsForm } from './form-sections/basic-details';
+import { AcademicInformationForm } from './form-sections/academic-information';
+import { ContactDetailsForm } from './form-sections/contact-details';
+import { AccommodationPreferencesForm } from './form-sections/accommodation-preferences';
+import { AdmissionService } from '@/lib/services/admission/admission-service';
+import {
+  useCreateAdmission,
+  useUpdateAdmission
+} from '@/hooks/admission/use-admissions';
+import toast from 'react-hot-toast';
+import { CourseSelectionForm } from './form-sections/course-selection';
+
+// Define the form schema with all sections
+const basicDetailsSchema = z.object({
+  enquiryDate: z.string().optional(),
+  studentName: z.string().min(1, 'Student name is required'),
+  fatherName: z.string().min(1, "Father's name is required"),
+  fatherOccupation: z.string().optional(),
+  fatherMobile: z.string().length(10, 'Mobile number must be 10 digits'),
+  motherName: z.string().min(1, "Mother's name is required"),
+  motherOccupation: z.string().optional(),
+  motherMobile: z.string().length(10, 'Mobile number must be 10 digits'),
+  dateOfBirth: z.string().min(1, 'Date of birth is required'),
+  gender: z.string().min(1, 'Gender is required'),
+  religion: z.string().min(1, 'Religion is required'),
+  community: z.string().min(1, 'Community is required'),
+  caste: z.string().optional(),
+  annualIncome: z.string().optional()
+});
+
+// Schema for academic information
+const academicInformationSchema = z.object({
+  lastSchool: z.string().min(1, 'Last school/college is required'),
+  boardOfStudy: z.string().min(1, 'Board of study is required'),
+  tenthMarks: z.object({
+    maxMarks: z.string().min(1, 'Max marks are required'),
+    obtainedMarks: z.string().min(1, 'Obtained marks are required'),
+    percentage: z.string().optional()
+  }),
+  twelfthMarks: z.object({
+    group: z.string().min(1, 'Group/stream is required'),
+    maxMarks: z.string().min(1, 'Max marks are required'),
+    obtainedMarks: z.string().min(1, 'Obtained marks are required'),
+    percentage: z.string().optional(),
+    subjects: z.record(z.string().optional()).optional()
+  }),
+  medicalCutoffMarks: z.string().optional(),
+  engineeringCutoffMarks: z.string().optional(),
+  neetRollNumber: z.string().optional(),
+  counselingApplied: z.boolean().optional(),
+  counselingNumber: z.string().optional(),
+  firstGraduate: z.boolean().optional()
+});
+
+// Schema for course selection
+const courseSelectionSchema = z.object({
+  quota: z.string().optional(),
+  category: z.string().optional(),
+  fieldOfStudy: z.string().min(1, 'Institution is required'),
+  degreeId: z.string().min(1, 'Degree is required'),
+  departmentId: z.string().min(1, 'Department is required'),
+  programId: z.string().min(1, 'Program is required'),
+  courseType: z.string().min(1, 'Course type is required'),
+  entryType: z.string().min(1, 'Entry type is required'),
+  yearAndBranch: z.string().min(1, 'Course is required')
+});
+
+// Schema for contact details
+const contactDetailsSchema = z.object({
+  permanentAddressStreet: z.string().min(1, 'Street address is required'),
+  permanentAddressTaluk: z.string().optional(),
+  permanentAddressDistrict: z.string().min(1, 'District is required'),
+  permanentAddressPinCode: z.string().length(6, 'PIN code must be 6 digits'),
+  permanentAddressState: z.string().min(1, 'State is required'),
+  studentMobile: z.string().length(10, 'Mobile number must be 10 digits'),
+  studentEmail: z.string().email('Invalid email address')
+});
+
+// Schema for accommodation preferences
+const accommodationPreferencesSchema = z.object({
+  accommodationType: z.string().min(1, 'Accommodation type is required'),
+  hostelType: z.string().optional(),
+  busRequired: z.boolean().optional(),
+  busRoute: z.string().optional(),
+  busPickupLocation: z.string().optional(),
+  referenceType: z.string().optional(),
+  referenceName: z.string().optional(),
+  referenceContact: z.string().optional()
+});
+
+// Combine all schemas into one
+const admissionFormSchema = z.object({
+  ...basicDetailsSchema.shape,
+  ...academicInformationSchema.shape,
+  ...courseSelectionSchema.shape,
+  ...contactDetailsSchema.shape,
+  ...accommodationPreferencesSchema.shape
+});
+
+type AdmissionFormValues = z.infer<typeof admissionFormSchema>;
+
+// These are the tabs for our form sections
+const formTabs = [
+  { id: 'basic-details', label: 'Basic Details' },
+  { id: 'academic-information', label: 'Academic Information' },
+  { id: 'course-selection', label: 'Course Selection' },
+  { id: 'contact-details', label: 'Contact Details' },
+  { id: 'accommodation-preferences', label: 'Accommodation' }
+];
+
+export function AdmissionForm({
+  initialData,
+  isEditing
+}: {
+  initialData?: any;
+  isEditing?: boolean;
+}) {
+  const router = useRouter();
+  const supabase = getSupabaseClient();
+  const [activeTab, setActiveTab] = useState(formTabs[0].id);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Use the React Query mutations
+  const createAdmission = useCreateAdmission();
+  const updateAdmission = useUpdateAdmission(initialData?.id);
+
+  // Scroll to top whenever tab changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [activeTab]);
+
+  // Initialize the form with default values or initialData for editing
+  const form = useForm<AdmissionFormValues>({
+    resolver: zodResolver(admissionFormSchema),
+    defaultValues: initialData || {
+      // Basic Details
+      enquiryDate: new Date().toISOString().split('T')[0],
+      studentName: '',
+      fatherName: '',
+      fatherOccupation: '',
+      fatherMobile: '',
+      motherName: '',
+      motherOccupation: '',
+      motherMobile: '',
+      dateOfBirth: '',
+      gender: '',
+      religion: '',
+      community: '',
+      caste: '',
+      annualIncome: '',
+
+      // Academic Information
+      lastSchool: '',
+      boardOfStudy: '',
+      tenthMarks: {
+        maxMarks: '',
+        obtainedMarks: '',
+        percentage: ''
+      },
+      twelfthMarks: {
+        group: '',
+        maxMarks: '',
+        obtainedMarks: '',
+        percentage: '',
+        subjects: {}
+      },
+      medicalCutoffMarks: '',
+      engineeringCutoffMarks: '',
+      neetRollNumber: '',
+      counselingApplied: false,
+      counselingNumber: '',
+      firstGraduate: false,
+
+      // Course Selection
+      quota: '',
+      category: '',
+      fieldOfStudy: '',
+      degreeId: '',
+      departmentId: '',
+      programId: '',
+      courseType: '',
+      entryType: '',
+      yearAndBranch: '',
+
+      // Contact Details
+      permanentAddressStreet: '',
+      permanentAddressTaluk: '',
+      permanentAddressDistrict: '',
+      permanentAddressPinCode: '',
+      permanentAddressState: '',
+      studentMobile: '',
+      studentEmail: '',
+
+      // Accommodation Preferences
+      accommodationType: '',
+      hostelType: '',
+      busRequired: false,
+      busRoute: '',
+      busPickupLocation: '',
+      referenceType: '',
+      referenceName: '',
+      referenceContact: ''
+    },
+    mode: 'onBlur',
+    criteriaMode: 'all'
+  });
+
+  // Function to move to the next tab
+  const goToNextTab = () => {
+    const currentIndex = formTabs.findIndex((tab) => tab.id === activeTab);
+    if (currentIndex < formTabs.length - 1) {
+      setActiveTab(formTabs[currentIndex + 1].id);
+      // Scroll to top of the page
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  // Function to move to the previous tab
+  const goToPreviousTab = () => {
+    const currentIndex = formTabs.findIndex((tab) => tab.id === activeTab);
+    if (currentIndex > 0) {
+      setActiveTab(formTabs[currentIndex - 1].id);
+      // Scroll to top of the page
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  // Function to validate the current section before proceeding
+  const validateSection = async () => {
+    let fieldsToValidate: string[] = [];
+
+    // Determine which fields to validate based on the active tab
+    switch (activeTab) {
+      case 'basic-details':
+        fieldsToValidate = [
+          'studentName',
+          'fatherName',
+          'fatherMobile',
+          'motherName',
+          'motherMobile',
+          'dateOfBirth',
+          'gender',
+          'religion',
+          'community'
+        ];
+        break;
+      case 'academic-information':
+        fieldsToValidate = [
+          'lastSchool',
+          'boardOfStudy',
+          'tenthMarks.maxMarks',
+          'tenthMarks.obtainedMarks'
+        ];
+        break;
+      case 'course-selection':
+        fieldsToValidate = [
+          'fieldOfStudy',
+          'courseType',
+          'entryType',
+          'yearAndBranch'
+        ];
+        break;
+      case 'contact-details':
+        fieldsToValidate = [
+          'permanentAddressStreet',
+          'permanentAddressDistrict',
+          'permanentAddressPinCode',
+          'permanentAddressState',
+          'studentMobile',
+          'studentEmail'
+        ];
+        break;
+      case 'accommodation-preferences':
+        fieldsToValidate = ['accommodationType'];
+        break;
+    }
+
+    const result = await form.trigger(fieldsToValidate as any);
+    return result;
+  };
+
+  // Function to display error toast with consistent styling
+  const showErrorToast = (content: string) => {
+    toast.error(content);
+  };
+
+  // Function to get error message for a field (handles nested fields)
+  const getErrorMessage = (errors: any, field: string): string | undefined => {
+    // Handle nested fields like 'tenthMarks.maxMarks'
+    const fieldParts = field.split('.');
+    let currentErrors = errors;
+
+    // Navigate through nested objects
+    for (let i = 0; i < fieldParts.length; i++) {
+      const part = fieldParts[i];
+
+      if (!currentErrors[part as keyof typeof currentErrors]) {
+        return undefined;
+      }
+
+      // If this is the last part, return message
+      if (i === fieldParts.length - 1) {
+        return (currentErrors[part as keyof typeof currentErrors] as any)
+          .message;
+      }
+
+      // Otherwise, continue to nested errors
+      currentErrors = currentErrors[part as keyof typeof currentErrors] as any;
+    }
+
+    return undefined;
+  };
+
+  // Handle next button click
+  const handleNext = async () => {
+    // Trigger validation on the fields in the current section
+    const isValid = await validateSection();
+    if (isValid) {
+      goToNextTab();
+    } else {
+      // If validation fails, show errors in the form fields
+      // React Hook Form will automatically show error messages
+
+      // Get the validation errors to show in toast
+      const errors = form.formState.errors;
+      const errorFields = Object.keys(errors).concat(
+        // Add nested field paths for complex objects
+        Object.entries(errors)
+          .filter(
+            ([_, value]) =>
+              typeof value === 'object' &&
+              value !== null &&
+              !('message' in value)
+          )
+          .flatMap(([parent, value]) =>
+            Object.keys(value).map((key) => `${parent}.${key}`)
+          )
+      );
+
+      if (errorFields.length > 0) {
+        const readableErrors = errorFields
+          .filter((field) => getErrorMessage(errors, field)) // Only include fields with error messages
+          .map((field) => {
+            const fieldName = getReadableFieldName(field);
+            const errorMessage = getErrorMessage(errors, field);
+            return `${fieldName}${errorMessage ? `: ${errorMessage}` : ''}`;
+          });
+
+        // Show toast message with validation errors
+        toast.error(
+          `Please correct the following errors before continuing to the next section: ${readableErrors.join(
+            ', '
+          )}`
+        );
+
+        // Focus on the first error field
+        const firstErrorField = errorFields[0];
+        if (firstErrorField) {
+          try {
+            // Try to find and focus the element
+            const element = document.querySelector(
+              `[name="${firstErrorField}"]`
+            ) as HTMLElement;
+            if (element) {
+              element.focus();
+            }
+          } catch (e) {
+            console.error('Error focusing field:', e);
+          }
+        }
+      }
+    }
+  };
+
+  // Handle form submission
+  const onSubmit = async (data: AdmissionFormValues) => {
+    setIsSubmitting(true);
+
+    try {
+      // Validate the entire form
+      const isValid = await form.trigger();
+      if (!isValid) {
+        const errors = form.formState.errors;
+        const errorFields = Object.keys(errors).concat(
+          // Add nested field paths for complex objects
+          Object.entries(errors)
+            .filter(
+              ([_, value]) =>
+                typeof value === 'object' &&
+                value !== null &&
+                !('message' in value)
+            )
+            .flatMap(([parent, value]) =>
+              Object.keys(value).map((key) => `${parent}.${key}`)
+            )
+        );
+
+        if (errorFields.length > 0) {
+          const readableErrors = errorFields
+            .filter((field) => getErrorMessage(errors, field)) // Only include fields with error messages
+            .map((field) => {
+              const fieldName = getReadableFieldName(field);
+              const errorMessage = getErrorMessage(errors, field);
+              return `${fieldName}${errorMessage ? `: ${errorMessage}` : ''}`;
+            });
+
+          // Display a toast with the validation errors
+          toast.error(
+            'Form has validation errors. Please check and correct the form.'
+          );
+
+          // Find the first tab with errors and switch to it
+          let tabFound = false;
+          for (const tab of formTabs) {
+            const fieldsToValidate = getFieldsForTab(tab.id);
+            const hasError = fieldsToValidate.some((field) => {
+              const fieldParts = field.split('.');
+              let currentErrors = errors;
+
+              // Navigate through nested objects to check for errors
+              for (let i = 0; i < fieldParts.length; i++) {
+                const part = fieldParts[i];
+                if (!currentErrors[part as keyof typeof currentErrors])
+                  return false;
+                currentErrors = currentErrors[
+                  part as keyof typeof currentErrors
+                ] as any;
+              }
+
+              return true;
+            });
+
+            if (hasError && !tabFound) {
+              tabFound = true;
+              setActiveTab(tab.id);
+              // Scroll to the top
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              toast(`Please correct errors in the "${tab.label}" section`);
+              break;
+            }
+          }
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // Convert form data to the format expected by Supabase
+      const formattedData = {
+        // Map camelCase field names to snake_case for Supabase
+        student_name: data.studentName,
+        father_name: data.fatherName,
+        father_occupation: data.fatherOccupation || '',
+        father_mobile: data.fatherMobile,
+        mother_name: data.motherName,
+        mother_occupation: data.motherOccupation || '',
+        mother_mobile: data.motherMobile,
+        date_of_birth: data.dateOfBirth,
+        gender: data.gender,
+        religion: data.religion,
+        community: data.community,
+        caste: data.caste || '',
+        annual_income: data.annualIncome || '',
+
+        // Academic Information
+        last_school: data.lastSchool,
+        board_of_study: data.boardOfStudy,
+        tenth_marks: {
+          max_marks: data.tenthMarks.maxMarks,
+          obtained_marks: data.tenthMarks.obtainedMarks,
+          percentage: data.tenthMarks.percentage || ''
+        },
+        twelfth_marks: {
+          group: data.twelfthMarks.group,
+          max_marks: data.twelfthMarks.maxMarks,
+          obtained_marks: data.twelfthMarks.obtainedMarks,
+          percentage: data.twelfthMarks.percentage || '',
+          subjects: Object.entries(data.twelfthMarks.subjects || {}).reduce(
+            (acc, [key, value]) => {
+              acc[key] = value || '';
+              return acc;
+            },
+            {} as Record<string, string>
+          )
+        },
+        medical_cutoff_marks: data.medicalCutoffMarks || '',
+        engineering_cutoff_marks: data.engineeringCutoffMarks || '',
+        neet_roll_number: data.neetRollNumber || '',
+        counseling_applied: data.counselingApplied || false,
+        counseling_number: data.counselingNumber || '',
+        first_graduate: data.firstGraduate || false,
+
+        // Course Selection
+        quota: data.quota || '',
+        category: data.category || '',
+        field_of_study: data.fieldOfStudy,
+        degree_id: data.degreeId || undefined,
+        department_id: data.departmentId || undefined,
+        program_id: data.programId || undefined,
+        course_type: data.courseType,
+        entry_type: data.entryType,
+        year_and_branch: data.yearAndBranch,
+
+        // Contact Details
+        permanent_address_street: data.permanentAddressStreet,
+        permanent_address_taluk: data.permanentAddressTaluk || '',
+        permanent_address_district: data.permanentAddressDistrict,
+        permanent_address_pin_code: data.permanentAddressPinCode,
+        permanent_address_state: data.permanentAddressState,
+        student_mobile: data.studentMobile,
+        student_email: data.studentEmail,
+
+        // Accommodation Preferences
+        accommodation_type: data.accommodationType,
+        hostel_type: data.hostelType || '',
+        bus_required: data.busRequired || false,
+        bus_route: data.busRoute || '',
+        bus_pickup_location: data.busPickupLocation || '',
+        reference_type: data.referenceType || '',
+        reference_name: data.referenceName || '',
+        reference_contact: data.referenceContact || '',
+
+        // Status - new submissions are always pending
+        status: 'pending'
+      };
+
+      console.log('Form data to submit:', formattedData);
+
+      if (isEditing) {
+        // Update existing admission application
+        updateAdmission.mutate(formattedData, {
+          onSuccess: () => {
+            toast.success('Admission application updated successfully');
+            // Redirect to the admission details page
+            router.push(`/admissions/${initialData.id}`);
+          },
+          onError: (error: Error) => {
+            console.error('Error updating admission:', error);
+            toast.error(
+              `Failed to update admission application: ${error.message}`
+            );
+          }
+        });
+      } else {
+        // Create new admission application
+        createAdmission.mutate(formattedData, {
+          onSuccess: (data) => {
+            toast.success('Admission application submitted successfully');
+
+            // Redirect to the admissions list page
+            router.push('/admissions');
+          },
+          onError: (error: Error) => {
+            console.error('Error creating admission:', error);
+            toast.error(
+              `Failed to submit admission application: ${error.message}`
+            );
+          }
+        });
+      }
+    } catch (error: any) {
+      console.error('Error submitting form:', error);
+      toast.error(
+        `Failed to ${isEditing ? 'update' : 'submit'} admission application: ${
+          error.message
+        }`
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Function to get fields for a specific tab
+  const getFieldsForTab = (tabId: string): string[] => {
+    switch (tabId) {
+      case 'basic-details':
+        return [
+          'studentName',
+          'fatherName',
+          'fatherMobile',
+          'motherName',
+          'motherMobile',
+          'dateOfBirth',
+          'gender',
+          'religion',
+          'community'
+        ];
+      case 'academic-information':
+        return [
+          'lastSchool',
+          'boardOfStudy',
+          'tenthMarks.maxMarks',
+          'tenthMarks.obtainedMarks'
+        ];
+      case 'course-selection':
+        return [
+          'fieldOfStudy',
+          'degreeId',
+          'departmentId',
+          'programId',
+          'courseType',
+          'entryType',
+          'yearAndBranch'
+        ];
+      case 'contact-details':
+        return [
+          'permanentAddressStreet',
+          'permanentAddressDistrict',
+          'permanentAddressPinCode',
+          'permanentAddressState',
+          'studentMobile',
+          'studentEmail'
+        ];
+      case 'accommodation-preferences':
+        return ['accommodationType'];
+      default:
+        return [];
+    }
+  };
+
+  // Function to convert field names to readable format
+  const getReadableFieldName = (field: string): string => {
+    const fieldMap: Record<string, string> = {
+      studentName: 'Student Name',
+      fatherName: "Father's Name",
+      fatherMobile: "Father's Mobile",
+      motherName: "Mother's Name",
+      motherMobile: "Mother's Mobile",
+      dateOfBirth: 'Date of Birth',
+      gender: 'Gender',
+      religion: 'Religion',
+      community: 'Community',
+      lastSchool: 'Last School',
+      boardOfStudy: 'Board of Study',
+      'tenthMarks.maxMarks': 'Class 10 Maximum Marks',
+      'tenthMarks.obtainedMarks': 'Class 10 Obtained Marks',
+      'twelfthMarks.group': 'Class 12 Group',
+      'twelfthMarks.maxMarks': 'Class 12 Maximum Marks',
+      'twelfthMarks.obtainedMarks': 'Class 12 Obtained Marks',
+      fieldOfStudy: 'Institution',
+      courseType: 'Course Type',
+      entryType: 'Entry Type',
+      yearAndBranch: 'Course',
+      permanentAddressStreet: 'Street Address',
+      permanentAddressDistrict: 'District',
+      permanentAddressPinCode: 'PIN Code',
+      permanentAddressState: 'State',
+      studentMobile: 'Student Mobile',
+      studentEmail: 'Student Email',
+      accommodationType: 'Accommodation Type',
+      hostelType: 'Hostel Type',
+      busRequired: 'Bus Required',
+      busRoute: 'Bus Route',
+      busPickupLocation: 'Bus Pickup Location'
+    };
+
+    // Handle nested and unmapped fields
+    if (fieldMap[field]) {
+      return fieldMap[field];
+    }
+
+    // Format camelCase to words
+    return field
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, (str) => str.toUpperCase())
+      .trim();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
+          <TabsList className='grid w-full grid-cols-2 md:grid-cols-5'>
+            {formTabs.map((tab) => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                disabled={isSubmitting}
+                className='text-xs md:text-sm'
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <div className='mt-6'>
+            <TabsContent value='basic-details'>
+              <Card className='p-6'>
+                <BasicDetailsForm form={form} />
+              </Card>
+            </TabsContent>
+
+            <TabsContent value='academic-information'>
+              <Card className='p-6'>
+                <AcademicInformationForm form={form} />
+              </Card>
+            </TabsContent>
+
+            <TabsContent value='course-selection'>
+              <Card className='p-6'>
+                <CourseSelectionForm form={form} />
+              </Card>
+            </TabsContent>
+
+            <TabsContent value='contact-details'>
+              <Card className='p-6'>
+                <ContactDetailsForm form={form} />
+              </Card>
+            </TabsContent>
+
+            <TabsContent value='accommodation-preferences'>
+              <Card className='p-6'>
+                <AccommodationPreferencesForm form={form} />
+              </Card>
+            </TabsContent>
+          </div>
+        </Tabs>
+
+        <div className='flex justify-between'>
+          <Button
+            type='button'
+            variant='outline'
+            onClick={goToPreviousTab}
+            disabled={activeTab === formTabs[0].id || isSubmitting}
+          >
+            Previous
+          </Button>
+
+          {activeTab !== formTabs[formTabs.length - 1].id ? (
+            <Button type='button' onClick={handleNext} disabled={isSubmitting}>
+              Next
+            </Button>
+          ) : (
+            <Button type='submit' disabled={isSubmitting}>
+              {isSubmitting
+                ? isEditing
+                  ? 'Updating...'
+                  : 'Submitting...'
+                : isEditing
+                ? 'Update Application'
+                : 'Submit Application'}
+            </Button>
+          )}
+        </div>
+      </form>
+    </Form>
+  );
+}
