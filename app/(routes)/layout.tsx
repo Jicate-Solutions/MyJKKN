@@ -2,6 +2,7 @@
 
 import AdminPanelLayout from '@/components/layout/admin-panel-layout';
 import { AuthProvider } from '@/providers/auth-provider';
+import { QueryClientProvider } from '../providers/query-provider';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -10,7 +11,9 @@ interface DashboardLayoutProps {
 const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
   return (
     <AdminPanelLayout>
-      <AuthProvider>{children}</AuthProvider>
+      <QueryClientProvider>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
     </AdminPanelLayout>
   );
 };
