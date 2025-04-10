@@ -28,6 +28,13 @@ interface AccommodationPreferencesFormProps {
 export function AccommodationPreferencesForm({
   form
 }: AccommodationPreferencesFormProps) {
+  // Log the form values for this section
+  console.log('Accommodation form state:', {
+    accommodationType: form.getValues('accommodationType'),
+    hostelType: form.getValues('hostelType'),
+    referenceType: form.getValues('referenceType')
+  });
+
   // Watch for accommodation type to show conditional fields
   const accommodationType = useWatch({
     control: form.control,

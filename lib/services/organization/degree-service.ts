@@ -175,19 +175,57 @@ export class DegreeService {
     institutionId: string
   ): Promise<Degree[]> {
     try {
-      const { data: degrees, error } = await this.supabase
-        .from('degrees')
-        .select('*')
-        .eq('institution_id', institutionId)
-        .eq('is_active', true)
-        .order('degree_name');
+      // Check if institutionId is a UUID or a name/label
+      const isUUID =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          institutionId
+        );
+
+      let query;
+
+      if (isUUID) {
+        // If it's a UUID, use it directly with eq
+        query = this.supabase
+          .from('degrees')
+          .select('*')
+          .eq('institution_id', institutionId)
+          .eq('is_active', true)
+          .order('degree_name');
+      } else {
+        // If it's not a UUID, we need to first find the institution by name
+        console.log('Searching for institution with name:', institutionId);
+
+        // Option 1: Find the institution by name first, then get degrees for it
+        const { data: institution } = await this.supabase
+          .from('institutions')
+          .select('id')
+          .ilike('name', institutionId)
+          .single();
+
+        if (institution) {
+          console.log('Found institution with ID:', institution.id);
+          query = this.supabase
+            .from('degrees')
+            .select('*')
+            .eq('institution_id', institution.id)
+            .eq('is_active', true)
+            .order('degree_name');
+        } else {
+          console.log('No institution found with name:', institutionId);
+          // Return empty array if no institution found
+          return [];
+        }
+      }
+
+      const { data: degrees, error } = await query;
 
       if (error) throw error;
 
       return degrees || [];
     } catch (error) {
       console.error('Error fetching degrees by institution:', error);
-      throw error;
+      // Return empty array instead of throwing error
+      return [];
     }
   }
 }

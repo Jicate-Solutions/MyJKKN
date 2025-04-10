@@ -33,6 +33,14 @@ interface BasicDetailsFormProps {
 }
 
 export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
+  // Log the form values for this section
+  console.log('Basic details form state:', {
+    studentName: form.getValues('studentName'),
+    fatherName: form.getValues('fatherName'),
+    religion: form.getValues('religion'),
+    community: form.getValues('community')
+  });
+
   // Calculate date 15 years ago for date of birth restrictions
   const fifteenYearsAgo = subYears(new Date(), 15);
 

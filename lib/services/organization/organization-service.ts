@@ -339,4 +339,28 @@ export class OrganizationService {
       throw error;
     }
   }
+
+  static async getInstitutionByName(name: string): Promise<Institution | null> {
+    try {
+      const { data: institution, error } = await this.supabase
+        .from('institutions')
+        .select('*')
+        .eq('name', name)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No results found
+          console.log(`No institution found with name: ${name}`);
+          return null;
+        }
+        throw error;
+      }
+
+      return institution;
+    } catch (error) {
+      console.error('Error fetching institution by name:', error);
+      return null;
+    }
+  }
 }

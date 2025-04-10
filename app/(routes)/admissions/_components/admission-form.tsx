@@ -144,86 +144,181 @@ export function AdmissionForm({
   const createAdmission = useCreateAdmission();
   const updateAdmission = useUpdateAdmission(initialData?.id);
 
+  // Log initial data for debugging
+  useEffect(() => {
+    if (isEditing && initialData) {
+      console.log('Initial data received in AdmissionForm:', initialData);
+    }
+  }, [initialData, isEditing]);
+
   // Scroll to top whenever tab changes
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [activeTab]);
 
+  // Helper function to ensure we have proper defaults for nested objects
+  const ensureNestedDefaults = (data: any) => {
+    if (!data) return null;
+
+    console.log('Initial data before processing:', data);
+
+    // Special handling for tenthMarks
+    let tenthMarks = data.tenthMarks || {};
+
+    // Convert from database format if necessary (tenth_marks -> tenthMarks)
+    if (data.tenth_marks && !data.tenthMarks) {
+      const dbMarks =
+        typeof data.tenth_marks === 'string'
+          ? JSON.parse(data.tenth_marks)
+          : data.tenth_marks;
+
+      tenthMarks = {
+        maxMarks: dbMarks.maxMarks || dbMarks.max_marks || '',
+        obtainedMarks: dbMarks.obtainedMarks || dbMarks.obtained_marks || '',
+        percentage: dbMarks.percentage || ''
+      };
+    }
+
+    // Special handling for twelfthMarks
+    let twelfthMarks = data.twelfthMarks || {};
+
+    // Convert from database format if necessary (twelfth_marks -> twelfthMarks)
+    if (data.twelfth_marks && !data.twelfthMarks) {
+      const dbMarks =
+        typeof data.twelfth_marks === 'string'
+          ? JSON.parse(data.twelfth_marks)
+          : data.twelfth_marks;
+
+      twelfthMarks = {
+        group: dbMarks.group || '',
+        maxMarks: dbMarks.maxMarks || dbMarks.max_marks || '',
+        obtainedMarks: dbMarks.obtainedMarks || dbMarks.obtained_marks || '',
+        percentage: dbMarks.percentage || '',
+        subjects: dbMarks.subjects || {}
+      };
+    }
+
+    console.log('Processed marks data:', { tenthMarks, twelfthMarks });
+
+    return {
+      ...data,
+      religion: data.religion || '',
+      community: data.community || '',
+      tenthMarks: {
+        maxMarks: tenthMarks.maxMarks || '',
+        obtainedMarks: tenthMarks.obtainedMarks || '',
+        percentage: tenthMarks.percentage || ''
+      },
+      twelfthMarks: {
+        group: twelfthMarks.group || '',
+        maxMarks: twelfthMarks.maxMarks || '',
+        obtainedMarks: twelfthMarks.obtainedMarks || '',
+        percentage: twelfthMarks.percentage || '',
+        subjects: twelfthMarks.subjects || {}
+      },
+      hostelType: data.hostelType || '',
+      referenceType: data.referenceType || '',
+      referenceName: data.referenceName || '',
+      referenceContact: data.referenceContact || ''
+    };
+  };
+
   // Initialize the form with default values or initialData for editing
   const form = useForm<AdmissionFormValues>({
     resolver: zodResolver(admissionFormSchema),
-    defaultValues: initialData || {
-      // Basic Details
-      enquiryDate: new Date().toISOString().split('T')[0],
-      studentName: '',
-      fatherName: '',
-      fatherOccupation: '',
-      fatherMobile: '',
-      motherName: '',
-      motherOccupation: '',
-      motherMobile: '',
-      dateOfBirth: '',
-      gender: '',
-      religion: '',
-      community: '',
-      caste: '',
-      annualIncome: '',
+    defaultValues: initialData
+      ? ensureNestedDefaults(initialData)
+      : {
+          // Default values for a new admission
+          // Basic Details
+          enquiryDate: new Date().toISOString().split('T')[0],
+          studentName: '',
+          fatherName: '',
+          fatherOccupation: '',
+          fatherMobile: '',
+          motherName: '',
+          motherOccupation: '',
+          motherMobile: '',
+          dateOfBirth: '',
+          gender: '',
+          religion: '',
+          community: '',
+          caste: '',
+          annualIncome: '',
 
-      // Academic Information
-      lastSchool: '',
-      boardOfStudy: '',
-      tenthMarks: {
-        maxMarks: '',
-        obtainedMarks: '',
-        percentage: ''
-      },
-      twelfthMarks: {
-        group: '',
-        maxMarks: '',
-        obtainedMarks: '',
-        percentage: '',
-        subjects: {}
-      },
-      medicalCutoffMarks: '',
-      engineeringCutoffMarks: '',
-      neetRollNumber: '',
-      counselingApplied: false,
-      counselingNumber: '',
-      firstGraduate: false,
+          // Academic Information
+          lastSchool: '',
+          boardOfStudy: '',
+          tenthMarks: {
+            maxMarks: '',
+            obtainedMarks: '',
+            percentage: ''
+          },
+          twelfthMarks: {
+            group: '',
+            maxMarks: '',
+            obtainedMarks: '',
+            percentage: '',
+            subjects: {}
+          },
+          medicalCutoffMarks: '',
+          engineeringCutoffMarks: '',
+          neetRollNumber: '',
+          counselingApplied: false,
+          counselingNumber: '',
+          firstGraduate: false,
 
-      // Course Selection
-      quota: '',
-      category: '',
-      fieldOfStudy: '',
-      degreeId: '',
-      departmentId: '',
-      programId: '',
-      courseType: '',
-      entryType: '',
-      yearAndBranch: '',
+          // Course Selection
+          quota: '',
+          category: '',
+          fieldOfStudy: '',
+          degreeId: '',
+          departmentId: '',
+          programId: '',
+          courseType: '',
+          entryType: '',
+          yearAndBranch: '',
 
-      // Contact Details
-      permanentAddressStreet: '',
-      permanentAddressTaluk: '',
-      permanentAddressDistrict: '',
-      permanentAddressPinCode: '',
-      permanentAddressState: '',
-      studentMobile: '',
-      studentEmail: '',
+          // Contact Details
+          permanentAddressStreet: '',
+          permanentAddressTaluk: '',
+          permanentAddressDistrict: '',
+          permanentAddressPinCode: '',
+          permanentAddressState: '',
+          studentMobile: '',
+          studentEmail: '',
 
-      // Accommodation Preferences
-      accommodationType: '',
-      hostelType: '',
-      busRequired: false,
-      busRoute: '',
-      busPickupLocation: '',
-      referenceType: '',
-      referenceName: '',
-      referenceContact: ''
-    },
+          // Accommodation Preferences
+          accommodationType: '',
+          hostelType: '',
+          busRequired: false,
+          busRoute: '',
+          busPickupLocation: '',
+          referenceType: '',
+          referenceName: '',
+          referenceContact: ''
+        },
     mode: 'onBlur',
     criteriaMode: 'all'
   });
+
+  // Log form values after initialization
+  useEffect(() => {
+    if (isEditing) {
+      console.log('Form values after initialization:', form.getValues());
+    }
+  }, [form, isEditing]);
+
+  // Log form values when they change
+  useEffect(() => {
+    if (isEditing) {
+      const subscription = form.watch((value) => {
+        console.log('Current form values:', value);
+      });
+
+      return () => subscription.unsubscribe();
+    }
+  }, [form, isEditing]);
 
   // Function to move to the next tab
   const goToNextTab = () => {
@@ -509,13 +604,16 @@ export function AdmissionForm({
         counseling_number: data.counselingNumber || '',
         first_graduate: data.firstGraduate || false,
 
-        // Course Selection
+        // Course Selection - handle both UUIDs and string values
         quota: data.quota || '',
         category: data.category || '',
         field_of_study: data.fieldOfStudy,
-        degree_id: data.degreeId || undefined,
-        department_id: data.departmentId || undefined,
-        program_id: data.programId || undefined,
+        degree_id: isValidUUID(data.degreeId) ? data.degreeId : undefined,
+        department_id: isValidUUID(data.departmentId)
+          ? data.departmentId
+          : undefined,
+        program_id: isValidUUID(data.programId) ? data.programId : undefined,
+        // Store course type and string-based course identifiers
         course_type: data.courseType,
         entry_type: data.entryType,
         year_and_branch: data.yearAndBranch,
@@ -542,6 +640,14 @@ export function AdmissionForm({
         // Status - new submissions are always pending
         status: 'pending'
       };
+
+      // Helper function to check if a string is a valid UUID
+      function isValidUUID(str: string | undefined): boolean {
+        if (!str) return false;
+        const uuidPattern =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        return uuidPattern.test(str);
+      }
 
       console.log('Form data to submit:', formattedData);
 
