@@ -84,6 +84,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Admissions Management
   '/admissions': 'view_admissions',
   '/admissions/new': 'create_admissions',
+  '/admissions/crm': 'view_admissions_crm',
 
   // Organization Management
   '/organizations/institutions': 'view_institutions',
@@ -257,6 +258,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'New Admission',
           active: pathname === '/admissions/new',
           icon: PlusCircle,
+          submenus: []
+        },
+        {
+          href: '/admissions/crm',
+          label: 'Enquiry CRM',
+          active: pathname === '/admissions/crm',
+          icon: MessageCircle,
           submenus: []
         }
       ]
