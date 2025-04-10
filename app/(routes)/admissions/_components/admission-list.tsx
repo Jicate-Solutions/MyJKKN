@@ -33,7 +33,10 @@ import {
 import { AdmissionData } from '@/hooks/admission/use-admissions';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUpdateAdmissionStatus } from '@/hooks/admission/use-admissions';
+import {
+  useUpdateAdmissionStatus,
+  useDeleteAdmission
+} from '@/hooks/admission/use-admissions';
 import { toast } from 'sonner';
 import {
   CheckCircle,
@@ -42,8 +45,19 @@ import {
   AlertCircle,
   XCircle,
   ClockIcon,
-  UserCheck
+  UserCheck,
+  Trash2
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 
 type PaginationMetadata = {
   currentPage: number;
@@ -82,8 +96,12 @@ export function AdmissionList({
 }: AdmissionListProps) {
   const router = useRouter();
   const updateStatus = useUpdateAdmissionStatus();
+  const deleteAdmission = useDeleteAdmission();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [admissionToDelete, setAdmissionToDelete] = useState<string | null>(
+    null
+  );
 
   const handleUpdateStatus = async (id: string, status: string) => {
     try {
@@ -109,6 +127,19 @@ export function AdmissionList({
       setTimeout(() => {
         setIsRefreshing(false);
       }, 500); // Keep the loading state visible for at least 500ms
+    }
+  };
+
+  const handleDeleteAdmission = async () => {
+    if (!admissionToDelete) return;
+
+    try {
+      await deleteAdmission.mutateAsync(admissionToDelete);
+      setAdmissionToDelete(null);
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting admission:', error);
+      // Toast will be shown by the service
     }
   };
 
@@ -395,6 +426,16 @@ export function AdmissionList({
                             </DropdownMenuItem>
                           </DropdownMenuSubContent>
                         </DropdownMenuSub>
+
+                        <DropdownMenuSeparator />
+
+                        <DropdownMenuItem
+                          onClick={() => setAdmissionToDelete(admission.id)}
+                          className='text-destructive focus:text-destructive'
+                        >
+                          <Trash2 className='mr-2 h-4 w-4' />
+                          Delete
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -406,6 +447,33 @@ export function AdmissionList({
       )}
 
       {renderPagination()}
+
+      <AlertDialog
+        open={!!admissionToDelete}
+        onOpenChange={(open) => !open && setAdmissionToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the
+              admission application.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteAdmission.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAdmission}
+              disabled={deleteAdmission.isPending}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {deleteAdmission.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

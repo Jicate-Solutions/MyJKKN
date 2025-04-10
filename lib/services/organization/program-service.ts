@@ -195,11 +195,43 @@ export class ProgramService {
 
   static async getProgramsByDepartment(departmentId: string) {
     try {
-      const { data: programs } = await this.supabase
-        .from('programs')
-        .select('*')
-        .eq('department_id', departmentId)
-        .eq('is_active', true);
+      // Check if departmentId is a UUID or a name/label
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(departmentId);
+      
+      let query;
+      
+      if (isUUID) {
+        // If it's a UUID, use it directly with eq
+        query = this.supabase
+          .from('programs')
+          .select('*')
+          .eq('department_id', departmentId)
+          .eq('is_active', true);
+      } else {
+        // If it's not a UUID, try to find the department by name first
+        console.log('Searching for department with name:', departmentId);
+        
+        const { data: department } = await this.supabase
+          .from('departments')
+          .select('id')
+          .ilike('department_name', departmentId)
+          .single();
+        
+        if (department) {
+          console.log('Found department with ID:', department.id);
+          query = this.supabase
+            .from('programs')
+            .select('*')
+            .eq('department_id', department.id)
+            .eq('is_active', true);
+        } else {
+          console.log('No department found with name:', departmentId);
+          // Return empty array if no department found
+          return [];
+        }
+      }
+
+      const { data: programs } = await query;
       return programs || [];
     } catch (error) {
       console.error('Error fetching programs:', error);

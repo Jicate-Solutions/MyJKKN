@@ -28,6 +28,66 @@ interface AcademicInformationFormProps {
 export function AcademicInformationForm({
   form
 }: AcademicInformationFormProps) {
+  // Enhanced logging for debugging
+  const tenthMarksRaw = form.getValues('tenthMarks');
+  const twelfthMarksRaw = form.getValues('twelfthMarks');
+
+  console.log('Academic information form state (detailed):', {
+    lastSchool: form.getValues('lastSchool'),
+    boardOfStudy: form.getValues('boardOfStudy'),
+    tenthMarks: tenthMarksRaw,
+    tenthMarks_maxMarks: tenthMarksRaw?.maxMarks,
+    tenthMarks_obtainedMarks: tenthMarksRaw?.obtainedMarks,
+    tenthMarks_percentage: tenthMarksRaw?.percentage,
+    tenthMarks_type: typeof tenthMarksRaw,
+    twelfthMarks: twelfthMarksRaw,
+    twelfthMarks_group: twelfthMarksRaw?.group,
+    twelfthMarks_maxMarks: twelfthMarksRaw?.maxMarks,
+    twelfthMarks_obtainedMarks: twelfthMarksRaw?.obtainedMarks,
+    twelfthMarks_percentage: twelfthMarksRaw?.percentage,
+    twelfthMarks_subjects: twelfthMarksRaw?.subjects,
+    twelfthMarks_type: typeof twelfthMarksRaw
+  });
+
+  // Add a useEffect to log whenever form changes
+  useEffect(() => {
+    const tenthValues = form.getValues('tenthMarks');
+    const twelfthValues = form.getValues('twelfthMarks');
+
+    console.log('Form values updated:', {
+      tenthMarks: tenthValues,
+      twelfthMarks: twelfthValues
+    });
+  }, [form.watch('tenthMarks'), form.watch('twelfthMarks')]);
+
+  // Make sure tenthMarks and twelfthMarks are initialized properly
+  useEffect(() => {
+    // Initialize tenthMarks if it's missing or not an object
+    const tenthMarks = form.getValues('tenthMarks');
+    if (!tenthMarks || typeof tenthMarks !== 'object') {
+      form.setValue('tenthMarks', {
+        maxMarks: '',
+        obtainedMarks: '',
+        percentage: ''
+      });
+    }
+
+    // Initialize twelfthMarks if it's missing or not an object
+    const twelfthMarks = form.getValues('twelfthMarks');
+    if (!twelfthMarks || typeof twelfthMarks !== 'object') {
+      form.setValue('twelfthMarks', {
+        group: '',
+        maxMarks: '',
+        obtainedMarks: '',
+        percentage: '',
+        subjects: {}
+      });
+    } else if (!twelfthMarks.subjects) {
+      // Make sure subjects is initialized
+      form.setValue('twelfthMarks.subjects', {});
+    }
+  }, [form]);
+
   // Board of study options
   const boardOptions = [
     { value: 'State Board', label: 'State Board' },

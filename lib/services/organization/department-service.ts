@@ -237,12 +237,48 @@ export class DepartmentService {
 
   static async getDepartmentsByDegree(degreeId: string) {
     try {
-      const { data: departments, error } = await this.supabase
-        .from('departments')
-        .select('*')
-        .eq('degree_id', degreeId)
-        .eq('is_active', true)
-        .order('department_name');
+      // Check if degreeId is a UUID or a name/label
+      const isUUID =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          degreeId
+        );
+
+      let query;
+
+      if (isUUID) {
+        // If it's a UUID, use it directly with eq
+        query = this.supabase
+          .from('departments')
+          .select('*')
+          .eq('degree_id', degreeId)
+          .eq('is_active', true)
+          .order('department_name');
+      } else {
+        // If it's not a UUID, try to find the degree by name first
+        console.log('Searching for degree with name:', degreeId);
+
+        const { data: degree } = await this.supabase
+          .from('degrees')
+          .select('id')
+          .ilike('degree_name', degreeId)
+          .single();
+
+        if (degree) {
+          console.log('Found degree with ID:', degree.id);
+          query = this.supabase
+            .from('departments')
+            .select('*')
+            .eq('degree_id', degree.id)
+            .eq('is_active', true)
+            .order('department_name');
+        } else {
+          console.log('No degree found with name:', degreeId);
+          // Return empty array if no degree found
+          return [];
+        }
+      }
+
+      const { data: departments, error } = await query;
 
       if (error) throw error;
 

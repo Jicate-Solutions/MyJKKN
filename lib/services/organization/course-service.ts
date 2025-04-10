@@ -203,18 +203,78 @@ export class CourseService {
 
   static async getCoursesByProgram(programId: string): Promise<Course[]> {
     try {
-      const { data, error } = await this.supabase
-        .from('courses')
-        .select('*')
-        .eq('program_id', programId)
-        .eq('is_active', true)
-        .order('course_name');
+      // Check if programId is a UUID or a name/label
+      const isUUID =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          programId
+        );
+
+      let query;
+
+      if (isUUID) {
+        // If it's a UUID, use it directly with eq
+        query = this.supabase
+          .from('courses')
+          .select('*')
+          .eq('program_id', programId)
+          .eq('is_active', true)
+          .order('course_name');
+      } else {
+        // If it's not a UUID, try to find the program by name first
+        console.log('Searching for program with name:', programId);
+
+        const { data: program } = await this.supabase
+          .from('programs')
+          .select('id')
+          .ilike('program_name', programId)
+          .single();
+
+        if (program) {
+          console.log('Found program with ID:', program.id);
+          query = this.supabase
+            .from('courses')
+            .select('*')
+            .eq('program_id', program.id)
+            .eq('is_active', true)
+            .order('course_name');
+        } else {
+          console.log('No program found with name:', programId);
+          // Return empty array if no program found
+          return [];
+        }
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       return data || [];
     } catch (error) {
       console.error('Error fetching courses by program:', error);
-      throw error;
+      return [];
+    }
+  }
+
+  static async getCourseById(courseId: string): Promise<Course | null> {
+    try {
+      if (!courseId) return null;
+
+      console.log(`Fetching course by ID: ${courseId}`);
+      const { data, error } = await this.supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching course by ID:', error);
+        return null;
+      }
+
+      console.log(`Found course:`, data);
+      return data;
+    } catch (error) {
+      console.error(`Error fetching course by ID ${courseId}:`, error);
+      return null;
     }
   }
 }
