@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Card,
@@ -14,13 +14,26 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SourcesTab } from './_components/sources-tab';
 import { FormsTab } from './_components/forms-tab';
 import { ResponsesTab } from './_components/responses-tab';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useApiKey } from '@/app/hooks/crm/use-api-key';
+import { Button } from '@/components/ui/button';
 
 export default function CrmPage() {
   const [activeTab, setActiveTab] = useState('sources');
   const { apiKey, loading, error } = useApiKey();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    // Increment the key to force the child components to remount and refetch data
+    setRefreshKey((prevKey) => prevKey + 1);
+    // Reset the refreshing state after a short delay
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 1000);
+  };
 
   if (loading) {
     return (
@@ -86,11 +99,24 @@ export default function CrmPage() {
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Enquiry Management</CardTitle>
-            <CardDescription>
-              View and manage all admission enquiries from various sources
-            </CardDescription>
+          <CardHeader className='flex flex-row items-center justify-between pb-2'>
+            <div className='flex flex-col gap-2 py-2'>
+              <CardTitle>Enquiry Management</CardTitle>
+              <CardDescription>
+                View and manage all admission enquiries from various sources
+              </CardDescription>
+            </div>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`}
+              />
+              Refresh
+            </Button>
           </CardHeader>
           <CardContent>
             <Tabs
@@ -104,15 +130,15 @@ export default function CrmPage() {
                 <TabsTrigger value='responses'>Responses</TabsTrigger>
               </TabsList>
 
-              <TabsContent value='sources'>
+              <TabsContent value='sources' key={`sources-${refreshKey}`}>
                 <SourcesTab apiKey={apiKey} />
               </TabsContent>
 
-              <TabsContent value='forms'>
+              <TabsContent value='forms' key={`forms-${refreshKey}`}>
                 <FormsTab apiKey={apiKey} />
               </TabsContent>
 
-              <TabsContent value='responses'>
+              <TabsContent value='responses' key={`responses-${refreshKey}`}>
                 <ResponsesTab apiKey={apiKey} />
               </TabsContent>
             </Tabs>

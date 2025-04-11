@@ -39,6 +39,8 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useFetchAdmissionSources } from '@/app/hooks/crm/use-fetch-admission-sources';
+import { Skeleton } from '@/components/ui/skeleton';
+
 interface SourcesTabProps {
   apiKey: string;
 }
@@ -70,9 +72,16 @@ export function SourcesTab({ apiKey }: SourcesTabProps) {
 
   if (loading) {
     return (
-      <div className='flex flex-col items-center justify-center py-10'>
-        <Loader2 className='h-8 w-8 animate-spin text-primary mb-4' />
-        <p className='text-muted-foreground'>Loading admission sources...</p>
+      <div className='space-y-4'>
+        <div className='flex items-center justify-between'>
+          <Skeleton className='h-10 w-[300px]' />
+        </div>
+
+        <div className='space-y-2'>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className='h-20 w-full' />
+          ))}
+        </div>
       </div>
     );
   }
@@ -107,6 +116,7 @@ export function SourcesTab({ apiKey }: SourcesTabProps) {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>S.No</TableHead>
               <TableHead className='w-[250px]'>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead className='hidden md:table-cell'>Contact</TableHead>
@@ -116,16 +126,12 @@ export function SourcesTab({ apiKey }: SourcesTabProps) {
           </TableHeader>
           <TableBody>
             {sources && sources.length > 0 ? (
-              sources.map((source) => (
+              sources.map((source, index) => (
                 <TableRow key={source.id}>
+                  <TableCell className='font-medium'>{index + 1}</TableCell>
                   <TableCell className='font-medium'>
                     <div className='flex flex-col'>
                       <span>{source.name}</span>
-                      {source.description && (
-                        <span className='text-xs text-muted-foreground truncate max-w-[220px]'>
-                          {source.description}
-                        </span>
-                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -134,20 +140,22 @@ export function SourcesTab({ apiKey }: SourcesTabProps) {
                   <TableCell className='hidden md:table-cell'>
                     {source.contact_name ? (
                       <div className='flex flex-col text-sm'>
-                        <div className='flex items-center gap-1'>
+                        <div className='flex items-center gap-1 mb-1'>
                           <User className='h-3 w-3' />
                           <span>{source.contact_name}</span>
                         </div>
-                        {source.contact_email && (
-                          <span className='text-xs text-muted-foreground truncate max-w-[150px]'>
-                            {source.contact_email}
-                          </span>
-                        )}
-                        {source.contact_phone && (
-                          <span className='text-xs text-muted-foreground'>
-                            {source.contact_phone}
-                          </span>
-                        )}
+                        <div className='flex flex-col gap-1'>
+                          {source.contact_email && (
+                            <span className='text-sm text-muted-foreground truncate max-w-[150px]'>
+                              {source.contact_email}
+                            </span>
+                          )}
+                          {source.contact_phone && (
+                            <span className='text-sm text-muted-foreground'>
+                              {source.contact_phone}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <span className='text-muted-foreground text-xs'>
@@ -253,84 +261,6 @@ export function SourcesTab({ apiKey }: SourcesTabProps) {
           </Pagination>
         </div>
       )}
-
-      <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-8'>
-        {sources &&
-          sources.slice(0, 3).map((source) => (
-            <Card key={`card-${source.id}`}>
-              <CardHeader>
-                <CardTitle className='text-lg flex items-center justify-between'>
-                  <span>{source.name}</span>
-                  <Badge
-                    variant={source.is_active ? 'default' : 'secondary'}
-                    className={
-                      source.is_active
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }
-                  >
-                    {source.is_active ? 'Active' : 'Inactive'}
-                  </Badge>
-                </CardTitle>
-                <CardDescription>
-                  {source.type} Source{' '}
-                  {source.start_date &&
-                    `• Started ${format(new Date(source.start_date), 'PP')}`}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {source.description && (
-                  <p className='text-sm mb-4'>{source.description}</p>
-                )}
-
-                {source.contact_name && (
-                  <div className='space-y-2'>
-                    <h4 className='text-sm font-medium'>Contact Information</h4>
-                    <div className='text-sm space-y-1'>
-                      <div className='flex items-center gap-2'>
-                        <User className='h-3.5 w-3.5 text-muted-foreground' />
-                        <span>{source.contact_name}</span>
-                      </div>
-                      {source.contact_email && (
-                        <div className='flex items-center gap-2'>
-                          <span className='text-xs text-muted-foreground pl-5'>
-                            {source.contact_email}
-                          </span>
-                        </div>
-                      )}
-                      {source.contact_phone && (
-                        <div className='flex items-center gap-2'>
-                          <span className='text-xs text-muted-foreground pl-5'>
-                            {source.contact_phone}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-              {source.shareable_link && (
-                <CardFooter>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    className='w-full'
-                    asChild
-                  >
-                    <a
-                      href={source.shareable_link}
-                      target='_blank'
-                      rel='noopener noreferrer'
-                    >
-                      <ExternalLink className='h-3.5 w-3.5 mr-2' />
-                      View Shareable Link
-                    </a>
-                  </Button>
-                </CardFooter>
-              )}
-            </Card>
-          ))}
-      </div>
     </div>
   );
 }

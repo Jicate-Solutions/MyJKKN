@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Card,
   CardContent,
@@ -42,6 +42,8 @@ import {
 import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFetchForms } from '@/app/hooks/crm/use-fetch-forms';
+import { useFetchAdmissionSources } from '@/app/hooks/crm/use-fetch-admission-sources';
+import Link from 'next/link';
 
 interface FormsTabProps {
   apiKey: string;
@@ -62,6 +64,19 @@ export function FormsTab({ apiKey }: FormsTabProps) {
     perPage
   });
 
+  // Fetch sources to map source_id to source name
+  const { data: sources, loading: loadingSources } = useFetchAdmissionSources({
+    apiKey,
+    perPage: 100 // Get all sources to ensure we have the mapping
+  });
+
+  // Function to get source name from source_id
+  const getSourceName = (sourceId: string) => {
+    if (!sources) return sourceId;
+    const source = sources.find((source) => source.id === sourceId);
+    return source ? source.name : sourceId;
+  };
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     // Search would be handled here in a real implementation
@@ -71,7 +86,7 @@ export function FormsTab({ apiKey }: FormsTabProps) {
     setPage(newPage);
   };
 
-  if (loading) {
+  if (loading || loadingSources) {
     return (
       <div className='space-y-4'>
         <div className='flex items-center justify-between'>
@@ -117,6 +132,7 @@ export function FormsTab({ apiKey }: FormsTabProps) {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>S.No</TableHead>
               <TableHead className='w-[300px]'>Form Title</TableHead>
               <TableHead className='hidden md:table-cell'>Source</TableHead>
               <TableHead className='hidden md:table-cell'>Created</TableHead>
@@ -126,20 +142,14 @@ export function FormsTab({ apiKey }: FormsTabProps) {
           </TableHeader>
           <TableBody>
             {forms && forms.length > 0 ? (
-              forms.map((form) => (
+              forms.map((form, index) => (
                 <TableRow key={form.id}>
-                  <TableCell className='font-medium'>
-                    <div className='flex flex-col'>
-                      <span>{form.title}</span>
-                      {form.description && (
-                        <span className='text-xs text-muted-foreground truncate max-w-[280px]'>
-                          {form.description}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
+                  <TableCell>{(page - 1) * perPage + index + 1}</TableCell>
+                  <TableCell className='font-medium'>{form.title}</TableCell>
                   <TableCell className='hidden md:table-cell'>
-                    <Badge variant='outline'>{form.source_id}</Badge>
+                    <Badge variant='outline'>
+                      {getSourceName(form.source_id)}
+                    </Badge>
                   </TableCell>
                   <TableCell className='hidden md:table-cell'>
                     <div className='flex items-center gap-1'>
@@ -163,14 +173,14 @@ export function FormsTab({ apiKey }: FormsTabProps) {
                     <div className='flex items-center justify-end gap-2'>
                       {form.published_url && (
                         <Button variant='ghost' size='icon' asChild>
-                          <a
+                          <Link
                             href={form.published_url}
                             target='_blank'
                             rel='noopener noreferrer'
                             title='View published form'
                           >
                             <Eye className='h-4 w-4' />
-                          </a>
+                          </Link>
                         </Button>
                       )}
                       <Button variant='ghost' size='icon'>
@@ -182,7 +192,7 @@ export function FormsTab({ apiKey }: FormsTabProps) {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className='h-24 text-center'>
+                <TableCell colSpan={6} className='h-24 text-center'>
                   No forms found
                 </TableCell>
               </TableRow>
@@ -252,67 +262,6 @@ export function FormsTab({ apiKey }: FormsTabProps) {
           </Pagination>
         </div>
       )}
-
-      <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-8'>
-        {forms &&
-          forms.slice(0, 3).map((form) => (
-            <Card key={`card-${form.id}`}>
-              <CardHeader>
-                <CardTitle className='text-lg flex items-center justify-between'>
-                  <span>{form.title}</span>
-                  <Badge
-                    variant={form.is_published ? 'default' : 'secondary'}
-                    className={
-                      form.is_published
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }
-                  >
-                    {form.is_published ? 'Published' : 'Draft'}
-                  </Badge>
-                </CardTitle>
-                <CardDescription>
-                  {form.description || 'No description provided'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className='space-y-3'>
-                  <div className='flex items-center gap-2 text-sm'>
-                    <FileText className='h-4 w-4 text-muted-foreground' />
-                    <span>
-                      {form.fields.length}{' '}
-                      {form.fields.length === 1 ? 'field' : 'fields'}
-                    </span>
-                  </div>
-
-                  <div className='flex items-center gap-2 text-sm'>
-                    <ListFilter className='h-4 w-4 text-muted-foreground' />
-                    <span>{form.status_options.length} status options</span>
-                  </div>
-                </div>
-              </CardContent>
-              {form.published_url && (
-                <CardFooter>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    className='w-full'
-                    asChild
-                  >
-                    <a
-                      href={form.published_url}
-                      target='_blank'
-                      rel='noopener noreferrer'
-                    >
-                      <ExternalLink className='h-3.5 w-3.5 mr-2' />
-                      View Published Form
-                    </a>
-                  </Button>
-                </CardFooter>
-              )}
-            </Card>
-          ))}
-      </div>
     </div>
   );
 }
