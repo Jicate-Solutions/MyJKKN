@@ -62,6 +62,9 @@ import {
   AccordionTrigger
 } from '@/components/ui/accordion';
 import { useFetchFormResponses } from '@/app/hooks/crm/use-fetch-form-responses';
+import { useFetchForms } from '@/app/hooks/crm/use-fetch-forms';
+import { useFetchAdmissionSources } from '@/app/hooks/crm/use-fetch-admission-sources';
+import Link from 'next/link';
 
 interface ResponsesTabProps {
   apiKey: string;
@@ -85,6 +88,35 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
     page,
     perPage
   });
+
+  // Fetch forms to map form_id to form name
+  const { data: forms, loading: loadingForms } = useFetchForms({
+    apiKey,
+    perPage: 100 // Get all forms to ensure we have the mapping
+  });
+
+  // Fetch sources to map source_id to source name
+  const { data: sources, loading: loadingSources } = useFetchAdmissionSources({
+    apiKey,
+    perPage: 100 // Get all sources to ensure we have the mapping
+  });
+
+  // Function to get form name from form_id
+  const getFormName = (formId: string) => {
+    if (!forms) return formId;
+    const form = forms.find((form) => form.id === formId);
+    return form ? form.title : formId;
+  };
+
+  // Function to get source name from form_id (looking up the source via the form)
+  const getSourceName = (formId: string) => {
+    if (!forms || !sources) return 'Unknown';
+    const form = forms.find((form) => form.id === formId);
+    if (!form) return 'Unknown';
+
+    const source = sources.find((source) => source.id === form.source_id);
+    return source ? source.name : form.source_id;
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,7 +152,7 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
     return String(value);
   };
 
-  if (loading) {
+  if (loading || loadingForms || loadingSources) {
     return (
       <div className='space-y-4'>
         <div className='flex items-center justify-between'>
@@ -167,10 +199,12 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value='all'>All forms</SelectItem>
-            {/* This would be populated with available forms */}
-            <SelectItem value='form-1'>Undergraduate Admission</SelectItem>
-            <SelectItem value='form-2'>Graduate Admission</SelectItem>
-            <SelectItem value='form-3'>International Students</SelectItem>
+            {forms &&
+              forms.map((form) => (
+                <SelectItem key={form.id} value={form.id}>
+                  {form.title}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
       </div>
@@ -179,8 +213,10 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className='w-[250px]'>Respondent</TableHead>
+              <TableHead>S.No</TableHead>
+              <TableHead>ID</TableHead>
               <TableHead className='hidden md:table-cell'>Form</TableHead>
+              <TableHead className='hidden lg:table-cell'>Source</TableHead>
               <TableHead className='hidden md:table-cell'>Submitted</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className='text-right'>Actions</TableHead>
@@ -188,25 +224,22 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
           </TableHeader>
           <TableBody>
             {responses && responses.length > 0 ? (
-              responses.map((response) => (
+              responses.map((response, index) => (
                 <TableRow key={response.id}>
-                  <TableCell className='font-medium'>
-                    <div className='flex flex-col'>
-                      <span>
-                        {response.data.name ||
-                          response.data.fullName ||
-                          response.data.email ||
-                          'Anonymous'}
-                      </span>
-                      {response.data.email && (
-                        <span className='text-xs text-muted-foreground truncate max-w-[220px]'>
-                          {response.data.email}
-                        </span>
-                      )}
-                    </div>
+                  <TableCell>{(page - 1) * perPage + index + 1}</TableCell>
+                  <TableCell className='font-mono text-xs'>
+                    {response.id.substring(0, 8)}
                   </TableCell>
+
                   <TableCell className='hidden md:table-cell'>
-                    <Badge variant='outline'>{response.form_id}</Badge>
+                    <Badge variant='outline'>
+                      {getFormName(response.form_id)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className='hidden lg:table-cell'>
+                    <Badge variant='secondary'>
+                      {getSourceName(response.form_id)}
+                    </Badge>
                   </TableCell>
                   <TableCell className='hidden md:table-cell'>
                     <div className='flex items-center gap-1'>
@@ -273,6 +306,27 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
                                 <span className='text-xs text-muted-foreground mt-1'>
                                   ID: {response.id}
                                 </span>
+                              </div>
+                            </div>
+
+                            <div className='space-y-2'>
+                              <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                                <div>
+                                  <h4 className='text-sm text-muted-foreground'>
+                                    Form
+                                  </h4>
+                                  <p className='font-medium'>
+                                    {getFormName(response.form_id)}
+                                  </p>
+                                </div>
+                                <div>
+                                  <h4 className='text-sm text-muted-foreground'>
+                                    Source
+                                  </h4>
+                                  <p className='font-medium'>
+                                    {getSourceName(response.form_id)}
+                                  </p>
+                                </div>
                               </div>
                             </div>
 
@@ -344,7 +398,7 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className='h-24 text-center'>
+                <TableCell colSpan={8} className='h-24 text-center'>
                   No responses found
                 </TableCell>
               </TableRow>
@@ -414,76 +468,6 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
           </Pagination>
         </div>
       )}
-
-      <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-8'>
-        {responses &&
-          responses.slice(0, 3).map((response) => (
-            <Card key={`card-${response.id}`}>
-              <CardHeader>
-                <div className='flex justify-between items-start'>
-                  <div>
-                    <CardTitle className='text-lg'>
-                      {response.data.name ||
-                        response.data.fullName ||
-                        response.data.email ||
-                        'Anonymous'}
-                    </CardTitle>
-                    <CardDescription>
-                      {response.data.email || 'No email provided'}
-                    </CardDescription>
-                  </div>
-                  <Badge
-                    variant='secondary'
-                    className={getStatusColor(response.status)}
-                  >
-                    {response.status}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className='space-y-3'>
-                  <div className='space-y-1'>
-                    <div className='text-sm text-muted-foreground'>Form</div>
-                    <div className='font-medium'>{response.form_id}</div>
-                  </div>
-
-                  <div className='space-y-1'>
-                    <div className='text-sm text-muted-foreground'>
-                      Submitted on
-                    </div>
-                    <div className='font-medium'>
-                      {format(new Date(response.created_at), 'PPP')}
-                    </div>
-                  </div>
-
-                  {response.data.message && (
-                    <div className='space-y-1'>
-                      <div className='text-sm text-muted-foreground'>
-                        Message
-                      </div>
-                      <div className='text-sm line-clamp-3'>
-                        {response.data.message}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button variant='outline' size='sm' className='w-full'>
-                      <MessageSquare className='h-3.5 w-3.5 mr-2' />
-                      View Full Response
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className='max-w-3xl'>
-                    {/* Dialog content would be same as above */}
-                  </DialogContent>
-                </Dialog>
-              </CardFooter>
-            </Card>
-          ))}
-      </div>
     </div>
   );
 }
