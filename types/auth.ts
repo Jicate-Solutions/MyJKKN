@@ -11,19 +11,6 @@ export const SYSTEM_ROLES = {
   GUEST: 'guest'
 } as const;
 
-export type Institution =
-  | 'jkkn_dental'
-  | 'jkkn_pharmacy'
-  | 'jkkn_arts'
-  | 'jkkn_engineering'
-  | 'jkkn_nursing'
-  | 'jkkn_education'
-  | 'jkkn_allied_health_science'
-  | 'jkkn_matriculation'
-  | 'jkkn_NV';
-
-export type Department = string;
-
 export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
 
 // Base Profile interface

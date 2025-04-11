@@ -2,7 +2,7 @@
 
 import AdminPanelLayout from '@/components/layout/admin-panel-layout';
 import { AuthProvider } from '@/providers/auth-provider';
-import { QueryClientProvider } from '../providers/query-provider';
+import { QueryClientProvider } from '../../providers/query-provider';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
