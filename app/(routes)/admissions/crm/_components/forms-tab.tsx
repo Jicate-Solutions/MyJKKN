@@ -49,6 +49,10 @@ interface FormsTabProps {
   apiKey: string;
 }
 
+// Public form base URL - in a real app, this would be from env variable
+const PUBLIC_FORM_BASE_URL =
+  'https://jkkn-admission-managements.vercel.app/form/';
+
 export function FormsTab({ apiKey }: FormsTabProps) {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
@@ -75,6 +79,17 @@ export function FormsTab({ apiKey }: FormsTabProps) {
     if (!sources) return sourceId;
     const source = sources.find((source) => source.id === sourceId);
     return source ? source.name : sourceId;
+  };
+
+  // Function to get full published URL
+  const getFullPublishedUrl = (endpoint: string | null) => {
+    if (!endpoint) return '';
+    // If the URL already starts with http or https, return as is
+    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+      return endpoint;
+    }
+    // Otherwise, prepend the base URL
+    return `${PUBLIC_FORM_BASE_URL}${endpoint}`;
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -173,19 +188,16 @@ export function FormsTab({ apiKey }: FormsTabProps) {
                     <div className='flex items-center justify-end gap-2'>
                       {form.published_url && (
                         <Button variant='ghost' size='icon' asChild>
-                          <Link
-                            href={form.published_url}
+                          <a
+                            href={getFullPublishedUrl(form.published_url)}
                             target='_blank'
                             rel='noopener noreferrer'
                             title='View published form'
                           >
                             <Eye className='h-4 w-4' />
-                          </Link>
+                          </a>
                         </Button>
                       )}
-                      <Button variant='ghost' size='icon'>
-                        <LayoutList className='h-4 w-4' />
-                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
