@@ -17,22 +17,15 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const router = useRouter();
 
   // Prevent recreation of client on each render
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
-  // Check if user is already logged in
+  // Check if user is already logged in - only once
   useEffect(() => {
-    // Use localStorage to count redirects and break potential loops
-    const redirectCount = parseInt(
-      localStorage.getItem('redirectCount') || '0'
-    );
-    if (redirectCount > 3) {
-      localStorage.setItem('redirectCount', '0');
-      console.error('Detected redirect loop - stopping further redirects');
-      return;
-    }
+    let isMounted = true;
 
     // Don't redirect if coming from error page
     const redirectedFrom = new URLSearchParams(window.location.search).get(
@@ -44,28 +37,34 @@ export default function LoginPage() {
         redirectedFrom.includes('/error'))
     ) {
       console.log('Preventing redirect from error page:', redirectedFrom);
+      setIsCheckingAuth(false);
       return;
     }
-
-    localStorage.setItem('redirectCount', (redirectCount + 1).toString());
 
     const checkUser = async () => {
       try {
         const { data, error } = await supabase.auth.getUser();
+
+        if (!isMounted) return;
+
         if (!error && data.user) {
-          localStorage.setItem('redirectCount', '0');
-          router.push('/');
+          // User is authenticated, redirect to home or redirectedFrom
+          const destination = redirectedFrom || '/';
+          router.push(destination);
+        } else {
+          // User is not authenticated, just update state
+          setIsCheckingAuth(false);
         }
       } catch (err) {
         console.error('Auth check error:', err);
+        if (isMounted) setIsCheckingAuth(false);
       }
     };
 
     checkUser();
 
-    // Reset redirect count after successful render
     return () => {
-      localStorage.setItem('redirectCount', '0');
+      isMounted = false;
     };
   }, [router, supabase.auth]);
 
@@ -111,10 +110,19 @@ export default function LoginPage() {
     } catch (error) {
       console.error('Login error:', error);
       toast.error('Failed to sign in with Google');
-    } finally {
       setIsLoading(false);
     }
+    // We don't set isLoading to false on success because we're redirecting to Google
   };
+
+  // Show loading indicator while checking auth
+  if (isCheckingAuth) {
+    return (
+      <div className='min-h-screen flex items-center justify-center bg-background'>
+        <BeatLoader size={10} color='#000000' />
+      </div>
+    );
+  }
 
   return (
     <div className='min-h-screen flex items-center justify-center bg-background p-4'>

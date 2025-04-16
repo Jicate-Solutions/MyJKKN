@@ -10,61 +10,92 @@ export function useAuth() {
   const [error, setError] = useState<Error | null>(null);
   const supabase = createAdminClient();
 
+  // Function to refresh user data - can be called from outside
+  const refreshUser = async () => {
+    try {
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error || !data.user) {
+        setUser(null);
+        setIsLoading(false);
+        return null;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', data.user.id)
+        .single();
+
+      if (profileError) {
+        console.error('Error fetching profile:', profileError);
+        setError(new Error('Failed to fetch user profile'));
+        setIsLoading(false);
+        return null;
+      }
+
+      if (profile) {
+        setUser({ ...profile, id: data.user.id });
+        setIsLoading(false);
+        return { ...profile, id: data.user.id };
+      }
+
+      return null;
+    } catch (err) {
+      console.error('Profile fetch error:', err);
+      setError(err instanceof Error ? err : new Error('Unknown error'));
+      setIsLoading(false);
+      return null;
+    }
+  };
+
   useEffect(() => {
     // Track if component is mounted to prevent state updates after unmount
     let isMounted = true;
 
-    // Keep track of auth checks to prevent loops
-    let authCheckCount = 0;
-    const MAX_AUTH_CHECKS = 2; // Limit the number of auth checks
-
-    const fetchUserProfile = async (userId: string) => {
-      try {
-        // Only fetch profile if component is still mounted
-        if (!isMounted) return;
-
-        authCheckCount++;
-        if (authCheckCount > MAX_AUTH_CHECKS) {
-          console.warn('Too many auth checks, stopping to prevent loop');
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single();
-
-        if (profileError) {
-          console.error('Error fetching profile:', profileError);
-          if (isMounted) {
-            setError(new Error('Failed to fetch user profile'));
-            setIsLoading(false);
-          }
-          return;
-        }
-
-        if (profile && isMounted) {
-          setUser({ ...profile, id: userId });
-          setIsLoading(false);
-        }
-      } catch (err) {
-        console.error('Profile fetch error:', err);
-        if (isMounted) {
-          setError(err instanceof Error ? err : new Error('Unknown error'));
-          setIsLoading(false);
-        }
-      }
-    };
-
-    // Just use the subscription and handle initial state there
+    // Listen for auth state changes
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session?.user?.id);
 
+      if (!isMounted) return;
+
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
       if (session?.user) {
-        await fetchUserProfile(session.user.id);
+        try {
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+
+          if (!isMounted) return;
+
+          if (profileError) {
+            console.error('Error fetching profile:', profileError);
+            setError(new Error('Failed to fetch user profile'));
+            setIsLoading(false);
+            return;
+          }
+
+          if (profile) {
+            setUser({ ...profile, id: session.user.id });
+          } else {
+            setUser(null);
+          }
+        } catch (err) {
+          if (!isMounted) return;
+          console.error('Profile fetch error:', err);
+          setError(err instanceof Error ? err : new Error('Unknown error'));
+        } finally {
+          if (isMounted) setIsLoading(false);
+        }
       } else {
         if (isMounted) {
           setUser(null);
@@ -73,30 +104,8 @@ export function useAuth() {
       }
     });
 
-    // Initial auth check
-    const checkInitialAuth = async () => {
-      try {
-        const { data, error } = await supabase.auth.getUser();
-
-        if (error || !data.user) {
-          if (isMounted) {
-            setUser(null);
-            setIsLoading(false);
-          }
-          return;
-        }
-
-        await fetchUserProfile(data.user.id);
-      } catch (err) {
-        console.error('Initial auth check error:', err);
-        if (isMounted) {
-          setError(err instanceof Error ? err : new Error('Unknown error'));
-          setIsLoading(false);
-        }
-      }
-    };
-
-    checkInitialAuth();
+    // Initial auth check - only once
+    refreshUser();
 
     return () => {
       isMounted = false;
@@ -104,5 +113,5 @@ export function useAuth() {
     };
   }, [supabase]);
 
-  return { user, isLoading, error };
+  return { user, isLoading, error, refreshUser };
 }
