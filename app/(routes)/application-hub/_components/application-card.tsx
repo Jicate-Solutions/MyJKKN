@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Eye, ExternalLink, Image as ImageIcon } from 'lucide-react';
+import { Eye, ExternalLink, Image as ImageIcon, Shield } from 'lucide-react';
 import { Application } from '@/types/applications';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -158,7 +158,7 @@ export function ApplicationCard({ application }: ApplicationCardProps) {
               <div className='mt-4 relative'>
                 <div className='relative aspect-video w-full overflow-hidden rounded-lg'>
                   <Image
-                    src={application.screenshots[screenshotIndex]}
+                    src={application.screenshots![screenshotIndex]}
                     alt={`${application.name} screenshot ${
                       screenshotIndex + 1
                     }`}
@@ -166,21 +166,22 @@ export function ApplicationCard({ application }: ApplicationCardProps) {
                     className='object-cover'
                   />
                 </div>
-                {application.screenshots.length > 1 && (
-                  <div className='flex justify-center gap-2 mt-4'>
-                    {application.screenshots.map((_, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setScreenshotIndex(index)}
-                        className={`w-2 h-2 rounded-full ${
-                          index === screenshotIndex
-                            ? 'bg-primary'
-                            : 'bg-muted-foreground/30'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                )}
+                {application.screenshots &&
+                  application.screenshots.length > 1 && (
+                    <div className='flex justify-center gap-2 mt-4'>
+                      {application.screenshots.map((_, index) => (
+                        <button
+                          key={index}
+                          onClick={() => setScreenshotIndex(index)}
+                          className={`w-2 h-2 rounded-full ${
+                            index === screenshotIndex
+                              ? 'bg-primary'
+                              : 'bg-muted-foreground/30'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
               </div>
             </DialogContent>
           </Dialog>

@@ -102,30 +102,35 @@ export async function GET(
 
           // If subcategory_id exists, fetch it directly too
           if (data.subcategory_id) {
-            const { data: subcategoryData, error: subcategoryError } =
-              await supabase
-                .from('subcategories')
-                .select('*')
-                .eq('id', data.subcategory_id)
-                .single();
+            try {
+              const { data: subcategoryData, error: subcategoryError } =
+                await supabase
+                  .from('subcategories')
+                  .select('*')
+                  .eq('id', data.subcategory_id)
+                  .single();
 
-            if (subcategoryError) {
-              console.error('Error fetching subcategory:', subcategoryError);
-            } else if (subcategoryData) {
-              console.log(
-                'Found subcategory from database:',
-                subcategoryData.name
-              );
-              data.subcategory = {
-                id: subcategoryData.id,
-                name: subcategoryData.name
-              };
-            } else {
-              data.subcategory = {
-                id: data.subcategory_id,
-                name: 'Unknown Subcategory'
-              };
+              if (subcategoryError) {
+                console.error('Error fetching subcategory:', subcategoryError);
+                data.subcategory = null;
+              } else if (subcategoryData) {
+                console.log(
+                  'Found subcategory from database:',
+                  subcategoryData.name
+                );
+                data.subcategory = {
+                  id: subcategoryData.id,
+                  name: subcategoryData.name
+                };
+              } else {
+                data.subcategory = null;
+              }
+            } catch (error) {
+              console.error('Unexpected error fetching subcategory:', error);
+              data.subcategory = null;
             }
+          } else {
+            data.subcategory = null;
           }
         } else {
           console.log(

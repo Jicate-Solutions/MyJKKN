@@ -55,7 +55,6 @@ export async function middleware(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (userError) {
-      console.error('Auth error:', userError);
       return NextResponse.redirect(new URL('/auth/login', request.url));
     }
 

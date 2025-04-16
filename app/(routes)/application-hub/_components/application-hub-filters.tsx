@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Shield } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -13,6 +13,7 @@ import {
 import { useDebounce } from '@/hooks/use-debounce';
 import { CategoryService } from '@/lib/services/application/category-service';
 import { Category } from '@/types/categories';
+import { Badge } from '@/components/ui/badge';
 
 interface ApplicationHubFiltersProps {
   categories: Category[];
@@ -21,12 +22,14 @@ interface ApplicationHubFiltersProps {
     category?: string;
   };
   onFilterChange: (filters: any) => void;
+  userRole?: string;
 }
 
 export function ApplicationHubFilters({
   categories,
   filters,
-  onFilterChange
+  onFilterChange,
+  userRole
 }: ApplicationHubFiltersProps) {
   const debouncedSearch = useDebounce((value: string) => {
     onFilterChange({ search: value });
@@ -74,6 +77,16 @@ export function ApplicationHubFilters({
           </SelectContent>
         </Select>
       </div>
+
+      {userRole && (
+        <div className='flex items-center gap-2 mt-2'>
+          <Shield className='h-4 w-4 text-muted-foreground' />
+          <span className='text-sm text-muted-foreground'>Viewing as:</span>
+          <Badge variant='outline' className='text-xs capitalize'>
+            {userRole.replace('_', ' ')}
+          </Badge>
+        </div>
+      )}
     </div>
   );
 }
