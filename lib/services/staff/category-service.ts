@@ -16,13 +16,11 @@ export class CategoryService {
   ): Promise<EmploymentCategory> {
     try {
       // First get the current user
-      const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
 
-      if (sessionError) throw sessionError;
-      if (!session?.user) throw new Error('No authenticated user');
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No authenticated user');
 
       // Add created_by and updated_by to the data
       const { data: category, error } = await this.supabase
@@ -30,8 +28,8 @@ export class CategoryService {
         .insert([
           {
             ...data,
-            created_by: session.user.id,
-            updated_by: session.user.id
+            created_by: userData.user.id,
+            updated_by: userData.user.id
           }
         ])
         .select()
@@ -52,19 +50,17 @@ export class CategoryService {
   ): Promise<EmploymentCategory> {
     try {
       // First get the current user
-      const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
 
-      if (sessionError) throw sessionError;
-      if (!session?.user) throw new Error('No authenticated user');
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No authenticated user');
 
       const { data: category, error } = await this.supabase
         .from('employment_categories')
         .update({
           ...data,
-          updated_by: session.user.id,
+          updated_by: userData.user.id,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -83,13 +79,11 @@ export class CategoryService {
   static async deleteCategory(id: string): Promise<void> {
     try {
       // Get the current user session
-      const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
 
-      if (sessionError) throw sessionError;
-      if (!session?.user) throw new Error('No authenticated user');
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No authenticated user');
 
       // First check if category exists
       const { data: existing, error: checkError } = await this.supabase
@@ -108,7 +102,6 @@ export class CategoryService {
         .eq('id', id)
         .throwOnError(); // This will throw an error if the deletion fails
 
-      
       if (deleteError) throw deleteError;
     } catch (error) {
       console.error('Delete error:', error);

@@ -27,18 +27,16 @@ export default function ResourcesPage() {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const {
-          data: { session }
-        } = await supabase.auth.getSession();
+        const { data, error } = await supabase.auth.getUser();
 
-        if (!session) {
+        if (error || !data.user) {
           router.push('/auth/login');
           return;
         }
 
         setLoading(false);
       } catch (error) {
-        console.error('Error checking session:', error);
+        console.error('Error checking authentication:', error);
         setError('Authentication error. Please try again.');
         setLoading(false);
       }

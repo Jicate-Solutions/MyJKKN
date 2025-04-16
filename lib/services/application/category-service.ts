@@ -46,13 +46,32 @@ export class CategoryService {
   // Get single category with subcategories
   static async getCategoryById(id: string): Promise<Category | null> {
     try {
+      console.log(`CategoryService: fetching category with ID ${id}`);
+
       const { data: category, error: categoryError } = await this.supabase
         .from('categories')
         .select('*')
         .eq('id', id)
         .single();
 
-      if (categoryError) throw categoryError;
+      if (categoryError) {
+        if (categoryError.code === 'PGRST116') {
+          console.log(`CategoryService: No category found with ID ${id}`);
+          return null;
+        }
+        console.error(
+          `CategoryService: Error fetching category:`,
+          categoryError
+        );
+        throw categoryError;
+      }
+
+      if (!category) {
+        console.log(`CategoryService: No category data returned for ID ${id}`);
+        return null;
+      }
+
+      console.log(`CategoryService: Found category: ${category.name}`);
 
       const { data: subcategories, error: subcategoriesError } =
         await this.supabase
@@ -61,7 +80,17 @@ export class CategoryService {
           .eq('category_id', id)
           .order('name');
 
-      if (subcategoriesError) throw subcategoriesError;
+      if (subcategoriesError) {
+        console.error(
+          `CategoryService: Error fetching subcategories:`,
+          subcategoriesError
+        );
+        throw subcategoriesError;
+      }
+
+      console.log(
+        `CategoryService: Found ${subcategories.length} subcategories`
+      );
 
       return {
         ...category,
@@ -78,16 +107,16 @@ export class CategoryService {
   static async createCategory(data: CreateCategoryDTO): Promise<Category> {
     try {
       const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
-      if (sessionError || !session) throw new Error('Authentication required');
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
 
       // Check user role
       const { data: profile, error: profileError } = await this.supabase
         .from('profiles')
         .select('role')
-        .eq('id', session.user.id)
+        .eq('id', user.id)
         .single();
 
       if (profileError || !profile) throw new Error('Profile not found');
@@ -100,7 +129,7 @@ export class CategoryService {
         .insert([
           {
             ...data,
-            created_by: session.user.id
+            created_by: user.id
           }
         ])
         .select()
@@ -134,16 +163,16 @@ export class CategoryService {
   ): Promise<Category> {
     try {
       const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
-      if (sessionError || !session) throw new Error('Authentication required');
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
 
       // Check user role
       const { data: profile, error: profileError } = await this.supabase
         .from('profiles')
         .select('role')
-        .eq('id', session.user.id)
+        .eq('id', user.id)
         .single();
 
       if (profileError || !profile) throw new Error('Profile not found');
@@ -155,7 +184,7 @@ export class CategoryService {
         .from('categories')
         .update({
           ...data,
-          updated_by: session.user.id,
+          updated_by: user.id,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -187,16 +216,16 @@ export class CategoryService {
   static async deleteCategory(id: string): Promise<void> {
     try {
       const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
-      if (sessionError || !session) throw new Error('Authentication required');
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
 
       // Check user role
       const { data: profile, error: profileError } = await this.supabase
         .from('profiles')
         .select('role')
-        .eq('id', session.user.id)
+        .eq('id', user.id)
         .single();
 
       if (profileError || !profile) throw new Error('Profile not found');
@@ -227,16 +256,16 @@ export class CategoryService {
   ): Promise<Subcategory> {
     try {
       const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
-      if (sessionError || !session) throw new Error('Authentication required');
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
 
       // Check user role
       const { data: profile, error: profileError } = await this.supabase
         .from('profiles')
         .select('role')
-        .eq('id', session.user.id)
+        .eq('id', user.id)
         .single();
 
       if (profileError || !profile) throw new Error('Profile not found');
@@ -249,7 +278,7 @@ export class CategoryService {
         .insert([
           {
             ...data,
-            created_by: session.user.id,
+            created_by: user.id,
             is_active: data.is_active ?? true
           }
         ])
@@ -281,16 +310,16 @@ export class CategoryService {
   ): Promise<Subcategory> {
     try {
       const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
-      if (sessionError || !session) throw new Error('Authentication required');
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
 
       // Check user role
       const { data: profile, error: profileError } = await this.supabase
         .from('profiles')
         .select('role')
-        .eq('id', session.user.id)
+        .eq('id', user.id)
         .single();
 
       if (profileError || !profile) throw new Error('Profile not found');
@@ -302,7 +331,7 @@ export class CategoryService {
         .from('subcategories')
         .update({
           ...data,
-          updated_by: session.user.id,
+          updated_by: user.id,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -331,16 +360,16 @@ export class CategoryService {
   static async deleteSubcategory(id: string): Promise<void> {
     try {
       const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
-      if (sessionError || !session) throw new Error('Authentication required');
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
 
       // Check user role
       const { data: profile, error: profileError } = await this.supabase
         .from('profiles')
         .select('role')
-        .eq('id', session.user.id)
+        .eq('id', user.id)
         .single();
 
       if (profileError || !profile) throw new Error('Profile not found');

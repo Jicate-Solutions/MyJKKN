@@ -68,12 +68,10 @@ export default function DigitalResourceCategoryDetailPage({
   useEffect(() => {
     const checkSessionAndLoadData = async () => {
       try {
-        // Check session
-        const {
-          data: { session }
-        } = await supabase.auth.getSession();
+        // Check user authentication
+        const { data, error: authError } = await supabase.auth.getUser();
 
-        if (!session) {
+        if (authError || !data.user) {
           router.push('/auth/login');
           return;
         }

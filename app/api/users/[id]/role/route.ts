@@ -43,10 +43,10 @@ export async function PATCH(
 
     // Get current session
     const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
-    if (!session || sessionError) {
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
+    if (!user || userError) {
       return NextResponse.json(
         {
           success: false,
@@ -60,7 +60,7 @@ export async function PATCH(
     const { data: currentUser, error: currentUserError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     if (currentUserError || currentUser.role !== SYSTEM_ROLES.SUPER_ADMIN) {

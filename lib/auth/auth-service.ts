@@ -50,21 +50,18 @@ export class AuthService {
 
   static async getCurrentUser() {
     try {
-      const {
-        data: { session },
-        error
-      } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getUser();
 
       if (error) {
-        console.error('Session error:', error);
+        console.error('Auth error:', error);
         return null;
       }
 
-      if (!session) {
+      if (!data.user) {
         return null;
       }
 
-      return session.user;
+      return data.user;
     } catch (error) {
       console.error('Get current user error:', error);
       return null;
@@ -131,14 +128,11 @@ export class AuthService {
 
   static async refreshSession() {
     try {
-      const {
-        data: { session },
-        error
-      } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getUser();
 
       if (error) throw error;
 
-      if (!session) {
+      if (!data.user) {
         window.location.href = '/auth/login';
         return null;
       }
@@ -147,9 +141,9 @@ export class AuthService {
       await supabase
         .from('profiles')
         .update({ last_login: new Date().toISOString() })
-        .eq('id', session.user.id);
+        .eq('id', data.user.id);
 
-      return session;
+      return data.user;
     } catch (error) {
       console.error('Session refresh error:', error);
       toast.error('Session expired. Please sign in again.');

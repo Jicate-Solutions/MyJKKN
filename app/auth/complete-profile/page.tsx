@@ -68,26 +68,26 @@ export default function CompleteProfile() {
 
         // Get current session
         const {
-          data: { session },
-          error: sessionError
-        } = await supabase.auth.getSession();
+          data: { user },
+          error: userError
+        } = await supabase.auth.getUser();
 
-        if (sessionError) {
-          throw new Error('Authentication error: ' + sessionError.message);
+        if (userError) {
+          throw new Error('Authentication error: ' + userError.message);
         }
 
-        if (!session?.user) {
+        if (!user) {
           router.push('/auth/login');
           return;
         }
 
-        setUserEmail(session.user.email || '');
+        setUserEmail(user.email || '');
 
         // Try to get existing profile
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
-          .eq('id', session.user.id)
+          .eq('id', user.id)
           .single();
 
         // If there's a profile error other than "not found"
@@ -101,8 +101,8 @@ export default function CompleteProfile() {
             .from('profiles')
             .insert([
               {
-                id: session.user.id,
-                email: session.user.email,
+                id: user.id,
+                email: user.email,
                 role: 'student',
                 profile_completed: false
               }
@@ -148,8 +148,8 @@ export default function CompleteProfile() {
     try {
       setIsLoading(true);
 
-      const session = await supabase.auth.getSession();
-      if (!session.data.session?.user) {
+      const user = await supabase.auth.getUser();
+      if (!user.data.user) {
         throw new Error('No authenticated session');
       }
 
@@ -160,7 +160,7 @@ export default function CompleteProfile() {
           profile_completed: true,
           updated_at: new Date().toISOString()
         })
-        .eq('id', session.data.session.user.id);
+        .eq('id', user.data.user.id);
 
       if (updateError) throw updateError;
 

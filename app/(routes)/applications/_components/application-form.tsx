@@ -40,6 +40,10 @@ import {
 import { SupportContactField } from './support-contact-field';
 import { ApiEndpointField } from './api-endpoint-field';
 import { CategoryService } from '@/lib/services/application/category-service';
+import { StorageUtils } from '@/lib/supabase/storage-utils';
+import Image from 'next/image';
+import { X, Upload, Image as ImageIcon } from 'lucide-react';
+import { Label } from '@/components/ui/label';
 
 // Add this type inside your component
 type CategoryOption = {
@@ -47,6 +51,10 @@ type CategoryOption = {
   value: string;
   subcategories: { label: string; value: string }[];
 };
+
+// Add max file sizes
+const MAX_ICON_SIZE = 2 * 1024 * 1024; // 2MB
+const MAX_SCREENSHOT_SIZE = 5 * 1024 * 1024; // 5MB
 
 // Form schema
 const applicationSchema = z.object({
@@ -89,7 +97,9 @@ const applicationSchema = z.object({
     )
     .default([]),
   application_type: z.enum(['internal', 'external']),
-  data_sensitivity: z.enum(['public', 'restricted', 'confidential'])
+  data_sensitivity: z.enum(['public', 'restricted', 'confidential']),
+  icon_path: z.string().nullable(),
+  screenshots: z.array(z.string()).nullable()
 });
 
 type FormValues = z.infer<typeof applicationSchema>;
@@ -109,6 +119,21 @@ export function ApplicationForm({
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Add states for roles
+  const [roles, setRoles] = useState<{ key: string; name: string }[]>([]);
+  const [loadingRoles, setLoadingRoles] = useState(true);
+
+  // Add state for file uploads
+  const [iconFile, setIconFile] = useState<File | null>(null);
+  const [screenshotFiles, setScreenshotFiles] = useState<File[]>([]);
+  const [iconPreview, setIconPreview] = useState<string | null>(
+    initialData?.icon_path || null
+  );
+  const [screenshotPreviews, setScreenshotPreviews] = useState<string[]>(
+    initialData?.screenshots || []
+  );
+  const [uploadingFiles, setUploadingFiles] = useState(false);
 
   // Add useEffect for initial category selection
   useEffect(() => {
@@ -148,6 +173,24 @@ export function ApplicationForm({
     fetchCategories();
   }, [initialData]);
 
+  // Add useEffect for fetching roles
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        setLoadingRoles(true);
+        const availableRoles = await ApplicationService.getAvailableRoles();
+        setRoles(availableRoles);
+      } catch (error) {
+        console.error('Error fetching roles:', error);
+        toast.error('Failed to load roles');
+      } finally {
+        setLoadingRoles(false);
+      }
+    };
+
+    fetchRoles();
+  }, []);
+
   const form = useForm<FormValues>({
     resolver: zodResolver(applicationSchema),
     defaultValues: {
@@ -170,7 +213,9 @@ export function ApplicationForm({
       supported_platforms: initialData?.supported_platforms || 'web',
       api_endpoints: initialData?.api_endpoints || [],
       application_type: initialData?.application_type || 'internal',
-      data_sensitivity: initialData?.data_sensitivity || 'restricted'
+      data_sensitivity: initialData?.data_sensitivity || 'restricted',
+      icon_path: initialData?.icon_path || null,
+      screenshots: initialData?.screenshots || null
     }
   });
 
@@ -182,32 +227,138 @@ export function ApplicationForm({
 
   const isLoading = form.formState.isSubmitting;
 
+  // Add file upload handlers
+  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+
+    // Validate file size
+    if (file.size > MAX_ICON_SIZE) {
+      toast.error('Icon file is too large. Maximum size is 2MB.');
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file for the icon.');
+      return;
+    }
+
+    setIconFile(file);
+
+    // Create a preview URL
+    const previewUrl = URL.createObjectURL(file);
+    setIconPreview(previewUrl);
+  };
+
+  const handleScreenshotsUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    // Convert FileList to array
+    const fileArray = Array.from(files);
+
+    // Validate file sizes and types
+    const validFiles = fileArray.filter((file) => {
+      if (file.size > MAX_SCREENSHOT_SIZE) {
+        toast.error(`File ${file.name} is too large. Maximum size is 5MB.`);
+        return false;
+      }
+
+      if (!file.type.startsWith('image/')) {
+        toast.error(`File ${file.name} is not an image.`);
+        return false;
+      }
+
+      return true;
+    });
+
+    if (validFiles.length === 0) return;
+
+    // Add new files to existing files
+    setScreenshotFiles((prev) => [...prev, ...validFiles]);
+
+    // Create preview URLs
+    const newPreviews = validFiles.map((file) => URL.createObjectURL(file));
+    setScreenshotPreviews((prev) => [...prev, ...newPreviews]);
+  };
+
+  const removeScreenshot = (index: number) => {
+    // Remove from previews and files
+    setScreenshotPreviews((prev) => prev.filter((_, i) => i !== index));
+    setScreenshotFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removeIcon = () => {
+    setIconFile(null);
+    setIconPreview(null);
+    form.setValue('icon_path', null);
+  };
+
   const onSubmit = async (values: FormValues) => {
     try {
       setIsSubmitting(true);
       setError(null);
+      setUploadingFiles(true);
+
+      // Upload icon if exists
+      let iconPath = values.icon_path;
+      if (iconFile) {
+        iconPath = await StorageUtils.uploadFile(
+          'applications',
+          iconFile,
+          'icons'
+        );
+      }
+
+      // Upload screenshots if exist
+      let screenshotPaths = values.screenshots || [];
+      if (screenshotFiles.length > 0) {
+        const uploadedScreenshots = await StorageUtils.uploadMultipleFiles(
+          'applications',
+          screenshotFiles,
+          'screenshots'
+        );
+
+        // If editing, append new screenshots to existing ones
+        if (isEditing && initialData?.screenshots) {
+          screenshotPaths = [
+            ...initialData.screenshots,
+            ...uploadedScreenshots
+          ];
+        } else {
+          screenshotPaths = uploadedScreenshots;
+        }
+      }
+
+      const dataWithImages = {
+        ...values,
+        icon_path: iconPath,
+        screenshots: screenshotPaths,
+        subcategory_id: values.subcategory_id || null,
+        description: values.description || null,
+        support_contact: values.support_contact || null
+      };
 
       if (isEditing && initialData) {
-        await ApplicationService.updateApplication(initialData.id, {
-          ...values,
-          subcategory_id: values.subcategory_id || null,
-          description: values.description || null,
-          support_contact: values.support_contact || null
-        });
+        await ApplicationService.updateApplication(
+          initialData.id,
+          dataWithImages
+        );
       } else {
-        await ApplicationService.createApplication({
-          ...values,
-          subcategory_id: values.subcategory_id || null,
-          description: values.description || null,
-          support_contact: values.support_contact || null
-        });
+        await ApplicationService.createApplication(dataWithImages);
       }
+
       router.push('/applications');
       router.refresh();
     } catch (error) {
       console.error('Form submission error:', error);
+      toast.error('Failed to save application');
     } finally {
       setIsSubmitting(false);
+      setUploadingFiles(false);
     }
   };
 
@@ -366,61 +517,46 @@ export function ApplicationForm({
             </CardDescription>
           </CardHeader>
           <CardContent className='space-y-6'>
-            <div className='grid gap-6 md:grid-cols-2'>
-              <FormField
-                control={form.control}
-                name='roles_access'
-                render={() => (
-                  <FormItem className='space-y-4'>
-                    <FormLabel>Roles with Access</FormLabel>
+            <FormField
+              control={form.control}
+              name='roles_access'
+              render={() => (
+                <FormItem className='space-y-4'>
+                  <FormLabel>Roles with Access</FormLabel>
+                  {loadingRoles ? (
+                    <div className='p-4 text-center text-muted-foreground'>
+                      Loading roles...
+                    </div>
+                  ) : (
                     <div className='grid grid-cols-2 gap-4'>
-                      {ApplicationService.getAvailableRoles().map((role) => (
+                      {roles.map((role) => (
                         <div
-                          key={role}
+                          key={role.key}
                           className='flex items-center space-x-2 bg-secondary/20 p-2 rounded-md'
                         >
                           <Checkbox
-                            checked={form.watch('roles_access').includes(role)}
+                            checked={form
+                              .watch('roles_access')
+                              .includes(role.key)}
                             onCheckedChange={(checked) => {
                               const current = form.watch('roles_access');
                               const updated = checked
-                                ? [...current, role]
-                                : current.filter((r) => r !== role);
+                                ? [...current, role.key]
+                                : current.filter((r) => r !== role.key);
                               form.setValue('roles_access', updated);
                             }}
                           />
-                          <label className='text-sm font-medium'>{role}</label>
+                          <label className='text-sm font-medium'>
+                            {role.name}
+                          </label>
                         </div>
                       ))}
                     </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <div>
-                <FormField
-                  control={form.control}
-                  name='is_active'
-                  render={({ field }) => (
-                    <FormItem className='flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4'>
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <div className='space-y-1 leading-none'>
-                        <FormLabel>Active Status</FormLabel>
-                        <FormDescription>
-                          Enable or disable application access
-                        </FormDescription>
-                      </div>
-                    </FormItem>
                   )}
-                />
-              </div>
-            </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </CardContent>
         </Card>
 
@@ -715,18 +851,154 @@ export function ApplicationForm({
           </CardContent>
         </Card>
 
+        {/* Application Media */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Application Media</CardTitle>
+            <CardDescription>
+              Upload application icon and screenshots
+            </CardDescription>
+          </CardHeader>
+          <CardContent className='space-y-6'>
+            <div className='grid gap-6 md:grid-cols-2'>
+              {/* Icon Upload */}
+              <div className='space-y-2'>
+                <FormLabel>Application Icon</FormLabel>
+                <div className='flex flex-col gap-4'>
+                  {iconPreview ? (
+                    <div className='relative w-28 h-28 border rounded-md overflow-hidden'>
+                      <Image
+                        src={iconPreview}
+                        alt='Application Icon'
+                        fill
+                        className='object-cover'
+                      />
+                      <button
+                        type='button'
+                        onClick={removeIcon}
+                        className='absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-1'
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className='flex items-center justify-center w-28 h-28 border border-dashed rounded-md bg-muted'>
+                      <ImageIcon className='text-muted-foreground' size={32} />
+                    </div>
+                  )}
+                  <div>
+                    <Label htmlFor='icon-upload' className='cursor-pointer'>
+                      <div className='flex items-center gap-1 text-sm text-primary'>
+                        <Upload size={16} />
+                        {iconPreview ? 'Change Icon' : 'Upload Icon'}
+                      </div>
+                    </Label>
+                    <Input
+                      id='icon-upload'
+                      type='file'
+                      className='hidden'
+                      accept='image/*'
+                      onChange={handleIconUpload}
+                    />
+                    <p className='text-xs text-muted-foreground mt-1'>
+                      Recommended size: 512×512px. Max 2MB.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Screenshots Upload */}
+              <div className='space-y-2'>
+                <FormLabel>Application Screenshots</FormLabel>
+                <div className='space-y-4'>
+                  {screenshotPreviews.length > 0 && (
+                    <div className='grid grid-cols-3 gap-2'>
+                      {screenshotPreviews.map((preview, index) => (
+                        <div
+                          key={index}
+                          className='relative aspect-video border rounded-md overflow-hidden'
+                        >
+                          <Image
+                            src={preview}
+                            alt={`Screenshot ${index + 1}`}
+                            fill
+                            className='object-cover'
+                          />
+                          <button
+                            type='button'
+                            onClick={() => removeScreenshot(index)}
+                            className='absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-1'
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div>
+                    <Label
+                      htmlFor='screenshots-upload'
+                      className='cursor-pointer'
+                    >
+                      <div className='flex items-center gap-1 text-sm text-primary'>
+                        <Upload size={16} />
+                        {screenshotPreviews.length > 0
+                          ? 'Add More Screenshots'
+                          : 'Upload Screenshots'}
+                      </div>
+                    </Label>
+                    <Input
+                      id='screenshots-upload'
+                      type='file'
+                      className='hidden'
+                      accept='image/*'
+                      multiple
+                      onChange={handleScreenshotsUpload}
+                    />
+                    <p className='text-xs text-muted-foreground mt-1'>
+                      Max 5 screenshots. Max 5MB each.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Active Status */}
+        <FormField
+          control={form.control}
+          name='is_active'
+          render={({ field }) => (
+            <FormItem className='flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4'>
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+              <div className='space-y-1 leading-none'>
+                <FormLabel>Active Status</FormLabel>
+                <FormDescription>
+                  Enable or disable application access
+                </FormDescription>
+              </div>
+            </FormItem>
+          )}
+        />
+
         {/* Submit Buttons */}
         <div className='flex justify-end space-x-4 pt-6'>
           <Button
             type='button'
             variant='outline'
             onClick={() => router.back()}
-            disabled={isSubmitting}
+            disabled={isSubmitting || uploadingFiles}
           >
             Cancel
           </Button>
-          <Button type='submit' disabled={isSubmitting}>
-            {isSubmitting
+          <Button type='submit' disabled={isSubmitting || uploadingFiles}>
+            {isSubmitting || uploadingFiles
               ? 'Saving...'
               : isEditing
               ? 'Update Application'

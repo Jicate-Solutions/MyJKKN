@@ -22,11 +22,21 @@ export default function LoginPage() {
 
   // Check if user is already logged in
   useEffect(() => {
+    console.log('Login page mounted/rendered');
+    const redirectedFrom = new URLSearchParams(window.location.search).get(
+      'redirectedFrom'
+    );
+    if (
+      redirectedFrom &&
+      redirectedFrom.includes('__nextjs_original-stack-frames')
+    ) {
+      console.log('Preventing redirect loop to:', redirectedFrom);
+      return; // Don't proceed with automatic redirect
+    }
+
     const checkUser = async () => {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
-      if (session) {
+      const { data, error } = await supabase.auth.getUser();
+      if (!error && data.user) {
         router.push('/');
       }
     };

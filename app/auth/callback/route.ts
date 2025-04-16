@@ -50,13 +50,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get session
+    // Get user
     const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
-    if (sessionError || !session) {
-      console.error('Session error:', sessionError);
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
+    if (userError || !user) {
+      console.error('User error:', userError);
       return NextResponse.redirect(
         new URL(`/auth/login?error=session`, origin)
       );
@@ -67,15 +67,15 @@ export async function GET(request: NextRequest) {
       const { data: existingProfile } = await supabase
         .from('profiles')
         .select('profile_completed')
-        .eq('id', session.user.id)
+        .eq('id', user.id)
         .single();
 
       // If no profile exists, create one
       if (!existingProfile) {
         const { error: insertError } = await supabase.from('profiles').insert([
           {
-            id: session.user.id,
-            email: session.user.email,
+            id: user.id,
+            email: user.email,
             role: 'student',
             profile_completed: false
           }

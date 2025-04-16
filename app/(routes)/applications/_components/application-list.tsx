@@ -9,7 +9,8 @@ import {
   Trash2,
   RefreshCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Eye
 } from 'lucide-react';
 import { Application } from '@/types/applications';
 import { ApplicationService } from '@/lib/services/application/application-service';
@@ -94,6 +95,7 @@ export function ApplicationList({
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead>S.No</TableHead>
             <TableHead>Name</TableHead>
             <TableHead>Category</TableHead>
             <TableHead className='hidden md:table-cell'>Status</TableHead>
@@ -110,8 +112,9 @@ export function ApplicationList({
               </TableCell>
             </TableRow>
           ) : (
-            applications.map((app) => (
+            applications.map((app, index) => (
               <TableRow key={app.id}>
+                <TableCell className='font-medium'>{index + 1}</TableCell>
                 <TableCell className='font-medium'>{app.name}</TableCell>
                 <TableCell>{app.category?.name || 'Uncategorized'}</TableCell>
                 <TableCell className='hidden md:table-cell'>
@@ -134,6 +137,12 @@ export function ApplicationList({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align='end'>
+                      <DropdownMenuItem
+                        onClick={() => router.push(`/applications/${app.id}`)}
+                      >
+                        <Eye className='mr-2 h-4 w-4' />
+                        View Details
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() =>
                           router.push(`/applications/${app.id}/edit`)

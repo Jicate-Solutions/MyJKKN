@@ -28,18 +28,16 @@ export default function ResourcesListPage() {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const {
-          data: { session }
-        } = await supabase.auth.getSession();
+        const { data, error } = await supabase.auth.getUser();
 
-        if (!session) {
+        if (error || !data.user) {
           router.push('/auth/login');
           return;
         }
 
         setLoading(false);
       } catch (error) {
-        console.error('Error checking session:', error);
+        console.error('Error checking authentication:', error);
         setError('Authentication error. Please try again.');
         setLoading(false);
       }
@@ -87,7 +85,9 @@ export default function ResourcesListPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+              <Link href='/resources/physical-resources/dashboard'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

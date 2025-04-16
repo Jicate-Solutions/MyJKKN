@@ -36,9 +36,6 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
 
-    // Debug log
-    console.log('Category filter:', category);
-
     // Start building the query
     let query = supabase.from('applications').select(
       `
@@ -80,9 +77,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Debug log
-    console.log('Query results:', applications?.length);
-
     return NextResponse.json({
       data: applications,
       metadata: {
@@ -122,13 +116,13 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // Get current user session
+    // Get current user
     const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -136,7 +130,7 @@ export async function POST(request: NextRequest) {
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     if (
@@ -221,7 +215,7 @@ export async function POST(request: NextRequest) {
       .from('applications')
       .insert({
         ...body,
-        created_by: session.user.id,
+        created_by: user.id,
         api_endpoints: body.api_endpoints || [],
         support_contact: body.support_contact || null
       })

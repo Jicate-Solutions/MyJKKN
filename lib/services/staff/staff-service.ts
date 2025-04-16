@@ -35,13 +35,11 @@ export class StaffService {
 
   static async createStaff(data: CreateStaffDto): Promise<Staff> {
     try {
-      const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
 
-      if (sessionError) throw sessionError;
-      if (!session?.user) throw new Error('No authenticated user');
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No authenticated user');
 
       // Check if staff_id already exists
       if (data.staff_id) {
@@ -61,8 +59,8 @@ export class StaffService {
         .insert([
           {
             ...data,
-            created_by: session.user.id,
-            updated_by: session.user.id
+            created_by: userData.user.id,
+            updated_by: userData.user.id
           }
         ])
         .select()
@@ -79,19 +77,17 @@ export class StaffService {
 
   static async updateStaff(id: string, data: UpdateStaffDto): Promise<Staff> {
     try {
-      const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
 
-      if (sessionError) throw sessionError;
-      if (!session?.user) throw new Error('No authenticated user');
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No authenticated user');
 
       const { data: staff, error } = await this.supabase
         .from('staff')
         .update({
           ...data,
-          updated_by: session.user.id,
+          updated_by: userData.user.id,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)

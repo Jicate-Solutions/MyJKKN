@@ -35,17 +35,23 @@ export interface Application {
     description: string | null;
   };
   subcategory_id?: string | null;
+  subcategory?: {
+    id: string;
+    name: string;
+  };
   roles_access: string[];
   display_order: number;
   is_active: boolean;
   integration_type: IntegrationType;
   auth_method: AuthMethod;
   tags: string[];
-  support_contact: SupportContact | null;  // Changed to use SupportContact interface
+  support_contact: SupportContact | null; // Changed to use SupportContact interface
   supported_platforms: PlatformType;
-  api_endpoints: ApiEndpoint[];            // Using enhanced ApiEndpoint interface
+  api_endpoints: ApiEndpoint[]; // Using enhanced ApiEndpoint interface
   application_type: AppType;
   data_sensitivity: SensitivityLevel;
+  icon_path: string | null; // New field for application icon
+  screenshots: string[] | null; // New field for application screenshots
   created_by: string;
   created_at: string;
   updated_at: string;
