@@ -29,11 +29,11 @@ export async function GET(request: NextRequest) {
 
     // Check authentication
     const {
-      data: { session },
+      data: { user },
       error: authError
-    } = await supabase.auth.getSession();
+    } = await supabase.auth.getUser();
 
-    if (authError || !session) {
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     if (
@@ -98,14 +98,14 @@ export async function POST(request: NextRequest) {
 
     // Check authentication
     const {
-      data: { session },
+      data: { user },
       error: authError
-    } = await supabase.auth.getSession();
+    } = await supabase.auth.getUser();
 
-    console.log('2. Auth session:', session ? 'Found' : 'Not found');
+    console.log('2. Auth user:', user ? 'Found' : 'Not found');
     console.log('Auth error:', authError);
 
-    if (authError || !session) {
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     if (
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
         {
           name: input.name,
           key_value: hashedKey,
-          created_by: session.user.id,
+          created_by: user.id,
           expires_at: input.expires_at || null,
           permissions: input.permissions || { read: true, write: false },
           is_active: true

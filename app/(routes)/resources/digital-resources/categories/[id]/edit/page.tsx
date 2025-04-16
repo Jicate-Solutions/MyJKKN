@@ -25,7 +25,9 @@ interface EditCategoryPageProps {
   }>;
 }
 
-export default function EditDigitalResourceCategoryPage({ params }: EditCategoryPageProps) {
+export default function EditDigitalResourceCategoryPage({
+  params
+}: EditCategoryPageProps) {
   const { id } = use(params);
   const router = useRouter();
   const supabase = createClientSupabaseClient();
@@ -38,18 +40,16 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
   useEffect(() => {
     const checkSessionAndLoadCategory = async () => {
       try {
-        // Check session
-        const {
-          data: { session }
-        } = await supabase.auth.getSession();
+        // Check authentication
+        const { data, error: authError } = await supabase.auth.getUser();
 
-        if (!session) {
+        if (authError || !data.user) {
           router.push('/auth/login');
           return;
         }
 
         // Load category data
-        const { data, error } = await supabase
+        const { data: categoryData, error } = await supabase
           .from('digital_resource_categories')
           .select('*')
           .eq('id', id)
@@ -59,7 +59,7 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
           throw new Error(error.message);
         }
 
-        setCategory(data);
+        setCategory(categoryData);
         setLoading(false);
       } catch (err) {
         console.error('Error:', err);
@@ -73,24 +73,28 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
 
   if (loading) {
     return (
-      <ContentLayout title="Edit Digital Resource Category">
+      <ContentLayout title='Edit Digital Resource Category'>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/">Home</Link>
+                <Link href='/'>Home</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/resources/digital-resources">Digital Resources</Link>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/resources/digital-resources/categories">Categories</Link>
+                <Link href='/resources/digital-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -100,8 +104,8 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Loader2 className="h-8 w-8 animate-spin" />
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <Loader2 className='h-8 w-8 animate-spin' />
         </div>
       </ContentLayout>
     );
@@ -109,24 +113,28 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
 
   if (error) {
     return (
-      <ContentLayout title="Edit Digital Resource Category">
+      <ContentLayout title='Edit Digital Resource Category'>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/">Home</Link>
+                <Link href='/'>Home</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/resources/digital-resources">Digital Resources</Link>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/resources/digital-resources/categories">Categories</Link>
+                <Link href='/resources/digital-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -136,10 +144,12 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="text-center py-8">
-          <p className="text-destructive mb-4">{error}</p>
-          <Button variant="outline" asChild>
-            <Link href="/resources/digital-resources/categories">Back to Categories</Link>
+        <div className='text-center py-8'>
+          <p className='text-destructive mb-4'>{error}</p>
+          <Button variant='outline' asChild>
+            <Link href='/resources/digital-resources/categories'>
+              Back to Categories
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -148,24 +158,28 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
 
   if (!category) {
     return (
-      <ContentLayout title="Edit Digital Resource Category">
+      <ContentLayout title='Edit Digital Resource Category'>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/">Home</Link>
+                <Link href='/'>Home</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/resources/digital-resources">Digital Resources</Link>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/resources/digital-resources/categories">Categories</Link>
+                <Link href='/resources/digital-resources/categories'>
+                  Categories
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -175,10 +189,12 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="text-center py-8">
-          <p className="text-destructive mb-4">Category not found</p>
-          <Button variant="outline" asChild>
-            <Link href="/resources/digital-resources/categories">Back to Categories</Link>
+        <div className='text-center py-8'>
+          <p className='text-destructive mb-4'>Category not found</p>
+          <Button variant='outline' asChild>
+            <Link href='/resources/digital-resources/categories'>
+              Back to Categories
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -191,19 +207,21 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/">Home</Link>
+              <Link href='/'>Home</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/resources/digital-resources">Digital Resources</Link>
+              <Link href='/resources/digital-resources'>Digital Resources</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/resources/digital-resources/categories">Categories</Link>
+              <Link href='/resources/digital-resources/categories'>
+                Categories
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -213,27 +231,26 @@ export default function EditDigitalResourceCategoryPage({ params }: EditCategory
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="space-y-6 mt-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
+      <div className='space-y-6 mt-4'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
           <div>
-            <h1 className="text-2xl font-bold py-1">Edit Digital Resource Category</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
+            <h1 className='text-2xl font-bold py-1'>
+              Edit Digital Resource Category
+            </h1>
+            <p className='text-sm sm:text-base text-muted-foreground'>
               Update the details of this category
             </p>
           </div>
-          <Button 
-            variant="outline" 
-            asChild
-          >
-            <Link href="/resources/digital-resources/categories">
-              <ChevronLeft className="mr-2 h-4 w-4" />
+          <Button variant='outline' asChild>
+            <Link href='/resources/digital-resources/categories'>
+              <ChevronLeft className='mr-2 h-4 w-4' />
               Back to Categories
             </Link>
           </Button>
         </div>
 
         <Card>
-          <CardContent className="p-6">
+          <CardContent className='p-6'>
             <CategoryForm initialData={category} />
           </CardContent>
         </Card>

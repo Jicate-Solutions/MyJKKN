@@ -72,13 +72,11 @@ export function ProfileForm({ user, onComplete }: ProfileFormProps) {
   const onSubmit = async (data: ProfileFormValues) => {
     try {
       setIsLoading(true);
-      const {
-        data: { session },
-        error: sessionError
-      } = await supabase.auth.getSession();
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser();
 
-      if (sessionError || !session) {
-        throw new Error('No authenticated session');
+      if (userError || !userData.user) {
+        throw new Error('No authenticated user');
       }
 
       // Transform empty strings to null for optional fields
@@ -97,7 +95,7 @@ export function ProfileForm({ user, onComplete }: ProfileFormProps) {
           profile_completed: true,
           updated_at: new Date().toISOString()
         })
-        .eq('id', session.user.id);
+        .eq('id', userData.user.id);
 
       if (error) throw error;
 

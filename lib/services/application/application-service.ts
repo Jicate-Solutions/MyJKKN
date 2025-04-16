@@ -6,6 +6,7 @@ import type {
 } from '@/types/applications';
 import { toast } from 'react-hot-toast';
 import { CategoryService } from '@/lib/services/application/category-service';
+import { SYSTEM_ROLES } from '@/types/auth';
 
 export interface ApplicationListResponse {
   data: Application[];
@@ -259,8 +260,27 @@ export class ApplicationService {
     }
   }
 
-  static getAvailableRoles(): string[] {
-    return ['student', 'faculty', 'staff', 'administrator', 'super_admin'];
+  static async getAvailableRoles(): Promise<{ key: string; name: string }[]> {
+    try {
+      // Import RoleService here to avoid circular dependencies
+      const { RoleService } = await import('@/lib/services/roles/role-service');
+      const roles = await RoleService.getAllRoles();
+
+      // Map roles to the format needed for dropdowns
+      return roles.map((role) => ({
+        key: role.role_key,
+        name: role.role_name
+      }));
+    } catch (error) {
+      console.error('Error fetching available roles:', error);
+      // Fallback to system roles if fetching fails
+      return Object.entries(SYSTEM_ROLES).map(([_, roleKey]) => ({
+        key: roleKey as string,
+        name:
+          (roleKey as string).charAt(0).toUpperCase() +
+          (roleKey as string).slice(1).replace('_', ' ')
+      }));
+    }
   }
 
   static getIntegrationTypes(): string[] {

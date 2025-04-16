@@ -117,18 +117,18 @@ export class UserService {
     error: Error | null;
   }> {
     try {
-      const { data: session, error: sessionError } =
-        await this.supabase.auth.getSession();
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
 
-      if (sessionError) throw sessionError;
-      if (!session.session) {
-        return { data: null, error: new Error('No active session') };
+      if (userError) throw userError;
+      if (!userData.user) {
+        return { data: null, error: new Error('No active user') };
       }
 
       const { data, error } = await this.supabase
         .from('profiles')
         .select('*')
-        .eq('id', session.session.user.id)
+        .eq('id', userData.user.id)
         .single();
 
       if (error) throw error;
@@ -213,17 +213,14 @@ export class UserService {
 
   static async checkIsAdmin(): Promise<boolean> {
     try {
-      const {
-        data: { session },
-        error
-      } = await this.supabase.auth.getSession();
+      const { data: userData, error } = await this.supabase.auth.getUser();
 
-      if (error || !session) return false;
+      if (error || !userData.user) return false;
 
       const { data: profile } = await this.supabase
         .from('profiles')
         .select('role')
-        .eq('id', session.user.id)
+        .eq('id', userData.user.id)
         .single();
 
       return (
@@ -246,6 +243,63 @@ export class UserService {
       return data || [];
     } catch (error) {
       console.error('Error fetching users with roles:', error);
+      throw error;
+    }
+  }
+
+  static async updateUser(id: string, data: UpdateUserDto): Promise<User> {
+    try {
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
+
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No authenticated user');
+
+      const { data: user, error } = await this.supabase
+        .from('users')
+        .update({
+          ...data,
+          updated_by: userData.user.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return user;
+    } catch (error) {
+      console.error('Error updating user:', error);
+      throw error;
+    }
+  }
+
+  static async createUser(data: CreateUserDto): Promise<User> {
+    try {
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
+
+      if (userError) throw userError;
+      if (!userData.user) throw new Error('No authenticated user');
+
+      const { data: user, error } = await this.supabase
+        .from('users')
+        .insert([
+          {
+            ...data,
+            created_by: userData.user.id,
+            updated_by: userData.user.id
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return user;
+    } catch (error) {
+      console.error('Error creating user:', error);
       throw error;
     }
   }

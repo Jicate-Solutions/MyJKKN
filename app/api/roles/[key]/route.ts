@@ -30,12 +30,9 @@ export async function GET(
 
   try {
     // Check authentication and authorization
-    const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (error || !data.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -43,7 +40,7 @@ export async function GET(
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', data.user.id)
       .single();
 
     if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
@@ -101,12 +98,9 @@ export async function PATCH(
 
   try {
     // Check authentication and authorization
-    const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (error || !data.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -114,7 +108,7 @@ export async function PATCH(
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', data.user.id)
       .single();
 
     if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
@@ -211,12 +205,9 @@ export async function DELETE(
 
   try {
     // Check authentication and authorization
-    const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (error || !data.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -224,7 +215,7 @@ export async function DELETE(
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', data.user.id)
       .single();
 
     if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {

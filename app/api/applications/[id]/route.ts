@@ -6,6 +6,8 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import toast from 'react-hot-toast';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { CategoryService } from '@/lib/services/application/category-service';
 
 export async function GET(
   request: NextRequest,
@@ -33,11 +35,11 @@ export async function GET(
     );
 
     const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -57,11 +59,138 @@ export async function GET(
       throw error;
     }
 
+    // Log the application data before fetching category
+    console.log('Application data before category fetch:', {
+      id: data.id,
+      name: data.name,
+      category_id: data.category_id,
+      subcategory_id: data.subcategory_id
+    });
+
+    // Fetch category and subcategory data
+    if (data.category_id) {
+      try {
+        console.log(
+          'Attempting direct database query for category with ID:',
+          data.category_id
+        );
+
+        // Direct database query
+        const { data: categoryData, error: categoryError } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('id', data.category_id)
+          .single();
+
+        if (categoryError) {
+          console.error('Database error fetching category:', categoryError);
+          data.category = {
+            id: data.category_id,
+            name: 'Unknown Category',
+            description: null
+          };
+        } else if (categoryData) {
+          console.log(
+            'Found category directly from database:',
+            categoryData.name
+          );
+          data.category = {
+            id: categoryData.id,
+            name: categoryData.name,
+            description: categoryData.description
+          };
+
+          // If subcategory_id exists, fetch it directly too
+          if (data.subcategory_id) {
+            const { data: subcategoryData, error: subcategoryError } =
+              await supabase
+                .from('subcategories')
+                .select('*')
+                .eq('id', data.subcategory_id)
+                .single();
+
+            if (subcategoryError) {
+              console.error('Error fetching subcategory:', subcategoryError);
+            } else if (subcategoryData) {
+              console.log(
+                'Found subcategory from database:',
+                subcategoryData.name
+              );
+              data.subcategory = {
+                id: subcategoryData.id,
+                name: subcategoryData.name
+              };
+            } else {
+              data.subcategory = {
+                id: data.subcategory_id,
+                name: 'Unknown Subcategory'
+              };
+            }
+          }
+        } else {
+          console.log(
+            'No category found in database with ID:',
+            data.category_id
+          );
+          data.category = {
+            id: data.category_id,
+            name: 'Unknown Category',
+            description: null
+          };
+        }
+      } catch (error) {
+        console.error('Error processing category data:', error);
+        data.category = {
+          id: data.category_id,
+          name: 'Unknown Category',
+          description: null
+        };
+      }
+    } else {
+      // Ensure a default category for uncategorized applications
+      if (!data.category) {
+        data.category = {
+          id: data.category_id || '',
+          name: 'Uncategorized',
+          description: null
+        };
+      }
+    }
+
+    // Log the final application data with category info
+    console.log('Final application data with category:', {
+      id: data.id,
+      name: data.name,
+      category: data.category,
+      subcategory: data.subcategory
+    });
+
+    // Before returning data
+    console.log(
+      'Final application data to be returned:',
+      JSON.stringify(
+        {
+          id: data.id,
+          name: data.name,
+          category_id: data.category_id,
+          category: data.category
+            ? {
+                id: data.category.id,
+                name: data.category.name,
+                description: data.category.description
+              }
+            : 'undefined'
+        },
+        null,
+        2
+      )
+    );
+
     return NextResponse.json(data);
   } catch (error) {
     console.error('Error fetching application:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to fetch application' },
       { status: 500 }
     );
   }
@@ -93,11 +222,11 @@ export async function PATCH(
 
     // Check authentication
     const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -105,7 +234,7 @@ export async function PATCH(
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     if (
@@ -226,18 +355,18 @@ export async function DELETE(
     );
 
     const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     if (

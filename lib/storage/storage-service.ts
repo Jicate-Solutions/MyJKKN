@@ -35,19 +35,19 @@ export class StorageService {
       await this.validateFile(file);
 
       const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
 
-      if (sessionError || !session) {
+      if (userError || !user) {
         throw new Error('Authentication required');
       }
 
-      await this.deleteOldAvatar(session.user.id);
+      await this.deleteOldAvatar(user.id);
 
       const fileExt = file.name.split('.').pop()?.toLowerCase();
       const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `${session.user.id}/${fileName}`;
+      const filePath = `${user.id}/${fileName}`;
 
       const { error: uploadError } = await this.supabase.storage
         .from(BUCKETS.AVATARS)
@@ -68,7 +68,7 @@ export class StorageService {
           avatar_url: urlData.publicUrl,
           updated_at: new Date().toISOString()
         })
-        .eq('id', session.user.id);
+        .eq('id', user.id);
 
       if (updateError) throw updateError;
 
@@ -135,11 +135,11 @@ export class StorageService {
       await this.validateFile(file);
 
       const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
 
-      if (sessionError || !session) {
+      if (userError || !user) {
         throw new Error('Authentication required');
       }
 
@@ -216,11 +216,11 @@ export class StorageService {
       await this.validateFile(file);
 
       const {
-        data: { session },
-        error: sessionError
-      } = await this.supabase.auth.getSession();
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
 
-      if (sessionError || !session) {
+      if (userError || !user) {
         throw new Error('Authentication required');
       }
 

@@ -14,10 +14,6 @@ import { Profile } from '@/types/auth';
 import { AuthService } from '@/lib/auth/auth-service';
 import { toast } from 'react-hot-toast';
 import { createBrowserClient } from '@supabase/ssr';
-import {
-  AuthChangeEvent,
-  RealtimePostgresChangesPayload
-} from '@supabase/supabase-js';
 import { useSessionSync } from '@/hooks/use-session-sync';
 import { Database } from '@/types/supabase';
 
@@ -51,10 +47,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!profile) {
         // If no profile, check if we're actually logged in
-        const {
-          data: { session }
-        } = await supabase.auth.getSession();
-        if (!session) {
+        const { data, error } = await supabase.auth.getUser();
+        if (error || !data.user) {
           setUser(null);
           return;
         }
@@ -63,11 +57,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(profile);
     } catch (error) {
       console.error('Error refreshing user:', error);
-      // On error, verify session and redirect if needed
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
-      if (!session) {
+      // On error, verify auth and redirect if needed
+      const { data, error: userError } = await supabase.auth.getUser();
+      if (userError || !data.user) {
         setUser(null);
         router.push('/auth/login');
       }

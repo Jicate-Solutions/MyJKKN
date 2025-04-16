@@ -25,10 +25,10 @@ export async function POST(request: Request) {
     );
     // Get session
     const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
-    if (sessionError || !session) {
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
+    if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
 
     // Create unique filename
     const fileExt = file.name.split('.').pop();
-    const fileName = `${session.user.id}/${Date.now()}.${fileExt}`;
+    const fileName = `${user.id}/${Date.now()}.${fileExt}`;
 
     // Upload file
     const { data, error } = await supabase.storage
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
         avatar_url: publicUrl,
         updated_at: new Date().toISOString()
       })
-      .eq('id', session.user.id);
+      .eq('id', user.id);
 
     if (updateError) {
       console.error('Profile update error:', updateError);

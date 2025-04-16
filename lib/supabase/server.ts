@@ -44,21 +44,30 @@ export async function getAuthUser() {
 }
 
 // Helper to get authenticated session
-// Note: For server components, prefer getAuthUser() for security
+// DEPRECATED: For security reasons, use getAuthUser() instead
 export async function getAuthSession() {
+  // Using getUser for better security
   const supabase = await createServerSupabaseClient();
   const {
-    data: { session },
+    data: { user },
     error
-  } = await supabase.auth.getSession();
+  } = await supabase.auth.getUser();
 
-  if (error || !session) {
-    return { session: null, error: error || new Error('No session found') };
+  if (error || !user) {
+    return { session: null, error: error || new Error('No user found') };
   }
 
-  return { session, error: null };
+  // For backward compatibility, we return a session-like object
+  return {
+    session: {
+      user,
+      access_token: 'deprecated' // Note: don't use this access_token
+    },
+    error: null
+  };
 }
 
+// DEPRECATED: For security reasons, use getAuthUser() instead
 export async function getSession() {
   const supabase = await createServerSupabaseClient();
   try {
@@ -67,10 +76,11 @@ export async function getSession() {
     } = await supabase.auth.getUser();
     if (!user) return null;
 
-    const {
-      data: { session }
-    } = await supabase.auth.getSession();
-    return session;
+    // For backward compatibility only
+    return {
+      user,
+      access_token: 'deprecated' // Note: don't use this access_token
+    };
   } catch (error) {
     console.error('Error:', error);
     return null;

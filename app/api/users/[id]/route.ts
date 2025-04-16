@@ -27,11 +27,11 @@ export async function GET(request: NextRequest) {
 
     // Get current user's session
     const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     const { data: currentUserProfile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     if (profileError) {
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
       }
     } else {
       // Non-super admins can only see their own profile
-      query = query.eq('id', session.user.id);
+      query = query.eq('id', user.id);
     }
 
     // Apply pagination
@@ -135,11 +135,11 @@ export async function PATCH(
 
     // Check authentication
     const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -147,7 +147,7 @@ export async function PATCH(
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     if (profileError || currentProfile.role !== 'super_admin') {

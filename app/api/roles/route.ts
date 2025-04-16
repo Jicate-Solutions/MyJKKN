@@ -8,12 +8,9 @@ export async function GET(request: NextRequest) {
 
   try {
     // Check authentication and authorization
-    const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (error || !data.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -21,7 +18,7 @@ export async function GET(request: NextRequest) {
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', data.user.id)
       .single();
 
     if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
@@ -59,12 +56,9 @@ export async function POST(request: NextRequest) {
 
   try {
     // Check authentication and authorization
-    const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.getUser();
 
-    if (sessionError || !session) {
+    if (error || !data.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -72,7 +66,7 @@ export async function POST(request: NextRequest) {
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', session.user.id)
+      .eq('id', data.user.id)
       .single();
 
     if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
@@ -125,7 +119,7 @@ export async function POST(request: NextRequest) {
           description,
           permissions: permissions || {},
           is_system_role: false,
-          created_by: session.user.id
+          created_by: data.user.id
         }
       ])
       .select()

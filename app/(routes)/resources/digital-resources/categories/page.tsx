@@ -51,18 +51,16 @@ export default function DigitalResourceCategoriesPage() {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const {
-          data: { session }
-        } = await supabase.auth.getSession();
+        const { data, error } = await supabase.auth.getUser();
 
-        if (!session) {
+        if (error || !data.user) {
           router.push('/auth/login');
           return;
         }
 
         setAuthLoading(false);
       } catch (error) {
-        console.error('Error checking session:', error);
+        console.error('Error checking authentication:', error);
         setAuthError('Authentication error. Please try again.');
         setAuthLoading(false);
       }
