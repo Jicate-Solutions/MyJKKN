@@ -295,7 +295,9 @@ export default function ApplicationDetailsPage({
                     Subcategory
                   </h3>
                   <div className='text-sm'>
-                    {application.subcategory?.name || 'Unknown subcategory'}
+                    {application.subcategory
+                      ? application.subcategory.name
+                      : 'Unknown subcategory'}
                   </div>
                 </div>
               )}

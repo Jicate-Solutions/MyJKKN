@@ -20,16 +20,20 @@ export function createClientSupabaseClient() {
 
 export function createAdminClient() {
   if (!adminInstance) {
-    if (
-      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      !process.env.SUPABASE_SERVICE_ROLE_KEY
-    ) {
-      throw new Error('Missing Supabase admin credentials');
+    // For client-side components, fall back to anon key
+    const isClient = typeof window !== 'undefined';
+    const authKey = isClient
+      ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      : process.env.SUPABASE_SERVICE_ROLE_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !authKey) {
+      throw new Error('Missing Supabase credentials');
     }
 
     adminInstance = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      authKey,
       {
         auth: {
           autoRefreshToken: false,

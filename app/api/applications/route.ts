@@ -28,6 +28,20 @@ export async function GET(request: NextRequest) {
       }
     );
 
+    // Get auth user to make sure we're authenticated
+    const {
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
+
+    if (userError) {
+      console.error('Authentication error:', userError);
+      return NextResponse.json(
+        { error: 'Authentication error', message: userError.message },
+        { status: 401 }
+      );
+    }
+
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;
     const category = searchParams.get('category');
@@ -36,18 +50,17 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
 
-    // Start building the query
-    let query = supabase.from('applications').select(
-      `
-        *,
-        category:categories (
-          id,
-          name,
-          description
-        )
-      `,
-      { count: 'exact' }
-    );
+    // Debug log
+    console.log('Fetching applications with params:', {
+      category,
+      search,
+      isActive,
+      page,
+      limit
+    });
+
+    // Start building the query - simplified query first to debug
+    let query = supabase.from('applications').select('*', { count: 'exact' });
 
     // Apply filters
     if (category && category !== 'all') {
@@ -67,18 +80,65 @@ export async function GET(request: NextRequest) {
     const to = from + limit - 1;
     query = query.range(from, to).order('created_at', { ascending: false });
 
+    // Execute the query
     const { data: applications, error, count } = await query;
 
     if (error) {
       console.error('Error fetching applications:', error);
       return NextResponse.json(
-        { error: 'Error fetching applications' },
+        {
+          error: 'Error fetching applications',
+          message: error.message,
+          details: error.details,
+          code: error.code
+        },
         { status: 500 }
       );
     }
 
+    if (!applications) {
+      console.warn('No applications returned but no error');
+      return NextResponse.json({
+        data: [],
+        metadata: {
+          total: 0,
+          page,
+          limit,
+          totalPages: 0
+        }
+      });
+    }
+
+    // Process applications to ensure proper structure
+    const processedApplications = applications.map((app) => {
+      // Create a safe copy with guaranteed fields
+      return {
+        ...app,
+        roles_access: Array.isArray(app.roles_access) ? app.roles_access : [],
+        category: app.category || null,
+        subcategory: null,
+        tags: Array.isArray(app.tags) ? app.tags : [],
+        api_endpoints: Array.isArray(app.api_endpoints)
+          ? app.api_endpoints
+          : [],
+        screenshots: Array.isArray(app.screenshots) ? app.screenshots : []
+      };
+    });
+
+    // Debug log
+    console.log(
+      `Successfully fetched ${processedApplications.length} applications`
+    );
+    if (processedApplications.length > 0) {
+      console.log('Sample application:', {
+        id: processedApplications[0].id,
+        name: processedApplications[0].name,
+        roles_access: processedApplications[0].roles_access
+      });
+    }
+
     return NextResponse.json({
-      data: applications,
+      data: processedApplications,
       metadata: {
         total: count || 0,
         page,
@@ -87,9 +147,11 @@ export async function GET(request: NextRequest) {
       }
     });
   } catch (error) {
-    console.error('Error in GET /api/applications:', error);
+    console.error('Unexpected error in GET /api/applications:', error);
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', message: errorMessage },
       { status: 500 }
     );
   }

@@ -29,12 +29,38 @@ export function useApplications(initialFilters: ApplicationFilters = {}) {
 
         const result = await ApplicationService.getApplications(currentFilters);
 
-        setApplications(result.data);
+        // Debug log the applications data
+        console.log('Applications fetched:', result.data.length);
+        if (result.data.length > 0) {
+          console.log('First application sample:', {
+            id: result.data[0].id,
+            name: result.data[0].name,
+            roles_access: result.data[0].roles_access
+          });
+        }
+
+        // Ensure roles_access is always an array
+        const validatedApps = result.data.map((app) => {
+          if (!app.roles_access || !Array.isArray(app.roles_access)) {
+            console.warn(
+              `Application ${app.id} has invalid roles_access:`,
+              app.roles_access
+            );
+            return {
+              ...app,
+              roles_access: []
+            };
+          }
+          return app;
+        });
+
+        setApplications(validatedApps);
         setMetadata(result.metadata);
         if (newFilters) {
           setFilters(newFilters);
         }
       } catch (err) {
+        console.error('Error fetching applications:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);

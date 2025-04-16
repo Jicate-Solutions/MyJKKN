@@ -48,15 +48,39 @@ export class ApplicationService {
       console.log('Request URL:', `/api/applications?${params.toString()}`);
 
       const response = await fetch(`/api/applications?${params.toString()}`);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to fetch applications');
+        const errorData = await response.json();
+        console.error('API error response:', errorData);
+
+        // Provide a more detailed error message from the API if available
+        const errorMessage =
+          errorData.message ||
+          errorData.error ||
+          'Failed to fetch applications';
+        throw new Error(errorMessage);
       }
+
       const data = await response.json();
+
+      // Validate response structure
+      if (!data || !Array.isArray(data.data)) {
+        console.error('Invalid API response format:', data);
+        throw new Error('Invalid response format from the server');
+      }
+
       return data;
     } catch (error) {
       console.error('Error fetching applications:', error);
-      throw error;
+
+      // Re-throw with enhanced error message if available
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error(
+          'An unknown error occurred while fetching applications'
+        );
+      }
     }
   }
 
