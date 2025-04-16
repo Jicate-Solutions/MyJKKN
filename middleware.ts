@@ -7,9 +7,7 @@ import { PROTECTED_ROUTES } from './lib/auth/protected-routes';
 const PUBLIC_PATHS = [
   '/auth/login',
   '/auth/callback',
-  '/auth/complete-profile',
-  '/unauthorized',
-  '/error'
+  '/auth/complete-profile'
 ];
 
 // Helper to check if path is public
@@ -21,14 +19,7 @@ const isPublicPath = (path: string) =>
 
 export async function middleware(request: NextRequest) {
   try {
-    // Create next response
     const res = NextResponse.next();
-    const currentPath = request.nextUrl.pathname;
-
-    // Skip middleware for public paths
-    if (isPublicPath(currentPath)) {
-      return res;
-    }
 
     // Create supabase client
     const supabase = createServerClient(
@@ -50,15 +41,22 @@ export async function middleware(request: NextRequest) {
       }
     );
 
+    const currentPath = request.nextUrl.pathname;
+
+    // Skip middleware for public paths
+    if (isPublicPath(currentPath)) {
+      return res;
+    }
+
     // Get and verify user - this sends a request to Supabase Auth server every time
     const {
       data: { user },
       error: userError
     } = await supabase.auth.getUser();
 
-    // Handle authentication errors gracefully - don't log normal auth state
-    if (userError && userError.name !== 'AuthSessionMissingError') {
+    if (userError) {
       console.error('Auth error:', userError);
+      return NextResponse.redirect(new URL('/auth/login', request.url));
     }
 
     if (!user) {
@@ -81,6 +79,16 @@ export async function middleware(request: NextRequest) {
     if (profileError) {
       console.error('Profile fetch error:', profileError);
       return NextResponse.redirect(new URL('/unauthorized', request.url));
+    }
+
+    // Check profile completion
+    if (
+      !profile.profile_completed &&
+      !currentPath.includes('/auth/complete-profile')
+    ) {
+      return NextResponse.redirect(
+        new URL('/auth/complete-profile', request.url)
+      );
     }
 
     // Check protected routes access
@@ -129,6 +137,6 @@ export const config = {
     '/profile/:path*',
     '/users/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|api|auth/login|auth/callback|auth/complete-profile|unauthorized|error).*)'
+    '/((?!_next/static|_next/image|favicon.ico|api|auth/login|auth/callback|auth/complete-profile).*)'
   ]
 };
