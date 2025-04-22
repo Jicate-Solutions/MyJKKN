@@ -20,6 +20,7 @@ import { CourseList } from './_components/course-list';
 import DownloadCourseTemplateButton from './_components/download-course-template';
 import BulkUploadCourses from './_components/bulk-upload-courses';
 import { useCourses } from '@/hooks/organization/use-courses';
+import { ExportCourses } from './_components/export-courses';
 
 export default function CoursesPage() {
   const {
@@ -86,6 +87,7 @@ export default function CoursesPage() {
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
             <DownloadCourseTemplateButton />
+            <ExportCourses />
             <BulkUploadCourses />
             <Button className='w-full sm:w-auto' asChild>
               <Link href='/organizations/courses/new'>
