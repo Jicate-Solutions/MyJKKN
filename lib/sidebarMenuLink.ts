@@ -66,69 +66,69 @@ interface MenuPermissions {
   [menuPath: string]: string; // Maps menu path to required permission key
 }
 
-export const MENU_PERMISSIONS: MenuPermissions = {
-  // User Management
-  '/users': 'view_users',
-  '/users/roles': 'assign_roles',
-  '/users/role-management': 'manage_roles',
+  export const MENU_PERMISSIONS: MenuPermissions = {
+    // User Management
+    '/users': 'view_users',
+    '/users/roles': 'assign_roles',
+    '/users/role-management': 'manage_roles',
 
-  // Application Hub
-  '/application-hub': 'view_applications',
-  '/application-hub/api-guidelines': 'view_api_guidelines',
+    // Application Hub
+    '/application-hub': 'view_applications',
+    '/application-hub/api-guidelines': 'view_api_guidelines',
 
-  // Application Management
-  '/applications': 'view_applications',
-  '/applications/new': 'manage_applications',
-  '/applications/categories': 'manage_application_categories',
+    // Application Management
+    '/applications': 'view_applications',
+    '/applications/new': 'manage_applications',
+    '/applications/categories': 'manage_application_categories',
 
-  // Admissions Management
-  '/admissions': 'view_admissions',
-  '/admissions/new': 'create_admissions',
-  '/admissions/crm': 'view_admissions_crm',
+    // Admissions Management
+    '/admissions': 'view_admissions',
+    '/admissions/new': 'create_admissions',
+    '/admissions/crm': 'view_admissions_crm',
 
-  // Organization Management
-  '/organizations/institutions': 'view_institutions',
-  '/organizations/degrees': 'view_degrees',
-  '/organizations/departments': 'view_departments',
-  '/organizations/programs': 'view_programs',
-  '/organizations/courses': 'view_courses',
-  '/organizations/semesters': 'view_semesters',
-  '/organizations/sections': 'view_sections',
+    // Organization Management
+    '/organizations/institutions': 'view_institutions',
+    '/organizations/degrees': 'view_degrees',
+    '/organizations/departments': 'view_departments',
+    '/organizations/programs': 'view_programs',
+    '/organizations/courses': 'view_courses',
+    '/organizations/semesters': 'view_semesters',
+    '/organizations/sections': 'view_sections',
 
-  // Staff Management
-  '/staff/category': 'view_staff_categories',
-  '/staff/list': 'view_staff',
+    // Staff Management
+    '/staff/category': 'view_staff_categories',
+    '/staff/list': 'view_staff',
 
-  // Academic Management
-  '/academic/years': 'view_academic_years',
-  '/academic/staff-planning': 'manage_staff',
-  '/academic/timetables': 'manage_timetables',
+    // Academic Management
+    '/academic/years': 'view_academic_years',
+    '/academic/staff-planning': 'manage_staff',
+    '/academic/timetables': 'manage_timetables',
 
-  // Resource Management
+    // Resource Management
 
-  // physical Resources
-  '/resources/physical-resources/dashboard':
-    'view_physical_resources_dashboard',
-  '/resources/physical-resources/resources': 'view_physical_resources',
-  '/resources/physical-resources/categories':
-    'view_physical_resources_categories',
-  '/resources/physical-resources/reservations':
-    'view_physical_resources_reservations',
-  '/resources/physical-resources/policies': 'view_physical_resources_policies',
-  '/resources/physical-resources/reports': 'view_physical_resources_reports',
-  '/resources/physical-resources/requests': 'view_physical_resources_requests',
+    // physical Resources
+    '/resources/physical-resources/dashboard':
+      'view_physical_resources_dashboard',
+    '/resources/physical-resources/resources': 'view_physical_resources',
+    '/resources/physical-resources/categories':
+      'view_physical_resources_categories',
+    '/resources/physical-resources/reservations':
+      'view_physical_resources_reservations',
+    '/resources/physical-resources/policies': 'view_physical_resources_policies',
+    '/resources/physical-resources/reports': 'view_physical_resources_reports',
+    '/resources/physical-resources/requests': 'view_physical_resources_requests',
 
-  // digital Resources
-  '/resources/digital-resources/dashboard': 'view_digital_resources_dashboard',
-  '/resources/digital-resources/resources': 'view_digital_resources',
-  '/resources/digital-resources/categories':
-    'view_digital_resources_categories',
-  '/resources/digital-resources/reservations':
-    'view_digital_resources_reservations',
+    // digital Resources
+    '/resources/digital-resources/dashboard': 'view_digital_resources_dashboard',
+    '/resources/digital-resources/resources': 'view_digital_resources',
+    '/resources/digital-resources/categories':
+      'view_digital_resources_categories',
+    '/resources/digital-resources/reservations':
+      'view_digital_resources_reservations',
 
-  // System Management
-  '/system/api-management': 'manage_api'
-};
+    // System Management
+    '/system/api-management': 'manage_api'
+  };
 
 export function GetPages(pathname: string): MenuGroup[] {
   return [

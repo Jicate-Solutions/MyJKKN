@@ -21,6 +21,7 @@ import { ProgramFilters } from './_components/program-filters';
 import { ProgramList } from './_components/program-list';
 import DownloadProgramTemplateButton from './_components/download-program-template';
 import BulkUploadPrograms from './_components/bulk-upload-programs';
+import { ExportPrograms } from './_components/export-programs';
 
 export default function ProgramsPage() {
   const {
@@ -87,6 +88,7 @@ export default function ProgramsPage() {
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
             <DownloadProgramTemplateButton />
+            <ExportPrograms />
             <BulkUploadPrograms />
             <Button className='w-full sm:w-auto' asChild>
               <Link href='/organizations/programs/new'>

@@ -21,6 +21,7 @@ import { DegreeFilters } from './_components/degree-filters';
 import { DegreeList } from './_components/degree-list';
 import DownloadDegreeTemplateButton from './_components/download-degree-template';
 import BulkUploadDegrees from './_components/bulk-upload-degrees';
+import ExportDegrees from './_components/export-degrees';
 import { useDegrees } from '@/hooks/organization/use-degrees';
 
 export default function DegreesPage() {
@@ -88,6 +89,7 @@ export default function DegreesPage() {
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
             <DownloadDegreeTemplateButton />
+            <ExportDegrees />
             <BulkUploadDegrees />
             <Button className='w-full sm:w-auto' asChild>
               <Link href='/organizations/degrees/new'>

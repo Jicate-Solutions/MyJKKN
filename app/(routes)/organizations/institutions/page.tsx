@@ -21,6 +21,7 @@ import { InstitutionList } from './_components/institution-list';
 import { InstitutionFilter } from './_components/institution-filters';
 import BulkUploadInstitutions from './_components/bulk-upload-institutions';
 import DownloadTemplateButton from './_components/download-template-button';
+import ExportInstitutions from './_components/export-institutions';
 
 export default function InstitutionsPage() {
   const {
@@ -87,6 +88,7 @@ export default function InstitutionsPage() {
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
             <DownloadTemplateButton />
+            <ExportInstitutions />
             <BulkUploadInstitutions />
             <Button className='w-full sm:w-auto' asChild>
               <Link href='/organizations/institutions/new'>
