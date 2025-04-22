@@ -20,6 +20,7 @@ import { SemesterFilters } from './_components/semester-filters';
 import { SemesterList } from './_components/semester-list';
 import DownloadSemesterTemplateButton from './_components/download-semester-template';
 import BulkUploadSemesters from './_components/bulk-upload-semesters';
+import { ExportSemesters } from './_components/export-semesters';
 
 export default function SemestersPage() {
   const {
@@ -86,6 +87,7 @@ export default function SemestersPage() {
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
             <DownloadSemesterTemplateButton />
+            <ExportSemesters />
             <BulkUploadSemesters />
             <Button className='w-full sm:w-auto' asChild>
               <Link href='/organizations/semesters/new'>

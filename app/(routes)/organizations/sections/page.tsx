@@ -20,6 +20,7 @@ import { SectionFilters } from './_components/section-filters';
 import { SectionList } from './_components/section-list';
 import DownloadSectionTemplateButton from './_components/download-section-template';
 import BulkUploadSections from './_components/bulk-upload-sections';
+import { ExportSections } from './_components/export-sections';
 
 export default function SectionsPage() {
   const {
@@ -86,6 +87,7 @@ export default function SectionsPage() {
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
             <DownloadSectionTemplateButton />
+            <ExportSections />
             <BulkUploadSections />
             <Button className='w-full sm:w-auto' asChild>
               <Link href='/organizations/sections/new'>
