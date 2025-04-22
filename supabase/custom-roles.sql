@@ -62,12 +62,7 @@ EXECUTE FUNCTION public.update_custom_roles_updated_at();
 -- Insert default system roles
 INSERT INTO public.custom_roles (role_key, role_name, description, is_system_role, permissions)
 VALUES 
-('super_admin', 'Super Administrator', 'Full system access and control', true, '{"all": true}'),
-('administrator', 'Administrator', 'Administrative access to manage the system', true, '{"manage_users": true, "manage_content": true}'),
-('faculty', 'Faculty', 'Teaching staff with academic privileges', true, '{"manage_courses": true, "view_students": true}'),
-('student', 'Student', 'Student role with limited access', true, '{"view_courses": true, "submit_assignments": true}'),
-('staff', 'Staff', 'Non-teaching staff with administrative access', true, '{"view_reports": true, "manage_resources": true}'),
-('guest', 'Guest', 'Limited access for visitors', true, '{"view_public": true}');
+('super_admin', 'Super Administrator', 'Full system access and control', true, '{"all": true}');
 
 -- Function to check if a user has a specific permission based on their role
 CREATE OR REPLACE FUNCTION public.user_has_permission(permission_name text)

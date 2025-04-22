@@ -22,6 +22,7 @@ import { DepartmentFilters } from './_components/department-filters';
 import { DepartmentList } from './_components/department-list';
 import DownloadDepartmentTemplateButton from './_components/download-department-template';
 import BulkUploadDepartments from './_components/bulk-upload-departments';
+import { ExportDepartments } from './_components/export-departments';
 
 export default function DepartmentsPage() {
   const {
@@ -88,6 +89,7 @@ export default function DepartmentsPage() {
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
             <DownloadDepartmentTemplateButton />
+            <ExportDepartments />
             <BulkUploadDepartments />
             <Button className='w-full sm:w-auto' asChild>
               <Link href='/organizations/departments/new'>

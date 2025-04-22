@@ -131,7 +131,7 @@ export function InstitutionList({
                 <TableRow key={institution.id}>
                   <TableCell className='font-medium'>
                     <Link
-                      href={`/organizations/institutions/${institution.id}/departments`}
+                      href={`/organizations/institutions/${institution.id}`}
                       className='flex items-center hover:text-primary'
                     >
                       <Building2 className='mr-2 h-4 w-4' />
