@@ -22,13 +22,7 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { CourseService } from '@/lib/services/organization/course-service';
-import type {
-  Degree,
-  Department,
-  Program,
-  Course
-} from '@/types/organizations';
+import type { Degree, Department, Program } from '@/types/organizations';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface CourseSelectionFormProps {
@@ -47,19 +41,17 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
   const [degrees, setDegrees] = useState<Degree[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
 
   // Loading states
   const [loadingInstitutions, setLoadingInstitutions] = useState(true);
   const [loadingDegrees, setLoadingDegrees] = useState(false);
   const [loadingDepartments, setLoadingDepartments] = useState(false);
   const [loadingPrograms, setLoadingPrograms] = useState(false);
-  const [loadingCourses, setLoadingCourses] = useState(false);
 
   // Get current values for dynamic options
-  const fieldOfStudy = useWatch({
+  const institution_id = useWatch({
     control: form.control,
-    name: 'fieldOfStudy'
+    name: 'institution_id'
   });
 
   const degreeId = useWatch({
@@ -77,11 +69,6 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
     name: 'programId'
   });
 
-  const courseType = useWatch({
-    control: form.control,
-    name: 'courseType'
-  });
-
   const entryType = useWatch({
     control: form.control,
     name: 'entryType'
@@ -89,13 +76,11 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
 
   // Log form values for debugging
   console.log('Course selection form values:', {
-    fieldOfStudy: form.getValues('fieldOfStudy'),
+    institution_id: form.getValues('institution_id'),
     degreeId: form.getValues('degreeId'),
     departmentId: form.getValues('departmentId'),
     programId: form.getValues('programId'),
-    courseType: form.getValues('courseType'),
-    entryType: form.getValues('entryType'),
-    yearAndBranch: form.getValues('yearAndBranch')
+    entryType: form.getValues('entryType')
   });
 
   // Add helper functions for each dropdown to find matches by name or ID
@@ -146,11 +131,6 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
     [programs]
   );
 
-  const findCourseByNameOrId = useCallback(
-    (nameOrId: string) => findByNameOrId(courses, nameOrId, 'course_name'),
-    [courses]
-  );
-
   // Helper function to check if a string is a valid UUID
   const isValidUUID = useCallback((str: string) => {
     const uuidPattern =
@@ -160,19 +140,19 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
 
   // Effect to map institution string name to ID
   useEffect(() => {
-    if (institutions.length > 0 && fieldOfStudy && !loadingInstitutions) {
-      const matchingInstitution = findInstitutionByNameOrId(fieldOfStudy);
+    if (institutions.length > 0 && institution_id && !loadingInstitutions) {
+      const matchingInstitution = findInstitutionByNameOrId(institution_id);
 
-      if (matchingInstitution && matchingInstitution.id !== fieldOfStudy) {
+      if (matchingInstitution && matchingInstitution.id !== institution_id) {
         console.log(
-          `Found matching institution: "${matchingInstitution.name}" (${matchingInstitution.id}) for "${fieldOfStudy}"`
+          `Found matching institution: "${matchingInstitution.name}" (${matchingInstitution.id}) for "${institution_id}"`
         );
-        form.setValue('fieldOfStudy', matchingInstitution.id);
+        form.setValue('institution_id', matchingInstitution.id);
       }
     }
   }, [
     institutions,
-    fieldOfStudy,
+    institution_id,
     form,
     loadingInstitutions,
     findInstitutionByNameOrId
@@ -226,63 +206,6 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
     }
   }, [programs, programId, form, loadingPrograms, findProgramByNameOrId]);
 
-  // Effect to map course string name to ID
-  useEffect(() => {
-    if (courses.length > 0 && !loadingCourses) {
-      const yearAndBranchValue = form.getValues('yearAndBranch');
-
-      // If yearAndBranch is empty but we have an admission record being edited, try to set it
-      if (!yearAndBranchValue && courses.length === 1) {
-        console.log(
-          'Single course loaded for edit mode, setting yearAndBranch:',
-          courses[0].id
-        );
-        form.setValue('yearAndBranch', courses[0].id);
-        return;
-      }
-
-      if (!yearAndBranchValue) return;
-
-      console.log('Mapping course value:', {
-        value: yearAndBranchValue,
-        isUUID: isValidUUID(yearAndBranchValue),
-        availableCourses: courses.map((c) => ({
-          id: c.id,
-          name: c.course_name
-        }))
-      });
-
-      // Skip if the value is already a UUID and exists in our courses list
-      if (
-        isValidUUID(yearAndBranchValue) &&
-        courses.some((course) => course.id === yearAndBranchValue)
-      ) {
-        console.log(
-          `Course ID ${yearAndBranchValue} is already valid and exists in list`
-        );
-        return;
-      }
-
-      // Use findByNameOrId directly instead of the callback
-      const matchingCourse = findByNameOrId(
-        courses,
-        yearAndBranchValue,
-        'course_name'
-      );
-
-      if (matchingCourse && matchingCourse.id !== yearAndBranchValue) {
-        console.log(
-          `Found matching course: "${matchingCourse.course_name}" (${matchingCourse.id}) for "${yearAndBranchValue}"`
-        );
-        form.setValue('yearAndBranch', matchingCourse.id);
-      } else {
-        console.log(
-          `No matching course found for "${yearAndBranchValue}", keeping as is`
-        );
-      }
-    }
-  }, [courses, form, loadingCourses, isValidUUID]);
-
   // Fetch institutions on component mount
   useEffect(() => {
     async function fetchInstitutions() {
@@ -301,13 +224,13 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
 
   // Fetch degrees when institution changes
   useEffect(() => {
-    if (fieldOfStudy) {
+    if (institution_id) {
       async function fetchDegrees() {
         try {
           setLoadingDegrees(true);
-          console.log('Fetching degrees for institution:', fieldOfStudy);
+          console.log('Fetching degrees for institution:', institution_id);
           const data = await DegreeService.getDegreesByInstitution(
-            fieldOfStudy
+            institution_id
           );
           setDegrees(data);
 
@@ -316,7 +239,6 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           const currentDegreeId = form.getValues('degreeId');
           const currentDepartmentId = form.getValues('departmentId');
           const currentProgramId = form.getValues('programId');
-          const currentYearAndBranch = form.getValues('yearAndBranch');
 
           if (!currentDegreeId) {
             form.setValue('degreeId', '');
@@ -330,11 +252,6 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           if (!currentProgramId) {
             form.setValue('programId', '');
             setPrograms([]);
-          }
-
-          if (!currentYearAndBranch) {
-            form.setValue('yearAndBranch', '');
-            setCourses([]);
           }
         } catch (error) {
           console.error('Error fetching degrees:', error);
@@ -353,11 +270,8 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
       if (!form.getValues('programId')) {
         setPrograms([]);
       }
-      if (!form.getValues('yearAndBranch')) {
-        setCourses([]);
-      }
     }
-  }, [fieldOfStudy, form]);
+  }, [institution_id, form]);
 
   // Fetch departments when degree changes - apply similar logic
   useEffect(() => {
@@ -372,7 +286,6 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           // Only reset dependent fields if not already populated
           const currentDepartmentId = form.getValues('departmentId');
           const currentProgramId = form.getValues('programId');
-          const currentYearAndBranch = form.getValues('yearAndBranch');
 
           if (!currentDepartmentId) {
             form.setValue('departmentId', '');
@@ -382,11 +295,6 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
             form.setValue('programId', '');
             setPrograms([]);
           }
-
-          if (!currentYearAndBranch) {
-            form.setValue('yearAndBranch', '');
-            setCourses([]);
-          }
         } catch (error) {
           console.error('Error fetching departments:', error);
           // Don't reset fields on error
@@ -395,13 +303,12 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
         }
       }
       fetchDepartments();
-    } else if (!fieldOfStudy) {
+    } else if (!institution_id) {
       // Only clear departments if institution is also not selected
       setDepartments([]);
       setPrograms([]);
-      setCourses([]);
     }
-  }, [degreeId, form, fieldOfStudy]);
+  }, [degreeId, form, institution_id]);
 
   // Apply similar logic to the other fetch functions
   // Fetch programs when department changes
@@ -418,15 +325,9 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
 
           // Only reset if not already populated
           const currentProgramId = form.getValues('programId');
-          const currentYearAndBranch = form.getValues('yearAndBranch');
 
           if (!currentProgramId) {
             form.setValue('programId', '');
-          }
-
-          if (!currentYearAndBranch) {
-            form.setValue('yearAndBranch', '');
-            setCourses([]);
           }
         } catch (error) {
           console.error('Error fetching programs:', error);
@@ -439,142 +340,37 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
     } else if (!degreeId) {
       // Only clear if degree is also not selected
       setPrograms([]);
-      setCourses([]);
     }
   }, [departmentId, form, degreeId]);
-
-  // Fetch courses when program changes
-  useEffect(() => {
-    if (programId) {
-      async function fetchCourses() {
-        try {
-          setLoadingCourses(true);
-          console.log('Fetching courses for program:', programId);
-          const data = await CourseService.getCoursesByProgram(programId);
-          setCourses(data);
-
-          // Only reset if not already populated
-          const currentYearAndBranch = form.getValues('yearAndBranch');
-          if (!currentYearAndBranch) {
-            form.setValue('yearAndBranch', '');
-          }
-        } catch (error) {
-          console.error('Error fetching courses:', error);
-          // Don't reset the field on error
-        } finally {
-          setLoadingCourses(false);
-        }
-      }
-      fetchCourses();
-    } else if (!departmentId) {
-      // Only clear if department is also not selected
-      setCourses([]);
-    }
-  }, [programId, form, departmentId]);
 
   // For selectability in edit mode, we need to pre-fetch data
   // when initializing with existing values
   useEffect(() => {
     async function loadInitialDependencies() {
       try {
-        const currentFieldOfStudy = form.getValues('fieldOfStudy');
+        const currentInstitutionId = form.getValues('institution_id');
         const currentDegreeId = form.getValues('degreeId');
         const currentDepartmentId = form.getValues('departmentId');
         const currentProgramId = form.getValues('programId');
-        const currentYearAndBranch = form.getValues('yearAndBranch');
 
         console.log('Initial form values for course selection:', {
-          fieldOfStudy: currentFieldOfStudy,
+          institution_id: currentInstitutionId,
           degreeId: currentDegreeId,
           departmentId: currentDepartmentId,
-          programId: currentProgramId,
-          yearAndBranch: currentYearAndBranch,
-          isYearAndBranchUUID: isValidUUID(currentYearAndBranch)
+          programId: currentProgramId
         });
 
-        // If yearAndBranch exists but no courses are loaded yet, try to directly fetch the course
-        if (
-          currentYearAndBranch &&
-          isValidUUID(currentYearAndBranch) &&
-          courses.length === 0
-        ) {
-          try {
-            console.log(
-              `Directly fetching course with ID: ${currentYearAndBranch}`
-            );
-            // First try getting the course directly
-            const courseData = await CourseService.getCourse(
-              currentYearAndBranch
-            );
-            if (courseData) {
-              console.log('Found course by direct lookup:', courseData);
-              setCourses([courseData]);
-
-              // Update program chain if missing
-              if (
-                courseData.program_id &&
-                (!currentProgramId ||
-                  currentProgramId !== courseData.program_id)
-              ) {
-                console.log(
-                  'Setting programId from course data:',
-                  courseData.program_id
-                );
-                form.setValue('programId', courseData.program_id);
-              }
-
-              if (
-                courseData.department_id &&
-                (!currentDepartmentId ||
-                  currentDepartmentId !== courseData.department_id)
-              ) {
-                console.log(
-                  'Setting departmentId from course data:',
-                  courseData.department_id
-                );
-                form.setValue('departmentId', courseData.department_id);
-              }
-
-              if (
-                courseData.degree_id &&
-                (!currentDegreeId || currentDegreeId !== courseData.degree_id)
-              ) {
-                console.log(
-                  'Setting degreeId from course data:',
-                  courseData.degree_id
-                );
-                form.setValue('degreeId', courseData.degree_id);
-              }
-
-              if (
-                courseData.institution_id &&
-                (!currentFieldOfStudy ||
-                  currentFieldOfStudy !== courseData.institution_id)
-              ) {
-                console.log(
-                  'Setting fieldOfStudy from course data:',
-                  courseData.institution_id
-                );
-                form.setValue('fieldOfStudy', courseData.institution_id);
-              }
-            }
-          } catch (error) {
-            console.error(`Error directly fetching course: ${error}`);
-          }
-        }
-
-        // Continue with existing loading logic for other dependencies...
+        // Continue with existing loading logic for dependencies
         let degreesLoaded = false;
         let departmentsLoaded = false;
         let programsLoaded = false;
-        let coursesLoaded = false;
 
         // First load data for UUIDs that exist in the form
-        if (currentFieldOfStudy && !degrees.length) {
+        if (currentInstitutionId && !degrees.length) {
           setLoadingDegrees(true);
           try {
             const degreesData = await DegreeService.getDegreesByInstitution(
-              currentFieldOfStudy
+              currentInstitutionId
             );
             setDegrees(degreesData);
             degreesLoaded = true;
@@ -623,143 +419,18 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
             }
           }
         }
-
-        if ((currentProgramId && !courses.length) || programsLoaded) {
-          const programToUse = programsLoaded
-            ? form.getValues('programId')
-            : currentProgramId;
-          if (programToUse) {
-            setLoadingCourses(true);
-            try {
-              console.log(`Fetching courses for program: ${programToUse}`);
-              const coursesData = await CourseService.getCoursesByProgram(
-                programToUse
-              );
-              console.log(`Loaded ${coursesData.length} courses:`, coursesData);
-              setCourses(coursesData);
-              coursesLoaded = true;
-            } catch (error) {
-              console.error('Error pre-fetching courses:', error);
-            } finally {
-              setLoadingCourses(false);
-            }
-          }
-        }
-
-        // Check yearAndBranch value after all data is loaded
-        if (coursesLoaded || courses.length > 0) {
-          const yearAndBranchValue = form.getValues('yearAndBranch');
-          console.log(
-            'Current yearAndBranch value after loading courses:',
-            yearAndBranchValue
-          );
-
-          if (yearAndBranchValue) {
-            // No need to update if it's already in the list
-            const courseExists = courses.some(
-              (course) => course.id === yearAndBranchValue
-            );
-            if (courseExists) {
-              console.log(`Course with ID ${yearAndBranchValue} found in list`);
-            } else if (isValidUUID(yearAndBranchValue)) {
-              // If it's a UUID but not in the list, try to fetch it directly
-              console.log(
-                `Course with ID ${yearAndBranchValue} not in list, fetching directly`
-              );
-              try {
-                const courseData = await CourseService.getCourseById(
-                  yearAndBranchValue
-                );
-                if (courseData) {
-                  console.log(`Found course by direct lookup:`, courseData);
-                  // Add it to the courses list if not already there
-                  if (!courses.some((c) => c.id === courseData.id)) {
-                    setCourses((prev) => [...prev, courseData]);
-                  }
-                } else {
-                  console.log(
-                    `Failed to fetch course with ID: ${yearAndBranchValue}`
-                  );
-                  // Create a placeholder course with the UUID
-                  setCourses((prev) => [
-                    ...prev,
-                    {
-                      id: yearAndBranchValue,
-                      course_name: `Course ${yearAndBranchValue.substring(
-                        0,
-                        8
-                      )}...`,
-                      course_code: 'PLACEHOLDER',
-                      institution_id: '',
-                      degree_id: '',
-                      department_id: '',
-                      program_id: '',
-                      years: 0,
-                      is_active: true,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString()
-                    } as Course
-                  ]);
-                }
-              } catch (error) {
-                console.error(
-                  `Error fetching course by ID ${yearAndBranchValue}:`,
-                  error
-                );
-              }
-            } else {
-              // If not a UUID, create a placeholder course with the name
-              console.log(
-                `Creating placeholder for non-UUID course: ${yearAndBranchValue}`
-              );
-              setCourses((prev) => [
-                ...prev,
-                {
-                  id: yearAndBranchValue,
-                  course_name: yearAndBranchValue,
-                  course_code: 'PLACEHOLDER',
-                  institution_id: '',
-                  degree_id: '',
-                  department_id: '',
-                  program_id: '',
-                  years: 0,
-                  is_active: true,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString()
-                } as Course
-              ]);
-            }
-          }
-        }
       } catch (error) {
         console.error('Error pre-fetching dependencies:', error);
       }
     }
 
     loadInitialDependencies();
-  }, [
-    form,
-    degrees.length,
-    departments.length,
-    programs.length,
-    courses,
-    isValidUUID
-  ]);
-
-  // Reset dependent fields when selection changes
-  useEffect(() => {
-    form.setValue('yearAndBranch', '');
-  }, [courseType, entryType, form]);
+  }, [form, degrees.length, departments.length, programs.length, isValidUUID]);
 
   // Entry Type options
   const getEntryTypeOptions = () => {
     const options = [{ value: 'FIRST YEAR', label: 'FIRST YEAR' }];
-
-    // Add lateral entry option if UG course type
-    if (courseType === 'UG') {
-      options.push({ value: 'LATERAL ENTRY', label: 'LATERAL ENTRY' });
-    }
-
+    options.push({ value: 'LATERAL ENTRY', label: 'LATERAL ENTRY' });
     return options;
   };
 
@@ -840,7 +511,7 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
         {/* Institution - add key to force re-render when institutions change */}
         <FormField
           control={form.control}
-          name='fieldOfStudy'
+          name='institution_id'
           render={({ field }) => (
             <FormItem key={`institution-${institutions.length}`}>
               <FormLabel>Institution</FormLabel>
@@ -923,7 +594,7 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
               <Select
                 value={field.value}
                 onValueChange={field.onChange}
-                disabled={field.disabled || !fieldOfStudy || loadingDegrees}
+                disabled={field.disabled || !institution_id || loadingDegrees}
               >
                 <FormControl>
                   <SelectTrigger>
@@ -974,34 +645,6 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
               <FormDescription>
                 The degree the student is applying for
               </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        {/* Course Type */}
-        <FormField
-          control={form.control}
-          name='courseType'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Course Type</FormLabel>
-              <Select
-                value={field.value}
-                onValueChange={field.onChange}
-                disabled={field.disabled || !degreeId}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder='Select course type' />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value='UG'>UG (Undergraduate)</SelectItem>
-                  <SelectItem value='PG'>PG (Postgraduate)</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormDescription>The level of the course</FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -1076,7 +719,7 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
               <Select
                 value={field.value}
                 onValueChange={field.onChange}
-                disabled={field.disabled || !courseType}
+                disabled={field.disabled}
               >
                 <FormControl>
                   <SelectTrigger>
@@ -1150,85 +793,6 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
               </Select>
               <FormDescription>
                 The specific program the student is applying for
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        {/* Course (yearAndBranch) */}
-        <FormField
-          control={form.control}
-          name='yearAndBranch'
-          render={({ field }) => (
-            <FormItem key={`course-${courses.length}`}>
-              <FormLabel>Course</FormLabel>
-              <Select
-                value={field.value}
-                onValueChange={field.onChange}
-                disabled={field.disabled || !programId || loadingCourses}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder='Select course'>
-                      {field.value
-                        ? courses.length > 0 && isValidUUID(field.value)
-                          ? courses.find((c) => c.id === field.value)
-                              ?.course_name || field.value
-                          : field.value // If not a UUID, display the string value directly
-                        : 'Select course'}
-                    </SelectValue>
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {loadingCourses ? (
-                    <div className='p-2'>
-                      <Skeleton className='h-5 w-full' />
-                      <Skeleton className='h-5 w-full mt-2' />
-                    </div>
-                  ) : (
-                    (() => {
-                      // Create a Map to ensure unique keys
-                      const uniqueCoursesMap = new Map();
-
-                      // Add all existing courses to the map
-                      courses.forEach((course) => {
-                        uniqueCoursesMap.set(course.id, course);
-                      });
-
-                      // If we have a field value that's not in the map, add it
-                      if (field.value && !uniqueCoursesMap.has(field.value)) {
-                        uniqueCoursesMap.set(field.value, {
-                          id: field.value,
-                          course_name: isValidUUID(field.value)
-                            ? `Course ${field.value.substring(0, 8)}...`
-                            : field.value,
-                          course_code: 'PLACEHOLDER',
-                          institution_id: '',
-                          degree_id: '',
-                          department_id: '',
-                          program_id: '',
-                          years: 0,
-                          is_active: true,
-                          created_at: new Date().toISOString(),
-                          updated_at: new Date().toISOString()
-                        });
-                      }
-
-                      // Convert Map values to array and render
-                      return Array.from(uniqueCoursesMap.values()).map(
-                        (course) => (
-                          <SelectItem key={course.id} value={course.id}>
-                            {course.course_name}
-                          </SelectItem>
-                        )
-                      );
-                    })()
-                  )}
-                </SelectContent>
-              </Select>
-              <FormDescription>
-                The specific course the student is applying for
               </FormDescription>
               <FormMessage />
             </FormItem>

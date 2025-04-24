@@ -296,7 +296,7 @@ export function AdmissionList({
                 <TableHead>Application ID</TableHead>
                 <TableHead>Student Name</TableHead>
                 <TableHead>Institution</TableHead>
-                <TableHead>Course</TableHead>
+                <TableHead>Program</TableHead>
                 <TableHead>Application Date</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className='text-right'>Actions</TableHead>
@@ -310,10 +310,16 @@ export function AdmissionList({
                   </TableCell>
                   <TableCell>{admission.student_name}</TableCell>
                   <TableCell>
-                    {admission.institution?.name || admission.field_of_study}
+                    {admission.institution?.name ||
+                      (admission.institution_id
+                        ? `ID: ${admission.institution_id}`
+                        : 'N/A')}
                   </TableCell>
                   <TableCell>
-                    {admission.course?.course_name || admission.year_and_branch}
+                    {admission.program?.program_name ||
+                      (admission.program_id
+                        ? `ID: ${admission.program_id}`
+                        : 'N/A')}
                   </TableCell>
                   <TableCell>
                     {format(new Date(admission.created_at), 'dd MMM yyyy')}

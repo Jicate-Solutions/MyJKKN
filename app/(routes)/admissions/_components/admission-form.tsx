@@ -76,13 +76,11 @@ const academicInformationSchema = z.object({
 const courseSelectionSchema = z.object({
   quota: z.string().optional(),
   category: z.string().optional(),
-  fieldOfStudy: z.string().min(1, 'Institution is required'),
+  institution_id: z.string().min(1, 'Institution is required'),
   degreeId: z.string().min(1, 'Degree is required'),
   departmentId: z.string().min(1, 'Department is required'),
   programId: z.string().min(1, 'Program is required'),
-  courseType: z.string().min(1, 'Course type is required'),
-  entryType: z.string().min(1, 'Entry type is required'),
-  yearAndBranch: z.string().min(1, 'Course is required')
+  entryType: z.string().min(1, 'Entry type is required')
 });
 
 // Schema for contact details
@@ -271,13 +269,11 @@ export function AdmissionForm({
           // Course Selection
           quota: '',
           category: '',
-          fieldOfStudy: '',
+          institution_id: '',
           degreeId: '',
           departmentId: '',
           programId: '',
-          courseType: '',
           entryType: '',
-          yearAndBranch: '',
 
           // Contact Details
           permanentAddressStreet: '',
@@ -369,10 +365,11 @@ export function AdmissionForm({
         break;
       case 'course-selection':
         fieldsToValidate = [
-          'fieldOfStudy',
-          'courseType',
-          'entryType',
-          'yearAndBranch'
+          'institution_id',
+          'degreeId',
+          'departmentId',
+          'programId',
+          'entryType'
         ];
         break;
       case 'contact-details':
@@ -607,16 +604,13 @@ export function AdmissionForm({
         // Course Selection - handle both UUIDs and string values
         quota: data.quota || '',
         category: data.category || '',
-        field_of_study: data.fieldOfStudy,
+        institution_id: data.institution_id,
         degree_id: isValidUUID(data.degreeId) ? data.degreeId : undefined,
         department_id: isValidUUID(data.departmentId)
           ? data.departmentId
           : undefined,
         program_id: isValidUUID(data.programId) ? data.programId : undefined,
-        // Store course type and string-based course identifiers
-        course_type: data.courseType,
         entry_type: data.entryType,
-        year_and_branch: data.yearAndBranch,
 
         // Contact Details
         permanent_address_street: data.permanentAddressStreet,
@@ -719,13 +713,11 @@ export function AdmissionForm({
         ];
       case 'course-selection':
         return [
-          'fieldOfStudy',
+          'institution_id',
           'degreeId',
           'departmentId',
           'programId',
-          'courseType',
-          'entryType',
-          'yearAndBranch'
+          'entryType'
         ];
       case 'contact-details':
         return [
@@ -762,10 +754,11 @@ export function AdmissionForm({
       'twelfthMarks.group': 'Class 12 Group',
       'twelfthMarks.maxMarks': 'Class 12 Maximum Marks',
       'twelfthMarks.obtainedMarks': 'Class 12 Obtained Marks',
-      fieldOfStudy: 'Institution',
-      courseType: 'Course Type',
+      institution_id: 'Institution',
+      degreeId: 'Degree',
+      departmentId: 'Department',
+      programId: 'Program',
       entryType: 'Entry Type',
-      yearAndBranch: 'Course',
       permanentAddressStreet: 'Street Address',
       permanentAddressDistrict: 'District',
       permanentAddressPinCode: 'PIN Code',

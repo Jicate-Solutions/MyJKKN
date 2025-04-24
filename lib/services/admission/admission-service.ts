@@ -111,9 +111,15 @@ export class AdmissionService {
     filters: AdmissionFilters = {}
   ): Promise<AdmissionListResponse> {
     try {
-      let query = this.supabase
-        .from('admissions')
-        .select('*', { count: 'exact' });
+      // Use Supabase's built-in join capabilities
+      let query = this.supabase.from('admissions').select(
+        `
+          *,
+          institution:institutions!institution_id(id, name),
+          program:programs!program_id(id, program_name)
+        `,
+        { count: 'exact' }
+      );
 
       // Apply filters
       if (filters.search) {
@@ -161,41 +167,8 @@ export class AdmissionService {
 
       if (error) throw error;
 
-      // Fetch related institution and course data
-      const admissionsWithRelations = await Promise.all(
-        (admissions || []).map(async (admission) => {
-          // Fetch institution
-          let institution = null;
-          if (admission.field_of_study) {
-            const { data: institutionData } = await this.supabase
-              .from('institutions')
-              .select('id, name')
-              .eq('id', admission.field_of_study)
-              .single();
-            institution = institutionData;
-          }
-
-          // Fetch course
-          let course = null;
-          if (admission.year_and_branch) {
-            const { data: courseData } = await this.supabase
-              .from('courses')
-              .select('id, course_name')
-              .eq('id', admission.year_and_branch)
-              .single();
-            course = courseData;
-          }
-
-          return {
-            ...admission,
-            institution,
-            course
-          };
-        })
-      );
-
       return {
-        data: admissionsWithRelations || [],
+        data: admissions || [],
         metadata: {
           total: count || 0,
           page,

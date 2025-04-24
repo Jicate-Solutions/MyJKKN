@@ -42,74 +42,39 @@ export default function AdmissionDetailsPage() {
     try {
       setIsLoading(true);
 
-      // Fetch the admission from Supabase first
+      // Fetch the admission with related data in a single query
       const { data: admissionData, error: admissionError } = await supabase
         .from('admissions')
-        .select('*')
+        .select(
+          `
+          *,
+          institution:institutions(id, name),
+          degree:degrees(id, degree_name),
+          department:departments(id, department_name),
+          program:programs(id, program_name)
+        `
+        )
         .eq('id', admissionId)
         .single();
 
       if (admissionError) throw admissionError;
       if (!admissionData) throw new Error('Admission not found');
 
-      // If we have organization IDs, fetch their details separately
-      if (admissionData.field_of_study) {
-        const { data: institutionData } = await supabase
-          .from('institutions')
-          .select('id, name')
-          .eq('id', admissionData.field_of_study)
-          .maybeSingle();
-
-        if (institutionData) {
-          admissionData.institution = institutionData;
-        }
-      }
-
-      if (admissionData.degree_id) {
-        const { data: degreeData } = await supabase
-          .from('degrees')
-          .select('id, degree_name')
-          .eq('id', admissionData.degree_id)
-          .maybeSingle();
-
-        if (degreeData) {
-          admissionData.degree = degreeData;
-        }
-      }
-
-      if (admissionData.department_id) {
-        const { data: departmentData } = await supabase
-          .from('departments')
-          .select('id, department_name')
-          .eq('id', admissionData.department_id)
-          .maybeSingle();
-
-        if (departmentData) {
-          admissionData.department = departmentData;
-        }
-      }
-
-      if (admissionData.program_id) {
-        const { data: programData } = await supabase
-          .from('programs')
-          .select('id, program_name')
-          .eq('id', admissionData.program_id)
-          .maybeSingle();
-
-        if (programData) {
-          admissionData.program = programData;
-        }
-      }
-
+      // Fetch course separately if needed
       if (admissionData.year_and_branch) {
-        const { data: courseData } = await supabase
-          .from('courses')
-          .select('id, course_name')
-          .eq('id', admissionData.year_and_branch)
-          .maybeSingle();
+        try {
+          const { data: courseData } = await supabase
+            .from('courses')
+            .select('id, course_name')
+            .eq('id', admissionData.year_and_branch)
+            .maybeSingle();
 
-        if (courseData) {
-          admissionData.course = courseData;
+          if (courseData) {
+            admissionData.course = courseData;
+          }
+        } catch (courseError) {
+          console.log('Course fetch error:', courseError);
+          // Continue even if course fetch fails
         }
       }
 
@@ -451,9 +416,7 @@ export default function AdmissionDetailsPage() {
                 <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                   <DetailItem
                     label='Institution'
-                    value={
-                      admission.institution?.name || admission.field_of_study
-                    }
+                    value={admission.institution?.name || 'Not provided'}
                   />
                   <DetailItem
                     label='Degree'
@@ -469,17 +432,8 @@ export default function AdmissionDetailsPage() {
                     label='Program'
                     value={admission.program?.program_name || 'Not provided'}
                   />
-                  <DetailItem
-                    label='Course Type'
-                    value={admission.course_type}
-                  />
                   <DetailItem label='Entry Type' value={admission.entry_type} />
-                  <DetailItem
-                    label='Course'
-                    value={
-                      admission.course?.course_name || admission.year_and_branch
-                    }
-                  />
+
                   {admission.medical_cutoff_marks && (
                     <DetailItem
                       label='Medical Cutoff'
