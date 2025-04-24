@@ -48,17 +48,34 @@ import type { Resource } from '@/types/resources';
 import type { Institution } from '@/types/organizations';
 import type { Department } from '@/types/organizations';
 import { useAuth } from '@/hooks/use-auth';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+
+// Extend the user type to include the optional properties we need
+interface ExtendedUser {
+  id: string;
+  institution_id?: string;
+  department_id?: string;
+  [key: string]: any;
+}
 
 export default function NewReservationPage() {
   const router = useRouter();
-  const { user } = useAuth();
-  
+  const { user, isLoading: authLoading } = useAuth();
+  const userExtended = user as ExtendedUser | null;
+
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [resources, setResources] = useState<Resource[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [filteredDepartments, setFilteredDepartments] = useState<Department[]>([]);
+  const [filteredDepartments, setFilteredDepartments] = useState<Department[]>(
+    []
+  );
+
+  // Add debug information for authentication status
+  useEffect(() => {
+    console.log('Auth state:', { user, userExtended, authLoading });
+  }, [user, userExtended, authLoading]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -89,12 +106,9 @@ export default function NewReservationPage() {
         setResources(resourcesResponse.data);
 
         // Fetch institutions
-        const institutionsResponse = await OrganizationService.getInstitutions();
+        const institutionsResponse =
+          await OrganizationService.getInstitutions();
         setInstitutions(institutionsResponse.data);
-
-        // Fetch departments
-        const departmentsResponse = await DepartmentService.getDepartments();
-        setDepartments(departmentsResponse.data);
       } catch (error) {
         console.error('Error fetching data:', error);
         toast.error('Failed to load required data');
@@ -106,45 +120,77 @@ export default function NewReservationPage() {
     fetchData();
   }, []);
 
-  // Filter departments based on selected institution
+  // Fetch departments when institution changes
   useEffect(() => {
     if (formData.requester_institution_id) {
-      const filtered = departments.filter(
-        (dept) => dept.institution_id === formData.requester_institution_id
-      );
-      setFilteredDepartments(filtered);
-      
-      // Reset department selection if current selection doesn't belong to the selected institution
-      if (
-        formData.requester_department_id &&
-        !filtered.some((dept) => dept.id === formData.requester_department_id)
-      ) {
-        setFormData((prev) => ({ ...prev, requester_department_id: '' }));
-      }
+      // Fetch departments specifically for this institution
+      const fetchDepartmentsForInstitution = async () => {
+        try {
+          const institutionDepartments =
+            await DepartmentService.getDepartmentsByInstitution(
+              formData.requester_institution_id
+            );
+          setFilteredDepartments(institutionDepartments);
+        } catch (error) {
+          console.error('Error fetching departments for institution:', error);
+          toast.error('Failed to load departments for this institution');
+          setFilteredDepartments([]);
+        }
+      };
+
+      fetchDepartmentsForInstitution();
     } else {
       setFilteredDepartments([]);
+    }
+  }, [formData.requester_institution_id]);
+
+  // Handle department selection reset when institution changes
+  useEffect(() => {
+    // Reset department selection if current selection doesn't belong to the selected institution
+    if (
+      formData.requester_department_id &&
+      filteredDepartments.length > 0 &&
+      !filteredDepartments.some(
+        (dept) => dept.id === formData.requester_department_id
+      )
+    ) {
       setFormData((prev) => ({ ...prev, requester_department_id: '' }));
     }
-  }, [formData.requester_institution_id, formData.requester_department_id, departments]);
+  }, [formData.requester_department_id, filteredDepartments]);
 
   // Set user's institution and department if available
   useEffect(() => {
-    if (user?.institution_id) {
+    // Make sure we have a valid user before trying to set institution/department
+    if (!userExtended || !userExtended.id) {
+      console.log('No valid user found for institution/department setting');
+      return;
+    }
+
+    console.log('Setting user institution/department:', userExtended);
+
+    if (userExtended.institution_id) {
+      // Set institution ID
       setFormData((prev) => ({
         ...prev,
-        requester_institution_id: user.institution_id
+        requester_institution_id: userExtended.institution_id || ''
       }));
-      
-      if (user.department_id) {
-        setFormData((prev) => ({
-          ...prev,
-          requester_department_id: user.department_id
-        }));
+
+      // If user has a department ID, set it after institution is set
+      if (userExtended.department_id) {
+        // Small delay to ensure the institution's departments are loaded first
+        setTimeout(() => {
+          setFormData((prev) => ({
+            ...prev,
+            requester_department_id: userExtended.department_id || ''
+          }));
+        }, 100);
       }
     }
-  }, [user]);
+  }, [userExtended]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
@@ -161,45 +207,60 @@ export default function NewReservationPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!user) {
+
+    // Get fresh user data from supabase in case it wasn't loaded properly
+    // through the hook
+    const supabase = createClientSupabaseClient();
+    const { data: sessionData } = await supabase.auth.getSession();
+
+    if (!sessionData.session) {
+      toast.error('Your session has expired. Please log in again.');
+      router.push('/auth/login');
+      return;
+    }
+
+    const userId = sessionData.session.user?.id;
+
+    if (!userId) {
       toast.error('You must be logged in to create a reservation');
       return;
     }
-    
+
     if (!formData.resource_id) {
       toast.error('Please select a resource');
       return;
     }
-    
+
     if (!formData.requester_institution_id) {
       toast.error('Please select your institution');
       return;
     }
-    
+
     setSubmitting(true);
-    
+
     try {
       // Combine date and time
       const startDateTime = new Date(formData.start_date);
-      const [startHours, startMinutes] = formData.start_time.split(':').map(Number);
+      const [startHours, startMinutes] = formData.start_time
+        .split(':')
+        .map(Number);
       startDateTime.setHours(startHours, startMinutes);
-      
+
       const endDateTime = new Date(formData.end_date);
       const [endHours, endMinutes] = formData.end_time.split(':').map(Number);
       endDateTime.setHours(endHours, endMinutes);
-      
+
       // Validate dates
       if (endDateTime <= startDateTime) {
         toast.error('End time must be after start time');
         setSubmitting(false);
         return;
       }
-      
+
       // Create reservation
       await ReservationService.createReservation({
         resource_id: formData.resource_id,
-        user_id: user.id,
+        user_id: userId, // Use the user ID from the session
         title: formData.title,
         description: formData.description,
         start_datetime: startDateTime.toISOString(),
@@ -209,7 +270,7 @@ export default function NewReservationPage() {
         requester_department_id: formData.requester_department_id || undefined,
         notes: formData.notes
       });
-      
+
       toast.success('Reservation created successfully');
       router.push('/resources/physical-resources/reservations');
     } catch (error) {
@@ -221,24 +282,28 @@ export default function NewReservationPage() {
   };
 
   return (
-    <ContentLayout title="New Reservation">
+    <ContentLayout title='New Reservation'>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/">Home</Link>
+              <Link href='/'>Home</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/resources/physical-resources/dashboard">Resource Management</Link>
+              <Link href='/resources/physical-resources/dashboard'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/resources/physical-resources/reservations">Reservations</Link>
+              <Link href='/resources/physical-resources/reservations'>
+                Reservations
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -248,16 +313,16 @@ export default function NewReservationPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="mt-6">
-        <h1 className="text-2xl font-bold">Create New Reservation</h1>
+      <div className='mt-6'>
+        <h1 className='text-2xl font-bold'>Create New Reservation</h1>
       </div>
 
       {loading ? (
-        <div className="flex justify-center items-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin" />
+        <div className='flex justify-center items-center py-12'>
+          <Loader2 className='h-8 w-8 animate-spin' />
         </div>
       ) : (
-        <Card className="mt-6">
+        <Card className='mt-6'>
           <CardHeader>
             <CardTitle>Reservation Details</CardTitle>
             <CardDescription>
@@ -265,16 +330,18 @@ export default function NewReservationPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-4">
+            <form onSubmit={handleSubmit} className='space-y-6'>
+              <div className='space-y-4'>
                 <div>
-                  <Label htmlFor="resource_id">Resource</Label>
+                  <Label htmlFor='resource_id'>Resource</Label>
                   <Select
                     value={formData.resource_id}
-                    onValueChange={(value) => handleSelectChange('resource_id', value)}
+                    onValueChange={(value) =>
+                      handleSelectChange('resource_id', value)
+                    }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a resource" />
+                      <SelectValue placeholder='Select a resource' />
                     </SelectTrigger>
                     <SelectContent>
                       {resources.map((resource) => (
@@ -287,39 +354,39 @@ export default function NewReservationPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="title">Title</Label>
+                  <Label htmlFor='title'>Title</Label>
                   <Input
-                    id="title"
-                    name="title"
+                    id='title'
+                    name='title'
                     value={formData.title}
                     onChange={handleInputChange}
-                    placeholder="Enter a title for your reservation"
+                    placeholder='Enter a title for your reservation'
                     required
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="description">Description</Label>
+                  <Label htmlFor='description'>Description</Label>
                   <Textarea
-                    id="description"
-                    name="description"
+                    id='description'
+                    name='description'
                     value={formData.description}
                     onChange={handleInputChange}
-                    placeholder="Describe the purpose of your reservation"
+                    placeholder='Describe the purpose of your reservation'
                     rows={3}
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                   <div>
                     <Label>Start Date</Label>
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button
-                          variant="outline"
-                          className="w-full justify-start text-left font-normal"
+                          variant='outline'
+                          className='w-full justify-start text-left font-normal'
                         >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          <CalendarIcon className='mr-2 h-4 w-4' />
                           {formData.start_date ? (
                             format(formData.start_date, 'PPP')
                           ) : (
@@ -327,22 +394,24 @@ export default function NewReservationPage() {
                           )}
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
+                      <PopoverContent className='w-auto p-0'>
                         <Calendar
-                          mode="single"
+                          mode='single'
                           selected={formData.start_date}
-                          onSelect={(date) => handleDateChange('start_date', date)}
+                          onSelect={(date) =>
+                            handleDateChange('start_date', date)
+                          }
                           initialFocus
                         />
                       </PopoverContent>
                     </Popover>
                   </div>
                   <div>
-                    <Label htmlFor="start_time">Start Time</Label>
+                    <Label htmlFor='start_time'>Start Time</Label>
                     <Input
-                      id="start_time"
-                      name="start_time"
-                      type="time"
+                      id='start_time'
+                      name='start_time'
+                      type='time'
                       value={formData.start_time}
                       onChange={handleInputChange}
                       required
@@ -350,16 +419,16 @@ export default function NewReservationPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                   <div>
                     <Label>End Date</Label>
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button
-                          variant="outline"
-                          className="w-full justify-start text-left font-normal"
+                          variant='outline'
+                          className='w-full justify-start text-left font-normal'
                         >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          <CalendarIcon className='mr-2 h-4 w-4' />
                           {formData.end_date ? (
                             format(formData.end_date, 'PPP')
                           ) : (
@@ -367,22 +436,24 @@ export default function NewReservationPage() {
                           )}
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
+                      <PopoverContent className='w-auto p-0'>
                         <Calendar
-                          mode="single"
+                          mode='single'
                           selected={formData.end_date}
-                          onSelect={(date) => handleDateChange('end_date', date)}
+                          onSelect={(date) =>
+                            handleDateChange('end_date', date)
+                          }
                           initialFocus
                         />
                       </PopoverContent>
                     </Popover>
                   </div>
                   <div>
-                    <Label htmlFor="end_time">End Time</Label>
+                    <Label htmlFor='end_time'>End Time</Label>
                     <Input
-                      id="end_time"
-                      name="end_time"
-                      type="time"
+                      id='end_time'
+                      name='end_time'
+                      type='time'
                       value={formData.end_time}
                       onChange={handleInputChange}
                       required
@@ -391,30 +462,37 @@ export default function NewReservationPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="purpose">Purpose</Label>
+                  <Label htmlFor='purpose'>Purpose</Label>
                   <Input
-                    id="purpose"
-                    name="purpose"
+                    id='purpose'
+                    name='purpose'
                     value={formData.purpose}
                     onChange={handleInputChange}
-                    placeholder="Why do you need this resource?"
+                    placeholder='Why do you need this resource?'
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                   <div>
-                    <Label htmlFor="requester_institution_id">Institution</Label>
+                    <Label htmlFor='requester_institution_id'>
+                      Institution
+                    </Label>
                     <Select
                       value={formData.requester_institution_id}
-                      onValueChange={(value) => handleSelectChange('requester_institution_id', value)}
-                      disabled={!!user?.institution_id}
+                      onValueChange={(value) =>
+                        handleSelectChange('requester_institution_id', value)
+                      }
+                      disabled={!!userExtended?.institution_id}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select your institution" />
+                        <SelectValue placeholder='Select your institution' />
                       </SelectTrigger>
                       <SelectContent>
                         {institutions.map((institution) => (
-                          <SelectItem key={institution.id} value={institution.id}>
+                          <SelectItem
+                            key={institution.id}
+                            value={institution.id}
+                          >
                             {institution.name}
                           </SelectItem>
                         ))}
@@ -422,14 +500,19 @@ export default function NewReservationPage() {
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="requester_department_id">Department</Label>
+                    <Label htmlFor='requester_department_id'>Department</Label>
                     <Select
                       value={formData.requester_department_id}
-                      onValueChange={(value) => handleSelectChange('requester_department_id', value)}
-                      disabled={!formData.requester_institution_id || !!user?.department_id}
+                      onValueChange={(value) =>
+                        handleSelectChange('requester_department_id', value)
+                      }
+                      disabled={
+                        !formData.requester_institution_id ||
+                        !!userExtended?.department_id
+                      }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select your department" />
+                        <SelectValue placeholder='Select your department' />
                       </SelectTrigger>
                       <SelectContent>
                         {filteredDepartments.map((department) => (
@@ -443,31 +526,33 @@ export default function NewReservationPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="notes">Additional Notes</Label>
+                  <Label htmlFor='notes'>Additional Notes</Label>
                   <Textarea
-                    id="notes"
-                    name="notes"
+                    id='notes'
+                    name='notes'
                     value={formData.notes}
                     onChange={handleInputChange}
-                    placeholder="Any additional information"
+                    placeholder='Any additional information'
                     rows={3}
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-4">
+              <div className='flex justify-end space-x-4'>
                 <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => router.push('/resources/physical-resources/reservations')}
+                  type='button'
+                  variant='outline'
+                  onClick={() =>
+                    router.push('/resources/physical-resources/reservations')
+                  }
                   disabled={submitting}
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={submitting}>
+                <Button type='submit' disabled={submitting}>
                   {submitting ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                       Creating...
                     </>
                   ) : (

@@ -1,5 +1,6 @@
 -- Add new columns to the admissions table for organization structure
-ALTER TABLE admissions 
+ALTER TABLE admissions
+ADD COLUMN institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE, 
 ADD COLUMN degree_id UUID REFERENCES degrees(id),
 ADD COLUMN department_id UUID REFERENCES departments(id),
 ADD COLUMN program_id UUID REFERENCES programs(id);

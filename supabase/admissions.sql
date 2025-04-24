@@ -30,10 +30,8 @@ CREATE TABLE public.admissions (
     -- Course selection
     quota TEXT,
     category TEXT,
-    field_of_study TEXT NOT NULL, -- Institution name
-    course_type TEXT NOT NULL, -- UG/PG
     entry_type TEXT NOT NULL, -- FIRST YEAR, LATERAL ENTRY, etc.
-    year_and_branch TEXT NOT NULL, -- Specific course
+    
     
     -- Contact details
     permanent_address_street TEXT NOT NULL,
@@ -65,7 +63,6 @@ CREATE TABLE public.admissions (
 -- Create indexes for performance
 CREATE INDEX idx_admissions_student_name ON public.admissions(student_name);
 CREATE INDEX idx_admissions_status ON public.admissions(status);
-CREATE INDEX idx_admissions_field_of_study ON public.admissions(field_of_study);
 CREATE INDEX idx_admissions_student_mobile ON public.admissions(student_mobile);
 CREATE INDEX idx_admissions_student_email ON public.admissions(student_email);
 CREATE INDEX idx_admissions_created_at ON public.admissions(created_at);

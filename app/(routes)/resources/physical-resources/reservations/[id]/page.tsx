@@ -49,6 +49,7 @@ import { ReservationService } from '@/lib/services/resource/physical/reservation
 import type { Reservation } from '@/types/resources';
 import { useAuth } from '@/hooks/use-auth';
 import { use } from 'react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export default function ReservationDetailPage({
   params
@@ -65,12 +66,50 @@ export default function ReservationDetailPage({
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
+  // For debugging
+  const [userRoleInfo, setUserRoleInfo] = useState({
+    id: '',
+    email: '',
+    role: '',
+    isAdmin: false
+  });
+
   useEffect(() => {
     const fetchReservation = async () => {
       setLoading(true);
       try {
         const data = await ReservationService.getReservation(reservationId);
         setReservation(data);
+
+        // Now check user role directly from Supabase
+        const supabase = createClientSupabaseClient();
+        const { data: authData } = await supabase.auth.getUser();
+
+        if (authData.user) {
+          // Get profile role
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role, email')
+            .eq('id', authData.user.id)
+            .single();
+
+          setUserRoleInfo({
+            id: authData.user.id,
+            email: profile?.email || authData.user.email || '',
+            role: profile?.role || '',
+            isAdmin:
+              profile?.role === 'super_admin' ||
+              profile?.role === 'admin' ||
+              profile?.role === 'administrator'
+          });
+
+          console.log('User role info:', {
+            user: authData.user,
+            profile,
+            isAdmin:
+              profile?.role === 'super_admin' || profile?.role === 'admin'
+          });
+        }
       } catch (error) {
         console.error('Error fetching reservation:', error);
         toast.error('Failed to load reservation details');
@@ -83,13 +122,18 @@ export default function ReservationDetailPage({
   }, [reservationId]);
 
   const handleApprove = async () => {
-    if (!reservation || !user) return;
+    if (!reservation || !userRoleInfo.id) return;
+
+    if (!userRoleInfo.isAdmin) {
+      toast.error('Only administrators can approve reservations');
+      return;
+    }
 
     setProcessing(true);
     try {
       await ReservationService.updateReservation(reservation.id, {
         status: 'approved',
-        approver_id: user.id,
+        approver_id: userRoleInfo.id,
         approval_datetime: new Date().toISOString()
       });
 
@@ -109,13 +153,18 @@ export default function ReservationDetailPage({
   };
 
   const handleReject = async () => {
-    if (!reservation || !user) return;
+    if (!reservation || !userRoleInfo.id) return;
+
+    if (!userRoleInfo.isAdmin) {
+      toast.error('Only administrators can reject reservations');
+      return;
+    }
 
     setProcessing(true);
     try {
       await ReservationService.updateReservation(reservation.id, {
         status: 'rejected',
-        approver_id: user.id,
+        approver_id: userRoleInfo.id,
         approval_datetime: new Date().toISOString()
       });
 
@@ -239,10 +288,7 @@ export default function ReservationDetailPage({
   };
 
   const isUserApprover = () => {
-    // Only super_admin and administrator can approve/reject reservations
-    return (
-      user && (user.role === 'super_admin' || user.role === 'administrator')
-    );
+    return userRoleInfo.isAdmin;
   };
 
   const isUserOwner = () => {
@@ -266,7 +312,7 @@ export default function ReservationDetailPage({
   };
 
   const canApproveReject = () => {
-    return isUserApprover() && reservation && reservation.status === 'pending';
+    return isUserApprover() && reservation?.status === 'pending';
   };
 
   return (
@@ -285,13 +331,17 @@ export default function ReservationDetailPage({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+              <Link href='/resources/physical-resources/dashboard'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/reservations'>Reservations</Link>
+              <Link href='/resources/physical-resources/reservations'>
+                Reservations
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -319,12 +369,18 @@ export default function ReservationDetailPage({
               </div>
             </div>
             <div className='flex flex-wrap gap-2'>
-              {canApproveReject() && (
+              {/* Always render these buttons but disable them based on permission */}
+              {reservation.status === 'pending' && (
                 <>
                   <Button
                     onClick={handleApprove}
-                    disabled={processing}
+                    disabled={processing || !userRoleInfo.isAdmin}
                     className='bg-green-600 hover:bg-green-700'
+                    title={
+                      !userRoleInfo.isAdmin
+                        ? 'Only administrators can approve reservations'
+                        : ''
+                    }
                   >
                     {processing ? (
                       <Loader2 className='mr-2 h-4 w-4 animate-spin' />
@@ -336,7 +392,12 @@ export default function ReservationDetailPage({
                   <Button
                     onClick={handleReject}
                     variant='destructive'
-                    disabled={processing}
+                    disabled={processing || !userRoleInfo.isAdmin}
+                    title={
+                      !userRoleInfo.isAdmin
+                        ? 'Only administrators can reject reservations'
+                        : ''
+                    }
                   >
                     {processing ? (
                       <Loader2 className='mr-2 h-4 w-4 animate-spin' />
@@ -592,7 +653,9 @@ export default function ReservationDetailPage({
                 <Button
                   variant='outline'
                   className='w-full'
-                  onClick={() => router.push('/resources/physical-resources/reservations')}
+                  onClick={() =>
+                    router.push('/resources/physical-resources/reservations')
+                  }
                 >
                   Back to Reservations
                 </Button>
@@ -609,7 +672,9 @@ export default function ReservationDetailPage({
           </p>
           <Button
             className='mt-4'
-            onClick={() => router.push('/resources/physical-resources/reservations')}
+            onClick={() =>
+              router.push('/resources/physical-resources/reservations')
+            }
           >
             Back to Reservations
           </Button>

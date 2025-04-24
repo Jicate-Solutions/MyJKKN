@@ -35,13 +35,11 @@ export interface Admission {
   first_graduate: boolean;
   quota?: string;
   category?: string;
-  field_of_study: string; // institution ID
+  institution_id?: string; // reference to institution ID
   degree_id?: string; // reference to degree
   department_id?: string; // reference to department
   program_id?: string; // reference to program
-  course_type: string; // UG/PG
   entry_type: string; // FIRST YEAR, LATERAL ENTRY, etc.
-  year_and_branch: string; // specific course ID
   permanent_address_street: string;
   permanent_address_taluk?: string;
   permanent_address_district: string;

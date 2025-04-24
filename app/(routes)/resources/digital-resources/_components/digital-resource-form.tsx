@@ -48,6 +48,7 @@ import {
   OWNER_TYPES
 } from '@/types/digital-resources';
 import { useDigitalResourceCategories } from '@/hooks/resource/digital/use-digital-resource-categories';
+import { useRouter } from 'next/navigation';
 
 // Define the form schema using zod
 const formSchema = z.object({
@@ -108,6 +109,7 @@ export function DigitalResourceForm({
   const [departmentsError, setDepartmentsError] = useState<string | null>(null);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [formInitialized, setFormInitialized] = useState(false);
+  const router = useRouter();
 
   const {
     categories,
@@ -296,6 +298,8 @@ export function DigitalResourceForm({
     setLoading(true);
     try {
       await onSubmit(values);
+      toast.success('Digital resource saved successfully');
+      router.push('/resources/digital-resources/resources');
     } catch (error) {
       console.error('Error submitting form:', error);
       toast.error('Failed to save digital resource');
