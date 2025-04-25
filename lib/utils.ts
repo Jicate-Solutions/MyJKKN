@@ -1,8 +1,34 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+/**
+ * Combines multiple class names with Tailwind CSS optimizations.
+ * @param inputs - Class names to combine
+ * @returns Merged and optimized class names
+ */
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+/**
+ * Formats a date as a string in the format 'YYYY-MM-DD'.
+ * @param date - The date to format
+ * @returns The formatted date string
+ */
+export function formatDateToString(date: Date | null | undefined): string {
+  if (!date) return '';
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Converts a string to a Date object.
+ * @param dateStr - The date string to convert
+ * @returns The Date object or null if invalid
+ */
+export function stringToDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  return !isNaN(date.getTime()) ? date : null;
 }
 
 export function getErrorMessage(error: unknown): string {
