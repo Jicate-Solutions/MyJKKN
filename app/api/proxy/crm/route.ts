@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     if (search) queryString += `&search=${search}`;
 
     // External API URL
-    const externalUrl = `https://jkkn-admission-managements.vercel.app/api/external/crm${queryString}`;
+    const externalUrl = `https://admission.jkkn.ac.in/api/external/crm${queryString}`;
 
     // Forward the request to the external API
     const response = await fetch(externalUrl, {

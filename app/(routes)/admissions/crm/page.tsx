@@ -16,7 +16,7 @@ import { FormsTab } from './_components/forms-tab';
 import { ResponsesTab } from './_components/responses-tab';
 import { AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useApiKey } from '@/app/hooks/crm/use-api-key';
+import { useApiKey } from '@/hooks/crm/use-api-key';
 import { Button } from '@/components/ui/button';
 
 export default function CrmPage() {
