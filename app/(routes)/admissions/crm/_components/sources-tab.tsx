@@ -38,7 +38,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { useFetchAdmissionSources } from '@/app/hooks/crm/use-fetch-admission-sources';
+import { useFetchAdmissionSources } from '@/hooks/crm/use-fetch-admission-sources';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface SourcesTabProps {

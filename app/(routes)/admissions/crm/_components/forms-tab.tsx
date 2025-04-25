@@ -41,8 +41,8 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useFetchForms } from '@/app/hooks/crm/use-fetch-forms';
-import { useFetchAdmissionSources } from '@/app/hooks/crm/use-fetch-admission-sources';
+import { useFetchForms } from '@/hooks/crm/use-fetch-forms';
+import { useFetchAdmissionSources } from '@/hooks/crm/use-fetch-admission-sources';
 import Link from 'next/link';
 
 interface FormsTabProps {
@@ -50,8 +50,7 @@ interface FormsTabProps {
 }
 
 // Public form base URL - in a real app, this would be from env variable
-const PUBLIC_FORM_BASE_URL =
-  'https://jkkn-admission-managements.vercel.app/form/';
+const PUBLIC_FORM_BASE_URL = 'https://admission.jkkn.ac.in/form/';
 
 export function FormsTab({ apiKey }: FormsTabProps) {
   const [page, setPage] = useState(1);

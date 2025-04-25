@@ -65,9 +65,9 @@ import {
   AccordionItem,
   AccordionTrigger
 } from '@/components/ui/accordion';
-import { useFetchFormResponses } from '@/app/hooks/crm/use-fetch-form-responses';
-import { useFetchForms } from '@/app/hooks/crm/use-fetch-forms';
-import { useFetchAdmissionSources } from '@/app/hooks/crm/use-fetch-admission-sources';
+import { useFetchFormResponses } from '@/hooks/crm/use-fetch-form-responses';
+import { useFetchForms } from '@/hooks/crm/use-fetch-forms';
+import { useFetchAdmissionSources } from '@/hooks/crm/use-fetch-admission-sources';
 import Link from 'next/link';
 import {
   DropdownMenu,
