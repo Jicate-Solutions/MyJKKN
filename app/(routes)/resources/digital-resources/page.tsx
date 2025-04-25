@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { Plus, List, BarChart } from 'lucide-react';
+import { Plus, List, BarChart, Share2 } from 'lucide-react';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -61,7 +61,7 @@ export default function DigitalResourcesPage() {
               </Link>
             </Button>
             <Button className='w-full sm:w-auto' asChild>
-              <Link href='/resources/digital-resources/create'>
+              <Link href='/resources/digital-resources/new'>
                 <Plus className='mr-2 h-4 w-4' />
                 Add Digital Resource
               </Link>
@@ -101,6 +101,24 @@ export default function DigitalResourcesPage() {
                 <Link href='/resources/digital-resources/reservations'>
                   <List className='mr-2 h-4 w-4' />
                   Manage Reservations
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Sharing Policies</CardTitle>
+              <CardDescription>Access control policies</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className='mb-4'>
+                Define how digital resources can be shared and accessed.
+              </p>
+              <Button className='w-full' asChild>
+                <Link href='/resources/digital-resources/policies'>
+                  <Share2 className='mr-2 h-4 w-4' />
+                  Manage Policies
                 </Link>
               </Button>
             </CardContent>

@@ -1,10 +1,25 @@
 // types/digital-resources.ts
 
 // Digital Resource Types
-export type DigitalResourceType = 'e-book' | 'journal' | 'software' | 'online-course' | 'streaming-media' | 'other';
-export type AccessMethod = 'direct-download' | 'web-portal' | 'license-key' | 'ip-restricted';
+export type DigitalResourceType =
+  | 'e-book'
+  | 'journal'
+  | 'software'
+  | 'online-course'
+  | 'streaming-media'
+  | 'other';
+export type AccessMethod =
+  | 'direct-download'
+  | 'web-portal'
+  | 'license-key'
+  | 'ip-restricted';
 export type OwnerType = 'institution' | 'department' | 'program';
-export type ReservationStatus = 'pending' | 'approved' | 'rejected' | 'canceled' | 'completed';
+export type ReservationStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'canceled'
+  | 'completed';
 export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'purchased';
 export type RequestPriority = 'low' | 'medium' | 'high';
 
@@ -68,72 +83,54 @@ export interface AccessAvailability {
 // Digital Resource Module
 export interface DigitalResource {
   id: string;
-  digital_resource_id: string;
   digital_resource_name: string;
-  type: DigitalResourceType;
+  type: string;
   category_id: string;
-  access_method: AccessMethod;
-  license_information?: LicenseInformation;
+  access_method: string;
+  license_information: {
+    allowed_users?: number;
+    expiration_date?: string;
+    usage_constraints?: string;
+  };
   institution_id: string;
   department_id?: string;
-  owner_type: OwnerType;
+  owner_type: string;
   owner_id: string;
-  access_availability?: AccessAvailability;
-  sharing_restrictions?: string[];
+  access_availability?: {
+    time_restrictions?: boolean;
+    concurrency_limits?: number;
+  };
+  sharing_restrictions?: string;
   maintenance_schedule?: {
     last_update?: string;
-    next_scheduled_update?: string;
+    next_update?: string;
   };
   is_active: boolean;
   created_at: string;
   updated_at: string;
 
   // Include related data
-  institution?: {
-    id: string;
-    name: string;
-    counselling_code: string;
-  };
-  department?: {
-    id: string;
-    department_code: string;
-    department_name: string;
-  };
   category?: {
     id: string;
     category_name: string;
   };
-}
-
-export interface CreateDigitalResourceDto {
-  digital_resource_name: string;
-  type: DigitalResourceType;
-  category_id: string;
-  access_method: AccessMethod;
-  license_information?: LicenseInformation;
-  institution_id: string;
-  department_id?: string;
-  owner_type: OwnerType;
-  owner_id: string;
-  access_availability?: AccessAvailability;
-  sharing_restrictions?: string[];
-  maintenance_schedule?: {
-    last_update?: string;
-    next_scheduled_update?: string;
+  institution?: {
+    id: string;
+    name: string;
   };
-  is_active?: boolean;
+  department?: {
+    id: string;
+    department_name: string;
+  };
 }
-
-export interface UpdateDigitalResourceDto extends Partial<CreateDigitalResourceDto> {}
 
 export interface DigitalResourceFilters {
   search?: string;
+  category_id?: string;
   institution_id?: string;
   department_id?: string;
-  type?: DigitalResourceType;
-  category_id?: string;
-  access_method?: AccessMethod;
-  owner_type?: OwnerType;
+  type?: string;
+  owner_type?: string;
   owner_id?: string;
   isActive?: boolean;
   page?: number;
@@ -154,33 +151,15 @@ export interface DigitalResourceListResponse {
 export interface DigitalResourceCategory {
   id: string;
   category_name: string;
+  parent_category_id?: string;
   description?: string;
   attributes?: string[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
-
-  // Include related data
-  subcategories?: DigitalResourceCategory[];
 }
 
-export interface CreateDigitalResourceCategoryDto {
-  category_name: string;
-  description?: string;
-  attributes?: string[];
-  is_active?: boolean;
-}
-
-export interface UpdateDigitalResourceCategoryDto extends Partial<CreateDigitalResourceCategoryDto> {}
-
-export interface DigitalResourceCategoryFilters {
-  search?: string;
-  isActive?: boolean;
-  page?: number;
-  limit?: number;
-}
-
-export interface DigitalResourceCategoryListResponse {
+export interface DigitalCategoryListResponse {
   data: DigitalResourceCategory[];
   metadata: {
     total: number;
@@ -199,7 +178,7 @@ export interface DigitalReservation {
   purpose?: string;
   reservation_start: string;
   reservation_end: string;
-  status: ReservationStatus;
+  status: 'pending' | 'approved' | 'rejected' | 'active' | 'completed';
   license_key?: string;
   approver_id?: string;
   approval_datetime?: string;
@@ -211,16 +190,15 @@ export interface DigitalReservation {
   digital_resource?: {
     id: string;
     digital_resource_name: string;
-    type: DigitalResourceType;
   };
   user?: {
     id: string;
+    full_name: string;
     email: string;
-    full_name?: string | null;
   };
   approver?: {
     id: string;
-    email: string;
+    full_name: string;
   };
 }
 
@@ -231,24 +209,25 @@ export interface CreateDigitalReservationDto {
   purpose?: string;
   reservation_start: string;
   reservation_end: string;
-  status?: ReservationStatus;
-  license_key?: string;
   is_recurring?: boolean;
 }
 
-export interface UpdateDigitalReservationDto extends Partial<CreateDigitalReservationDto> {
+export interface UpdateDigitalReservationDto
+  extends Partial<CreateDigitalReservationDto> {
+  status?: 'pending' | 'approved' | 'rejected' | 'active' | 'completed';
+  license_key?: string;
   approver_id?: string;
   approval_datetime?: string;
-  status?: ReservationStatus;
 }
 
 export interface DigitalReservationFilters {
-  search?: string;
   digital_resource_id?: string;
   user_id?: string;
-  status?: ReservationStatus;
-  start_date?: string;
-  end_date?: string;
+  status?: 'pending' | 'approved' | 'rejected' | 'active' | 'completed';
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+  isRecurring?: boolean;
   page?: number;
   limit?: number;
 }
@@ -313,7 +292,8 @@ export interface CreateDigitalSharingPolicyDto {
   is_active?: boolean;
 }
 
-export interface UpdateDigitalSharingPolicyDto extends Partial<CreateDigitalSharingPolicyDto> {}
+export interface UpdateDigitalSharingPolicyDto
+  extends Partial<CreateDigitalSharingPolicyDto> {}
 
 export interface DigitalSharingPolicyFilters {
   category_id?: string;
@@ -335,46 +315,53 @@ export interface DigitalSharingPolicyListResponse {
 }
 
 // Digital Resource Usage Report Module
-export interface DigitalUsageMetrics {
-  total_access_count: number;
-  concurrent_users_peak: number;
-  unique_users: number;
-  institution_usage: Record<string, number>;
-  department_usage: Record<string, number>;
-  peak_access_times: Record<string, number>;
-  license_expiration_status?: {
-    days_left: number;
-    usage_rate: number;
-  };
-}
-
 export interface DigitalUsageReport {
   id: string;
   digital_resource_id: string;
+  digital_resource_name?: string;
   start_date: string;
   end_date: string;
-  metrics: DigitalUsageMetrics;
+  generated_at: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  report_type: 'standard' | 'detailed';
+  error_message?: string;
+  summary?: {
+    total_views: number;
+    total_downloads: number;
+    unique_users: number;
+    peak_usage_day?: string;
+    peak_usage_count?: number;
+  };
   created_at: string;
+  updated_at: string;
 
   // Include related data
   digital_resource?: {
     id: string;
     digital_resource_name: string;
+    provider?: string;
+    type?: string;
   };
 }
 
 export interface GenerateDigitalUsageReportDto {
-  digital_resource_id: string;
-  start_date: string;
-  end_date: string;
+  digitalResourceId: string;
+  startDate: Date | string;
+  endDate: Date | string;
+  reportType: 'standard' | 'detailed';
 }
 
 export interface DigitalUsageReportFilters {
   digital_resource_id?: string;
+  status?: 'pending' | 'processing' | 'completed' | 'failed';
   start_date?: string;
   end_date?: string;
+  report_type?: 'standard' | 'detailed';
+  search?: string;
   page?: number;
   limit?: number;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
 }
 
 export interface DigitalUsageReportListResponse {
@@ -433,7 +420,8 @@ export interface CreateDigitalResourceRequestDto {
   notes?: string;
 }
 
-export interface UpdateDigitalResourceRequestDto extends Partial<CreateDigitalResourceRequestDto> {
+export interface UpdateDigitalResourceRequestDto
+  extends Partial<CreateDigitalResourceRequestDto> {
   approver_id?: string;
   approval_date?: string;
   status?: RequestStatus;

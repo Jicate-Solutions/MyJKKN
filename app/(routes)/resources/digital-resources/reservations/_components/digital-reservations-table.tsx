@@ -498,8 +498,9 @@ export function DigitalReservationsTable() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Resource Name</TableHead>
+                  <TableHead>S.No</TableHead>
                   <TableHead>Title/Purpose</TableHead>
+                  <TableHead>Resource Name</TableHead>
                   <TableHead>User</TableHead>
                   <TableHead>Date Range</TableHead>
                   <TableHead>Status</TableHead>
@@ -507,8 +508,18 @@ export function DigitalReservationsTable() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reservations.map((reservation) => (
+                {reservations.map((reservation, index) => (
                   <TableRow key={reservation.id}>
+                    <TableCell>{index + 1}</TableCell>
+
+                    <TableCell>
+                      <Link
+                        href={`/resources/digital-resources/reservations/${reservation.id}`}
+                        className='hover:underline'
+                      >
+                        {reservation.title}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       {reservation.digital_resource ? (
                         <Link
@@ -522,16 +533,6 @@ export function DigitalReservationsTable() {
                           {reservation.digital_resource_id}
                         </span>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className='font-medium'>{reservation.title}</div>
-                        {reservation.purpose && (
-                          <div className='text-sm text-muted-foreground truncate max-w-[200px]'>
-                            {reservation.purpose}
-                          </div>
-                        )}
-                      </div>
                     </TableCell>
                     <TableCell>
                       {reservation.user ? (

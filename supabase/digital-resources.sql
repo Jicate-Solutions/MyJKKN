@@ -375,3 +375,118 @@ USING (
     AND profiles.role = ANY(ARRAY['administrator', 'super_admin'])
   )
 );
+
+-- Create digital resource reports table
+CREATE TABLE IF NOT EXISTS digital_resource_reports (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  digital_resource_id UUID NOT NULL REFERENCES digital_resources(id) ON DELETE CASCADE,
+  start_date TIMESTAMP WITH TIME ZONE NOT NULL,
+  end_date TIMESTAMP WITH TIME ZONE NOT NULL,
+  generated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+  report_type VARCHAR(20) NOT NULL CHECK (report_type IN ('standard', 'detailed')),
+  summary JSONB,
+  error_message TEXT,
+  search_text TSVECTOR GENERATED ALWAYS AS (
+    to_tsvector('english', 
+      coalesce(error_message, '')
+    )
+  ) STORED,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+-- Create trigger to update search_text when report is associated with a resource
+CREATE OR REPLACE FUNCTION update_digital_report_search_text()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Get resource name from digital_resources table
+  NEW.search_text = (
+    SELECT to_tsvector('english',
+      coalesce(r.digital_resource_name, '') || ' ' ||
+      coalesce(NEW.error_message, '') || ' ' ||
+      coalesce(NEW.report_type, '')
+    )
+    FROM digital_resources r
+    WHERE r.id = NEW.digital_resource_id
+  );
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER digital_report_search_text_update
+BEFORE INSERT OR UPDATE ON digital_resource_reports
+FOR EACH ROW
+EXECUTE FUNCTION update_digital_report_search_text();
+
+-- Create a function to update the updated_at column
+CREATE OR REPLACE FUNCTION trigger_set_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create a trigger to update the updated_at column before update
+CREATE TRIGGER set_timestamp_digital_resource_reports
+BEFORE UPDATE ON digital_resource_reports
+FOR EACH ROW
+EXECUTE FUNCTION trigger_set_timestamp();
+
+-- Create RLS policies for digital resource reports
+ALTER TABLE digital_resource_reports ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Authenticated users can view reports
+CREATE POLICY "Authenticated users can view digital resource reports"
+ON digital_resource_reports
+FOR SELECT
+TO authenticated
+USING (true);
+
+-- Policy: Administrators can create reports
+CREATE POLICY "Administrators can create digital resource reports"
+ON digital_resource_reports
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM profiles
+    WHERE profiles.id = auth.uid()
+    AND profiles.role = ANY(ARRAY['administrator', 'super_admin'])
+  )
+);
+
+-- Policy: Administrators can update reports
+CREATE POLICY "Administrators can update digital resource reports"
+ON digital_resource_reports
+FOR UPDATE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM profiles
+    WHERE profiles.id = auth.uid()
+    AND profiles.role = ANY(ARRAY['administrator', 'super_admin'])
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM profiles
+    WHERE profiles.id = auth.uid()
+    AND profiles.role = ANY(ARRAY['administrator', 'super_admin'])
+  )
+);
+
+-- Policy: Administrators can delete reports
+CREATE POLICY "Administrators can delete digital resource reports"
+ON digital_resource_reports
+FOR DELETE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM profiles
+    WHERE profiles.id = auth.uid()
+    AND profiles.role = ANY(ARRAY['administrator', 'super_admin'])
+  )
+);
