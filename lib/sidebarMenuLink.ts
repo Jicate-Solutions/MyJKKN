@@ -303,17 +303,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          href: '/organizations/courses',
-          label: 'Courses',
-          active: pathname.startsWith('/organizations/courses'),
-          icon: BookOpen,
-          submenus: []
-        },
-        {
           href: '/organizations/semesters',
           label: 'Semesters',
           active: pathname.startsWith('/organizations/semesters'),
           icon: CalendarDays,
+          submenus: []
+        },
+        {
+          href: '/organizations/courses',
+          label: 'Courses',
+          active: pathname.startsWith('/organizations/courses'),
+          icon: BookOpen,
           submenus: []
         },
         {

@@ -303,7 +303,6 @@ export interface Semester {
   degree_id: string;
   department_id: string;
   program_id: string;
-  course_id: string;
   semester_code: string;
   semester_name: string;
   semester_type: 'even' | 'odd';
@@ -328,10 +327,6 @@ export interface Semester {
     id: string;
     program_name: string;
   };
-  course?: {
-    id: string;
-    course_name: string;
-  };
 }
 
 export interface CreateSemesterDto {
@@ -339,7 +334,6 @@ export interface CreateSemesterDto {
   degree_id: string;
   department_id: string;
   program_id: string;
-  course_id: string;
   semester_code: string;
   semester_name: string;
   semester_type: 'even' | 'odd';
@@ -354,7 +348,6 @@ export interface SemesterFilters {
   degree_id?: string;
   department_id?: string;
   program_id?: string;
-  course_id?: string;
   semester_type?: 'even' | 'odd';
   isActive?: boolean;
   page?: number;

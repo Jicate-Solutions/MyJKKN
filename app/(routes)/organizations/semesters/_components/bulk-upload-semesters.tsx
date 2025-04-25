@@ -28,7 +28,6 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { CourseService } from '@/lib/services/organization/course-service';
 
 interface Institution {
   id: string;
@@ -56,15 +55,6 @@ interface Program {
   department_id: string;
 }
 
-interface Course {
-  id: string;
-  course_code: string;
-  institution_id: string;
-  degree_id: string;
-  department_id: string;
-  program_id: string;
-}
-
 interface ValidationResult {
   isValid: boolean;
   errors: string[];
@@ -75,8 +65,7 @@ const validateRow = async (
   institutions: Institution[],
   degrees: Degree[],
   departments: Department[],
-  programs: Program[],
-  courses: Course[]
+  programs: Program[]
 ): Promise<ValidationResult> => {
   const errors: string[] = [];
   const requiredFields = [
@@ -84,7 +73,6 @@ const validateRow = async (
     'degree_code',
     'department_code',
     'program_id',
-    'course_code',
     'semester_code',
     'semester_name',
     'semester_type'
@@ -132,25 +120,11 @@ const validateRow = async (
         if (!program) {
           errors.push('Invalid program ID for this department');
         } else {
-          // Validate course exists and belongs to the hierarchy
-          const course = courses.find(
-            (c) =>
-              c.course_code === row.course_code &&
-              c.institution_id === institution.id &&
-              c.degree_id === degree.id &&
-              c.department_id === department.id &&
-              c.program_id === program.id
-          );
-          if (!course) {
-            errors.push('Invalid course code for this program');
-          } else {
-            // Add IDs to the row data for later use
-            row.institution_id = institution.id;
-            row.degree_id = degree.id;
-            row.department_id = department.id;
-            row.program_id = program.id;
-            row.course_id = course.id;
-          }
+          // Add IDs to the row data for later use
+          row.institution_id = institution.id;
+          row.degree_id = degree.id;
+          row.department_id = department.id;
+          row.program_id = program.id;
         }
       }
     }
@@ -256,23 +230,6 @@ export default function BulkUploadSemesters() {
       );
       const flattenedPrograms = programs.flat();
 
-      // Fetch courses for each program
-      const courses = await Promise.all(
-        flattenedPrograms.map(async (prog) => {
-          const coursesForProg = await CourseService.getCoursesByProgram(
-            prog.id
-          );
-          return coursesForProg.map((c) => ({
-            ...c,
-            institution_id: prog.institution_id,
-            degree_id: prog.degree_id,
-            department_id: prog.department_id,
-            program_id: prog.id
-          }));
-        })
-      );
-      const flattenedCourses = courses.flat();
-
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -285,8 +242,7 @@ export default function BulkUploadSemesters() {
             institutions,
             flattenedDegrees,
             flattenedDepartments,
-            flattenedPrograms,
-            flattenedCourses
+            flattenedPrograms
           );
           return {
             ...row,
@@ -324,7 +280,6 @@ export default function BulkUploadSemesters() {
           degree_id: row.degree_id,
           department_id: row.department_id,
           program_id: row.program_id,
-          course_id: row.course_id,
           semester_code: row.semester_code.toUpperCase(),
           semester_name: row.semester_name,
           semester_type: row.semester_type.toLowerCase(),
@@ -413,7 +368,6 @@ export default function BulkUploadSemesters() {
                       <TableHead>Degree</TableHead>
                       <TableHead>Department</TableHead>
                       <TableHead>Program</TableHead>
-                      <TableHead>Course</TableHead>
                       <TableHead>Semester Code</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Type</TableHead>
@@ -429,7 +383,6 @@ export default function BulkUploadSemesters() {
                         <TableCell>{row.degree_code}</TableCell>
                         <TableCell>{row.department_code}</TableCell>
                         <TableCell>{row.program_id}</TableCell>
-                        <TableCell>{row.course_code}</TableCell>
                         <TableCell>{row.semester_code}</TableCell>
                         <TableCell>{row.semester_name}</TableCell>
                         <TableCell>{row.semester_type}</TableCell>

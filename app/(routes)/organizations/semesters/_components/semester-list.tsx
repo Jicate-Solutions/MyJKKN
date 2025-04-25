@@ -111,7 +111,6 @@ export function SemesterList({
               <TableHead>Code</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
-              <TableHead>Course</TableHead>
               <TableHead>Program</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created</TableHead>
@@ -145,7 +144,6 @@ export function SemesterList({
                       {semester.semester_type.toUpperCase()}
                     </Badge>
                   </TableCell>
-                  <TableCell>{semester.course?.course_name}</TableCell>
                   <TableCell>{semester.program?.program_name}</TableCell>
                   <TableCell>
                     <Badge

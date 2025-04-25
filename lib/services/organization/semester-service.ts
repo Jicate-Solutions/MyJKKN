@@ -102,10 +102,6 @@ export class SemesterService {
         program:programs (
           id,
           program_name
-        ),
-        course:courses (
-          id,
-          course_name
         )
       `,
         { count: 'exact' }
@@ -132,10 +128,6 @@ export class SemesterService {
 
       if (filters.program_id) {
         query = query.eq('program_id', filters.program_id);
-      }
-
-      if (filters.course_id) {
-        query = query.eq('course_id', filters.course_id);
       }
 
       if (filters.semester_type) {
@@ -196,10 +188,6 @@ export class SemesterService {
           program:programs (
             id,
             program_name
-          ),
-          course:courses (
-            id,
-            course_name
           )
         `
         )
@@ -211,24 +199,6 @@ export class SemesterService {
       return semester;
     } catch (error) {
       console.error('Error fetching semester:', error);
-      throw error;
-    }
-  }
-
-  static async getSemestersByCourse(courseId: string): Promise<Semester[]> {
-    try {
-      const { data: semesters, error } = await this.supabase
-        .from('semesters')
-        .select('*')
-        .eq('course_id', courseId)
-        .eq('is_active', true)
-        .order('semester_name');
-
-      if (error) throw error;
-
-      return semesters || [];
-    } catch (error) {
-      console.error('Error fetching semesters by course:', error);
       throw error;
     }
   }

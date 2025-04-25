@@ -54,8 +54,7 @@ export async function GET(request: NextRequest) {
         institutions(name),
         degrees(degree_name),
         departments(department_name),
-        programs(program_name),
-        courses(course_name, course_code)
+        programs(program_name)
       `);
 
     // Apply status filter if not including inactive
@@ -104,8 +103,6 @@ export async function GET(request: NextRequest) {
         degreeName: semester.degrees?.degree_name || '',
         departmentName: semester.departments?.department_name || '',
         programName: semester.programs?.program_name || '',
-        courseName: semester.courses?.course_name || '',
-        courseCode: semester.courses?.course_code || '',
         isActive: semester.is_active ? 'Yes' : 'No',
         createdAt: semester.created_at
           ? new Date(semester.created_at).toLocaleString()
@@ -157,8 +154,6 @@ export async function GET(request: NextRequest) {
         { header: 'Degree', key: 'degreeName', width: 20 },
         { header: 'Department', key: 'departmentName', width: 25 },
         { header: 'Program', key: 'programName', width: 25 },
-        { header: 'Course', key: 'courseName', width: 25 },
-        { header: 'Course Code', key: 'courseCode', width: 15 },
         { header: 'Active', key: 'isActive', width: 10 },
         { header: 'Created At', key: 'createdAt', width: 20 },
         { header: 'Updated At', key: 'updatedAt', width: 20 }
@@ -199,8 +194,6 @@ export async function GET(request: NextRequest) {
           { label: 'Degree', value: 'degreeName' },
           { label: 'Department', value: 'departmentName' },
           { label: 'Program', value: 'programName' },
-          { label: 'Course', value: 'courseName' },
-          { label: 'Course Code', value: 'courseCode' },
           { label: 'Active', value: 'isActive' },
           { label: 'Created At', value: 'createdAt' },
           { label: 'Updated At', value: 'updatedAt' }
