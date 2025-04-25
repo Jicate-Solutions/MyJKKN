@@ -12,7 +12,6 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { CourseService } from '@/lib/services/organization/course-service';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -39,7 +38,6 @@ const semesterSchema = z.object({
   degree_id: z.string().min(1, 'Degree is required'),
   department_id: z.string().min(1, 'Department is required'),
   program_id: z.string().min(1, 'Program is required'),
-  course_id: z.string().min(1, 'Course is required'),
   semester_code: z
     .string()
     .min(2, 'Semester code must be at least 2 characters')
@@ -76,9 +74,6 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
   >([]);
-  const [courses, setCourses] = useState<
-    Array<{ id: string; course_name: string }>
-  >([]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(semesterSchema),
@@ -87,7 +82,6 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
       degree_id: semester?.degree_id || '',
       department_id: semester?.department_id || '',
       program_id: semester?.program_id || '',
-      course_id: semester?.course_id || '',
       semester_code: semester?.semester_code || '',
       semester_name: semester?.semester_name || '',
       semester_type: semester?.semester_type || 'even',
@@ -99,7 +93,6 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
   const watchedInstitutionId = form.watch('institution_id');
   const watchedDegreeId = form.watch('degree_id');
   const watchedDepartmentId = form.watch('department_id');
-  const watchedProgramId = form.watch('program_id');
 
   // Load institutions on mount
   useEffect(() => {
@@ -178,27 +171,6 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
       form.setValue('program_id', '');
     }
   }, [watchedDepartmentId, form]);
-
-  // Load courses when program changes
-  useEffect(() => {
-    if (watchedProgramId) {
-      async function loadCourses() {
-        try {
-          const data = await CourseService.getCoursesByProgram(
-            watchedProgramId
-          );
-          setCourses(data);
-        } catch (error) {
-          console.error('Error loading courses:', error);
-          toast.error('Failed to load courses');
-        }
-      }
-      loadCourses();
-    } else {
-      setCourses([]);
-      form.setValue('course_id', '');
-    }
-  }, [watchedProgramId, form]);
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -326,7 +298,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
-                      disabled={!watchedDepartmentId || isEditing}
+                      disabled={isEditing || !watchedDepartmentId}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -334,38 +306,9 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {programs.map((program) => (
-                          <SelectItem key={program.id} value={program.id}>
-                            {program.program_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='course_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Course</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={!watchedProgramId || isEditing}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select course' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {courses.map((course) => (
-                          <SelectItem key={course.id} value={course.id}>
-                            {course.course_name}
+                        {programs.map((prog) => (
+                          <SelectItem key={prog.id} value={prog.id}>
+                            {prog.program_name}
                           </SelectItem>
                         ))}
                       </SelectContent>

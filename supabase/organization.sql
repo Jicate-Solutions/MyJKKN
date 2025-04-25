@@ -293,7 +293,6 @@ create table public.semesters (
   degree_id uuid references public.degrees(id) on delete cascade not null,
   department_id uuid references public.departments(id) on delete cascade not null,
   program_id uuid references public.programs(id) on delete cascade not null,
-  course_id uuid references public.courses(id) on delete cascade not null,
   semester_code varchar(20) not null,
   semester_name varchar(255) not null,
   semester_type varchar(50) check (semester_type in ('even', 'odd')) not null,

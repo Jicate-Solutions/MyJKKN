@@ -8,7 +8,6 @@ const SAMPLE_DATA = [
     degree_code: 'BE_CSE',
     department_code: 'CSE',
     program_id: 'CSE_BE_REG',
-    course_code: 'CS8601',
     semester_code: 'SEM_6',
     semester_name: 'Semester 6',
     semester_type: 'even'
@@ -18,7 +17,6 @@ const SAMPLE_DATA = [
     degree_code: 'BE_CSE',
     department_code: 'CSE',
     program_id: 'CSE_BE_REG',
-    course_code: 'CS8602',
     semester_code: 'SEM_5',
     semester_name: 'Semester 5',
     semester_type: 'odd'
@@ -30,10 +28,9 @@ const COLUMN_WIDTHS = {
   B: 15, // degree_code
   C: 15, // department_code
   D: 20, // program_id
-  E: 15, // course_code
-  F: 15, // semester_code
-  G: 30, // semester_name
-  H: 12 // semester_type
+  E: 15, // semester_code
+  F: 30, // semester_name
+  G: 12 // semester_type
 };
 
 const INSTRUCTIONS = [
@@ -55,27 +52,23 @@ const INSTRUCTIONS = [
   ['   - Must match a program that exists in the specified department'],
   ['   - Example: CSE_BE_REG'],
   [''],
-  ['5. Course Code:'],
-  ['   - Must match a course that exists in the specified program'],
-  ['   - Example: CS8601'],
-  [''],
-  ['6. Semester Code:'],
-  ['   - Must be unique within the course'],
+  ['5. Semester Code:'],
+  ['   - Must be unique'],
   ['   - Use only uppercase letters, numbers, underscores, and hyphens'],
   ['   - Example: SEM_6'],
   [''],
-  ['7. Semester Name:'],
+  ['6. Semester Name:'],
   ['   - Descriptive name for the semester'],
   ['   - Example: Semester 6'],
   [''],
-  ['8. Semester Type:'],
+  ['7. Semester Type:'],
   ['   - Must be either "even" or "odd"'],
   ['   - Example: even, odd'],
   [''],
   ['Note:'],
   ['- All fields are required'],
   ['- The relationships between all entities must be valid:'],
-  ['  * Institution → Degree → Department → Program → Course → Semester'],
+  ['  * Institution → Degree → Department → Program → Semester'],
   ['- All referenced entities must exist and be active'],
   ['- Semester type must be exactly "even" or "odd" (case-sensitive)'],
   [''],
@@ -84,9 +77,8 @@ const INSTRUCTIONS = [
   ['2. Degree code is verified for the specified institution'],
   ['3. Department code is verified for the specified degree'],
   ['4. Program ID is verified for the specified department'],
-  ['5. Course code is verified for the specified program'],
-  ['6. Semester code format and uniqueness are verified'],
-  ['7. Semester type is validated']
+  ['5. Semester code format and uniqueness are verified'],
+  ['6. Semester type is validated']
 ];
 
 export default function DownloadSemesterTemplateButton() {
@@ -126,20 +118,17 @@ export default function DownloadSemesterTemplateButton() {
         }
       ];
       ws['E1'].c = [
-        { a: 'Author', t: 'Course code from existing courses in the program' }
-      ];
-      ws['F1'].c = [
         {
           a: 'Author',
           t: 'Unique semester code (uppercase letters, numbers, underscores, hyphens only)'
         }
       ];
-      ws['G1'].c = [{ a: 'Author', t: 'Descriptive name for the semester' }];
-      ws['H1'].c = [{ a: 'Author', t: 'Must be either "even" or "odd"' }];
+      ws['F1'].c = [{ a: 'Author', t: 'Descriptive name for the semester' }];
+      ws['G1'].c = [{ a: 'Author', t: 'Must be either "even" or "odd"' }];
 
       // Add data validation for semester type
       ws['!datavalidation'] = {
-        H2: {
+        G2: {
           type: 'list',
           operator: 'equal',
           formula1: '"even,odd"',

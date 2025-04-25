@@ -15,7 +15,6 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { CourseService } from '@/lib/services/organization/course-service';
 import { SemesterFilters as SemesterFilterType } from '@/types/organizations';
 
 interface SemesterFiltersProps {
@@ -38,9 +37,6 @@ export function SemesterFilters({
   >([]);
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
-  >([]);
-  const [courses, setCourses] = useState<
-    Array<{ id: string; course_name: string }>
   >([]);
 
   useEffect(() => {
@@ -107,8 +103,7 @@ export function SemesterFilters({
               institution_id: value === 'all' ? undefined : value,
               degree_id: undefined,
               department_id: undefined,
-              program_id: undefined,
-              course_id: undefined
+              program_id: undefined
             })
           }
         >
@@ -125,7 +120,7 @@ export function SemesterFilters({
           </SelectContent>
         </Select>
 
-        {/* Add similar Select components for degree, department, program, course */}
+        {/* Add similar Select components for degree, department, program */}
 
         <Select
           value={filters.semester_type || 'all'}
