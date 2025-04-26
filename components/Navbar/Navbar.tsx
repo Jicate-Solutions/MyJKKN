@@ -6,6 +6,7 @@ import { UserCircle } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { AuthService } from '@/lib/auth/auth-service';
 import { UserNav } from './user-nav';
+import { ModeToggle } from '../theme/mode-toggle';
 
 interface NavbarProps {
   title: string;
@@ -32,6 +33,7 @@ export function Navbar({ title }: NavbarProps) {
         <div className='flex items-center justify-between space-x-4'>
           {/* Desktop view */}
           <div className='hidden md:flex items-center space-x-2'>
+            <ModeToggle />
             <UserNav />
           </div>
 
