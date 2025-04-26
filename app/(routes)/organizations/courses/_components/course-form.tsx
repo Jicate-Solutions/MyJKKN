@@ -35,9 +35,7 @@ import { Card, CardContent } from '@/components/ui/card';
 
 const courseSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
-  degree_id: z.string().min(1, 'Degree is required'),
   department_id: z.string().min(1, 'Department is required'),
-  program_id: z.string().min(1, 'Program is required'),
   course_code: z
     .string()
     .min(2, 'Course code must be at least 2 characters')
@@ -64,23 +62,15 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
-  const [degrees, setDegrees] = useState<
-    Array<{ id: string; degree_name: string }>
-  >([]);
   const [departments, setDepartments] = useState<
     Array<{ id: string; department_name: string }>
-  >([]);
-  const [programs, setPrograms] = useState<
-    Array<{ id: string; program_name: string }>
   >([]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(courseSchema),
     defaultValues: {
       institution_id: course?.institution_id || '',
-      degree_id: course?.degree_id || '',
       department_id: course?.department_id || '',
-      program_id: course?.program_id || '',
       course_code: course?.course_code || '',
       course_name: course?.course_name || '',
       is_active: course?.is_active ?? true
@@ -88,8 +78,6 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
   });
 
   const watchedInstitutionId = form.watch('institution_id');
-  const watchedDegreeId = form.watch('degree_id');
-  const watchedDepartmentId = form.watch('department_id');
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -105,30 +93,12 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
 
   useEffect(() => {
     if (watchedInstitutionId) {
-      async function loadDegrees() {
-        try {
-          const data = await DegreeService.getDegreesByInstitution(
-            watchedInstitutionId
-          );
-          setDegrees(data);
-        } catch (error) {
-          console.error('Error loading degrees:', error);
-        }
-      }
-      loadDegrees();
-    } else {
-      setDegrees([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedInstitutionId]);
-
-  useEffect(() => {
-    if (watchedDegreeId) {
       async function loadDepartments() {
         try {
-          const data = await DepartmentService.getDepartmentsByDegree(
-            watchedDegreeId
-          );
+          const { data } = await DepartmentService.getDepartments({
+            institution_id: watchedInstitutionId,
+            isActive: true
+          });
           setDepartments(data);
         } catch (error) {
           console.error('Error loading departments:', error);
@@ -139,27 +109,7 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
       setDepartments([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedDegreeId]);
-
-  useEffect(() => {
-    if (watchedDepartmentId) {
-      async function loadPrograms() {
-        try {
-          const { data } = await ProgramService.getPrograms({
-            department_id: watchedDepartmentId,
-            isActive: true
-          });
-          setPrograms(data);
-        } catch (error) {
-          console.error('Error loading programs:', error);
-        }
-      }
-      loadPrograms();
-    } else {
-      setPrograms([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedDepartmentId]);
+  }, [watchedInstitutionId]);
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -220,44 +170,11 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
 
               <FormField
                 control={form.control}
-                name='degree_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Degree</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={!form.watch('institution_id') || isEditing}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select degree' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {degrees.map((degree) => (
-                          <SelectItem key={degree.id} value={degree.id}>
-                            {degree.degree_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
                 name='department_id'
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Department</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={!form.watch('degree_id') || isEditing}
-                    >
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder='Select department' />
@@ -278,49 +195,22 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
 
               <FormField
                 control={form.control}
-                name='program_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Program</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={!form.watch('department_id') || isEditing}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select program' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {programs.map((program) => (
-                          <SelectItem key={program.id} value={program.id}>
-                            {program.program_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
                 name='course_code'
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Course Code</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder='Enter course code'
+                        placeholder='e.g., CSE101'
                         {...field}
-                        value={field.value.toUpperCase()}
-                        onChange={(e) =>
-                          field.onChange(e.target.value.toUpperCase())
-                        }
+                        onChange={(e) => {
+                          field.onChange(e.target.value.toUpperCase());
+                        }}
                       />
                     </FormControl>
+                    <FormDescription>
+                      Unique identifier for the course
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -333,54 +223,54 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
                   <FormItem>
                     <FormLabel>Course Name</FormLabel>
                     <FormControl>
-                      <Input placeholder='Enter course name' {...field} />
+                      <Input
+                        placeholder='e.g., Introduction to Computer Science'
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            </div>
 
-            <FormField
-              control={form.control}
-              name='is_active'
-              render={({ field }) => (
-                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
-                  <div className='space-y-0.5'>
-                    <FormLabel>Active Status</FormLabel>
-                    <div className='text-sm text-muted-foreground'>
-                      Disable to temporarily hide this course
+              <FormField
+                control={form.control}
+                name='is_active'
+                render={({ field }) => (
+                  <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                    <div className='space-y-0.5'>
+                      <FormLabel className='text-base'>Active Status</FormLabel>
+                      <FormDescription>
+                        Set whether this course is currently active
+                      </FormDescription>
                     </div>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </div>
           </CardContent>
         </Card>
 
-        <div className='flex justify-end gap-4'>
+        <div className='flex justify-end space-x-4'>
           <Button
-            type='button'
             variant='outline'
-            onClick={() => router.back()}
-            disabled={isSubmitting}
+            onClick={() => router.push('/organizations/courses')}
+            type='button'
           >
             Cancel
           </Button>
           <Button type='submit' disabled={isSubmitting}>
             {isSubmitting
-              ? isEditing
-                ? 'Saving...'
-                : 'Creating...'
+              ? 'Saving...'
               : isEditing
-              ? 'Save Changes'
-              : 'Create Course'}
+              ? 'Update Course'
+              : 'Save Course'}
           </Button>
         </div>
       </form>

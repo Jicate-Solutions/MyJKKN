@@ -94,6 +94,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/courses': 'view_courses',
   '/organizations/semesters': 'view_semesters',
   '/organizations/sections': 'view_sections',
+  '/organizations/course-mappings': 'view_course_mappings',
 
   // Staff Management
   '/staff/category': 'view_staff_categories',
@@ -245,32 +246,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         // }
       ]
     },
-    {
-      groupLabel: 'Admissions Management',
-      menus: [
-        {
-          href: '/admissions',
-          label: 'All Admissions',
-          active: pathname === '/admissions',
-          icon: ClipboardCheck,
-          submenus: []
-        },
-        {
-          href: '/admissions/new',
-          label: 'New Admission',
-          active: pathname === '/admissions/new',
-          icon: PlusCircle,
-          submenus: []
-        },
-        {
-          href: '/admissions/crm',
-          label: 'Enquiry CRM',
-          active: pathname === '/admissions/crm',
-          icon: MessageCircle,
-          submenus: []
-        }
-      ]
-    },
+
     {
       groupLabel: 'Organization Management',
       menus: [
@@ -314,8 +290,25 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Courses',
           active: pathname.startsWith('/organizations/courses'),
           icon: BookOpen,
-          submenus: []
+          submenus: [
+            {
+              href: '/organizations/courses',
+              label: 'All Courses',
+              active: pathname.startsWith('/organizations/courses')
+            },
+            {
+              href: '/organizations/courses/new',
+              label: 'Add New Course',
+              active: pathname.startsWith('/organizations/courses/new')
+            },
+            {
+              href: '/organizations/courses/mappings',
+              label: 'Course Mappings',
+              active: pathname.startsWith('/organizations/courses/mappings')
+            }
+          ]
         },
+
         {
           href: '/organizations/sections',
           label: 'Sections',
@@ -441,7 +434,32 @@ export function GetPages(pathname: string): MenuGroup[] {
     //     }
     //   ]
     // },
-
+    {
+      groupLabel: 'Admissions Management',
+      menus: [
+        {
+          href: '/admissions',
+          label: 'All Admissions',
+          active: pathname === '/admissions',
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          href: '/admissions/new',
+          label: 'New Admission',
+          active: pathname === '/admissions/new',
+          icon: PlusCircle,
+          submenus: []
+        },
+        {
+          href: '/admissions/crm',
+          label: 'Enquiry CRM',
+          active: pathname === '/admissions/crm',
+          icon: MessageCircle,
+          submenus: []
+        }
+      ]
+    },
     {
       groupLabel: 'Resource Management',
       menus: [

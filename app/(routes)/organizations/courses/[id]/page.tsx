@@ -150,22 +150,11 @@ export default function CourseDetailsPage({ params }: CourseDetailsPageProps) {
                   ` (${course.institution.counselling_code})`}
               </p>
             </div>
-            <div>
-              <p className='font-medium'>Degree</p>
-              <p className='text-base text-muted-foreground'>
-                {course.degree?.degree_name || 'N/A'}
-              </p>
-            </div>
+
             <div>
               <p className='font-medium'>Department</p>
               <p className='text-base text-muted-foreground'>
                 {course.department?.department_name || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className='font-medium'>Program</p>
-              <p className='text-base text-muted-foreground'>
-                {course.program?.program_name || 'N/A'}
               </p>
             </div>
           </CardContent>

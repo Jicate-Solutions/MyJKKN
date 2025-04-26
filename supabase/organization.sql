@@ -423,3 +423,94 @@ USING (
     AND (permissions->>'read')::boolean = true
   )
 );
+
+-- Create course_mappings table for mapping courses to degrees, departments, programs, and semesters
+CREATE TABLE IF NOT EXISTS public.course_mappings (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  institution_id UUID REFERENCES public.institutions(id) ON DELETE CASCADE NOT NULL,
+  degree_id UUID REFERENCES public.degrees(id) ON DELETE CASCADE NOT NULL,
+  department_id UUID REFERENCES public.departments(id) ON DELETE CASCADE NOT NULL,
+  program_id UUID REFERENCES public.programs(id) ON DELETE CASCADE NOT NULL,
+  semester_id UUID REFERENCES public.semesters(id) ON DELETE CASCADE NOT NULL,
+  course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()) NOT NULL,
+  
+  -- Add a unique constraint to prevent duplicate mappings
+  CONSTRAINT course_mappings_unique UNIQUE (institution_id, degree_id, department_id, program_id, semester_id, course_id)
+);
+
+-- Add comment for documentation
+COMMENT ON TABLE public.course_mappings IS 'Maps courses to institutions, degrees, departments, programs, and semesters';
+
+-- Create indexes for better query performance
+CREATE INDEX idx_course_mappings_institution ON public.course_mappings(institution_id);
+CREATE INDEX idx_course_mappings_degree ON public.course_mappings(degree_id);
+CREATE INDEX idx_course_mappings_department ON public.course_mappings(department_id);
+CREATE INDEX idx_course_mappings_program ON public.course_mappings(program_id);
+CREATE INDEX idx_course_mappings_semester ON public.course_mappings(semester_id);
+CREATE INDEX idx_course_mappings_course ON public.course_mappings(course_id);
+
+-- Enable RLS
+ALTER TABLE public.course_mappings ENABLE ROW LEVEL SECURITY;
+
+-- Policy for selecting course mappings (read access)
+CREATE POLICY "Enable read access for authenticated users" ON public.course_mappings
+  FOR SELECT
+  USING (auth.role() = 'authenticated');
+
+-- Policy for inserting course mappings
+CREATE POLICY "Enable insert for authorized users" ON public.course_mappings
+  FOR INSERT
+  WITH CHECK (
+    auth.role() = 'authenticated' AND 
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND 
+      role IN ('administrator', 'super_admin')
+    )
+  );
+
+-- Policy for updating course mappings
+CREATE POLICY "Enable update for authorized users" ON public.course_mappings
+  FOR UPDATE
+  USING (
+    auth.role() = 'authenticated' AND 
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND 
+      role IN ('administrator', 'super_admin')
+    )
+  );
+
+-- Policy for deleting course mappings
+CREATE POLICY "Enable delete for authorized users" ON public.course_mappings
+  FOR DELETE
+  USING (
+    auth.role() = 'authenticated' AND 
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() AND 
+      role IN ('administrator', 'super_admin')
+    )
+  );
+
+-- Create a trigger for updating the updated_at timestamp
+CREATE TRIGGER set_course_mappings_updated_at
+  BEFORE UPDATE ON public.course_mappings
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_updated_at();
+
+-- Add API key access policy for course_mappings
+CREATE POLICY "Enable read access for API keys" ON public.course_mappings
+  FOR SELECT TO public
+  USING (
+    EXISTS (
+      SELECT 1 FROM api_keys
+      WHERE key_value = current_setting('request.header.apikey', true)::text
+      AND is_active = true 
+      AND (expires_at IS NULL OR expires_at > now())
+      AND (permissions->>'read')::boolean = true
+    )
+  );
