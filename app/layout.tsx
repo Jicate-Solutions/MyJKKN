@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Poppins } from 'next/font/google';
 import './globals.css';
 import { ToastProvider } from '@/providers/toast-provider';
+import { ThemeProvider } from '@/providers/theme-provider';
 
 const poppins = Poppins({
   weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
@@ -21,10 +22,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang='en'>
+    <html lang='en' suppressHydrationWarning>
       <body className={`${poppins.variable} font-sans antialiased`}>
-        <ToastProvider />
-        {children}
+        <ThemeProvider
+          attribute='class'
+          defaultTheme='system'
+          enableSystem
+          disableTransitionOnChange
+          storageKey='theme-preference'
+        >
+          <ToastProvider />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
