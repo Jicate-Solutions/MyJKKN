@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import { Upload, X, FileText } from 'lucide-react';
+import { Upload, X, FileText, FileDown, AlertTriangle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import {
@@ -24,35 +24,19 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { CourseService } from '@/lib/services/organization/course-service';
-import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
-import { ProgramService } from '@/lib/services/organization/program-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 
 interface Institution {
   id: string;
   counselling_code: string;
-}
-
-interface Degree {
-  id: string;
-  degree_id: string;
-  institution_id: string;
+  name: string;
 }
 
 interface Department {
   id: string;
   department_code: string;
   institution_id: string;
-  degree_id: string;
-}
-
-interface Program {
-  id: string;
-  program_id: string;
-  institution_id: string;
-  degree_id: string;
-  department_id: string;
 }
 
 interface ValidationResult {
@@ -63,16 +47,12 @@ interface ValidationResult {
 const validateRow = async (
   row: any,
   institutions: Institution[],
-  degrees: Degree[],
-  departments: Department[],
-  programs: Program[]
+  departments: Department[]
 ): Promise<ValidationResult> => {
   const errors: string[] = [];
   const requiredFields = [
-    'institution_code',
-    'degree_code',
-    'department_code',
-    'program_id',
+    'institution_id',
+    'department_id',
     'course_code',
     'course_name'
   ];
@@ -83,48 +63,50 @@ const validateRow = async (
     errors.push(`Missing required fields: ${missingFields.join(', ')}`);
   }
 
-  // Validate institution exists
-  const institution = institutions.find(
-    (i) => i.counselling_code === row.institution_code
-  );
+  // Validate institution exists - check if the institution ID exists in our list
+  const institution = institutions.find((i) => i.id === row.institution_id);
   if (!institution) {
-    errors.push('Invalid institution code');
-  } else {
-    // Validate degree exists and belongs to institution
-    const degree = degrees.find(
-      (d) =>
-        d.degree_id === row.degree_code && d.institution_id === institution.id
-    );
-    if (!degree) {
-      errors.push('Invalid degree code for this institution');
-    } else {
-      // Validate department exists and belongs to institution and degree
-      const department = departments.find(
-        (d) =>
-          d.department_code === row.department_code &&
-          d.institution_id === institution.id &&
-          d.degree_id === degree.id
+    const validInstitutions = institutions
+      .slice(0, 3)
+      .map((i) => `${i.name} (${i.id})`)
+      .join('; ');
+    errors.push(`Invalid institution ID. Valid examples: ${validInstitutions}`);
+    return {
+      isValid: false,
+      errors
+    };
+  }
+
+  // Validate department exists and belongs to institution
+  const department = departments.find(
+    (d) => d.id === row.department_id && d.institution_id === row.institution_id
+  );
+
+  if (!department) {
+    // Find departments for this institution to suggest
+    const validDepartments = departments
+      .filter((d) => d.institution_id === row.institution_id)
+      .slice(0, 3)
+      .map((d) => `${d.department_code} (${d.id})`)
+      .join('; ');
+
+    if (validDepartments) {
+      errors.push(
+        `Invalid department ID for this institution. Valid departments for this institution: ${validDepartments}`
       );
-      if (!department) {
-        errors.push('Invalid department code for this institution and degree');
-      } else {
-        // Validate program exists and belongs to the hierarchy
-        const program = programs.find(
-          (p) =>
-            p.program_id === row.program_id &&
-            p.institution_id === institution.id &&
-            p.degree_id === degree.id &&
-            p.department_id === department.id
+    } else {
+      // Just check if the department ID exists at all (might be for a different institution)
+      const departmentExists = departments.find(
+        (d) => d.id === row.department_id
+      );
+      if (departmentExists) {
+        errors.push(
+          `Department ID exists but belongs to a different institution (${departmentExists.institution_id}). Please use a department ID that belongs to institution ${row.institution_id}`
         );
-        if (!program) {
-          errors.push('Invalid program ID for this department');
-        } else {
-          // Add IDs to the row data for later use
-          row.institution_id = institution.id;
-          row.degree_id = degree.id;
-          row.department_id = department.id;
-          row.program_id = program.id;
-        }
+      } else {
+        errors.push(
+          `Invalid department ID. This department ID doesn't exist in the system.`
+        );
       }
     }
   }
@@ -167,57 +149,60 @@ export default function BulkUploadCourses() {
     try {
       // Fetch required data for validation
       const institutions = await OrganizationService.getInstitutionNames(true);
+      console.log('Fetched institutions:', institutions.length);
 
-      // Fetch degrees for each institution
-      const degrees = await Promise.all(
-        institutions.map(async (inst) => {
-          const degreesForInst = await DegreeService.getDegreesByInstitution(
-            inst.id
-          );
-          return degreesForInst.map((d) => ({
-            ...d,
-            institution_id: inst.id
-          }));
-        })
-      );
-      const flattenedDegrees = degrees.flat();
+      // Fetch ALL active departments for validation (set a high limit)
+      const { data: allDepartments } = await DepartmentService.getDepartments({
+        isActive: true,
+        limit: 10000 // Fetch up to 10,000 departments
+      });
 
-      // Fetch departments for each degree
-      const departments = await Promise.all(
-        flattenedDegrees.map(async (degree) => {
-          const deptsForDegree = await DepartmentService.getDepartmentsByDegree(
-            degree.id
-          );
-          return deptsForDegree.map((d) => ({
-            ...d,
-            institution_id: degree.institution_id,
-            degree_id: degree.id
-          }));
-        })
-      );
-      const flattenedDepartments = departments.flat();
+      console.log('Fetched departments:', allDepartments.length);
 
-      // Fetch programs for each department
-      const programs = await Promise.all(
-        flattenedDepartments.map(async (dept) => {
-          const { data: programsForDept } = await ProgramService.getPrograms({
-            department_id: dept.id,
-            isActive: true
-          });
-          return programsForDept.map((p) => ({
-            ...p,
-            institution_id: dept.institution_id,
-            degree_id: dept.degree_id,
-            department_id: dept.id
-          }));
-        })
-      );
-      const flattenedPrograms = programs.flat();
+      // If no institutions or departments, show error
+      if (institutions.length === 0 || allDepartments.length === 0) {
+        toast.error(
+          'No active institutions or departments found. Please create them first.'
+        );
+        return;
+      }
+
+      // Convert departments to format needed for validation
+      const departmentsWithProperStructure = allDepartments.map((dept) => ({
+        id: dept.id,
+        department_code: dept.department_code || '', // Ensure department_code exists
+        institution_id: dept.institution_id
+      }));
+
+      // Log sample valid institution and department IDs to help users
+      console.log('Valid institution and department examples:');
+      institutions.slice(0, 3).forEach((inst) => {
+        console.log(`Institution: ${inst.name} (${inst.id})`);
+        const depts = departmentsWithProperStructure
+          .filter((d) => d.institution_id === inst.id)
+          .slice(0, 2);
+
+        depts.forEach((d) => {
+          console.log(`  - Department: ${d.department_code} (${d.id})`);
+        });
+      });
 
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+
+      // Get the template sheet (should be the second sheet after instructions)
+      const sheetName =
+        workbook.SheetNames.length > 1
+          ? workbook.SheetNames[1]
+          : workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+      if (jsonData.length === 0) {
+        toast.error('No data found in the uploaded file');
+        return;
+      }
 
       // Validate each row
       const validatedData = await Promise.all(
@@ -225,9 +210,7 @@ export default function BulkUploadCourses() {
           const validation = await validateRow(
             row,
             institutions,
-            flattenedDegrees,
-            flattenedDepartments,
-            flattenedPrograms
+            departmentsWithProperStructure
           );
           return {
             ...row,
@@ -270,9 +253,7 @@ export default function BulkUploadCourses() {
       const promises = validRows.map((row) => {
         const courseData = {
           institution_id: row.institution_id,
-          degree_id: row.degree_id,
           department_id: row.department_id,
-          program_id: row.program_id,
           course_code: row.course_code.toUpperCase(),
           course_name: row.course_name,
           is_active: true
@@ -337,6 +318,25 @@ export default function BulkUploadCourses() {
               <p className='mt-2 text-sm text-muted-foreground'>
                 Only .xlsx files are supported
               </p>
+              <div className='mt-4 flex items-center gap-2 border border-amber-300 bg-amber-50 p-3 rounded-md'>
+                <AlertTriangle className='h-5 w-5 text-amber-500' />
+                <p className='text-sm text-amber-700'>
+                  Make sure to use our template with valid institution and
+                  department IDs
+                </p>
+              </div>
+              <div className='mt-2'>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() =>
+                    (window.location.href = '/organizations/courses/template')
+                  }
+                >
+                  <FileDown className='mr-2 h-4 w-4' />
+                  Download Template First
+                </Button>
+              </div>
             </div>
           ) : (
             <div className='space-y-4'>
@@ -351,15 +351,44 @@ export default function BulkUploadCourses() {
                 </Button>
               </div>
 
+              {previewData.some((row) => !row.isValid) && (
+                <div className='border border-destructive bg-destructive/10 p-3 rounded-md'>
+                  <div className='flex items-start gap-2'>
+                    <AlertTriangle className='h-5 w-5 text-destructive flex-shrink-0 mt-0.5' />
+                    <div>
+                      <p className='font-medium text-destructive'>
+                        Validation errors detected
+                      </p>
+                      <p className='text-sm text-muted-foreground mt-1'>
+                        Some rows contain invalid data. These issues must be
+                        fixed before uploading. The most common issue is using
+                        incorrect institution or department IDs.
+                      </p>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='mt-2'
+                        onClick={() => {
+                          setIsOpen(false);
+                          window.location.href =
+                            '/organizations/courses/template';
+                        }}
+                      >
+                        <FileDown className='mr-2 h-4 w-4' />
+                        Download Template with Valid IDs
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className='rounded-md border'>
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Row</TableHead>
-                      <TableHead>Institution</TableHead>
-                      <TableHead>Degree</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Program</TableHead>
+                      <TableHead>Institution ID</TableHead>
+                      <TableHead>Department ID</TableHead>
                       <TableHead>Course Code</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Status</TableHead>
@@ -370,10 +399,8 @@ export default function BulkUploadCourses() {
                     {previewData.map((row) => (
                       <TableRow key={row.rowNumber}>
                         <TableCell>{row.rowNumber}</TableCell>
-                        <TableCell>{row.institution_code}</TableCell>
-                        <TableCell>{row.degree_code}</TableCell>
-                        <TableCell>{row.department_code}</TableCell>
-                        <TableCell>{row.program_id}</TableCell>
+                        <TableCell>{row.institution_id}</TableCell>
+                        <TableCell>{row.department_id}</TableCell>
                         <TableCell>{row.course_code}</TableCell>
                         <TableCell>{row.course_name}</TableCell>
                         <TableCell>

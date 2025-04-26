@@ -144,7 +144,8 @@ export function ExportCourses() {
         <DialogHeader>
           <DialogTitle>Export Courses</DialogTitle>
           <DialogDescription>
-            Choose your export format and options
+            Export course data including code, name, institution, and department
+            information
           </DialogDescription>
         </DialogHeader>
 
@@ -199,6 +200,17 @@ export function ExportCourses() {
                 Include inactive courses
               </label>
             </div>
+          </div>
+
+          <div className='text-xs text-muted-foreground mt-2 p-2 border rounded-md bg-muted/50'>
+            <p className='font-medium mb-1'>Exported fields include:</p>
+            <ul className='list-disc pl-4 space-y-0.5'>
+              <li>Course Code and Name</li>
+              <li>Institution</li>
+              <li>Department</li>
+              <li>Active Status</li>
+              <li>Created/Updated Dates</li>
+            </ul>
           </div>
         </div>
 

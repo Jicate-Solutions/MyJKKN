@@ -22,14 +22,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious
-} from '@/components/ui/pagination';
+import { Pagination } from '@/components/pagination';
 import { AdmissionData } from '@/hooks/admission/use-admissions';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -148,103 +141,12 @@ export function AdmissionList({
   const renderPagination = () => {
     if (metadata.totalPages <= 1) return null;
 
-    const pages = [];
-    const maxPagesToShow = 5;
-
-    let startPage = Math.max(
-      1,
-      metadata.currentPage - Math.floor(maxPagesToShow / 2)
-    );
-    const endPage = Math.min(
-      metadata.totalPages,
-      startPage + maxPagesToShow - 1
-    );
-
-    if (endPage - startPage + 1 < maxPagesToShow) {
-      startPage = Math.max(1, endPage - maxPagesToShow + 1);
-    }
-
-    for (let i = startPage; i <= endPage; i++) {
-      pages.push(i);
-    }
-
     return (
-      <Pagination className='mt-4'>
-        <PaginationContent>
-          <PaginationItem>
-            <PaginationPrevious
-              onClick={() =>
-                onPageChange(Math.max(1, metadata.currentPage - 1))
-              }
-              aria-disabled={metadata.currentPage === 1}
-              className={
-                metadata.currentPage === 1
-                  ? 'pointer-events-none opacity-50'
-                  : ''
-              }
-            />
-          </PaginationItem>
-
-          {startPage > 1 && (
-            <>
-              <PaginationItem>
-                <PaginationLink onClick={() => onPageChange(1)}>
-                  1
-                </PaginationLink>
-              </PaginationItem>
-              {startPage > 2 && (
-                <PaginationItem>
-                  <span className='px-2'>...</span>
-                </PaginationItem>
-              )}
-            </>
-          )}
-
-          {pages.map((page) => (
-            <PaginationItem key={page}>
-              <PaginationLink
-                isActive={page === metadata.currentPage}
-                onClick={() => onPageChange(page)}
-              >
-                {page}
-              </PaginationLink>
-            </PaginationItem>
-          ))}
-
-          {endPage < metadata.totalPages && (
-            <>
-              {endPage < metadata.totalPages - 1 && (
-                <PaginationItem>
-                  <span className='px-2'>...</span>
-                </PaginationItem>
-              )}
-              <PaginationItem>
-                <PaginationLink
-                  onClick={() => onPageChange(metadata.totalPages)}
-                >
-                  {metadata.totalPages}
-                </PaginationLink>
-              </PaginationItem>
-            </>
-          )}
-
-          <PaginationItem>
-            <PaginationNext
-              onClick={() =>
-                onPageChange(
-                  Math.min(metadata.totalPages, metadata.currentPage + 1)
-                )
-              }
-              aria-disabled={metadata.currentPage === metadata.totalPages}
-              className={
-                metadata.currentPage === metadata.totalPages
-                  ? 'pointer-events-none opacity-50'
-                  : ''
-              }
-            />
-          </PaginationItem>
-        </PaginationContent>
-      </Pagination>
+      <Pagination
+        currentPage={metadata.currentPage}
+        totalPages={metadata.totalPages}
+        onPageChange={onPageChange}
+      />
     );
   };
 

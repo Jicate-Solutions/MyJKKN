@@ -236,9 +236,7 @@ export interface ProgramListResponse {
 export interface Course {
   id: string;
   institution_id: string;
-  degree_id: string;
   department_id: string;
-  program_id: string;
   course_code: string;
   course_name: string;
   is_active: boolean;
@@ -248,27 +246,17 @@ export interface Course {
   institution?: {
     id: string;
     name: string;
-    counselling_code: string;
-  };
-  degree?: {
-    id: string;
-    degree_name: string;
+    counselling_code?: string;
   };
   department?: {
     id: string;
     department_name: string;
   };
-  program?: {
-    id: string;
-    program_name: string;
-  };
 }
 
 export interface CreateCourseDto {
   institution_id: string;
-  degree_id: string;
   department_id: string;
-  program_id: string;
   course_code: string;
   course_name: string;
   is_active?: boolean;
@@ -279,9 +267,7 @@ export interface UpdateCourseDto extends Partial<CreateCourseDto> {}
 export interface CourseFilters {
   search?: string;
   institution_id?: string;
-  degree_id?: string;
   department_id?: string;
-  program_id?: string;
   isActive?: boolean;
   page?: number;
   limit?: number;
@@ -434,6 +420,84 @@ export interface SectionFilters {
 
 export interface SectionListResponse {
   data: Section[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// Course mapping types
+export interface CourseMapping {
+  id: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  semester_id: string;
+  course_id: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+  };
+  degree?: {
+    id: string;
+    degree_name: string;
+  };
+  department?: {
+    id: string;
+    department_name: string;
+  };
+  program?: {
+    id: string;
+    program_name: string;
+  };
+  semester?: {
+    id: string;
+    semester_name: string;
+  };
+  course?: {
+    id: string;
+    course_name: string;
+    course_code: string;
+  };
+}
+
+export interface CreateCourseMappingDto {
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  semester_id: string;
+  course_ids: string[];
+  is_active?: boolean;
+}
+
+export interface UpdateCourseMappingDto
+  extends Partial<Omit<CreateCourseMappingDto, 'course_ids'>> {
+  course_id?: string;
+}
+
+export interface CourseMappingFilters {
+  search?: string;
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  course_id?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface CourseMappingListResponse {
+  data: CourseMapping[];
   metadata: {
     total: number;
     page: number;

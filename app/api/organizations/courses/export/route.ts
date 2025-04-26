@@ -52,9 +52,7 @@ export async function GET(request: NextRequest) {
     let query = supabase.from('courses').select(`
         *,
         institutions(name),
-        degrees(degree_name),
-        departments(department_name),
-        programs(program_name)
+        departments(department_name)
       `);
 
     // Apply status filter if not including inactive
@@ -99,9 +97,7 @@ export async function GET(request: NextRequest) {
         courseCode: course.course_code,
         courseName: course.course_name,
         institutionName: course.institutions?.name || '',
-        degreeName: course.degrees?.degree_name || '',
         departmentName: course.departments?.department_name || '',
-        programName: course.programs?.program_name || '',
         isActive: course.is_active ? 'Yes' : 'No',
         createdAt: course.created_at
           ? new Date(course.created_at).toLocaleString()
@@ -149,9 +145,7 @@ export async function GET(request: NextRequest) {
         { header: 'Course Code', key: 'courseCode', width: 15 },
         { header: 'Course Name', key: 'courseName', width: 30 },
         { header: 'Institution', key: 'institutionName', width: 25 },
-        { header: 'Degree', key: 'degreeName', width: 20 },
         { header: 'Department', key: 'departmentName', width: 25 },
-        { header: 'Program', key: 'programName', width: 25 },
         { header: 'Active', key: 'isActive', width: 10 },
         { header: 'Created At', key: 'createdAt', width: 20 },
         { header: 'Updated At', key: 'updatedAt', width: 20 }
@@ -188,9 +182,7 @@ export async function GET(request: NextRequest) {
           { label: 'Course Code', value: 'courseCode' },
           { label: 'Course Name', value: 'courseName' },
           { label: 'Institution', value: 'institutionName' },
-          { label: 'Degree', value: 'degreeName' },
           { label: 'Department', value: 'departmentName' },
-          { label: 'Program', value: 'programName' },
           { label: 'Active', value: 'isActive' },
           { label: 'Created At', value: 'createdAt' },
           { label: 'Updated At', value: 'updatedAt' }

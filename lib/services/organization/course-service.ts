@@ -13,14 +13,14 @@ export class CourseService {
 
   static async createCourse(data: CreateCourseDto): Promise<Course> {
     try {
+      const courseData = {
+        ...data,
+        course_code: data.course_code.toUpperCase()
+      };
+
       const { data: course, error } = await this.supabase
         .from('courses')
-        .insert([
-          {
-            ...data,
-            course_code: data.course_code.toUpperCase()
-          }
-        ])
+        .insert([courseData])
         .select()
         .single();
 
@@ -44,13 +44,15 @@ export class CourseService {
     data: UpdateCourseDto
   ): Promise<Course> {
     try {
+      const updateData = {
+        ...data,
+        course_code: data.course_code?.toUpperCase(),
+        updated_at: new Date().toISOString()
+      };
+
       const { data: course, error } = await this.supabase
         .from('courses')
-        .update({
-          ...data,
-          course_code: data.course_code?.toUpperCase(),
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', id)
         .select()
         .single();
@@ -93,17 +95,9 @@ export class CourseService {
           name,
           counselling_code
         ),
-        degree:degrees (
-          id,
-          degree_name
-        ),
         department:departments (
           id,
           department_name
-        ),
-        program:programs (
-          id,
-          program_name
         )
       `,
         { count: 'exact' }
@@ -120,16 +114,8 @@ export class CourseService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
-      if (filters.degree_id) {
-        query = query.eq('degree_id', filters.degree_id);
-      }
-
       if (filters.department_id) {
         query = query.eq('department_id', filters.department_id);
-      }
-
-      if (filters.program_id) {
-        query = query.eq('program_id', filters.program_id);
       }
 
       if (filters.isActive !== undefined) {
@@ -175,17 +161,9 @@ export class CourseService {
             name,
             counselling_code
           ),
-          degree:degrees (
-            id,
-            degree_name
-          ),
           department:departments (
             id, 
             department_name
-          ),
-          program:programs (
-            id,
-            program_name
           )
         `
         )
@@ -201,12 +179,12 @@ export class CourseService {
     }
   }
 
-  static async getCoursesByProgram(programId: string): Promise<Course[]> {
+  static async getCoursesByDepartment(departmentId: string): Promise<Course[]> {
     try {
-      // Check if programId is a UUID or a name/label
+      // Check if departmentId is a UUID or a name/label
       const isUUID =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          programId
+          departmentId
         );
 
       let query;
@@ -216,30 +194,30 @@ export class CourseService {
         query = this.supabase
           .from('courses')
           .select('*')
-          .eq('program_id', programId)
+          .eq('department_id', departmentId)
           .eq('is_active', true)
           .order('course_name');
       } else {
-        // If it's not a UUID, try to find the program by name first
-        console.log('Searching for program with name:', programId);
+        // If it's not a UUID, try to find the department by name first
+        console.log('Searching for department with name:', departmentId);
 
-        const { data: program } = await this.supabase
-          .from('programs')
+        const { data: department } = await this.supabase
+          .from('departments')
           .select('id')
-          .ilike('program_name', programId)
+          .ilike('department_name', departmentId)
           .single();
 
-        if (program) {
-          console.log('Found program with ID:', program.id);
+        if (department) {
+          console.log('Found department with ID:', department.id);
           query = this.supabase
             .from('courses')
             .select('*')
-            .eq('program_id', program.id)
+            .eq('department_id', department.id)
             .eq('is_active', true)
             .order('course_name');
         } else {
-          console.log('No program found with name:', programId);
-          // Return empty array if no program found
+          console.log('No department found with name:', departmentId);
+          // Return empty array if no department found
           return [];
         }
       }
@@ -249,7 +227,7 @@ export class CourseService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching courses by program:', error);
+      console.error('Error fetching courses by department:', error);
       return [];
     }
   }

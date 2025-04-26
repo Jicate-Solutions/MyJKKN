@@ -44,6 +44,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
+import { Pagination } from '@/components/pagination';
 
 interface InstitutionListProps {
   institutions: Institution[];
@@ -208,29 +209,11 @@ export function InstitutionList({
       </div>
 
       {metadata.totalPages > 1 && (
-        <div className='flex items-center justify-center gap-2'>
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => onPageChange(metadata.page - 1)}
-            disabled={metadata.page <= 1}
-          >
-            <ChevronLeft className='h-4 w-4' />
-            Previous
-          </Button>
-          <span className='text-sm text-muted-foreground'>
-            Page {metadata.page} of {metadata.totalPages}
-          </span>
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => onPageChange(metadata.page + 1)}
-            disabled={metadata.page >= metadata.totalPages}
-          >
-            Next
-            <ChevronRight className='h-4 w-4' />
-          </Button>
-        </div>
+        <Pagination
+          currentPage={metadata.page}
+          totalPages={metadata.totalPages}
+          onPageChange={onPageChange}
+        />
       )}
 
       <AlertDialog
