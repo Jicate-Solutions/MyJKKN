@@ -96,6 +96,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/sections': 'view_sections',
   '/organizations/course-mappings': 'view_course_mappings',
 
+  //student management
+  '/students': 'view_students',
+  '/students/new': 'create_students',
+
   // Staff Management
   '/staff/category': 'view_staff_categories',
   '/staff/list': 'view_staff',
@@ -318,6 +322,19 @@ export function GetPages(pathname: string): MenuGroup[] {
         }
       ]
     },
+    {
+      groupLabel: 'Student Management',
+      menus: [
+        {
+          href: '/students',
+          label: 'All Students',
+          active: pathname === '/students',
+          icon: Users,
+          submenus: []
+        }
+      ]
+    },
+
     {
       groupLabel: 'Staff Management',
       menus: [
