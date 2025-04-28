@@ -3,7 +3,8 @@ import { Database } from '@/types/auth';
 
 const BUCKETS = {
   AVATARS: 'avatars',
-  LOGOS: 'institution-logos'
+  LOGOS: 'institution-logos',
+  STUDENT_PHOTOS: 'student-photos'
 } as const;
 
 const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif'];
@@ -285,6 +286,107 @@ export class StorageService {
       return { error: null };
     } catch (error) {
       console.error('Error deleting staff image:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  // Student photo methods
+  static async uploadStudentPhoto(
+    file: File,
+    studentId: string
+  ): Promise<{
+    publicUrl: string | null;
+    error: Error | null;
+  }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      // Delete existing student photo if any
+      await this.deleteExistingStudentPhoto(studentId);
+
+      // Create a unique filename
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${studentId}/${fileName}`;
+
+      // Upload the new file
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.STUDENT_PHOTOS)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.STUDENT_PHOTOS)
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading student photo:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  private static async deleteExistingStudentPhoto(
+    studentId: string
+  ): Promise<void> {
+    try {
+      const { data: existingFiles } = await this.supabase.storage
+        .from(BUCKETS.STUDENT_PHOTOS)
+        .list(studentId);
+
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map(
+          (f) => `${studentId}/${f.name}`
+        );
+        await this.supabase.storage
+          .from(BUCKETS.STUDENT_PHOTOS)
+          .remove(filesToRemove);
+      }
+    } catch (error) {
+      console.error('Error deleting existing student photo:', error);
+    }
+  }
+
+  static async deleteStudentPhoto(
+    studentId: string
+  ): Promise<{ error: Error | null }> {
+    try {
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      await this.deleteExistingStudentPhoto(studentId);
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting student photo:', error);
       return {
         error: error instanceof Error ? error : new Error('Delete failed')
       };

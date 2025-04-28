@@ -6,6 +6,7 @@ import {
   CreateAdmissionDto,
   UpdateAdmissionDto
 } from '@/types/admission';
+import { StudentService } from '@/lib/services/student/student-service';
 import { toast } from 'sonner';
 
 export class AdmissionService {
@@ -80,6 +81,18 @@ export class AdmissionService {
         .single();
 
       if (error) throw error;
+
+      // Auto-trigger: If status is "approved", create a student record
+      if (status === 'approved') {
+        try {
+          await StudentService.createStudentFromAdmission(id);
+          toast.success('Student record created from approved admission');
+        } catch (studentError) {
+          console.error('Error creating student record:', studentError);
+          toast.error('Failed to create student record from admission');
+          // We don't throw here to prevent blocking the status update
+        }
+      }
 
       toast.success(`Admission status updated to ${status}`);
       return admission;
