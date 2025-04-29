@@ -1,6 +1,12 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Profile, UserRole } from '@/types/auth';
-import { UserFilters, UserListResponse, UserStats } from '@/types/users';
+import {
+  UserFilters,
+  UserListResponse,
+  UserStats,
+  UpdateUserRequest as UpdateUserDto,
+  CreateUserRequest as CreateUserDto
+} from '@/types/users';
 import { toast } from 'react-hot-toast';
 
 export class UserService {
@@ -247,7 +253,7 @@ export class UserService {
     }
   }
 
-  static async updateUser(id: string, data: UpdateUserDto): Promise<User> {
+  static async updateUser(id: string, data: UpdateUserDto): Promise<Profile> {
     try {
       const { data: userData, error: userError } =
         await this.supabase.auth.getUser();
@@ -275,7 +281,7 @@ export class UserService {
     }
   }
 
-  static async createUser(data: CreateUserDto): Promise<User> {
+  static async createUser(data: CreateUserDto): Promise<Profile> {
     try {
       const { data: userData, error: userError } =
         await this.supabase.auth.getUser();

@@ -6,7 +6,26 @@ import {
   CreateStudentDto,
   UpdateStudentDto
 } from '@/types/student';
+import { CreateUserRequest } from '@/types/users';
 import { toast } from 'sonner';
+
+// Helper function to generate a random password
+function generateTemporaryPassword(length = 12): string {
+  const charset =
+    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=';
+  let password = '';
+  for (let i = 0, n = charset.length; i < length; ++i) {
+    password += charset.charAt(Math.floor(Math.random() * n));
+  }
+  // Ensure password meets basic complexity (example: at least one number and one uppercase)
+  if (!/\d/.test(password)) {
+    password += Math.floor(Math.random() * 10);
+  }
+  if (!/[A-Z]/.test(password)) {
+    password += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+  }
+  return password.slice(0, length);
+}
 
 export class StudentService {
   private static supabase = createClientSupabaseClient();
@@ -96,7 +115,9 @@ export class StudentService {
       // 1. Fetch the current student record
       const { data: currentStudent, error: fetchError } = await this.supabase
         .from('students')
-        .select('roll_number, college_email, student_photo_url')
+        .select(
+          'roll_number, college_email, student_photo_url, is_profile_complete'
+        )
         .eq('id', id)
         .single();
 
@@ -129,6 +150,80 @@ export class StudentService {
         .single();
 
       if (updateError) throw updateError;
+
+      // --- BEGIN: Auto User Creation Logic ---
+      // Check if profile just became complete and college_email exists
+      if (
+        !currentStudent.is_profile_complete && // Was false before
+        isProfileComplete && // Is true now
+        updatedStudent.college_email // Email exists
+      ) {
+        console.log(
+          `Profile for student ${updatedStudent.id} marked complete. Attempting user creation.`
+        );
+        const tempPassword = generateTemporaryPassword();
+        const userPayload: CreateUserRequest = {
+          email: updatedStudent.college_email,
+          full_name: updatedStudent.student_name,
+          password: tempPassword,
+          role: 'student', // Default role
+          phone_number: updatedStudent.student_mobile || null
+        };
+
+        try {
+          const userResponse = await fetch('/api/users', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(userPayload)
+          });
+
+          const userData = await userResponse.json();
+
+          if (!userResponse.ok) {
+            // Check for 409 Conflict (User already exists)
+            if (userResponse.status === 409) {
+              console.warn(
+                `User with email ${userPayload.email} already exists. Skipping automatic creation.`
+              );
+              // Optionally show a less alarming toast or skip it
+              // toast.info(`User account for ${userPayload.email} already exists.`);
+            } else {
+              // Handle other errors
+              console.error(
+                'Failed to automatically create user:',
+                userData.error ||
+                  userData.details ||
+                  userData.message ||
+                  'Unknown API error',
+                'Status:',
+                userResponse.status
+              );
+              toast.warning(
+                `Student profile updated, but failed to create user account: ${
+                  userData.error || userData.details || userData.message
+                }`
+              );
+            }
+          } else {
+            console.log(
+              `Successfully created user for student ${updatedStudent.id} with email ${updatedStudent.college_email}`
+            );
+            // Optionally, you could add another toast, but it might be too much.
+            // toast.info(`User account created for ${updatedStudent.student_name}.`);
+            // IMPORTANT: You need a mechanism to communicate the temporary password
+            // or force a password reset on first login for the new student user.
+            // This implementation does not handle password communication.
+          }
+        } catch (apiError) {
+          console.error('Error calling user creation API:', apiError);
+          toast.warning(
+            'Student profile updated, but encountered an error trying to create user account.'
+          );
+        }
+      }
+      // --- END: Auto User Creation Logic ---
 
       toast.success('Student record updated successfully');
       return updatedStudent;
