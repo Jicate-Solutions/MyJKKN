@@ -41,3 +41,15 @@ export interface RoleUpdateResponse {
   success: boolean;
   user: Profile;
 }
+
+export type CreateUserRequest = Pick<
+  Profile,
+  'email' | 'full_name' | 'role' | 'phone_number'
+> & {
+  password: string;
+};
+
+export type UpdateUserRequest = Partial<CreateUserRequest> & {
+  is_active?: boolean;
+  profile_complete?: boolean;
+};
