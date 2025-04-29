@@ -71,6 +71,8 @@ import {
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import StudentPromotionTable from './_components/student-promotion-table';
+import { BulkStudentUpdate } from './_components/bulk-student-update';
+import { DownloadStudentTemplateButton } from './_components/download-student-template-button';
 
 // Define the DateRange type
 type DateRange = {
@@ -532,7 +534,7 @@ export default function StudentPromotionPage() {
           ]}
         />
 
-        <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
+        <div className='flex flex-col sm:flex-row justify-between items-start gap-4'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>
               Student Promotion
@@ -541,9 +543,17 @@ export default function StudentPromotionPage() {
               Complete student profiles to promote them to the main student list
             </p>
           </div>
-          <Button variant='default' onClick={() => router.push('/students')}>
-            View All Students
-          </Button>
+          <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
+            <DownloadStudentTemplateButton />
+            <BulkStudentUpdate />
+            <Button
+              variant='default'
+              onClick={() => router.push('/students')}
+              className='w-full sm:w-auto'
+            >
+              View All Students
+            </Button>
+          </div>
         </div>
 
         <Alert>
@@ -563,7 +573,6 @@ export default function StudentPromotionPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {/* Basic search */}
             <div className='flex flex-col md:flex-row gap-4 mb-4'>
               <div className='flex-1 relative'>
                 <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
@@ -589,12 +598,10 @@ export default function StudentPromotionPage() {
               </Button>
             </div>
 
-            {/* Advanced filter options */}
             {isAdvancedFilterOpen && (
               <div className='mb-6 pb-6 border-b'>
                 <h3 className='text-sm font-medium mb-4'>Advanced Filters</h3>
 
-                {/* First row of filters */}
                 <div className='grid gap-4 md:grid-cols-3 mb-4'>
                   <Select
                     value={filters.institution || 'all'}
@@ -665,7 +672,6 @@ export default function StudentPromotionPage() {
                   </Select>
                 </div>
 
-                {/* Second row of filters */}
                 <div className='grid gap-4 md:grid-cols-3 mb-4'>
                   <Select
                     value={filters.gender || 'all'}
@@ -727,7 +733,6 @@ export default function StudentPromotionPage() {
                   </Select>
                 </div>
 
-                {/* Third row of filters */}
                 <div className='grid gap-4 md:grid-cols-3 mb-4'>
                   <Select
                     value={filters.status || 'all'}
@@ -830,7 +835,6 @@ export default function StudentPromotionPage() {
               </div>
             )}
 
-            {/* Active filter chips */}
             {renderFilterChips()}
 
             {isLoading ? (

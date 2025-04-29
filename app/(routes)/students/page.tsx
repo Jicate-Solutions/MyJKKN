@@ -72,6 +72,9 @@ import { cn } from '@/lib/utils';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { DownloadNewStudentTemplateButton } from './_components/download-new-student-template-button';
+import { BulkCreateStudents } from './_components/bulk-create-students';
+import { ExportStudents } from './_components/export-students';
 
 // Define the DateRange type
 type DateRange = {
@@ -420,21 +423,10 @@ export default function StudentsPage() {
               Manage enrolled student records
             </p>
           </div>
-          <div className='flex gap-2'>
-            <Button
-              variant='outline'
-              onClick={() => router.push('/students/promotion')}
-              className='flex items-center gap-2'
-            >
-              <UserCheck className='h-4 w-4' />
-              Student Promotion
-            </Button>
-            <Button
-              variant='default'
-              onClick={() => router.push('/admissions')}
-            >
-              Admissions
-            </Button>
+          <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
+            <DownloadNewStudentTemplateButton />
+            <ExportStudents />
+            <BulkCreateStudents />
           </div>
         </div>
 
