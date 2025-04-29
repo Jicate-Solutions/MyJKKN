@@ -11,31 +11,80 @@ import { toast } from 'sonner';
 export class StudentService {
   private static supabase = createClientSupabaseClient();
 
-  static async createStudent(data: CreateStudentDto): Promise<Student> {
+  // Server-side method to get student details
+  static async getStudentServer(id: string): Promise<Student | null> {
     try {
-      const { data: student, error } = await this.supabase
+      const supabase = await createClientSupabaseClient();
+
+      const { data: student, error } = await supabase
         .from('students')
-        .insert([
-          {
-            ...data,
-            is_profile_complete:
-              !!data.roll_number &&
-              !!data.college_email &&
-              !!data.student_photo_url,
-            created_by: (await this.supabase.auth.getUser()).data.user?.id
-          }
-        ])
-        .select()
+        .select(
+          `
+          *,
+          institution:institutions(id, name),
+          degree:degrees(id, degree_name),
+          department:departments(id, department_name),
+          program:programs(id, program_name)
+        `
+        )
+        .eq('id', id)
         .single();
 
       if (error) throw error;
 
+      return student;
+    } catch (error) {
+      console.error('Error fetching student:', error);
+      return null;
+    }
+  }
+
+  static async createStudent(data: CreateStudentDto): Promise<Student> {
+    try {
+      console.log(
+        'Data received by createStudent:',
+        JSON.stringify(data, null, 2)
+      );
+
+      // Prepare the payload using the input data
+      const insertPayload = {
+        ...data, // Spread the data, which should include status: 'active' when called from createStudentFromAdmission
+        // Calculate is_profile_complete based on the input data
+        is_profile_complete:
+          !!data.roll_number &&
+          !!data.college_email &&
+          !!data.student_photo_url,
+        // Set created_by
+        created_by: (await this.supabase.auth.getUser()).data.user?.id
+        // REMOVED: Redundant status: 'active' setting inside createStudent
+      };
+
+      console.log(
+        'Payload for students insert:',
+        JSON.stringify(insertPayload, null, 2)
+      );
+
+      const { data: student, error } = await this.supabase
+        .from('students')
+        .insert([insertPayload]) // Pass the constructed payload
+        .select()
+        .single();
+
+      // Log error if exists
+      if (error) {
+        console.error('Supabase insert error:', JSON.stringify(error, null, 2));
+        throw error; // Re-throw the specific Supabase error
+      }
+
       toast.success('Student record created successfully');
       return student;
     } catch (error) {
-      console.error('Error creating student record:', error);
-      toast.error('Failed to create student record');
-      throw error;
+      console.error('Error in createStudent method:', error);
+      // Avoid generic toast if Supabase error was already thrown
+      if (!(error && typeof error === 'object' && 'code' in error)) {
+        toast.error('Failed to create student record');
+      }
+      throw error; // Re-throw any caught error
     }
   }
 
@@ -44,26 +93,45 @@ export class StudentService {
     data: UpdateStudentDto
   ): Promise<Student> {
     try {
-      // Check if profile is complete after this update
-      const isProfileComplete =
-        data.roll_number && data.college_email && data.student_photo_url;
+      // 1. Fetch the current student record
+      const { data: currentStudent, error: fetchError } = await this.supabase
+        .from('students')
+        .select('roll_number, college_email, student_photo_url')
+        .eq('id', id)
+        .single();
 
-      const { data: student, error } = await this.supabase
+      if (fetchError) throw fetchError;
+      if (!currentStudent) throw new Error('Student not found for update');
+
+      // 2. Merge the current data with the incoming update data
+      const mergedData = { ...currentStudent, ...data };
+
+      // 3. Calculate is_profile_complete based on the merged data
+      // The is_profile_complete flag is recalculated on every update
+      // When all required fields are filled, the student will automatically
+      // be promoted from the Student Promotion page to the main Student List
+      const isProfileComplete =
+        !!mergedData.roll_number &&
+        !!mergedData.college_email &&
+        !!mergedData.student_photo_url;
+
+      // 4. Perform the update with the calculated flag
+      const { data: updatedStudent, error: updateError } = await this.supabase
         .from('students')
         .update({
-          ...data,
-          is_profile_complete: isProfileComplete,
+          ...data, // Apply the actual updates from the payload
+          is_profile_complete: isProfileComplete, // Set the calculated flag
           updated_by: (await this.supabase.auth.getUser()).data.user?.id,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .select()
+        .select() // Re-select the full updated record
         .single();
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
       toast.success('Student record updated successfully');
-      return student;
+      return updatedStudent;
     } catch (error) {
       console.error('Error updating student record:', error);
       toast.error('Failed to update student record');
@@ -110,8 +178,8 @@ export class StudentService {
         );
       }
 
-      if (filters.name) {
-        query = query.ilike('student_name', `%${filters.name}%`);
+      if (filters.student_name) {
+        query = query.ilike('student_name', `%${filters.student_name}%`);
       }
 
       if (filters.institution) {
@@ -225,8 +293,9 @@ export class StudentService {
       if (!admission) throw new Error('Admission record not found');
 
       // Create new student record from admission data
-      // Exclude status field as it doesn't exist in students table
-      const { status, ...admissionData } = admission;
+      // We need to exclude the status field from admission as it uses a different enum type
+      // than the student status enum
+      const { status: admissionStatus, ...admissionData } = admission;
 
       // Handle date formatting for date_of_birth field
       // Use a default date string if not provided to satisfy the type constraint
@@ -315,7 +384,8 @@ export class StudentService {
         reference_type: admission.reference_type || '',
         reference_name: admission.reference_name || '',
         reference_contact: admission.reference_contact || '',
-        is_profile_complete: false
+        is_profile_complete: false,
+        status: 'active' // Use a valid student_status enum value
       };
 
       // Create the student record

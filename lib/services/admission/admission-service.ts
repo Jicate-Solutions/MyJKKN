@@ -85,8 +85,20 @@ export class AdmissionService {
       // Auto-trigger: If status is "approved", create a student record
       if (status === 'approved') {
         try {
-          await StudentService.createStudentFromAdmission(id);
-          toast.success('Student record created from approved admission');
+          // Fetch the admission to ensure we have all data
+          const { data: fullAdmission } = await this.supabase
+            .from('admissions')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+          if (fullAdmission) {
+            await StudentService.createStudentFromAdmission(id);
+            toast.success('Student record created from approved admission');
+          } else {
+            console.error('Admission not found for student creation');
+            toast.error('Failed to create student record: Admission not found');
+          }
         } catch (studentError) {
           console.error('Error creating student record:', studentError);
           toast.error('Failed to create student record from admission');

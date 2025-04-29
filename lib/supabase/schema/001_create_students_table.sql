@@ -8,17 +8,17 @@ CREATE TABLE IF NOT EXISTS public.students (
   father_mobile TEXT,
   mother_name TEXT NOT NULL,
   mother_occupation TEXT,
-  mother_mobile TEXT,
-  date_of_birth DATE,
-  gender TEXT,
-  religion TEXT,
-  community TEXT,
+  mother_mobile TEXT NOT NULL,
+  date_of_birth TEXT NOT NULL,
+  gender TEXT NOT NULL,
+  religion TEXT NOT NULL,
+  community TEXT NOT NULL,
   caste TEXT,
   annual_income TEXT,
-  last_school TEXT,
-  board_of_study TEXT,
-  tenth_marks JSONB,
-  twelfth_marks JSONB,
+  last_school TEXT NOT NULL,
+  board_of_study TEXT NOT NULL,
+  tenth_marks JSONB NOT NULL,
+  twelfth_marks JSONB NOT NULL,
   medical_cutoff_marks TEXT,
   engineering_cutoff_marks TEXT,
   neet_roll_number TEXT,
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS public.students (
   degree_id UUID REFERENCES public.degrees(id),
   department_id UUID REFERENCES public.departments(id),
   program_id UUID REFERENCES public.programs(id),
-  entry_type TEXT,
+  entry_type TEXT NOT NULL,
   permanent_address_street TEXT,
   permanent_address_taluk TEXT,
   permanent_address_district TEXT,
@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS public.students (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users(id),
-  updated_by UUID REFERENCES auth.users(id)
+  updated_by UUID REFERENCES auth.users(id),
+  status public.student_status DEFAULT 'active'
 );
 
 -- Create index on admission_id for faster lookups
@@ -71,6 +72,9 @@ CREATE INDEX IF NOT EXISTS idx_students_roll_number ON public.students(roll_numb
 
 -- Create index on is_profile_complete for filtering
 CREATE INDEX IF NOT EXISTS idx_students_is_profile_complete ON public.students(is_profile_complete);
+
+-- Create index on status for faster filtering
+CREATE INDEX IF NOT EXISTS idx_students_status ON public.students(status);
 
 -- Create RLS policies for students table
 ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
@@ -100,18 +104,6 @@ CREATE POLICY "Authenticated users can delete their own students"
   TO authenticated
   USING (auth.uid() = created_by);
 
--- Admin role can do everything
-CREATE POLICY "Admins can do everything with students"
-  ON public.students FOR ALL
-  TO authenticated
-  USING (EXISTS (
-    SELECT 1 FROM public.users
-    WHERE auth.uid() = id AND role = 'admin'
-  ))
-  WITH CHECK (EXISTS (
-    SELECT 1 FROM public.users
-    WHERE auth.uid() = id AND role = 'admin'
-  ));
 
 -- Add comments for better documentation
 COMMENT ON TABLE public.students IS 'Stores student information for enrolled students';
@@ -119,4 +111,13 @@ COMMENT ON COLUMN public.students.admission_id IS 'Reference to the original adm
 COMMENT ON COLUMN public.students.roll_number IS 'Student roll number assigned by the institution';
 COMMENT ON COLUMN public.students.student_photo_url IS 'URL to the student photo in storage';
 COMMENT ON COLUMN public.students.college_email IS 'Official college email address assigned to the student';
-COMMENT ON COLUMN public.students.is_profile_complete IS 'Indicates if all required student information has been filled'; 
+COMMENT ON COLUMN public.students.is_profile_complete IS 'Indicates if all required student information has been filled';
+COMMENT ON COLUMN public.students.status IS 'Current status of the student';
+
+-- Create enum type for student status
+CREATE TYPE public.student_status AS ENUM ('active', 'inactive', 'exited', 'graduated');
+COMMENT ON TYPE public.student_status IS 'Enum type for student status: active, inactive, exited, graduated';
+
+-- Add status column to students table
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS status public.student_status DEFAULT 'active';
+COMMENT ON COLUMN public.students.status IS 'Current status of the student';

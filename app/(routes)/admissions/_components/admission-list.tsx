@@ -30,7 +30,6 @@ import {
   useUpdateAdmissionStatus,
   useDeleteAdmission
 } from '@/hooks/admission/use-admissions';
-import { toast } from 'sonner';
 import {
   CheckCircle,
   Clock,
@@ -51,6 +50,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
+import toast from 'react-hot-toast';
 
 type PaginationMetadata = {
   currentPage: number;
@@ -64,6 +64,11 @@ interface AdmissionListProps {
   metadata: PaginationMetadata;
   onPageChange: (page: number) => void;
   onRefresh: () => void;
+}
+
+interface StatusUpdateInfo {
+  id: string;
+  status: string;
 }
 
 const getStatusColor = (status: string) => {
@@ -95,8 +100,19 @@ export function AdmissionList({
   const [admissionToDelete, setAdmissionToDelete] = useState<string | null>(
     null
   );
+  const [statusUpdateInfo, setStatusUpdateInfo] =
+    useState<StatusUpdateInfo | null>(null);
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
 
-  const handleUpdateStatus = async (id: string, status: string) => {
+  const handleUpdateStatus = (id: string, status: string) => {
+    setStatusUpdateInfo({ id, status });
+    setIsConfirmDialogOpen(true);
+  };
+
+  const confirmStatusUpdate = async () => {
+    if (!statusUpdateInfo) return;
+
+    const { id, status } = statusUpdateInfo;
     try {
       setUpdatingId(id);
       await updateStatus.mutateAsync({ id, status });
@@ -109,6 +125,8 @@ export function AdmissionList({
       toast.error('Failed to update status');
     } finally {
       setUpdatingId(null);
+      setStatusUpdateInfo(null);
+      setIsConfirmDialogOpen(false);
     }
   };
 
@@ -378,6 +396,43 @@ export function AdmissionList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {deleteAdmission.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isConfirmDialogOpen}
+        onOpenChange={setIsConfirmDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Status Update</AlertDialogTitle>
+            <AlertDialogDescription>
+              {statusUpdateInfo?.status === 'approved' && (
+                <div className='mb-2 text-yellow-700 font-semibold'>
+                  Approving this admission will automatically create a student
+                  record.
+                </div>
+              )}
+              Are you sure you want to update the status to{' '}
+              {statusUpdateInfo && (
+                <span className='font-bold'>
+                  {statusUpdateInfo.status.charAt(0).toUpperCase() +
+                    statusUpdateInfo.status.slice(1)}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={updatingId === statusUpdateInfo?.id}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmStatusUpdate}
+              disabled={updatingId === statusUpdateInfo?.id}
+            >
+              {updatingId === statusUpdateInfo?.id ? 'Updating...' : 'Confirm'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

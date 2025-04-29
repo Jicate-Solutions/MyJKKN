@@ -28,21 +28,18 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
-import { useToast } from '@/hooks/use-toast';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useStudent, useUpdateStudent } from '@/hooks/student/use-students';
-import { studentSchema } from '@/types/student';
-import Image from 'next/image';
-import { StorageService } from '@/lib/storage/storage-service';
-import { OptimizedImage } from '@/components/ui/optimized-image';
-import { createClient } from '@supabase/supabase-js';
+import { studentSchema, UpdateStudentDto } from '@/types/student';
+import { PhotoUpload } from '../../_components/photo-upload';
+import toast from 'react-hot-toast';
 
 // Form schema for student edit (focusing on additional required fields)
 const editStudentSchema = z.object({
   roll_number: z.string().min(1, 'Roll number is required'),
   college_email: z.string().email('Invalid college email format'),
-  student_photo_url: z.string().optional()
+  student_photo_url: z.string().min(1, 'Student photo is required')
 });
 
 type EditStudentFormValues = z.infer<typeof editStudentSchema>;
@@ -53,31 +50,14 @@ interface EditStudentPageProps {
   }>;
 }
 
-// Supabase client for signed URL
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 export default function EditStudentPage({ params }: EditStudentPageProps) {
   // Unwrap params using React.use()
   const resolvedParams = React.use(params);
   const { id } = resolvedParams;
 
   const router = useRouter();
-  const { toast } = useToast();
   const { data: student, isLoading: isLoadingStudent } = useStudent(id);
   const updateStudent = useUpdateStudent(id);
-  const [isUploading, setIsUploading] = useState(false);
-  const [imageError, setImageError] = useState(false);
-  const [signedPhotoUrl, setSignedPhotoUrl] = useState<string | null>(null);
-  const studentPhotoPath = useForm<EditStudentFormValues>({
-    resolver: zodResolver(editStudentSchema),
-    defaultValues: {
-      roll_number: '',
-      college_email: '',
-      student_photo_url: ''
-    }
-  }).watch('student_photo_url');
 
   // Initialize form with default values
   const form = useForm<EditStudentFormValues>({
@@ -100,117 +80,28 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
     }
   }, [student, form]);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function fetchSignedUrl() {
-      setSignedPhotoUrl(null);
-      if (!studentPhotoPath) return;
-      // Remove full URL if present, keep only the storage path
-      let path = studentPhotoPath;
-      if (path.startsWith('http')) {
-        // Extract the path after /object/ (Supabase public URL format)
-        const match = path.match(/object\/public\/([^?]+)/);
-        if (match) path = match[1];
-      }
-      const { data, error } = await supabase.storage
-        .from('student-photos')
-        .createSignedUrl(path, 60);
-      if (!error && data?.signedUrl && isMounted) {
-        setSignedPhotoUrl(data.signedUrl);
-      }
-    }
-    fetchSignedUrl();
-    return () => {
-      isMounted = false;
-    };
-  }, [studentPhotoPath]);
-
   // Handle form submission
   const onSubmit = async (data: EditStudentFormValues) => {
     try {
-      await updateStudent.mutateAsync({
-        ...data,
-        is_profile_complete:
-          !!data.roll_number && !!data.college_email && !!data.student_photo_url
-      });
+      // Check if all required fields are filled
+      const isComplete =
+        !!data.roll_number && !!data.college_email && !!data.student_photo_url;
 
-      toast({
-        title: 'Student record updated',
-        description: 'The student record has been successfully updated.'
-      });
+      // If all required fields are filled, also set status to active
+      const updatePayload = {
+        ...data,
+        status: isComplete ? ('active' as const) : undefined
+      };
+
+      // Submit the data payload
+      await updateStudent.mutateAsync(updatePayload);
+
+      toast.success('Student record updated');
 
       router.push(`/students/${id}`);
     } catch (error) {
       console.error('Error updating student:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Failed to update student',
-        description: 'There was an error updating the student record.'
-      });
-    }
-  };
-
-  // Handle photo upload functionality
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-
-    const file = e.target.files[0];
-    setIsUploading(true);
-    // Reset image error state on new upload
-    setImageError(false);
-
-    try {
-      // Upload the photo using StorageService
-      const { publicUrl, error } = await StorageService.uploadStudentPhoto(
-        file,
-        id
-      );
-
-      if (error) throw error;
-      if (!publicUrl) throw new Error('Failed to get photo URL');
-
-      console.log('Image URL received:', publicUrl);
-      form.setValue('student_photo_url', publicUrl);
-      toast({
-        title: 'Photo uploaded',
-        description: 'Student photo has been uploaded successfully.'
-      });
-    } catch (error) {
-      console.error('Error uploading photo:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Upload failed',
-        description: 'There was an error uploading the student photo.'
-      });
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  // Handle photo removal
-  const handlePhotoRemove = async () => {
-    if (!form.getValues('student_photo_url')) return;
-
-    try {
-      // Remove the photo using StorageService
-      const { error } = await StorageService.deleteStudentPhoto(id);
-
-      if (error) throw error;
-
-      // Clear the photo URL in the form
-      form.setValue('student_photo_url', '');
-
-      toast({
-        title: 'Photo removed',
-        description: 'Student photo has been removed successfully.'
-      });
-    } catch (error) {
-      console.error('Error removing photo:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Removal failed',
-        description: 'There was an error removing the student photo.'
-      });
+      toast.error('Failed to update student');
     }
   };
 
@@ -380,77 +271,14 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Student Photo*</FormLabel>
-                          <div className='flex items-start gap-4'>
-                            <div className='flex-1'>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  placeholder='Photo URL'
-                                  readOnly
-                                />
-                              </FormControl>
-                            </div>
-                            <div className='flex-shrink-0 flex gap-2'>
-                              <Button
-                                type='button'
-                                variant='outline'
-                                onClick={() =>
-                                  document
-                                    .getElementById('photo-upload')
-                                    ?.click()
-                                }
-                                disabled={isUploading}
-                              >
-                                {isUploading ? (
-                                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                                ) : (
-                                  <Upload className='mr-2 h-4 w-4' />
-                                )}
-                                Upload Photo
-                              </Button>
-                              {field.value && (
-                                <Button
-                                  type='button'
-                                  variant='destructive'
-                                  onClick={handlePhotoRemove}
-                                >
-                                  Remove
-                                </Button>
-                              )}
-                              <input
-                                id='photo-upload'
-                                type='file'
-                                accept='image/*'
-                                className='hidden'
-                                onChange={handlePhotoUpload}
-                              />
-                            </div>
-                          </div>
-                          {field.value && (
-                            <div className='mt-4'>
-                              <p className='text-sm font-medium mb-2'>
-                                Photo Preview:
-                              </p>
-                              <div className='h-48 w-40 border rounded-md overflow-hidden'>
-                                {signedPhotoUrl ? (
-                                  <OptimizedImage
-                                    src={signedPhotoUrl}
-                                    alt='Student photo'
-                                    className='h-full w-full'
-                                    width={200}
-                                    height={240}
-                                  />
-                                ) : (
-                                  <div className='h-full w-full flex flex-col items-center justify-center bg-muted'>
-                                    <User className='h-16 w-16 text-muted-foreground' />
-                                    <p className='text-xs text-muted-foreground mt-2'>
-                                      No image
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
+                          <FormControl>
+                            <PhotoUpload
+                              value={field.value}
+                              onChange={field.onChange}
+                              onRemove={() => field.onChange('')}
+                              studentId={id}
+                            />
+                          </FormControl>
                           <FormDescription>
                             Upload a passport-size photograph of the student
                           </FormDescription>
