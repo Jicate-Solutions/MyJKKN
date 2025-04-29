@@ -64,6 +64,7 @@ export interface Student {
   student_photo_url?: string;
   college_email?: string;
   is_profile_complete: boolean;
+  status: 'active' | 'inactive' | 'pending' | 'exited' | 'graduated'; // Add student_status enum values
 
   created_at: string;
   updated_at: string;
@@ -124,10 +125,17 @@ export interface UpdateStudentDto
 
 export interface StudentFilters {
   search?: string;
-  name?: string;
+  student_name?: string;
   institution?: string;
-  program?: string;
   department?: string;
+  program?: string;
+  gender?: string;
+  entry_type?: string;
+  accommodation_type?: string;
+  status?: string;
+  created_from?: Date;
+  created_to?: Date;
+  is_active?: boolean;
   is_profile_complete?: boolean;
   page?: number;
   limit?: number;

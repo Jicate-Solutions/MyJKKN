@@ -23,18 +23,28 @@ export const studentKeys = {
 };
 
 // Get a list of students with filters
-export const useStudents = (filters: StudentFilters = {}) => {
-  const queryClient = useQueryClient();
-
+export function useStudents(filters: StudentFilters = {}) {
   return useQuery({
-    queryKey: studentKeys.list(filters),
-    queryFn: () => StudentService.getStudents(filters),
-    placeholderData: () => {
-      // Find the closest matching data from the cache
-      return queryClient.getQueryData(studentKeys.lists());
+    queryKey: ['students', filters],
+    queryFn: async () => {
+      // Prepare query params
+      const queryParams: Record<string, any> = {
+        ...filters
+      };
+
+      // Format dates if present
+      if (filters.created_from) {
+        queryParams.created_from = filters.created_from.toISOString();
+      }
+      if (filters.created_to) {
+        queryParams.created_to = filters.created_to.toISOString();
+      }
+
+      const result = await StudentService.getStudents(queryParams);
+      return result;
     }
   });
-};
+}
 
 // Get a single student by ID
 export const useStudent = (id: string) => {

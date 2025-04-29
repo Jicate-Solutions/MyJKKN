@@ -290,15 +290,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          href: '/organizations/courses',
+          href: '',
           label: 'Courses',
-          active: pathname.startsWith('/organizations/courses'),
+          active: pathname === '',
           icon: BookOpen,
           submenus: [
             {
               href: '/organizations/courses',
               label: 'All Courses',
-              active: pathname.startsWith('/organizations/courses')
+              active: pathname === '/organizations/courses'
             },
             {
               href: '/organizations/courses/new',
@@ -326,11 +326,22 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Student Management',
       menus: [
         {
-          href: '/students',
+          href: '',
           label: 'All Students',
-          active: pathname === '/students',
+          active: pathname === '',
           icon: Users,
-          submenus: []
+          submenus: [
+            {
+              href: '/students/promotion',
+              label: 'Student Promotion',
+              active: pathname === '/students/promotion'
+            },
+            {
+              href: '/students ',
+              label: 'Student List',
+              active: pathname === '/students'
+            }
+          ]
         }
       ]
     },
@@ -481,10 +492,10 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Resource Management',
       menus: [
         {
-          href: '/resources/physical-resources',
+          href: '',
           label: 'Physical Resources',
           icon: Boxes,
-          active: pathname.startsWith('/resources/physical-resources'),
+          active: pathname === '',
           submenus: [
             {
               href: '/resources/physical-resources/dashboard',
@@ -524,10 +535,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
-          href: '/resources/digital-resources',
+          href: '',
           label: 'Digital Resources',
           icon: FileBarChart,
-          active: pathname.startsWith('/resources/digital-resources'),
+          active: pathname === '',
           submenus: [
             {
               href: '/resources/digital-resources/dashboard',

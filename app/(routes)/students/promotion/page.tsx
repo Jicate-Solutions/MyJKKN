@@ -3,19 +3,19 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { format } from 'date-fns';
 import {
   Check,
   EyeIcon,
   FileEdit,
   Loader2,
   Search,
-  SlidersHorizontal,
-  X,
   UserCheck,
+  X,
   ChevronDown,
   ChevronUp,
-  CalendarIcon
+  Filter,
+  CalendarIcon,
+  SlidersHorizontal
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,22 +27,6 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardContent,
@@ -58,10 +42,26 @@ import {
   PaginationNext,
   PaginationPrevious
 } from '@/components/ui/pagination';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { DatePicker } from '@/components/ui/date-picker';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useStudents } from '@/hooks/student/use-students';
 import { StudentFilters } from '@/types/student';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
+import { ProgramService } from '@/lib/services/organization/program-service';
+import { format } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import {
   Popover,
@@ -69,9 +69,8 @@ import {
   PopoverTrigger
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { DepartmentService } from '@/lib/services/organization/department-service';
-import { ProgramService } from '@/lib/services/organization/program-service';
+import { Checkbox } from '@/components/ui/checkbox';
+import StudentPromotionTable from './_components/student-promotion-table';
 
 // Define the DateRange type
 type DateRange = {
@@ -79,20 +78,17 @@ type DateRange = {
   to?: Date | undefined;
 };
 
-export default function StudentsPage() {
+export default function StudentPromotionPage() {
   const router = useRouter();
   const [filters, setFilters] = useState<StudentFilters>({
     search: '',
-    student_name: '',
-    institution: '',
-    program: '',
-    department: '',
-    is_profile_complete: true,
+    is_profile_complete: false,
     page: 1,
     limit: 10
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
+  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
 
   // State for institution/program filters
   const [institutions, setInstitutions] = useState<
@@ -105,7 +101,7 @@ export default function StudentsPage() {
     Array<{ id: string; program_name: string }>
   >([]);
 
-  // Date range state
+  // New states for advanced filters
   const [dateRange, setDateRange] = useState<DateRange>({
     from: undefined,
     to: undefined
@@ -114,7 +110,8 @@ export default function StudentsPage() {
   const {
     data: studentsData,
     isLoading,
-    refetch
+    refetch,
+    isError
   } = useStudents({
     ...filters,
     page: currentPage,
@@ -174,44 +171,30 @@ export default function StudentsPage() {
     }
   }, [filters.department]);
 
+  const handleSearchChange = (searchTerm: string) => {
+    setFilters({
+      ...filters,
+      search: searchTerm,
+      page: 1
+    });
+    setCurrentPage(1);
+  };
+
   const handleFilterChange = (newFilters: Partial<StudentFilters>) => {
-    setFilters((prev) => ({
-      ...prev,
+    setFilters({
+      ...filters,
       ...newFilters,
       page: 1
-    }));
+    });
     setCurrentPage(1);
   };
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
-  };
-
-  // Update the filter state when page changes
-  useState(() => {
-    setFilters((prev) => ({ ...prev, page: currentPage }));
-  });
-
-  // Reset all filters except is_profile_complete
-  const handleResetFilters = () => {
     setFilters({
-      search: '',
-      student_name: '',
-      institution: '',
-      program: '',
-      department: '',
-      gender: undefined,
-      entry_type: undefined,
-      accommodation_type: undefined,
-      status: undefined,
-      created_from: undefined,
-      created_to: undefined,
-      is_profile_complete: true,
-      page: 1,
-      limit: 10
+      ...filters,
+      page
     });
-    setDateRange({ from: undefined, to: undefined });
-    setCurrentPage(1);
   };
 
   // Remove a specific filter
@@ -224,12 +207,6 @@ export default function StudentsPage() {
       delete newFilters.program;
     } else if (key === 'department') {
       delete newFilters.program;
-    } else if (key === 'created_from' || key === 'created_to') {
-      if (key === 'created_from') {
-        setDateRange((prev) => ({ ...prev, from: undefined }));
-      } else {
-        setDateRange((prev) => ({ ...prev, to: undefined }));
-      }
     }
 
     setFilters({
@@ -237,6 +214,69 @@ export default function StudentsPage() {
       page: 1
     });
     setCurrentPage(1);
+  };
+
+  // Reset all filters except is_profile_complete
+  const handleResetFilters = () => {
+    setFilters({
+      is_profile_complete: false,
+      page: 1,
+      limit: 10
+    });
+    setCurrentPage(1);
+  };
+
+  const renderPagination = () => {
+    if (!studentsData || !studentsData.metadata.totalPages) return null;
+
+    const { totalPages, page, total } = studentsData.metadata;
+
+    if (totalPages <= 1) return null;
+
+    const currentPage = page;
+
+    return (
+      <Pagination className='mt-4'>
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              onClick={() =>
+                currentPage > 1 && handlePageChange(currentPage - 1)
+              }
+              className={
+                currentPage <= 1 ? 'pointer-events-none opacity-50' : ''
+              }
+            />
+          </PaginationItem>
+
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+            (pageNum) => (
+              <PaginationItem key={pageNum}>
+                <PaginationLink
+                  onClick={() => handlePageChange(pageNum)}
+                  isActive={pageNum === currentPage}
+                >
+                  {pageNum}
+                </PaginationLink>
+              </PaginationItem>
+            )
+          )}
+
+          <PaginationItem>
+            <PaginationNext
+              onClick={() =>
+                currentPage < totalPages && handlePageChange(currentPage + 1)
+              }
+              className={
+                currentPage >= totalPages
+                  ? 'pointer-events-none opacity-50'
+                  : ''
+              }
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
+    );
   };
 
   // Render active filter chips
@@ -302,6 +342,7 @@ export default function StudentsPage() {
       }
     }
 
+    // Add new filter chips
     if (filters.gender) {
       activeFilters.push(
         <Badge key='gender' variant='outline' className='mr-2 mb-2'>
@@ -396,53 +437,129 @@ export default function StudentsPage() {
     ) : null;
   };
 
-  const metadata = {
-    currentPage,
-    totalPages: studentsData?.metadata.totalPages || 1,
-    pageSize: studentsData?.metadata.limit || 10,
-    totalCount: studentsData?.metadata.total || 0
+  const renderActiveFilters = () => {
+    const activeFilters: { key: string; label: string; value: string }[] = [];
+
+    if (filters.institution) {
+      const institutionName =
+        institutions.find((i) => i.id === filters.institution)?.name ||
+        filters.institution;
+      activeFilters.push({
+        key: 'institution',
+        label: 'Institution',
+        value: institutionName
+      });
+    }
+
+    if (filters.department) {
+      const departmentName =
+        departments.find((d) => d.id === filters.department)?.department_name ||
+        filters.department;
+      activeFilters.push({
+        key: 'department',
+        label: 'Department',
+        value: departmentName
+      });
+    }
+
+    if (filters.program) {
+      const programName =
+        programs.find((p) => p.id === filters.program)?.program_name ||
+        filters.program;
+      activeFilters.push({
+        key: 'program',
+        label: 'Program',
+        value: programName
+      });
+    }
+
+    if (activeFilters.length === 0) return null;
+
+    return (
+      <div className='flex flex-wrap gap-2 mt-4'>
+        {activeFilters.map((filter) => (
+          <Badge
+            key={filter.key}
+            variant='outline'
+            className='flex items-center gap-1'
+          >
+            <span className='text-muted-foreground'>{filter.label}:</span>{' '}
+            {filter.value}
+            <X
+              className='h-3 w-3 ml-1 cursor-pointer'
+              onClick={() => {
+                if (
+                  filter.key === 'created_from' ||
+                  filter.key === 'created_to'
+                ) {
+                  handleFilterChange({ [filter.key]: undefined });
+                } else if (filter.key === 'is_active') {
+                  handleFilterChange({ is_active: undefined });
+                } else {
+                  handleFilterChange({ [filter.key]: undefined });
+                }
+              }}
+            />
+          </Badge>
+        ))}
+
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => {
+            setFilters({
+              is_profile_complete: false,
+              page: 1,
+              limit: 10
+            });
+          }}
+          className='text-xs h-6'
+        >
+          Clear All
+        </Button>
+      </div>
+    );
   };
 
   return (
-    <ContentLayout title='Students'>
+    <ContentLayout title='Student Promotion'>
       <div className='space-y-6'>
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
             { label: 'Students', href: '/students' },
-            { label: 'Student Management' }
+            { label: 'Student Promotion' }
           ]}
         />
+
         <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
           <div>
-            <h1 className='text-2xl font-bold tracking-tight'>Students</h1>
+            <h1 className='text-2xl font-bold tracking-tight'>
+              Student Promotion
+            </h1>
             <p className='text-muted-foreground'>
-              Manage enrolled student records
+              Complete student profiles to promote them to the main student list
             </p>
           </div>
-          <div className='flex gap-2'>
-            <Button
-              variant='outline'
-              onClick={() => router.push('/students/promotion')}
-              className='flex items-center gap-2'
-            >
-              <UserCheck className='h-4 w-4' />
-              Student Promotion
-            </Button>
-            <Button
-              variant='default'
-              onClick={() => router.push('/admissions')}
-            >
-              Admissions
-            </Button>
-          </div>
+          <Button variant='default' onClick={() => router.push('/students')}>
+            View All Students
+          </Button>
         </div>
+
+        <Alert>
+          <UserCheck className='h-4 w-4' />
+          <AlertTitle>Incomplete Student Profiles</AlertTitle>
+          <AlertDescription>
+            Students listed here have incomplete profiles. Complete their
+            essential information to promote them to the main list.
+          </AlertDescription>
+        </Alert>
 
         <Card>
           <CardHeader>
-            <CardTitle>Student Records</CardTitle>
+            <CardTitle>Students Pending Promotion</CardTitle>
             <CardDescription>
-              View and manage all enrolled students
+              Students with incomplete profile information
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -453,34 +570,10 @@ export default function StudentsPage() {
                 <Input
                   placeholder='Search students...'
                   value={filters.search || ''}
-                  onChange={(e) =>
-                    handleFilterChange({ search: e.target.value })
-                  }
+                  onChange={(e) => handleSearchChange(e.target.value)}
                   className='w-full pl-9'
                 />
               </div>
-              <Select
-                value={
-                  filters.is_profile_complete !== undefined
-                    ? String(filters.is_profile_complete)
-                    : 'all'
-                }
-                onValueChange={(value) => {
-                  handleFilterChange({
-                    is_profile_complete:
-                      value === 'all' ? undefined : value === 'true'
-                  });
-                }}
-              >
-                <SelectTrigger className='w-full md:w-[180px]'>
-                  <SelectValue placeholder='Profile Status' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Profiles</SelectItem>
-                  <SelectItem value='true'>Complete</SelectItem>
-                  <SelectItem value='false'>Incomplete</SelectItem>
-                </SelectContent>
-              </Select>
               <Button
                 variant='outline'
                 className='md:w-auto'
@@ -652,8 +745,6 @@ export default function StudentsPage() {
                       <SelectItem value='active'>Active</SelectItem>
                       <SelectItem value='inactive'>Inactive</SelectItem>
                       <SelectItem value='pending'>Pending</SelectItem>
-                      <SelectItem value='exited'>Exited</SelectItem>
-                      <SelectItem value='graduated'>Graduated</SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -749,6 +840,20 @@ export default function StudentsPage() {
                   Loading student records...
                 </p>
               </div>
+            ) : isError ? (
+              <div className='py-10 text-center'>
+                <p className='text-destructive font-medium'>
+                  Failed to load students
+                </p>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  className='mt-2'
+                  onClick={() => refetch()}
+                >
+                  Try Again
+                </Button>
+              </div>
             ) : (
               <>
                 <div className='border rounded-md'>
@@ -757,190 +862,90 @@ export default function StudentsPage() {
                       <TableRow>
                         <TableHead>S.No</TableHead>
                         <TableHead>Student Name</TableHead>
-                        <TableHead>Roll Number</TableHead>
                         <TableHead>Program</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead>Missing Information</TableHead>
                         <TableHead className='text-right'>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {studentsData?.data && studentsData.data.length > 0 ? (
-                        studentsData.data.map((student, index) => (
-                          <TableRow key={student.id}>
-                            <TableCell className='font-medium'>
-                              {(currentPage - 1) * metadata.pageSize +
-                                index +
-                                1}
-                            </TableCell>
-                            <TableCell className='font-medium'>
-                              <Link
-                                href={`/students/${student.id}`}
-                                className='hover:underline hover:text-primary'
-                              >
+                        studentsData.data.map((student, index) => {
+                          // Calculate missing fields
+                          const missingFields = [];
+                          if (!student.roll_number)
+                            missingFields.push('Roll Number');
+                          if (!student.college_email)
+                            missingFields.push('College Email');
+                          if (!student.student_photo_url)
+                            missingFields.push('Photo');
+
+                          return (
+                            <TableRow key={student.id}>
+                              <TableCell className='font-medium'>
+                                {(currentPage - 1) * filters.limit! + index + 1}
+                              </TableCell>
+                              <TableCell className='font-medium'>
                                 {student.student_name}
-                              </Link>
-                            </TableCell>
-                            <TableCell>
-                              {student.roll_number || (
-                                <span className='text-muted-foreground italic'>
-                                  Not assigned
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {student.program?.program_name || 'N/A'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant='default'
-                                className={cn(
-                                  student.status === 'active' &&
-                                    'bg-green-100 text-green-800',
-                                  student.status === 'inactive' &&
-                                    'bg-gray-100 text-gray-800',
-                                  student.status === 'pending' &&
-                                    'bg-yellow-100 text-yellow-800',
-                                  student.status === 'exited' &&
-                                    'bg-red-100 text-red-800',
-                                  student.status === 'graduated' &&
-                                    'bg-blue-100 text-blue-800'
-                                )}
-                              >
-                                {student.status.charAt(0).toUpperCase() +
-                                  student.status.slice(1)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className='text-right'>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant='ghost'
-                                    className='h-8 w-8 p-0'
-                                  >
-                                    <span className='sr-only'>Open menu</span>
-                                    <SlidersHorizontal className='h-4 w-4' />
+                              </TableCell>
+                              <TableCell>
+                                {student.program?.program_name || 'N/A'}
+                              </TableCell>
+                              <TableCell>
+                                <div className='flex flex-wrap gap-1'>
+                                  {missingFields.map((field) => (
+                                    <Badge
+                                      key={field}
+                                      variant='outline'
+                                      className='bg-yellow-100 text-yellow-800'
+                                    >
+                                      {field}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </TableCell>
+                              <TableCell className='text-right'>
+                                <div className='flex justify-end gap-2'>
+                                  <Button variant='outline' size='icon' asChild>
+                                    <Link href={`/students/${student.id}`}>
+                                      <EyeIcon className='h-4 w-4' />
+                                      <span className='sr-only'>View</span>
+                                    </Link>
                                   </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align='end'>
-                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      router.push(`/students/${student.id}`)
-                                    }
-                                  >
-                                    <EyeIcon className='h-4 w-4 mr-2' />
-                                    View
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      router.push(
-                                        `/students/${student.id}/edit`
-                                      )
-                                    }
-                                  >
-                                    <FileEdit className='h-4 w-4 mr-2' />
-                                    Edit
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
-                          </TableRow>
-                        ))
+                                  <Button variant='default' size='icon' asChild>
+                                    <Link href={`/students/${student.id}/edit`}>
+                                      <FileEdit className='h-4 w-4' />
+                                      <span className='sr-only'>Edit</span>
+                                    </Link>
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={6} className='h-24 text-center'>
-                            No student records found.
+                          <TableCell colSpan={5} className='text-center py-10'>
+                            <div className='flex flex-col items-center justify-center'>
+                              <Check className='h-8 w-8 text-green-500 mb-2' />
+                              <p className='text-muted-foreground'>
+                                All student profiles are complete!
+                              </p>
+                              <Button
+                                variant='outline'
+                                size='sm'
+                                className='mt-4'
+                                onClick={() => router.push('/students')}
+                              >
+                                View All Students
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       )}
                     </TableBody>
                   </Table>
                 </div>
-
-                {studentsData?.data && studentsData.data.length > 0 && (
-                  <div className='flex items-center justify-end space-x-2 py-4'>
-                    <div className='text-sm text-muted-foreground'>
-                      Showing{' '}
-                      <span className='font-medium'>
-                        {(currentPage - 1) * metadata.pageSize + 1}
-                      </span>{' '}
-                      to{' '}
-                      <span className='font-medium'>
-                        {Math.min(
-                          currentPage * metadata.pageSize,
-                          metadata.totalCount
-                        )}
-                      </span>{' '}
-                      of{' '}
-                      <span className='font-medium'>{metadata.totalCount}</span>{' '}
-                      results
-                    </div>
-                    <Pagination>
-                      <PaginationContent>
-                        <PaginationItem>
-                          <PaginationPrevious
-                            onClick={() => {
-                              if (currentPage > 1) {
-                                handlePageChange(currentPage - 1);
-                              }
-                            }}
-                            className={
-                              currentPage <= 1
-                                ? 'pointer-events-none opacity-50'
-                                : ''
-                            }
-                          />
-                        </PaginationItem>
-                        {Array.from(
-                          { length: metadata.totalPages },
-                          (_, i) => i + 1
-                        )
-                          .filter(
-                            (page) =>
-                              page === 1 ||
-                              page === metadata.totalPages ||
-                              Math.abs(page - currentPage) <= 1
-                          )
-                          .map((page, i, array) => {
-                            const showEllipsis =
-                              i > 0 && page - array[i - 1] > 1;
-                            return (
-                              <div key={page} className='flex items-center'>
-                                {showEllipsis && (
-                                  <PaginationItem>
-                                    <span className='px-4'>...</span>
-                                  </PaginationItem>
-                                )}
-                                <PaginationItem>
-                                  <PaginationLink
-                                    onClick={() => handlePageChange(page)}
-                                    isActive={page === currentPage}
-                                  >
-                                    {page}
-                                  </PaginationLink>
-                                </PaginationItem>
-                              </div>
-                            );
-                          })}
-                        <PaginationItem>
-                          <PaginationNext
-                            onClick={() => {
-                              if (currentPage < metadata.totalPages) {
-                                handlePageChange(currentPage + 1);
-                              }
-                            }}
-                            className={
-                              currentPage >= metadata.totalPages
-                                ? 'pointer-events-none opacity-50'
-                                : ''
-                            }
-                          />
-                        </PaginationItem>
-                      </PaginationContent>
-                    </Pagination>
-                  </div>
-                )}
+                {renderPagination()}
               </>
             )}
           </CardContent>

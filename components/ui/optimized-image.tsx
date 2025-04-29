@@ -26,16 +26,23 @@ export function OptimizedImage({
 }: OptimizedImageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [imgSrc, setImgSrc] = useState(src);
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
 
   // Reset the error state if src changes
   useEffect(() => {
+    if (!src) {
+      setError(true);
+      setLoading(false);
+      return;
+    }
+
+    console.log('OptimizedImage: Loading image from source:', src);
     setImgSrc(src);
     setError(false);
     setLoading(true);
   }, [src]);
 
-  if (!src || error) {
+  if (!imgSrc || error) {
     // Display fallback UI for empty src or error
     return (
       <div
@@ -46,7 +53,9 @@ export function OptimizedImage({
         )}
       >
         <User className='h-12 w-12 text-muted-foreground' />
-        <span className='text-xs text-muted-foreground mt-2'>No image</span>
+        <span className='text-xs text-muted-foreground mt-2'>
+          {error ? 'Failed to load' : 'No image'}
+        </span>
       </div>
     );
   }
@@ -71,13 +80,17 @@ export function OptimizedImage({
           objectFit === 'cover' && 'object-cover',
           objectFit === 'fill' && 'object-fill'
         )}
-        onLoadingComplete={() => setLoading(false)}
+        onLoadingComplete={() => {
+          console.log('OptimizedImage: Image loaded successfully:', imgSrc);
+          setLoading(false);
+        }}
         onError={() => {
-          console.error(`Failed to load image: ${imgSrc}`);
+          console.error(`OptimizedImage: Failed to load image:`, imgSrc);
           setError(true);
           setLoading(false);
         }}
-        unoptimized
+        unoptimized={true}
+        referrerPolicy='no-referrer'
       />
     </div>
   );
