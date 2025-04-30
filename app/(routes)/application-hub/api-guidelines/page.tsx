@@ -2,6 +2,7 @@ import { Metadata } from 'next';
 import ApiGuidelinesContent from './_components/api-guidelines-content';
 import OrganizationApiDocs from './_components/organization-api-docs';
 import StudentsApiDocs from './_components/students-api-docs';
+import StaffApiDocs from './_components/staff-api-docs';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -53,6 +54,7 @@ export default function ApiGuidelinesPage() {
             <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
             <TabsTrigger value='organization'>Organizations API</TabsTrigger>
             <TabsTrigger value='students'>Students API</TabsTrigger>
+            <TabsTrigger value='staff'>Staff API</TabsTrigger>
           </TabsList>
           <TabsContent value='basic'>
             <Card className='p-6'>
@@ -67,6 +69,11 @@ export default function ApiGuidelinesPage() {
           <TabsContent value='students'>
             <Card className='p-6'>
               <StudentsApiDocs />
+            </Card>
+          </TabsContent>
+          <TabsContent value='staff'>
+            <Card className='p-6'>
+              <StaffApiDocs />
             </Card>
           </TabsContent>
         </Tabs>

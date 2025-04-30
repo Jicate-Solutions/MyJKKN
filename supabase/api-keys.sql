@@ -120,3 +120,11 @@ FOR SELECT TO public
 USING (
   public.api_key_has_permission('read')
 );
+
+-- Update RLS policies for staff
+DROP POLICY IF EXISTS "Enable read access for API keys" ON public.staff;
+CREATE POLICY "Enable read access for API keys" ON public.staff
+FOR SELECT TO public
+USING (
+  public.api_key_has_permission('read')
+);
