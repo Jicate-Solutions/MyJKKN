@@ -11,7 +11,7 @@ interface ApiFetcherProps {
   body?: unknown;
 }
 
-const BASE_URL = 'https://my-jkkn-nine.vercel.app/api';
+const BASE_URL = 'https://myadmin.jkkn.ac.in/api';
 
 export const ApiFetcher: React.FC<ApiFetcherProps> = ({
   endpoint,

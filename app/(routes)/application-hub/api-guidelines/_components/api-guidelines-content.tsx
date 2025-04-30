@@ -38,7 +38,7 @@ export default function ApiGuidelinesContent() {
   ) => `I need to implement a feature to fetch data from the MyJKKN API system. The API requires authentication using an API key.
 
 Key details:
-- Base URL: https://my-jkkn-nine.vercel.app/api
+- Base URL: https://myadmin.jkkn.ac.in/api
 - API Key format: jk_xxxxx_xxxxx (provided by administrator)
 - Authentication: Bearer token in Authorization header
 - Module: ${module}
@@ -75,7 +75,7 @@ Please show me a complete implementation using Next.js 14, TypeScript, and Tailw
     institutions: `// Fetch institutions example
 const fetchInstitutions = async (apiKey) => {
   try {
-    const response = await fetch('https://my-jkkn-nine.vercel.app/api/api-management/organizations/institutions', {
+    const response = await fetch('https://myadmin.jkkn.ac.in/api/api-management/organizations/institutions', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -98,7 +98,7 @@ const fetchInstitutions = async (apiKey) => {
     departments: `// Fetch departments example
 const fetchDepartments = async (apiKey) => {
   try {
-    const response = await fetch('https://my-jkkn-nine.vercel.app/api/api-management/organizations/departments', {
+    const response = await fetch('https://myadmin.jkkn.ac.in/api/api-management/organizations/departments', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -121,7 +121,7 @@ const fetchDepartments = async (apiKey) => {
     programs: `// Fetch programs example
 const fetchPrograms = async (apiKey) => {
   try {
-    const response = await fetch('https://my-jkkn-nine.vercel.app/api/api-management/organizations/programs', {
+    const response = await fetch('https://myadmin.jkkn.ac.in/api/api-management/organizations/programs', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -144,7 +144,7 @@ const fetchPrograms = async (apiKey) => {
     degrees: `// Fetch degrees example
 const fetchDegrees = async (apiKey) => {
   try {
-    const response = await fetch('https://my-jkkn-nine.vercel.app/api/api-management/organizations/degrees', {
+    const response = await fetch('https://myadmin.jkkn.ac.in/api/api-management/organizations/degrees', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -167,7 +167,7 @@ const fetchDegrees = async (apiKey) => {
     courses: `// Fetch courses example
 const fetchCourses = async (apiKey) => {
   try {
-    const response = await fetch('https://my-jkkn-nine.vercel.app/api/api-management/organizations/courses', {
+    const response = await fetch('https://myadmin.jkkn.ac.in/api/api-management/organizations/courses', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -252,7 +252,6 @@ export default function InstitutionsList() {
     </main>
   );
 }`,
-
 
     departments: `'use client';
 
@@ -385,7 +384,6 @@ export default function DepartmentsList() {
   );
 }`,
 
-
     programs: `'use client';
 
 import { useState } from 'react';
@@ -464,7 +462,6 @@ export default function ProgramsList() {
     </main>
   );
 }`,
-
 
     degrees: `'use client';
 
@@ -558,7 +555,6 @@ export default function DegreesList() {
     </main>
   );
 }`,
-
 
     courses: `'use client';
 
@@ -655,7 +651,8 @@ export default function CoursesList() {
       'id, department_name, department_code, institution_id, degree_id, is_active, created_at, updated_at',
     programs:
       'id, program_id, program_name, institution_id, department_id, degree_id, is_active, created_at, updated_at',
-    degrees: 'id, degree_id, degree_name, degree_type, institution_id, is_active, created_at, updated_at',
+    degrees:
+      'id, degree_id, degree_name, degree_type, institution_id, is_active, created_at, updated_at',
     courses:
       'id, course_code, course_name, institution_id, degree_id, department_id, program_id, is_active, created_at, updated_at'
   };
@@ -775,9 +772,9 @@ export default function CoursesList() {
     {
       // ${module} data fields
       ${moduleFields[module as keyof typeof moduleFields]
-                                .split(', ')
-                                .map((field) => `"${field}": "value"`)
-                                .join(',\n      ')}
+        .split(', ')
+        .map((field) => `"${field}": "value"`)
+        .join(',\n      ')}
     }
     // More items...
   ],
@@ -819,7 +816,7 @@ interface ApiFetcherProps {
   body?: unknown;
 }
 
-const BASE_URL = 'https://my-jkkn-nine.vercel.app/api';
+const BASE_URL = 'https://myadmin.jkkn.ac.in/api';
 
 export const ApiFetcher: React.FC<ApiFetcherProps> = ({
   endpoint,
