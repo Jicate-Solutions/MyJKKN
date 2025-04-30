@@ -1,6 +1,7 @@
 import { Metadata } from 'next';
 import ApiGuidelinesContent from './_components/api-guidelines-content';
 import OrganizationApiDocs from './_components/organization-api-docs';
+import StudentsApiDocs from './_components/students-api-docs';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -42,18 +43,30 @@ export default function ApiGuidelinesPage() {
         <div>
           <h1 className='text-2xl font-bold py-1'>API Guidelines</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            API guidelines for accessing organization data
+            API guidelines for accessing organization and student data
           </p>
         </div>
         <ApiNav />
 
         <Tabs defaultValue='basic'>
-          <TabsList className='w-full'>
+          <TabsList>
             <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
+            <TabsTrigger value='organization'>Organizations API</TabsTrigger>
+            <TabsTrigger value='students'>Students API</TabsTrigger>
           </TabsList>
           <TabsContent value='basic'>
             <Card className='p-6'>
               <ApiGuidelinesContent />
+            </Card>
+          </TabsContent>
+          <TabsContent value='organization'>
+            <Card className='p-6'>
+              <OrganizationApiDocs />
+            </Card>
+          </TabsContent>
+          <TabsContent value='students'>
+            <Card className='p-6'>
+              <StudentsApiDocs />
             </Card>
           </TabsContent>
         </Tabs>
