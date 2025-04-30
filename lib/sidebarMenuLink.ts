@@ -323,22 +323,22 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'Student Management',
+      groupLabel: 'Learners Management',
       menus: [
         {
           href: '',
-          label: 'All Students',
+          label: 'All Learners',
           active: pathname === '',
           icon: Users,
           submenus: [
             {
               href: '/students/promotion',
-              label: 'Student Promotion',
+              label: 'Learners Promotion',
               active: pathname === '/students/promotion'
             },
             {
               href: '/students ',
-              label: 'Student List',
+              label: 'Learners List',
               active: pathname === '/students'
             }
           ]
@@ -347,18 +347,18 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
-      groupLabel: 'Staff Management',
+      groupLabel: 'Facilitators Management',
       menus: [
         {
           href: '/staff/category',
-          label: 'Staff Category',
+          label: 'Facilitators Category',
           active: pathname === '/staff/category',
           icon: Tags,
           submenus: []
         },
         {
           href: '/staff/list',
-          label: 'Staff List',
+          label: 'Facilitators List',
           active: pathname === '/staff/list',
           icon: Users,
           submenus: []
