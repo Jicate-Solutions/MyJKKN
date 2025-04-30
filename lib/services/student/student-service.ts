@@ -35,6 +35,24 @@ export class StudentService {
     try {
       const supabase = await createClientSupabaseClient();
 
+      // First check if student exists
+      const { count, error: countError } = await supabase
+        .from('students')
+        .select('*', { count: 'exact', head: true })
+        .eq('id', id);
+
+      if (countError) {
+        console.error('Error checking student existence:', countError);
+        throw countError;
+      }
+
+      // If no student found, return null immediately to trigger notFound()
+      if (count === 0) {
+        console.warn(`Student with ID ${id} not found in database`);
+        return null;
+      }
+
+      // Proceed with full data fetch if student exists
       const { data: student, error } = await supabase
         .from('students')
         .select(
@@ -49,12 +67,15 @@ export class StudentService {
         .eq('id', id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error in Supabase query for student details:', error);
+        throw error;
+      }
 
       return student;
     } catch (error) {
       console.error('Error fetching student:', error);
-      return null;
+      throw error; // Propagate error to page component
     }
   }
 
