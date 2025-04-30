@@ -69,6 +69,7 @@ export interface Staff {
   pincode?: string;
   date_of_joining: string;
   designation: string;
+  institution_email: string;
 
   // Foreign keys
   category_id: string;
@@ -114,6 +115,7 @@ export interface CreateStaffDto {
   designation: string;
   category_id: string;
   institution_id: string;
+  institution_email: string;
   department_id: string;
   is_active?: boolean;
 }
@@ -124,6 +126,7 @@ export interface StaffFilters {
   search?: string;
   category_id?: string;
   institution_id?: string;
+  institution_email?: string;
   department_id?: string;
   isActive?: boolean;
   page?: number;

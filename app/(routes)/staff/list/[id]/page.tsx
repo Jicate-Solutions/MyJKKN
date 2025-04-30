@@ -142,10 +142,18 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
                     {staff.is_active ? 'Active' : 'Inactive'}
                   </Badge>
                 </div>
-                <p className='text-muted-foreground'>{staff.designation}</p>
+                <p className='text-lg font-semibold text-primary'>
+                  {staff.designation}
+                </p>
                 <p className='text-sm text-muted-foreground'>
                   Staff ID: {staff.staff_id || 'Not Assigned'}
                 </p>
+                <Link
+                  href={`mailto:${staff.institution_email}`}
+                  className='text-sm text-muted-foreground hover:text-primary'
+                >
+                  {staff.institution_email || 'Not Assigned'}
+                </Link>
               </div>
             </div>
           </CardContent>
@@ -191,7 +199,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
           </CardHeader>
           <CardContent className='grid gap-4 md:grid-cols-2'>
             <div>
-              <p className='font-medium'>Email</p>
+              <p className='font-medium'>Personal Email</p>
               <p className='text-base text-muted-foreground'>{staff.email}</p>
             </div>
             <div>

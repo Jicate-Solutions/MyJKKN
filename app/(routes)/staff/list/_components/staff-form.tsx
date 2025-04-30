@@ -55,6 +55,7 @@ const staffSchema = z.object({
     .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
     .optional(),
   email: z.string().email('Invalid email format'),
+  institution_email: z.string().email('Invalid email format').optional(),
   phone: z.string().min(10, 'Phone number must be at least 10 characters'),
   staff_id: z.string().optional(),
   profile_picture: z.string().optional(),
@@ -104,6 +105,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       marital_status: staff?.marital_status || 'single',
       blood_group: staff?.blood_group,
       email: staff?.email || '',
+      institution_email: staff?.institution_email || '',
       phone: staff?.phone || '',
       staff_id: staff?.staff_id || '',
       profile_picture: staff?.profile_picture || '',
@@ -157,7 +159,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       const formattedValues = {
         ...values,
         date_of_birth: values.date_of_birth.toISOString(),
-        date_of_joining: values.date_of_joining.toISOString()
+        date_of_joining: values.date_of_joining.toISOString(),
+        institution_email: values.institution_email || ''
       };
 
       if (isEditing && staff) {
@@ -172,9 +175,29 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       router.refresh();
     } catch (error) {
       console.error('Form submission error:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to save staff'
-      );
+
+      // Check for duplicate staff ID error
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to save staff';
+
+      // Check for specific staff_staff_id_key error
+      if (
+        errorMessage === 'staff_staff_id_key' ||
+        errorMessage.includes('staff_staff_id_key')
+      ) {
+        toast.error('Staff ID already exists. Please use a different ID.');
+      }
+      // Other duplicate/constraint errors
+      else if (
+        errorMessage.toLowerCase().includes('staff_id') &&
+        (errorMessage.toLowerCase().includes('already exists') ||
+          errorMessage.toLowerCase().includes('duplicate') ||
+          errorMessage.toLowerCase().includes('unique constraint'))
+      ) {
+        toast.error('Staff ID already exists. Please use a different ID.');
+      } else {
+        toast.error(errorMessage);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -268,9 +291,13 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='email'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Email</FormLabel>
+                  <FormLabel>Personal Email</FormLabel>
                   <FormControl>
-                    <Input type='email' placeholder='Enter email' {...field} />
+                    <Input
+                      type='email'
+                      placeholder='Enter personal email'
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -444,6 +471,25 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                       placeholder='Enter staff ID'
                       {...field}
                       disabled={isEditing}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='institution_email'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Institution Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='email'
+                      placeholder='Enter institution email'
+                      {...field}
+                      value={field.value || ''}
                     />
                   </FormControl>
                   <FormMessage />

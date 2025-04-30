@@ -20,6 +20,7 @@ interface CreateStaffDto {
   pincode?: string;
   date_of_joining: string;
   designation: string;
+  institution_email: string;
   category_id: string;
   institution_id: string;
   department_id: string;
