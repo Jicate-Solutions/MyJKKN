@@ -54,6 +54,7 @@ CREATE TABLE staff (
   marital_status TEXT NOT NULL CHECK (marital_status IN ('single', 'married', 'divorced', 'widow')),
   blood_group TEXT CHECK (blood_group IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-')),
   email TEXT NOT NULL UNIQUE,
+  institution_email TEXT NOT NULL UNIQUE,
   phone TEXT NOT NULL,
   staff_id TEXT UNIQUE,
   profile_picture TEXT,
@@ -79,6 +80,7 @@ CREATE TABLE staff (
 
 -- Add indexes for better query performance
 CREATE INDEX idx_staff_email ON staff(email);
+CREATE INDEX idx_staff_institution_email ON staff(institution_email);
 CREATE INDEX idx_staff_staff_id ON staff(staff_id);
 CREATE INDEX idx_staff_category_id ON staff(category_id);
 CREATE INDEX idx_staff_institution_id ON staff(institution_id);
