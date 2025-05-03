@@ -68,60 +68,60 @@ interface MenuPermissions {
 
 export const MENU_PERMISSIONS: MenuPermissions = {
   // User Management
-  '/users': 'view_users',
-  '/users/roles': 'assign_roles',
-  '/users/role-management': 'manage_roles',
+  '/users': 'users.view',
+  '/users/roles': 'roles.assign',
+  '/users/role-management': 'roles.create',
 
   // Application Hub
-  '/application-hub': 'view_applications',
-  '/application-hub/api-guidelines': 'view_api_guidelines',
+  '/application-hub': 'application_hub.view',
+  '/application-hub/api-guidelines': 'application_hub.guidelines.view',
 
   // Application Management
-  '/applications': 'view_applications',
-  '/applications/new': 'manage_applications',
-  '/applications/categories': 'manage_application_categories',
+  '/applications': 'applications.view',
+  '/applications/new': 'applications.create',
+  '/applications/categories': 'applications.categories.view',
 
   // Admissions Management
-  '/admissions': 'view_admissions',
-  '/admissions/new': 'create_admissions',
-  '/admissions/crm': 'view_admissions_crm',
+  '/admissions': 'admissions.view',
+  '/admissions/new': 'admissions.create',
+  '/admissions/crm': 'admissions.crm.view',
 
   // Organization Management
-  '/organizations/institutions': 'view_institutions',
-  '/organizations/degrees': 'view_degrees',
-  '/organizations/departments': 'view_departments',
-  '/organizations/programs': 'view_programs',
-  '/organizations/courses': 'view_courses',
-  '/organizations/semesters': 'view_semesters',
-  '/organizations/sections': 'view_sections',
-  '/organizations/course-mappings': 'view_course_mappings',
+  '/organizations/institutions': 'organizations.institutions.view',
+  '/organizations/degrees': 'organizations.degrees.view',
+  '/organizations/departments': 'organizations.departments.view',
+  '/organizations/programs': 'organizations.programs.view',
+  '/organizations/courses': 'organizations.courses.view',
+  '/organizations/semesters': 'organizations.semesters.view',
+  '/organizations/sections': 'organizations.sections.view',
+  '/organizations/course-mappings': 'organizations.course_mappings.view',
 
   //student management
-  '/students': 'view_students',
-  '/students/new': 'create_students',
+  '/students': 'students.view',
+  '/students/new': 'students.create',
 
   // Staff Management
-  '/staff/category': 'view_staff_categories',
-  '/staff/list': 'view_staff',
+  '/staff/category': 'staff.categories.view',
+  '/staff/list': 'staff.view',
 
   // Academic Management
-  '/academic/years': 'view_academic_years',
-  '/academic/staff-planning': 'manage_staff',
-  '/academic/timetables': 'manage_timetables',
+  '/academic/years': 'academic.years.view',
+  '/academic/staff-planning': 'academic.staff_planning.view',
+  '/academic/timetables': 'academic.timetables.view',
 
   // Resource Management
 
   // physical Resources
   '/resources/physical-resources/dashboard':
-    'view_physical_resources_dashboard',
-  '/resources/physical-resources/resources': 'view_physical_resources',
+    'physical_resources.dashboard.view',
+  '/resources/physical-resources/resources': 'physical_resources.view',
   '/resources/physical-resources/categories':
-    'view_physical_resources_categories',
+    'physical_resources.categories.view',
   '/resources/physical-resources/reservations':
-    'view_physical_resources_reservations',
-  '/resources/physical-resources/policies': 'view_physical_resources_policies',
-  '/resources/physical-resources/reports': 'view_physical_resources_reports',
-  '/resources/physical-resources/requests': 'view_physical_resources_requests',
+    'physical_resources.reservations.view',
+  '/resources/physical-resources/policies': 'physical_resources.policies.view',
+  '/resources/physical-resources/reports': 'physical_resources.reports.view',
+  '/resources/physical-resources/requests': 'physical_resources.requests.view',
 
   // digital Resources
   '/resources/digital-resources/dashboard': 'view_digital_resources_dashboard',
@@ -134,7 +134,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resources/digital-resources/reports': 'view_digital_resources_reports',
 
   // System Management
-  '/system/api-management': 'manage_api'
+  '/system/api-management': 'system.api.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {

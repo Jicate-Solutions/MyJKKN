@@ -159,6 +159,39 @@ export class RoleService {
   }
 
   /**
+   * Validate permissions object to ensure it's properly formatted
+   */
+  private static validatePermissions(
+    permissions: Record<string, boolean> | undefined
+  ): Record<string, boolean> {
+    // If permissions are undefined, return empty object
+    if (!permissions) {
+      console.warn('Empty permissions object received, using empty object');
+      return {};
+    }
+
+    // Validate permissions object structure
+    const validatedPermissions: Record<string, boolean> = {};
+
+    try {
+      Object.entries(permissions).forEach(([key, value]) => {
+        // Ensure all values are boolean
+        validatedPermissions[key] = Boolean(value);
+      });
+
+      console.log(
+        'Validated permissions object with',
+        Object.keys(validatedPermissions).length,
+        'keys'
+      );
+      return validatedPermissions;
+    } catch (err) {
+      console.error('Error validating permissions:', err);
+      return {};
+    }
+  }
+
+  /**
    * Update an existing role
    */
   static async updateRole(
@@ -182,22 +215,92 @@ export class RoleService {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error updating super admin role:', error);
+          throw error;
+        }
+
         toast.success(`Super Admin role details updated`);
         return data;
       }
 
       // For all other roles, proceed with the update
-      const { data, error } = await this.supabase
+
+      // First do a direct check of the role existence
+
+      const { data: existingRole, error: fetchError } = await this.supabase
         .from('custom_roles')
-        .update(updates)
+        .select('*')
         .eq('role_key', roleKey)
-        .select()
         .single();
 
-      if (error) throw error;
+      if (fetchError) {
+        console.error('Error fetching role:', fetchError);
+        throw new Error(`Role ${roleKey} not found or could not be accessed`);
+      }
+
+      if (!existingRole) {
+        throw new Error(`Role with key ${roleKey} not found`);
+      }
+
+      // Create a clean basic update
+      const basicUpdates: any = {
+        role_name: updates.role_name || existingRole.role_name,
+        description: updates.description || existingRole.description
+      };
+
+      // First update the basic info
+
+      const { error: basicUpdateError } = await this.supabase
+        .from('custom_roles')
+        .update(basicUpdates)
+        .eq('role_key', roleKey);
+
+      if (basicUpdateError) {
+        console.error('Error updating basic role info:', basicUpdateError);
+        throw basicUpdateError;
+      }
+
+      // If permissions are included, update them separately
+      if (updates.permissions) {
+        // Clean up permissions - convert everything to boolean
+        const cleanPermissions: Record<string, boolean> = {};
+
+        Object.entries(updates.permissions).forEach(([key, value]) => {
+          cleanPermissions[key] = Boolean(value);
+        });
+
+        // Create a simple clean object for the permissions update
+        const permissionUpdate = {
+          permissions: cleanPermissions
+        };
+
+        // Update just the permissions
+        const { error: permUpdateError } = await this.supabase
+          .from('custom_roles')
+          .update(permissionUpdate)
+          .eq('role_key', roleKey);
+
+        if (permUpdateError) {
+          console.error('Error updating permissions:', permUpdateError);
+          throw permUpdateError;
+        }
+      }
+
+      // Fetch the updated role to return
+      const { data: updatedRole, error: finalFetchError } = await this.supabase
+        .from('custom_roles')
+        .select('*')
+        .eq('role_key', roleKey)
+        .single();
+
+      if (finalFetchError) {
+        console.error('Error fetching updated role:', finalFetchError);
+        throw finalFetchError;
+      }
+
       toast.success(`Role updated successfully`);
-      return data;
+      return updatedRole;
     } catch (error) {
       console.error(`Error updating role ${roleKey}:`, error);
       toast.error(
@@ -266,6 +369,143 @@ export class RoleService {
     } catch (error) {
       console.error('Error fetching assignable roles:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Migrate legacy permissions to the new format
+   * This maps old permission keys like 'view_users' to new format like 'users.view'
+   */
+  static async migratePermissions(): Promise<void> {
+    try {
+      // Get all roles
+      const { data: roles, error } = await this.supabase
+        .from('custom_roles')
+        .select('*');
+
+      if (error) throw error;
+      if (!roles || roles.length === 0) return;
+
+      // Permission mapping from old to new format
+      const permissionMapping: Record<string, string> = {
+        // User Management
+        view_users: 'users.view',
+        manage_users: 'users.edit',
+        assign_roles: 'roles.assign',
+        manage_roles: 'roles.edit',
+
+        // Applications
+        view_applications: 'applications.view',
+        manage_applications: 'applications.edit',
+        manage_application_categories: 'applications.categories.edit',
+        view_api_guidelines: 'application_hub.guidelines.view',
+
+        // Organizations
+        view_institutions: 'organizations.institutions.view',
+        view_degrees: 'organizations.degrees.view',
+        view_departments: 'organizations.departments.view',
+        view_programs: 'organizations.programs.view',
+        view_courses: 'organizations.courses.view',
+        view_semesters: 'organizations.semesters.view',
+        view_sections: 'organizations.sections.view',
+        view_course_mappings: 'organizations.course_mappings.view',
+
+        // Staff
+        view_staff_categories: 'staff.categories.view',
+        view_staff: 'staff.view',
+        manage_staff: 'staff.edit',
+
+        // Academic
+        view_academic_years: 'academic.years.view',
+        manage_timetables: 'academic.timetables.edit',
+
+        // Resources
+        view_physical_resources_dashboard: 'physical_resources.dashboard.view',
+        view_physical_resources: 'physical_resources.view',
+        view_physical_resources_categories:
+          'physical_resources.categories.view',
+        view_physical_resources_reservations:
+          'physical_resources.reservations.view',
+        view_physical_resources_policies: 'physical_resources.policies.view',
+        view_physical_resources_reports: 'physical_resources.reports.view',
+        view_physical_resources_requests: 'physical_resources.requests.view',
+
+        // System
+        manage_api: 'system.api.edit'
+      };
+
+      // Update each role
+      for (const role of roles) {
+        const oldPermissions = role.permissions || {};
+        const newPermissions: Record<string, boolean> = { ...oldPermissions };
+
+        // Add new permissions based on old ones
+        for (const [oldKey, newKey] of Object.entries(permissionMapping)) {
+          if (oldPermissions[oldKey]) {
+            newPermissions[newKey] = true;
+
+            // For edit permissions, also add view permissions
+            if (newKey.endsWith('.edit')) {
+              const viewKey = newKey.replace('.edit', '.view');
+              newPermissions[viewKey] = true;
+            }
+
+            // For manage permissions, derive create permissions
+            if (oldKey.startsWith('manage_')) {
+              const createKey = newKey.replace('.edit', '.create');
+              newPermissions[createKey] = true;
+            }
+          }
+        }
+
+        // Update the role with new permissions
+        await this.supabase
+          .from('custom_roles')
+          .update({ permissions: newPermissions })
+          .eq('id', role.id);
+      }
+
+      toast.success('Permissions successfully migrated to new format');
+    } catch (error) {
+      console.error('Error migrating permissions:', error);
+      toast.error('Failed to migrate permissions');
+    }
+  }
+
+  /**
+   * Check if a user has specific action permission for a module
+   */
+  static async checkActionPermission(
+    userId: string,
+    module: string,
+    action: string
+  ): Promise<boolean> {
+    try {
+      // Get user's role
+      const { data: profile, error: profileError } = await this.supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+
+      if (profileError) throw profileError;
+      if (!profile) return false;
+
+      // Get role permissions
+      const role = await this.getRoleByKey(profile.role);
+      if (!role) return false;
+
+      // Check for super admin (has all permissions)
+      if (role.role_key === SYSTEM_ROLES.SUPER_ADMIN) return true;
+
+      const permissions = role.permissions || {};
+      const permissionKey = `${module}.${action}`;
+
+      // Check for specific permission
+      return !!permissions[permissionKey];
+    } catch (error) {
+      console.error('Error checking permission:', error);
+      return false;
     }
   }
 }
