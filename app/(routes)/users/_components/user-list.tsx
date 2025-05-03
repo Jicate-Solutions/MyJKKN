@@ -12,7 +12,10 @@ import {
   UserCog,
   ChevronLeft,
   ChevronRight,
-  Ban
+  Ban,
+  Eye,
+  Pencil,
+  Shield
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Profile } from '@/types/auth';
@@ -47,6 +50,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
+import {
+  CanView,
+  CanEdit,
+  CanDelete
+} from '@/components/auth/permission-guard';
 
 interface UserListProps {
   users: Profile[];
@@ -70,6 +78,10 @@ export function UserList({
 }: UserListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [userToDeactivate, setUserToDeactivate] = useState<string | null>(null);
+  const [userToDelete, setUserToDelete] = useState<string | null>(null);
+  const [userToChangeRole, setUserToChangeRole] = useState<Profile | null>(
+    null
+  );
 
   const handleDeactivateUser = async () => {
     if (!userToDeactivate) return;
@@ -85,6 +97,21 @@ export function UserList({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Handle role change
+  const handleRoleChange = (user: Profile) => {
+    setUserToChangeRole(user);
+    // You would typically show a dialog here to select a new role
+    // This is just a placeholder - implement the actual role change dialog
+    toast.success('Role change feature coming soon');
+  };
+
+  // Handle delete click
+  const handleDeleteClick = (user: Profile) => {
+    setUserToDelete(user.id);
+    // You would typically show a confirmation dialog here
+    toast.success('Delete feature coming soon');
   };
 
   const getInitials = (user: Profile) => {
@@ -174,36 +201,50 @@ export function UserList({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/users/${user.id}`}
-                            className='cursor-pointer'
-                          >
-                            <UserCog className='mr-2 h-4 w-4' />
-                            View Details
-                          </Link>
-                        </DropdownMenuItem>
+                        <CanView module='users'>
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/users/${user.id}`}
+                              className='cursor-pointer'
+                            >
+                              <Eye className='mr-2 h-4 w-4' />
+                              <span>View Profile</span>
+                            </Link>
+                          </DropdownMenuItem>
+                        </CanView>
 
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/users/${user.id}/permissions`}
-                            className='cursor-pointer'
+                        <CanEdit module='users'>
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/users/${user.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Pencil className='mr-2 h-4 w-4' />
+                              <span>Edit User</span>
+                            </Link>
+                          </DropdownMenuItem>
+                        </CanEdit>
+
+                        <CanEdit module='roles'>
+                          <DropdownMenuItem
+                            onClick={() => handleRoleChange(user)}
                           >
-                            <Lock className='mr-2 h-4 w-4' />
-                            Permissions
-                          </Link>
-                        </DropdownMenuItem>
+                            <Shield className='mr-2 h-4 w-4' />
+                            <span>Change Role</span>
+                          </DropdownMenuItem>
+                        </CanEdit>
+
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => setUserToDeactivate(user.id)}
-                          className='text-destructive focus:text-destructive'
-                          disabled={user.role === 'super_admin'}
-                        >
-                          <Ban className='mr-2 h-4 w-4' />
-                          {user.last_login ? 'Deactivate' : 'Activate'} User
-                        </DropdownMenuItem>
+
+                        <CanDelete module='users'>
+                          <DropdownMenuItem
+                            onClick={() => handleDeleteClick(user)}
+                            className='text-destructive focus:text-destructive'
+                          >
+                            <Trash2 className='mr-2 h-4 w-4' />
+                            <span>Delete User</span>
+                          </DropdownMenuItem>
+                        </CanDelete>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

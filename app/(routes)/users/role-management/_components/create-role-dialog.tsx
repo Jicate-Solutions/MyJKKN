@@ -38,6 +38,7 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
+import { RolePermissionGroups } from './role-permission-groups';
 
 interface CreateRoleDialogProps {
   open: boolean;
@@ -241,38 +242,67 @@ export function CreateRoleDialog({
                 <ScrollArea className='h-[400px] pr-4'>
                   <div className='space-y-6'>
                     {PERMISSION_CATEGORIES.map((category) => (
-                      <Card key={category.name}>
+                      <Card key={category.name} id={category.key}>
                         <CardHeader className='pb-3'>
                           <CardTitle>{category.name}</CardTitle>
                           <CardDescription>
                             {category.name} related permissions
                           </CardDescription>
                         </CardHeader>
-                        <CardContent className='space-y-2'>
-                          {category.permissions.map((permission) => (
-                            <FormField
-                              key={permission.key}
-                              control={form.control}
-                              name={`permissions.${permission.key}`}
-                              render={({ field }) => (
-                                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                                  <div className='space-y-0.5'>
-                                    <FormLabel>{permission.label}</FormLabel>
-                                    <FormDescription>
-                                      {permission.key}
-                                    </FormDescription>
-                                  </div>
-                                  <FormControl>
-                                    <Switch
-                                      checked={field.value || false}
-                                      onCheckedChange={field.onChange}
-                                      disabled={isLoading}
-                                    />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-                          ))}
+                        <CardContent className='space-y-4'>
+                          <RolePermissionGroups
+                            moduleKey={category.key}
+                            moduleName={category.name}
+                            permissionKeys={allPermissionKeys}
+                            currentPermissions={{
+                              ...form.watch('permissions')
+                            }}
+                            onPermissionsChange={(newPermissions) => {
+                              const updatedPermissions = {
+                                ...form.getValues('permissions'),
+                                ...newPermissions
+                              };
+                              console.log(
+                                'Updating permissions from group in create dialog:',
+                                updatedPermissions
+                              );
+                              form.setValue('permissions', updatedPermissions, {
+                                shouldDirty: true,
+                                shouldValidate: true,
+                                shouldTouch: true
+                              });
+                            }}
+                            disabled={isLoading}
+                          />
+
+                          <div className='grid grid-cols-2 gap-4'>
+                            {category.permissions.map((permission) => (
+                              <FormField
+                                key={permission.key}
+                                control={form.control}
+                                name={`permissions.${permission.key}`}
+                                render={({ field }) => (
+                                  <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                                    <div className='space-y-0.5'>
+                                      <FormLabel className='text-sm'>
+                                        {permission.label}
+                                      </FormLabel>
+                                      <FormDescription className='text-xs'>
+                                        {permission.key}
+                                      </FormDescription>
+                                    </div>
+                                    <FormControl>
+                                      <Switch
+                                        checked={field.value}
+                                        onCheckedChange={field.onChange}
+                                        disabled={isLoading}
+                                      />
+                                    </FormControl>
+                                  </FormItem>
+                                )}
+                              />
+                            ))}
+                          </div>
                         </CardContent>
                       </Card>
                     ))}

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
-import { PlusCircle } from 'lucide-react';
+import { ArrowUp, PlusCircle } from 'lucide-react';
 import { RoleManagementList } from './_components/role-management-list';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { UserService } from '@/lib/services/users/user-service';
@@ -24,6 +24,7 @@ export default function RoleManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
 
   // Check permissions and fetch roles
   useEffect(() => {
@@ -98,15 +99,40 @@ export default function RoleManagementPage() {
       permissions?: Record<string, boolean>;
     }
   ) => {
+    console.log(
+      '>>> STEP 1: handleUpdateRole in page.tsx CALLED for key:',
+      roleKey
+    );
     try {
       setIsLoading(true);
-      await RoleService.updateRole(roleKey, updates);
+
+      // Track the update timestamp to help with debugging
+      const updateTime = new Date().toISOString();
+
+      // Force permissions to be a clean object if it exists
+      const cleanUpdates = {
+        ...updates,
+        permissions: updates.permissions
+          ? JSON.parse(JSON.stringify(updates.permissions))
+          : undefined
+      };
+
+      // Call the service to update the role
+
+      await RoleService.updateRole(roleKey, cleanUpdates);
+
+      // Notify successful update
+
+      toast.success(`Role "${roleKey}" updated successfully at ${updateTime}`);
+
+      // Refresh the roles list
       await fetchRoles();
-      toast.success('Role updated successfully');
     } catch (error) {
-      console.error('Error updating role:', error);
+      console.error('Page: Error updating role:', error);
       toast.error(
-        error instanceof Error ? error.message : 'Failed to update role'
+        error instanceof Error
+          ? `Update failed: ${error.message}`
+          : 'Failed to update role. Please check console for details.'
       );
     } finally {
       setIsLoading(false);
@@ -129,6 +155,21 @@ export default function RoleManagementPage() {
     }
   };
 
+  // Handle permissions migration
+  const handleMigratePermissions = async () => {
+    try {
+      setIsMigrating(true);
+      await RoleService.migratePermissions();
+      await fetchRoles();
+      toast.success('Permissions successfully migrated to new format');
+    } catch (error) {
+      console.error('Error migrating permissions:', error);
+      toast.error('Failed to migrate permissions');
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
   if (!isSuperAdmin) {
     return (
       <ContentLayout title='Role Management'>
@@ -142,16 +183,29 @@ export default function RoleManagementPage() {
   return (
     <ContentLayout title='Role Management'>
       <div className='space-y-6'>
-        <PageBreadcrumb
-          items={[
-            { label: 'Home', href: '/' },
-            { label: 'Users', href: '/users' },
-            { label: 'Role Management' }
-          ]}
-        />
-
-        <div className='flex justify-between items-center'>
-          <h2 className='text-2xl font-bold'>Manage System Roles</h2>
+        <div className='space-y-1'>
+          <PageBreadcrumb
+            items={[
+              { label: 'Home', href: '/' },
+              { label: 'Users', href: '/users' },
+              { label: 'Role Management' }
+            ]}
+          />
+          <h2 className='text-2xl font-bold'>Role Management</h2>
+          <p className='text-sm text-muted-foreground'>
+            Create, view and manage roles
+          </p>
+        </div>
+        <div className='flex items-center gap-4'>
+          <Button
+            variant='outline'
+            onClick={handleMigratePermissions}
+            disabled={isMigrating}
+            className='flex items-center gap-2'
+          >
+            <ArrowUp className='h-4 w-4' />
+            {isMigrating ? 'Migrating...' : 'Migrate Permissions'}
+          </Button>
           <Button onClick={() => setShowCreateDialog(true)}>
             <PlusCircle className='mr-2 h-4 w-4' />
             Create Role

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { CustomRole } from '@/types/auth';
 import {
   Pencil,
@@ -85,6 +85,11 @@ export function RoleManagementList({
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+
+  // Log roles whenever the prop changes
+  useEffect(() => {
+    console.log('RoleManagementList received roles:', roles);
+  }, [roles]);
 
   const handleDeleteClick = (role: CustomRole) => {
     setRoleToDelete(role);

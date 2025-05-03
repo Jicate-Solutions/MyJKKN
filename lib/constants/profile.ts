@@ -91,111 +91,198 @@ export const DEFAULT_ROLE_PERMISSIONS = {
   view_profile: true
 };
 
+// Permission groups for common operations
+export const PERMISSION_GROUPS = [
+  {
+    id: 'full_access',
+    name: 'Full Access',
+    description: 'Complete access to create, view, edit and delete',
+    permissions: ['create', 'view', 'edit', 'delete']
+  },
+  {
+    id: 'read_only',
+    name: 'Read Only',
+    description: 'View-only access with no modification capabilities',
+    permissions: ['view']
+  },
+  {
+    id: 'manage',
+    name: 'Manage',
+    description: 'Can view and edit but cannot create or delete',
+    permissions: ['view', 'edit']
+  },
+  {
+    id: 'contribute',
+    name: 'Contribute',
+    description: 'Can view, create and edit but cannot delete',
+    permissions: ['view', 'create', 'edit']
+  }
+];
+
 // Permission categories for UI
 export const PERMISSION_CATEGORIES = [
   {
     name: 'User Management',
+    key: 'users',
     permissions: [
-      { key: 'view_users', label: 'View Users' },
-      { key: 'assign_roles', label: 'Assign Roles' },
-      { key: 'manage_roles', label: 'Manage Roles' }
+      { key: 'users.view', label: 'View Users' },
+      { key: 'users.create', label: 'Create Users' },
+      { key: 'users.edit', label: 'Edit Users' },
+      { key: 'users.delete', label: 'Delete Users' },
+      { key: 'roles.view', label: 'View Roles' },
+      { key: 'roles.assign', label: 'Assign Roles' },
+      { key: 'roles.create', label: 'Create Roles' },
+      { key: 'roles.edit', label: 'Edit Roles' },
+      { key: 'roles.delete', label: 'Delete Roles' }
     ]
   },
   {
     name: 'Application Hub',
+    key: 'application_hub',
     permissions: [
-      { key: 'view_applications', label: 'View Applications' },
-      { key: 'view_api_guidelines', label: 'View API Guidelines' }
+      { key: 'application_hub.view', label: 'View Applications' },
+      { key: 'application_hub.guidelines.view', label: 'View API Guidelines' }
     ]
   },
   {
     name: 'Applications Management',
+    key: 'applications',
     permissions: [
-      { key: 'view_applications', label: 'View Applications' },
-      { key: 'manage_applications', label: 'Manage Applications' },
-      {
-        key: 'manage_application_categories',
-        label: 'Manage Application Categories'
-      }
+      { key: 'applications.view', label: 'View Applications' },
+      { key: 'applications.create', label: 'Create Applications' },
+      { key: 'applications.edit', label: 'Edit Applications' },
+      { key: 'applications.delete', label: 'Delete Applications' },
+      { key: 'applications.categories.view', label: 'View Categories' },
+      { key: 'applications.categories.create', label: 'Create Categories' },
+      { key: 'applications.categories.edit', label: 'Edit Categories' },
+      { key: 'applications.categories.delete', label: 'Delete Categories' }
     ]
   },
   {
     name: 'Organizations',
+    key: 'organizations',
     permissions: [
-      { key: 'view_institutions', label: 'View Institutions' },
-      { key: 'view_degrees', label: 'View Degrees' },
-      { key: 'view_departments', label: 'View Departments' },
-      { key: 'view_programs', label: 'View Programs' },
-      { key: 'view_courses', label: 'View Courses' },
-      { key: 'view_semesters', label: 'View Semesters' },
-      { key: 'view_sections', label: 'View Sections' }
+      { key: 'organizations.institutions.view', label: 'View Institutions' },
+      {
+        key: 'organizations.institutions.create',
+        label: 'Create Institutions'
+      },
+      { key: 'organizations.institutions.edit', label: 'Edit Institutions' },
+      {
+        key: 'organizations.institutions.delete',
+        label: 'Delete Institutions'
+      },
+      { key: 'organizations.degrees.view', label: 'View Degrees' },
+      { key: 'organizations.degrees.create', label: 'Create Degrees' },
+      { key: 'organizations.degrees.edit', label: 'Edit Degrees' },
+      { key: 'organizations.degrees.delete', label: 'Delete Degrees' },
+      { key: 'organizations.departments.view', label: 'View Departments' },
+      { key: 'organizations.departments.create', label: 'Create Departments' },
+      { key: 'organizations.departments.edit', label: 'Edit Departments' },
+      { key: 'organizations.departments.delete', label: 'Delete Departments' },
+      { key: 'organizations.programs.view', label: 'View Programs' },
+      { key: 'organizations.programs.create', label: 'Create Programs' },
+      { key: 'organizations.programs.edit', label: 'Edit Programs' },
+      { key: 'organizations.programs.delete', label: 'Delete Programs' },
+      { key: 'organizations.courses.view', label: 'View Courses' },
+      { key: 'organizations.courses.create', label: 'Create Courses' },
+      { key: 'organizations.courses.edit', label: 'Edit Courses' },
+      { key: 'organizations.courses.delete', label: 'Delete Courses' },
+      { key: 'organizations.semesters.view', label: 'View Semesters' },
+      { key: 'organizations.semesters.create', label: 'Create Semesters' },
+      { key: 'organizations.semesters.edit', label: 'Edit Semesters' },
+      { key: 'organizations.semesters.delete', label: 'Delete Semesters' },
+      { key: 'organizations.sections.view', label: 'View Sections' },
+      { key: 'organizations.sections.create', label: 'Create Sections' },
+      { key: 'organizations.sections.edit', label: 'Edit Sections' },
+      { key: 'organizations.sections.delete', label: 'Delete Sections' }
     ]
   },
   {
     name: 'Staff Management',
+    key: 'staff',
     permissions: [
-      { key: 'view_staff_categories', label: 'View Staff Categories' },
-      { key: 'view_staff', label: 'View Staff' }
+      { key: 'staff.categories.view', label: 'View Staff Categories' },
+      { key: 'staff.categories.create', label: 'Create Staff Categories' },
+      { key: 'staff.categories.edit', label: 'Edit Staff Categories' },
+      { key: 'staff.categories.delete', label: 'Delete Staff Categories' },
+      { key: 'staff.view', label: 'View Staff' },
+      { key: 'staff.create', label: 'Create Staff' },
+      { key: 'staff.edit', label: 'Edit Staff' },
+      { key: 'staff.delete', label: 'Delete Staff' }
     ]
   },
   {
     name: 'Academic',
+    key: 'academic',
     permissions: [
-      { key: 'view_academic_years', label: 'View Academic Years' },
-      { key: 'manage_staff', label: 'Manage Staff' },
-      { key: 'manage_timetables', label: 'Manage Timetables' }
+      { key: 'academic.years.view', label: 'View Academic Years' },
+      { key: 'academic.years.create', label: 'Create Academic Years' },
+      { key: 'academic.years.edit', label: 'Edit Academic Years' },
+      { key: 'academic.years.delete', label: 'Delete Academic Years' },
+      { key: 'academic.staff_planning.view', label: 'View Staff Planning' },
+      { key: 'academic.staff_planning.create', label: 'Create Staff Planning' },
+      { key: 'academic.staff_planning.edit', label: 'Edit Staff Planning' },
+      { key: 'academic.staff_planning.delete', label: 'Delete Staff Planning' },
+      { key: 'academic.timetables.view', label: 'View Timetables' },
+      { key: 'academic.timetables.create', label: 'Create Timetables' },
+      { key: 'academic.timetables.edit', label: 'Edit Timetables' },
+      { key: 'academic.timetables.delete', label: 'Delete Timetables' }
     ]
   },
   {
     name: 'Physical Resources Management',
+    key: 'physical_resources',
     permissions: [
+      { key: 'physical_resources.dashboard.view', label: 'View Dashboard' },
+      { key: 'physical_resources.view', label: 'View Resources' },
+      { key: 'physical_resources.create', label: 'Create Resources' },
+      { key: 'physical_resources.edit', label: 'Edit Resources' },
+      { key: 'physical_resources.delete', label: 'Delete Resources' },
+      { key: 'physical_resources.categories.view', label: 'View Categories' },
       {
-        key: 'view_physical_resources_dashboard',
-        label: 'View Physical Resources Dashboard'
+        key: 'physical_resources.categories.create',
+        label: 'Create Categories'
       },
-      { key: 'view_physical_resources', label: 'View Physical Resources' },
+      { key: 'physical_resources.categories.edit', label: 'Edit Categories' },
       {
-        key: 'view_physical_resources_categories',
-        label: 'View Physical Resources Categories'
-      },
-      {
-        key: 'view_physical_resources_reservations',
-        label: 'View Physical Resources Reservations'
-      },
-      {
-        key: 'view_physical_resources_policies',
-        label: 'View Physical Resources Policies'
+        key: 'physical_resources.categories.delete',
+        label: 'Delete Categories'
       },
       {
-        key: 'view_physical_resources_reports',
-        label: 'View Physical Resources Reports'
+        key: 'physical_resources.reservations.view',
+        label: 'View Reservations'
       },
       {
-        key: 'view_physical_resources_requests',
-        label: 'View Physical Resources Requests'
-      }
-    ]
-  },
-  {
-    name: 'Digital Resources Management',
-    permissions: [
-      {
-        key: 'view_digital_resources_dashboard',
-        label: 'View Digital Resources Dashboard'
-      },
-      { key: 'view_digital_resources', label: 'View Digital Resources' },
-      {
-        key: 'view_digital_resources_categories',
-        label: 'View Digital Resources Categories'
+        key: 'physical_resources.reservations.create',
+        label: 'Create Reservations'
       },
       {
-        key: 'view_digital_resources_reservations',
-        label: 'View Digital Resources Reservations'
-      }
+        key: 'physical_resources.reservations.edit',
+        label: 'Edit Reservations'
+      },
+      {
+        key: 'physical_resources.reservations.delete',
+        label: 'Delete Reservations'
+      },
+      { key: 'physical_resources.policies.view', label: 'View Policies' },
+      { key: 'physical_resources.policies.create', label: 'Create Policies' },
+      { key: 'physical_resources.policies.edit', label: 'Edit Policies' },
+      { key: 'physical_resources.policies.delete', label: 'Delete Policies' },
+      { key: 'physical_resources.reports.view', label: 'View Reports' },
+      { key: 'physical_resources.requests.view', label: 'View Requests' },
+      { key: 'physical_resources.requests.approve', label: 'Approve Requests' },
+      { key: 'physical_resources.requests.reject', label: 'Reject Requests' }
     ]
   },
   {
     name: 'System',
-    permissions: [{ key: 'manage_api', label: 'Manage API' }]
+    key: 'system',
+    permissions: [
+      { key: 'system.api.view', label: 'View API' },
+      { key: 'system.api.create', label: 'Create API' },
+      { key: 'system.api.edit', label: 'Edit API' },
+      { key: 'system.api.delete', label: 'Delete API' }
+    ]
   }
 ];

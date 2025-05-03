@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { CustomRole, SYSTEM_ROLES } from '@/types/auth';
 import {
   Dialog,
@@ -39,6 +39,8 @@ import {
 } from '@/components/ui/card';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import { AlertCircle } from 'lucide-react';
+import { RolePermissionGroups } from './role-permission-groups';
+import { toast } from 'react-hot-toast';
 
 interface EditRoleDialogProps {
   open: boolean;
@@ -54,6 +56,9 @@ interface EditRoleDialogProps {
   ) => Promise<void>;
 }
 
+// Type for the nested permissions structure used by the form
+type NestedPermissions = Record<string, Record<string, boolean>>;
+
 const formSchema = z.object({
   role_name: z
     .string()
@@ -64,8 +69,50 @@ const formSchema = z.object({
     .max(500, { message: 'Description must be at most 500 characters' })
     .optional()
     .nullable(),
-  permissions: z.record(z.boolean())
+  // Use the defined type for permissions
+  permissions: z
+    .custom<NestedPermissions>(
+      (val) => typeof val === 'object' && val !== null, // Basic check
+      { message: 'Invalid permissions structure' }
+    )
+    .default({})
 });
+
+// Helper to convert flat permissions to nested for the form
+const nestPermissions = (
+  flat: Record<string, boolean> | undefined
+): NestedPermissions => {
+  const nested: NestedPermissions = {};
+  if (!flat) return nested;
+  Object.entries(flat).forEach(([key, value]) => {
+    const parts = key.split('.');
+    const moduleKey = parts[0];
+    const action = parts.length > 1 ? parts.slice(1).join('.') : '_';
+    if (!nested[moduleKey]) {
+      nested[moduleKey] = {};
+    }
+    nested[moduleKey][action] = Boolean(value);
+  });
+  return nested;
+};
+
+// Helper to convert nested permissions back to flat for submission/service
+const flattenPermissions = (
+  nested: NestedPermissions | undefined
+): Record<string, boolean> => {
+  const flat: Record<string, boolean> = {};
+  if (!nested) return flat;
+  Object.entries(nested).forEach(([moduleKey, actions]) => {
+    if (typeof actions === 'object' && actions !== null) {
+      Object.entries(actions).forEach(([action, value]) => {
+        // Handle placeholder key from nesting or reconstruct full key
+        const finalKey = action === '_' ? moduleKey : `${moduleKey}.${action}`;
+        flat[finalKey] = Boolean(value);
+      });
+    }
+  });
+  return flat;
+};
 
 export function EditRoleDialog({
   open,
@@ -73,7 +120,9 @@ export function EditRoleDialog({
   role,
   onSubmit
 }: EditRoleDialogProps) {
-  const [allPermissionKeys, setAllPermissionKeys] = useState<string[]>([]);
+  const [allFlatPermissionKeys, setAllFlatPermissionKeys] = useState<string[]>(
+    []
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPermissionCheck, setShowPermissionCheck] = useState(false);
   const [missingPermissions, setMissingPermissions] = useState<string[]>([]);
@@ -83,71 +132,90 @@ export function EditRoleDialog({
 
   // Extract all permission keys from the categories
   useEffect(() => {
-    const permissionKeys: string[] = [];
+    const keys: string[] = [];
     PERMISSION_CATEGORIES.forEach((category) => {
       category.permissions.forEach((permission) => {
-        permissionKeys.push(permission.key);
+        keys.push(permission.key);
       });
     });
-    setAllPermissionKeys(permissionKeys);
+    setAllFlatPermissionKeys(keys);
   }, []);
 
-  // Get complete permissions object with all keys
-  const getCompletePermissions = useCallback(
-    (existingPermissions: Record<string, boolean>) => {
-      const completePermissions: Record<string, boolean> = {};
-
-      // For super_admin, enable all permissions regardless of current state
-      if (isSuperAdmin) {
-        allPermissionKeys.forEach((key) => {
-          completePermissions[key] = true;
-        });
-        return completePermissions;
-      }
-
-      // For other roles, use existing permissions or defaults
-      allPermissionKeys.forEach((key) => {
-        completePermissions[key] = existingPermissions[key] || false;
+  // Initial default values for the form (nested structure)
+  const defaultFormValues = useMemo(() => {
+    const nestedPerms = nestPermissions(role.permissions || {});
+    // Ensure all possible keys are present in the nested structure
+    PERMISSION_CATEGORIES.forEach((category) => {
+      if (!nestedPerms[category.key]) nestedPerms[category.key] = {};
+      category.permissions.forEach((permission) => {
+        const action = permission.key.substring(category.key.length + 1);
+        if (nestedPerms[category.key][action] === undefined) {
+          nestedPerms[category.key][action] =
+            role.permissions?.[permission.key] || false;
+        }
       });
-      return completePermissions;
-    },
-    [allPermissionKeys, isSuperAdmin]
-  );
+    });
+
+    return {
+      role_name: role.role_name,
+      description: role.description || '',
+      permissions: nestedPerms
+    };
+  }, [role]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      role_name: role.role_name,
-      description: role.description || '',
-      permissions: role.permissions || {}
-    }
+    defaultValues: defaultFormValues
   });
 
-  // Reset form when role changes or allPermissionKeys is populated
+  // Reset form when role changes
   useEffect(() => {
-    const updatedPermissions = getCompletePermissions(role.permissions || {});
-    form.reset({
-      role_name: role.role_name,
-      description: role.description || '',
-      permissions: updatedPermissions
-    });
-  }, [form, role, getCompletePermissions]);
+    form.reset(defaultFormValues);
+  }, [form, role, defaultFormValues]);
 
+  // Adjusted handleSubmit to flatten permissions before calling onSubmit
   const handleSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
       setIsSubmitting(true);
 
-      // Ensure all permission keys are included in the submission
-      const completePermissions: Record<string, boolean> =
-        getCompletePermissions(values.permissions || {});
+      // Form values now have nested permissions
 
-      await onSubmit(role.role_key, {
+      // Flatten the nested permissions from the form values
+      const flatPermissions = flattenPermissions(values.permissions);
+
+      // Ensure all defined keys exist in the final flat map
+      allFlatPermissionKeys.forEach((key) => {
+        if (flatPermissions[key] === undefined) {
+          flatPermissions[key] = false; // Default to false if missing
+        }
+      });
+
+      console.log(
+        'Flat permissions keys count:',
+        Object.keys(flatPermissions).length
+      );
+
+      // Create the final update payload with flat permissions
+      const updatePayload = {
         role_name: values.role_name,
         description: values.description || '',
-        permissions: completePermissions
+        permissions: flatPermissions // Use the flattened version
+      };
+
+      await onSubmit(role.role_key, updatePayload); // onSubmit expects flat permissions
+
+      // Reset form using the submitted flat permissions, re-nested
+      const submittedNestedPermissions = nestPermissions(flatPermissions);
+      form.reset({
+        role_name: values.role_name,
+        description: values.description,
+        permissions: submittedNestedPermissions
       });
+
+      toast.success('Role permissions updated successfully');
     } catch (error) {
       console.error('Error updating role:', error);
+      toast.error('Failed to update role permissions');
     } finally {
       setIsSubmitting(false);
     }
@@ -321,42 +389,100 @@ export function EditRoleDialog({
 
                   <div className='space-y-6'>
                     {PERMISSION_CATEGORIES.map((category) => (
-                      <Card key={category.name}>
+                      <Card key={category.name} id={category.key}>
                         <CardHeader className='pb-3'>
                           <CardTitle>{category.name}</CardTitle>
                           <CardDescription>
                             {category.name} related permissions
                           </CardDescription>
                         </CardHeader>
-                        <CardContent className='space-y-2'>
-                          {category.permissions.map((permission) => (
-                            <FormField
-                              key={permission.key}
-                              control={form.control}
-                              name={`permissions.${permission.key}`}
-                              render={({ field }) => (
-                                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3'>
-                                  <div className='space-y-0.5'>
-                                    <FormLabel>{permission.label}</FormLabel>
-                                    <FormDescription>
-                                      {permission.key}
-                                    </FormDescription>
-                                  </div>
-                                  <FormControl>
-                                    <Switch
-                                      checked={
-                                        isSuperAdmin
-                                          ? true
-                                          : field.value || false
-                                      }
-                                      onCheckedChange={field.onChange}
-                                      disabled={isSuperAdmin || isSubmitting}
-                                    />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-                          ))}
+                        <CardContent className='space-y-4'>
+                          {/* Add permission group selector */}
+                          <RolePermissionGroups
+                            moduleKey={category.key}
+                            moduleName={category.name}
+                            permissionKeys={allFlatPermissionKeys}
+                            currentPermissions={flattenPermissions({
+                              [category.key]:
+                                form.watch('permissions')?.[category.key] || {}
+                            })}
+                            onPermissionsChange={(newFlatModulePermissions) => {
+                              console.log(
+                                `Updating permissions for module ${category.key}:`,
+                                newFlatModulePermissions
+                              );
+
+                              // Get the current full nested state from the form
+                              const currentFullNestedState =
+                                form.getValues('permissions') || {};
+
+                              // Prepare the updated actions for this module by nesting the flat input
+                              const updatedModuleActions =
+                                nestPermissions(newFlatModulePermissions)[
+                                  category.key
+                                ] || {};
+
+                              // Create the new complete nested state by replacing this module's actions
+                              const newFullNestedState: NestedPermissions = {
+                                ...currentFullNestedState,
+                                [category.key]: updatedModuleActions
+                              };
+
+                              console.log(
+                                'New full nested permissions state to set:',
+                                newFullNestedState
+                              );
+
+                              form.setValue('permissions', newFullNestedState, {
+                                shouldDirty: true,
+                                shouldValidate: true,
+                                shouldTouch: true
+                              });
+                            }}
+                            disabled={isSuperAdmin || isSubmitting}
+                          />
+
+                          <div className='grid grid-cols-2 gap-4'>
+                            {category.permissions.map((permission) => {
+                              // Construct the correct path for react-hook-form
+                              const pathParts = permission.key.split('.');
+                              const moduleKey = pathParts[0];
+                              const actionKey = pathParts.slice(1).join('.'); // Reconstruct action, handling cases like 'system.api.edit'
+                              const fieldName =
+                                `permissions.${moduleKey}.${actionKey}` as const; // Use 'as const' for type safety
+
+                              return (
+                                <FormField
+                                  key={permission.key}
+                                  control={form.control}
+                                  name={fieldName} // Use the correctly constructed nested path
+                                  render={({ field }) => (
+                                    <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                                      <div className='space-y-0.5'>
+                                        <FormLabel className='text-sm'>
+                                          {permission.label}
+                                        </FormLabel>
+                                        <FormDescription className='text-xs'>
+                                          {permission.key}
+                                        </FormDescription>
+                                      </div>
+                                      <FormControl>
+                                        <Switch
+                                          // Ensure field.value is treated as boolean
+                                          checked={Boolean(field.value)}
+                                          onCheckedChange={field.onChange}
+                                          disabled={
+                                            isSuperAdmin || isSubmitting
+                                          }
+                                          aria-readonly={isSuperAdmin}
+                                        />
+                                      </FormControl>
+                                    </FormItem>
+                                  )}
+                                />
+                              );
+                            })}
+                          </div>
                         </CardContent>
                       </Card>
                     ))}
@@ -374,6 +500,7 @@ export function EditRoleDialog({
               >
                 {isSuperAdmin ? 'Close' : 'Cancel'}
               </Button>
+
               {!isSuperAdmin && (
                 <Button type='submit' disabled={isSubmitting}>
                   {isSubmitting ? 'Saving...' : 'Save Changes'}
