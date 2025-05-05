@@ -111,10 +111,9 @@ export default function DepartmentsPage() {
               </Button>
             ) : (
               <Button
-                className='w-full sm:w-auto'
+                className='w-full sm:w-auto opacity-50'
                 disabled
                 variant='outline'
-                className='opacity-50'
               >
                 <Plus className='mr-2 h-4 w-4' />
                 Add Department
