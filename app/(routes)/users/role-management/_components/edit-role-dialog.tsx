@@ -40,6 +40,7 @@ import {
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import { AlertCircle } from 'lucide-react';
 import { RolePermissionGroups } from './role-permission-groups';
+import { PagePermissionToggle } from './page-permission-toggle';
 import { toast } from 'react-hot-toast';
 
 interface EditRoleDialogProps {
@@ -266,10 +267,11 @@ export function EditRoleDialog({
             onSubmit={form.handleSubmit(handleSubmit)}
             className='space-y-6'
           >
-            <Tabs defaultValue='details' className='w-full'>
-              <TabsList className='grid w-full grid-cols-2'>
+            <Tabs defaultValue='pages' className='w-full'>
+              <TabsList className='grid w-full grid-cols-3'>
                 <TabsTrigger value='details'>Details</TabsTrigger>
-                <TabsTrigger value='permissions'>Permissions</TabsTrigger>
+                <TabsTrigger value='pages'>Pages</TabsTrigger>
+                <TabsTrigger value='permissions'>Advanced</TabsTrigger>
               </TabsList>
 
               <TabsContent value='details' className='space-y-4 mt-4'>
@@ -329,6 +331,86 @@ export function EditRoleDialog({
                     </FormItem>
                   )}
                 />
+              </TabsContent>
+
+              <TabsContent value='pages' className='mt-4'>
+                <ScrollArea className='h-[400px] pr-4'>
+                  {isSuperAdmin && (
+                    <div className='mb-4 p-3 bg-primary/10 rounded-md'>
+                      <p className='text-sm font-medium'>
+                        Super Admin has all permissions. These settings cannot
+                        be modified.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className='mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md'>
+                    <p className='text-sm text-blue-800'>
+                      First enable access to a page, then configure specific
+                      actions when expanded.
+                    </p>
+                  </div>
+
+                  {/* New PagePermissionToggle component */}
+                  <PagePermissionToggle
+                    permissions={flattenPermissions(form.watch('permissions'))}
+                    onChange={(newPermissions) => {
+                      // Convert flat permissions back to nested format
+                      const nestedPermissions = nestPermissions(newPermissions);
+
+                      // Log permission changes for debugging
+                      console.log('Updated permissions from Page toggle:', {
+                        before: Object.keys(form.watch('permissions')).filter(
+                          (k) => form.watch('permissions')[k]
+                        ).length,
+                        after: Object.keys(newPermissions).filter(
+                          (k) => newPermissions[k]
+                        ).length
+                      });
+
+                      // Check if this is a reset action (all permissions are false)
+                      const isReset =
+                        Object.values(newPermissions).every(
+                          (value) => value === false
+                        ) ||
+                        Object.values(newPermissions).filter(Boolean).length <=
+                          2; // Allow for 1-2 default permissions
+
+                      if (isReset) {
+                        console.log(
+                          'Reset detected: Permissions have been reset to defaults'
+                        );
+
+                        // Log which menu items will still be visible in sidebar
+                        const visibleMenus = Object.entries(MENU_PERMISSIONS)
+                          .filter(
+                            ([_, permission]) =>
+                              newPermissions[permission] === true
+                          )
+                          .map(([path]) => path);
+
+                        console.log(
+                          'The following menu items will remain visible:',
+                          visibleMenus
+                        );
+
+                        // Add a toast to inform user about possible remaining visible items
+                        if (visibleMenus.length > 0) {
+                          toast.success(
+                            `Reset complete. Note: Dashboard and ${visibleMenus.length} other pages may remain visible.`
+                          );
+                        }
+                      }
+
+                      // Update the form with complete nested permissions
+                      form.setValue('permissions', nestedPermissions, {
+                        shouldDirty: true,
+                        shouldValidate: true
+                      });
+                    }}
+                    disabled={isSuperAdmin || isSubmitting}
+                  />
+                </ScrollArea>
               </TabsContent>
 
               <TabsContent value='permissions' className='mt-4'>

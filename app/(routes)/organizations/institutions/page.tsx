@@ -7,6 +7,7 @@ import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { useInstitutions } from '@/hooks/organization/use-institutions';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
@@ -35,6 +36,15 @@ export default function InstitutionsPage() {
     fetchInstitutions
   } = useInstitutions();
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewInstitutions =
+    isSuperAdmin || canAccess('organizations.institutions', 'view');
+  const canCreateInstitutions =
+    isSuperAdmin || canAccess('organizations.institutions', 'create');
+  const canEditInstitutions =
+    isSuperAdmin || canAccess('organizations.institutions', 'edit');
+
   useEffect(() => {
     fetchInstitutions();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -48,6 +58,7 @@ export default function InstitutionsPage() {
             variant='outline'
             onClick={() => fetchInstitutions()}
             className='mt-4'
+            disabled={!canViewInstitutions}
           >
             Try Again
           </Button>
@@ -87,15 +98,26 @@ export default function InstitutionsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <DownloadTemplateButton />
-            <ExportInstitutions />
-            <BulkUploadInstitutions />
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/organizations/institutions/new'>
+            {isSuperAdmin && <DownloadTemplateButton />}
+            {isSuperAdmin && <ExportInstitutions />}
+            {isSuperAdmin && <BulkUploadInstitutions />}
+            {canCreateInstitutions ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/organizations/institutions/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Add Institution
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                className='w-full sm:w-auto opacity-50'
+                disabled
+                variant='outline'
+              >
                 <Plus className='mr-2 h-4 w-4' />
                 Add Institution
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 

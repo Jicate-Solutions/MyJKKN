@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { MoreVertical, Plus, Edit, Trash2, RefreshCw } from 'lucide-react';
 import { Category, Subcategory } from '@/types/categories';
 import { CategoryService } from '@/lib/services/application/category-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -52,6 +53,18 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
   const [deletingSubcategory, setDeletingSubcategory] = useState<string | null>(
     null
   );
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewCategories =
+    isSuperAdmin || canAccess('applications.categories', 'view');
+  const canEditCategories =
+    isSuperAdmin || canAccess('applications.categories', 'edit');
+  const canDeleteCategories =
+    isSuperAdmin || canAccess('applications.categories', 'delete');
+  const canAddSubcategories =
+    isSuperAdmin ||
+    canAccess('applications.categories', 'create') ||
+    canAccess('applications.categories', 'edit');
 
   const handleDelete = async () => {
     if (!deletingCategory) return;
@@ -92,6 +105,7 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
           size='sm'
           onClick={onRefresh}
           className='ml-auto'
+          disabled={!canViewCategories}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -144,6 +158,8 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
                               size='icon'
                               className='h-5 w-5 p-0 hover:bg-secondary'
                               onClick={() => setEditingSubcategory(sub)}
+                              disabled={!canEditCategories}
+                              style={{ opacity: canEditCategories ? 1 : 0.5 }}
                             >
                               <Edit className='h-3 w-3' />
                               <span className='sr-only'>Edit {sub.name}</span>
@@ -153,6 +169,8 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
                               size='icon'
                               className='h-5 w-5 p-0 text-destructive hover:bg-destructive/10'
                               onClick={() => setDeletingSubcategory(sub.id)}
+                              disabled={!canDeleteCategories}
+                              style={{ opacity: canDeleteCategories ? 1 : 0.5 }}
                             >
                               <Trash2 className='h-3 w-3' />
                               <span className='sr-only'>Delete {sub.name}</span>
@@ -178,22 +196,44 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end' className='w-[200px]'>
                         <DropdownMenuItem
-                          onClick={() => setAddingSubcategoryTo(category.id)}
+                          onClick={
+                            canAddSubcategories
+                              ? () => setAddingSubcategoryTo(category.id)
+                              : undefined
+                          }
+                          disabled={!canAddSubcategories}
                           className='cursor-pointer'
+                          style={{ opacity: canAddSubcategories ? 1 : 0.5 }}
                         >
                           <Plus className='mr-2 h-4 w-4' />
                           Add Subcategory
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={() => setEditingCategory(category)}
+                          onClick={
+                            canEditCategories
+                              ? () => setEditingCategory(category)
+                              : undefined
+                          }
+                          disabled={!canEditCategories}
                           className='cursor-pointer'
+                          style={{ opacity: canEditCategories ? 1 : 0.5 }}
                         >
                           <Edit className='mr-2 h-4 w-4' />
                           Edit Category
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={() => setDeletingCategory(category.id)}
-                          className='cursor-pointer text-destructive focus:bg-destructive/10'
+                          onClick={
+                            canDeleteCategories
+                              ? () => setDeletingCategory(category.id)
+                              : undefined
+                          }
+                          disabled={!canDeleteCategories}
+                          className={
+                            canDeleteCategories
+                              ? 'cursor-pointer text-destructive focus:bg-destructive/10'
+                              : 'cursor-pointer'
+                          }
+                          style={{ opacity: canDeleteCategories ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
                           Delete Category
@@ -210,7 +250,7 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
 
       <EditCategoryModal
         category={editingCategory}
-        open={!!editingCategory}
+        open={!!editingCategory && canEditCategories}
         onClose={() => setEditingCategory(null)}
         onSaved={() => {
           setEditingCategory(null);
@@ -220,7 +260,7 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
 
       <CreateSubcategoryModal
         categoryId={addingSubcategoryTo}
-        open={!!addingSubcategoryTo}
+        open={!!addingSubcategoryTo && canAddSubcategories}
         onClose={() => setAddingSubcategoryTo(null)}
         onCreated={() => {
           setAddingSubcategoryTo(null);
@@ -229,7 +269,7 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
       />
 
       <AlertDialog
-        open={!!deletingCategory}
+        open={!!deletingCategory && canDeleteCategories}
         onOpenChange={() => setDeletingCategory(null)}
       >
         <AlertDialogContent className='sm:max-w-[425px]'>
@@ -249,7 +289,7 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
               className='bg-destructive hover:bg-destructive/90'
               disabled={isLoading}
             >
-              {isLoading ? 'Deleting...' : 'Delete Category'}
+              {isLoading ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -257,7 +297,7 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
 
       <EditSubcategoryModal
         subcategory={editingSubcategory}
-        open={!!editingSubcategory}
+        open={!!editingSubcategory && canEditCategories}
         onClose={() => setEditingSubcategory(null)}
         onSaved={() => {
           setEditingSubcategory(null);
@@ -266,7 +306,7 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
       />
 
       <AlertDialog
-        open={!!deletingSubcategory}
+        open={!!deletingSubcategory && canDeleteCategories}
         onOpenChange={() => setDeletingSubcategory(null)}
       >
         <AlertDialogContent className='sm:max-w-[425px]'>
@@ -275,8 +315,9 @@ export function CategoryList({ categories, onRefresh }: CategoryListProps) {
               Delete Subcategory
             </AlertDialogTitle>
             <AlertDialogDescription className='text-muted-foreground'>
-              Are you sure you want to delete this subcategory? This action
-              cannot be undone.
+              This will permanently delete the subcategory. Applications
+              assigned to this subcategory will be moved to
+              &apos;Uncategorized&apos;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className='gap-2'>

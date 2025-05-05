@@ -56,17 +56,6 @@ export default function UsersPage() {
     }
   }, [filters]); // Add filters as dependency
 
-  // Check admin access
-  useEffect(() => {
-    const checkAccess = async () => {
-      const isAdmin = await UserService.checkIsAdmin();
-      if (!isAdmin) {
-        router.push('/unauthorized');
-      }
-    };
-    checkAccess();
-  }, [router]);
-
   // Fetch users and stats
   useEffect(() => {
     fetchData();

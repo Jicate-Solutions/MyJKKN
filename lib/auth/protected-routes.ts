@@ -2,7 +2,7 @@ import { SYSTEM_ROLES } from '@/types/auth';
 
 export const PROTECTED_ROUTES = {
   ADMIN_ONLY: {
-    paths: ['/system', '/organizations/', '/staff/', '/academic/', '/users/'],
+    paths: ['/system'],
     roles: [SYSTEM_ROLES.ADMINISTRATOR, SYSTEM_ROLES.SUPER_ADMIN]
   },
   USER_ONLY: {

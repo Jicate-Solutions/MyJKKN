@@ -48,16 +48,22 @@ export function PermissionGuard({
   fallback = null,
   loading = null
 }: PermissionGuardProps) {
-  const { isLoading, canPerformAll, canPerformAny } = usePermissions([], {
-    waitForLoad: true
-  });
+  const { isLoading, canPerformAll, canPerformAny, isSuperAdmin } =
+    usePermissions([], {
+      waitForLoad: true
+    });
 
   // Handle loading state
   if (isLoading) {
     return <>{loading}</>;
   }
 
-  // Check permissions
+  // Super admins always have access to everything
+  if (isSuperAdmin) {
+    return <>{children}</>;
+  }
+
+  // Check permissions for regular users
   const actions = Array.isArray(action) ? action : [action];
   const hasPermission = anyAction
     ? canPerformAny(module, actions)

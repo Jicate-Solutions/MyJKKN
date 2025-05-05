@@ -8,6 +8,7 @@ import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
 import { CategoryService } from '@/lib/services/application/category-service';
 import { Category } from '@/types/categories';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -27,6 +28,10 @@ export default function CategoriesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canCreateCategories =
+    isSuperAdmin || canAccess('applications.categories', 'create');
 
   const fetchCategories = async () => {
     try {
@@ -77,10 +82,17 @@ export default function CategoriesPage() {
               Manage application categories and subcategories
             </p>
           </div>
-          <Button onClick={() => setShowCreateModal(true)}>
-            <Plus className='mr-2 h-4 w-4' />
-            Add Category
-          </Button>
+          {canCreateCategories ? (
+            <Button onClick={() => setShowCreateModal(true)}>
+              <Plus className='mr-2 h-4 w-4' />
+              Add Category
+            </Button>
+          ) : (
+            <Button disabled variant='outline' className='opacity-50'>
+              <Plus className='mr-2 h-4 w-4' />
+              Add Category
+            </Button>
+          )}
         </div>
 
         <Card>
@@ -102,7 +114,7 @@ export default function CategoriesPage() {
       </div>
 
       <CreateCategoryModal
-        open={showCreateModal}
+        open={showCreateModal && canCreateCategories}
         onClose={() => setShowCreateModal(false)}
         onCreated={() => {
           setShowCreateModal(false);

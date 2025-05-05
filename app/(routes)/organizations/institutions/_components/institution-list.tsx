@@ -16,6 +16,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { Institution } from '@/types/organizations';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -67,6 +68,14 @@ export function InstitutionList({
   const [isLoading, setIsLoading] = useState(false);
   const [institutionToDelete, setInstitutionToDelete] =
     useState<Institution | null>(null);
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewInstitutions =
+    isSuperAdmin || canAccess('organizations.institutions', 'view');
+  const canEditInstitutions =
+    isSuperAdmin || canAccess('organizations.institutions', 'edit');
+  const canDeleteInstitutions =
+    isSuperAdmin || canAccess('organizations.institutions', 'delete');
 
   const handleDelete = async () => {
     if (!institutionToDelete) return;
@@ -99,6 +108,7 @@ export function InstitutionList({
           size='sm'
           onClick={onRefresh}
           className='ml-auto'
+          disabled={!canViewInstitutions}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -131,13 +141,20 @@ export function InstitutionList({
               institutions.map((institution) => (
                 <TableRow key={institution.id}>
                   <TableCell className='font-medium'>
-                    <Link
-                      href={`/organizations/institutions/${institution.id}`}
-                      className='flex items-center hover:text-primary'
-                    >
-                      <Building2 className='mr-2 h-4 w-4' />
-                      {institution.counselling_code}
-                    </Link>
+                    {canViewInstitutions ? (
+                      <Link
+                        href={`/organizations/institutions/${institution.id}`}
+                        className='flex items-center hover:text-primary'
+                      >
+                        <Building2 className='mr-2 h-4 w-4' />
+                        {institution.counselling_code}
+                      </Link>
+                    ) : (
+                      <div className='flex items-center'>
+                        <Building2 className='mr-2 h-4 w-4' />
+                        {institution.counselling_code}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>{institution.name}</TableCell>
                   <TableCell>
@@ -172,31 +189,63 @@ export function InstitutionList({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/institutions/${institution.id}`}
-                            className='cursor-pointer'
-                          >
-                            <Building2 className='mr-2 h-4 w-4' />
-                            View Details
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canViewInstitutions}
+                          disabled={!canViewInstitutions}
+                          style={{ opacity: canViewInstitutions ? 1 : 0.5 }}
+                        >
+                          {canViewInstitutions ? (
+                            <Link
+                              href={`/organizations/institutions/${institution.id}`}
+                              className='cursor-pointer'
+                            >
+                              <Building2 className='mr-2 h-4 w-4' />
+                              View
+                            </Link>
+                          ) : (
+                            <div>
+                              <Building2 className='mr-2 h-4 w-4' />
+                              View
+                            </div>
+                          )}
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/institutions/${institution.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Institution
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canEditInstitutions}
+                          disabled={!canEditInstitutions}
+                          style={{ opacity: canEditInstitutions ? 1 : 0.5 }}
+                        >
+                          {canEditInstitutions ? (
+                            <Link
+                              href={`/organizations/institutions/${institution.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className='flex items-center gap-2'>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </div>
+                          )}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onClick={() => setInstitutionToDelete(institution)}
-                          className='text-destructive focus:text-destructive cursor-pointer'
+                          onClick={
+                            canDeleteInstitutions
+                              ? () => setInstitutionToDelete(institution)
+                              : undefined
+                          }
+                          disabled={!canDeleteInstitutions}
+                          className={
+                            canDeleteInstitutions
+                              ? 'text-destructive focus:text-destructive cursor-pointer'
+                              : 'cursor-pointer'
+                          }
+                          style={{ opacity: canDeleteInstitutions ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
-                          Delete Institution
+                          Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -217,7 +266,7 @@ export function InstitutionList({
       )}
 
       <AlertDialog
-        open={!!institutionToDelete}
+        open={!!institutionToDelete && canDeleteInstitutions}
         onOpenChange={(open) => !open && setInstitutionToDelete(null)}
       >
         <AlertDialogContent>

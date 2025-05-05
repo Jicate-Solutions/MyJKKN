@@ -21,6 +21,7 @@ import { toast } from 'react-hot-toast';
 import { Profile } from '@/types/auth';
 import { UserService } from '@/lib/services/users/user-service';
 import { ROLE_LABELS, INSTITUTIONS } from '@/lib/constants/profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -55,6 +56,7 @@ import {
   CanEdit,
   CanDelete
 } from '@/components/auth/permission-guard';
+import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
 
 interface UserListProps {
   users: Profile[];
@@ -82,6 +84,7 @@ export function UserList({
   const [userToChangeRole, setUserToChangeRole] = useState<Profile | null>(
     null
   );
+  const { canAccess, isSuperAdmin } = usePermissions();
 
   const handleDeactivateUser = async () => {
     if (!userToDeactivate) return;
@@ -201,50 +204,108 @@ export function UserList({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
-                        <CanView module='users'>
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href={`/users/${user.id}`}
-                              className='cursor-pointer'
-                            >
-                              <Eye className='mr-2 h-4 w-4' />
-                              <span>View Profile</span>
-                            </Link>
-                          </DropdownMenuItem>
-                        </CanView>
-
-                        <CanEdit module='users'>
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href={`/users/${user.id}/edit`}
-                              className='cursor-pointer'
-                            >
-                              <Pencil className='mr-2 h-4 w-4' />
-                              <span>Edit User</span>
-                            </Link>
-                          </DropdownMenuItem>
-                        </CanEdit>
-
-                        <CanEdit module='roles'>
-                          <DropdownMenuItem
-                            onClick={() => handleRoleChange(user)}
+                        <DropdownMenuItem asChild>
+                          <Link
+                            href={`/users/${user.id}`}
+                            className='cursor-pointer'
+                            aria-disabled={
+                              !isSuperAdmin && !canAccess('users', 'view')
+                            }
+                            tabIndex={
+                              isSuperAdmin || canAccess('users', 'view')
+                                ? 0
+                                : -1
+                            }
+                            style={{
+                              opacity:
+                                isSuperAdmin || canAccess('users', 'view')
+                                  ? 1
+                                  : 0.5,
+                              pointerEvents:
+                                isSuperAdmin || canAccess('users', 'view')
+                                  ? 'auto'
+                                  : 'none'
+                            }}
                           >
-                            <Shield className='mr-2 h-4 w-4' />
-                            <span>Change Role</span>
-                          </DropdownMenuItem>
-                        </CanEdit>
+                            <Eye className='mr-2 h-4 w-4' />
+                            <span>View Profile</span>
+                          </Link>
+                        </DropdownMenuItem>
+
+                        <DropdownMenuItem asChild>
+                          <Link
+                            href={`/users/${user.id}/edit`}
+                            className='cursor-pointer'
+                            aria-disabled={
+                              !isSuperAdmin && !canAccess('users', 'edit')
+                            }
+                            tabIndex={
+                              isSuperAdmin || canAccess('users', 'edit')
+                                ? 0
+                                : -1
+                            }
+                            style={{
+                              opacity:
+                                isSuperAdmin || canAccess('users', 'edit')
+                                  ? 1
+                                  : 0.5,
+                              pointerEvents:
+                                isSuperAdmin || canAccess('users', 'edit')
+                                  ? 'auto'
+                                  : 'none'
+                            }}
+                          >
+                            <Pencil className='mr-2 h-4 w-4' />
+                            <span>Edit User</span>
+                          </Link>
+                        </DropdownMenuItem>
+
+                        <DropdownMenuItem
+                          onClick={
+                            isSuperAdmin || canAccess('roles', 'edit')
+                              ? () => handleRoleChange(user)
+                              : undefined
+                          }
+                          disabled={
+                            !isSuperAdmin && !canAccess('roles', 'edit')
+                          }
+                          style={{
+                            opacity:
+                              isSuperAdmin || canAccess('roles', 'edit')
+                                ? 1
+                                : 0.5
+                          }}
+                        >
+                          <Shield className='mr-2 h-4 w-4' />
+                          <span>Change Role</span>
+                        </DropdownMenuItem>
 
                         <DropdownMenuSeparator />
 
-                        <CanDelete module='users'>
-                          <DropdownMenuItem
-                            onClick={() => handleDeleteClick(user)}
-                            className='text-destructive focus:text-destructive'
-                          >
-                            <Trash2 className='mr-2 h-4 w-4' />
-                            <span>Delete User</span>
-                          </DropdownMenuItem>
-                        </CanDelete>
+                        <DropdownMenuItem
+                          onClick={
+                            isSuperAdmin || canAccess('users', 'delete')
+                              ? () => handleDeleteClick(user)
+                              : undefined
+                          }
+                          disabled={
+                            !isSuperAdmin && !canAccess('users', 'delete')
+                          }
+                          className={
+                            isSuperAdmin || canAccess('users', 'delete')
+                              ? 'text-destructive focus:text-destructive'
+                              : ''
+                          }
+                          style={{
+                            opacity:
+                              isSuperAdmin || canAccess('users', 'delete')
+                                ? 1
+                                : 0.5
+                          }}
+                        >
+                          <Trash2 className='mr-2 h-4 w-4' />
+                          <span>Delete User</span>
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

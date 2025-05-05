@@ -17,6 +17,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { Degree } from '@/types/organizations';
 import { DegreeService } from '@/lib/services/organization/degree-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -66,6 +67,14 @@ export function DegreeList({
 }: DegreeListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [degreeToDelete, setDegreeToDelete] = useState<Degree | null>(null);
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewDegrees =
+    isSuperAdmin || canAccess('organizations.degrees', 'view');
+  const canEditDegrees =
+    isSuperAdmin || canAccess('organizations.degrees', 'edit');
+  const canDeleteDegrees =
+    isSuperAdmin || canAccess('organizations.degrees', 'delete');
 
   const handleDelete = async () => {
     if (!degreeToDelete) return;
@@ -97,6 +106,7 @@ export function DegreeList({
           size='sm'
           onClick={onRefresh}
           className='ml-auto'
+          disabled={!canViewDegrees}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -130,12 +140,16 @@ export function DegreeList({
               degrees.map((degree) => (
                 <TableRow key={degree.id}>
                   <TableCell className='font-medium'>
-                    <Link
-                      href={`/organizations/degrees/${degree.id}`}
-                      className='hover:text-primary'
-                    >
-                      {degree.degree_id}
-                    </Link>
+                    {canViewDegrees ? (
+                      <Link
+                        href={`/organizations/degrees/${degree.id}`}
+                        className='hover:text-primary'
+                      >
+                        {degree.degree_id}
+                      </Link>
+                    ) : (
+                      degree.degree_id
+                    )}
                   </TableCell>
                   <TableCell>{degree.degree_name}</TableCell>
                   <TableCell>
@@ -160,28 +174,60 @@ export function DegreeList({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/degrees/${degree.id}`}
-                            className='cursor-pointer'
-                          >
-                            <FileText className='mr-2 h-4 w-4' />
-                            View Details
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canViewDegrees}
+                          disabled={!canViewDegrees}
+                          style={{ opacity: canViewDegrees ? 1 : 0.5 }}
+                        >
+                          {canViewDegrees ? (
+                            <Link
+                              href={`/organizations/degrees/${degree.id}`}
+                              className='cursor-pointer'
+                            >
+                              <FileText className='mr-2 h-4 w-4' />
+                              View Details
+                            </Link>
+                          ) : (
+                            <div>
+                              <FileText className='mr-2 h-4 w-4' />
+                              View Details
+                            </div>
+                          )}
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/degrees/${degree.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Degree
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canEditDegrees}
+                          disabled={!canEditDegrees}
+                          style={{ opacity: canEditDegrees ? 1 : 0.5 }}
+                        >
+                          {canEditDegrees ? (
+                            <Link
+                              href={`/organizations/degrees/${degree.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit Degree
+                            </Link>
+                          ) : (
+                            <div>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit Degree
+                            </div>
+                          )}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onClick={() => setDegreeToDelete(degree)}
-                          className='text-destructive focus:text-destructive cursor-pointer'
+                          onClick={
+                            canDeleteDegrees
+                              ? () => setDegreeToDelete(degree)
+                              : undefined
+                          }
+                          disabled={!canDeleteDegrees}
+                          className={
+                            canDeleteDegrees
+                              ? 'text-destructive focus:text-destructive cursor-pointer'
+                              : 'cursor-pointer'
+                          }
+                          style={{ opacity: canDeleteDegrees ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
                           Delete Degree
@@ -228,7 +274,7 @@ export function DegreeList({
       )}
 
       <AlertDialog
-        open={!!degreeToDelete}
+        open={!!degreeToDelete && canDeleteDegrees}
         onOpenChange={(open) => !open && setDegreeToDelete(null)}
       >
         <AlertDialogContent>

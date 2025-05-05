@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { UserService } from '@/lib/services/users/user-service';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { SYSTEM_ROLES } from '@/types/auth';
 
 interface UsePermissionsOptions {
   /**
@@ -17,6 +18,7 @@ export function usePermissions(
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const { waitForLoad = false } = options;
 
   // Load permissions from role
@@ -33,6 +35,12 @@ export function usePermissions(
 
         if (profileError) throw profileError;
         if (!profile) throw new Error('User profile not found');
+
+        // Check if user is a super admin
+        const isSuperAdminUser = profile.role === SYSTEM_ROLES.SUPER_ADMIN;
+        if (mounted) {
+          setIsSuperAdmin(isSuperAdminUser);
+        }
 
         // Get role permissions
         const role = await RoleService.getRoleByKey(profile.role);
@@ -63,43 +71,77 @@ export function usePermissions(
   // Check if user has all required permissions
   const hasAllPermissions = useMemo(() => {
     if (isLoading && waitForLoad) return false;
+    // Super admins always have all permissions
+    if (isSuperAdmin) return true;
     return !error && requiredPermissions.every((perm) => permissions[perm]);
-  }, [isLoading, error, requiredPermissions, permissions, waitForLoad]);
+  }, [
+    isLoading,
+    error,
+    requiredPermissions,
+    permissions,
+    waitForLoad,
+    isSuperAdmin
+  ]);
 
   // Check if user has any of the required permissions
   const hasAnyPermission = useMemo(() => {
     if (isLoading && waitForLoad) return false;
+    // Super admins always have all permissions
+    if (isSuperAdmin) return true;
     return !error && requiredPermissions.some((perm) => permissions[perm]);
-  }, [isLoading, error, requiredPermissions, permissions, waitForLoad]);
+  }, [
+    isLoading,
+    error,
+    requiredPermissions,
+    permissions,
+    waitForLoad,
+    isSuperAdmin
+  ]);
 
   // Check if user has specific permission for a module and action
   const canAccess = useCallback(
     (module: string, action: string) => {
+      // Super admins can access everything
+      if (isSuperAdmin) return true;
       const permKey = `${module}.${action}`;
       return permissions[permKey] || false;
     },
-    [permissions]
+    [permissions, isSuperAdmin]
   );
 
   // Check if user has all specified actions for a module
   const canPerformAll = useCallback(
     (module: string, actions: string[]) => {
+      // Super admins can perform all actions
+      if (isSuperAdmin) return true;
       return actions.every((action) => canAccess(module, action));
     },
-    [canAccess]
+    [canAccess, isSuperAdmin]
   );
 
   // Check if user has any of the specified actions for a module
   const canPerformAny = useCallback(
     (module: string, actions: string[]) => {
+      // Super admins can perform all actions
+      if (isSuperAdmin) return true;
       return actions.some((action) => canAccess(module, action));
     },
-    [canAccess]
+    [canAccess, isSuperAdmin]
   );
 
   // Get all permissions for a specific module
   const getModulePermissions = useCallback(
     (module: string) => {
+      // If super admin, return all actions as true
+      if (isSuperAdmin) {
+        // Create a mock permissions object with all actions set to true
+        const actions = ['view', 'create', 'edit', 'delete', 'assign'];
+        return actions.reduce((acc, action) => {
+          acc[action] = true;
+          return acc;
+        }, {} as Record<string, boolean>);
+      }
+
       return Object.entries(permissions)
         .filter(([key]) => key.startsWith(`${module}.`))
         .reduce((acc, [key, value]) => {
@@ -109,7 +151,7 @@ export function usePermissions(
           return acc;
         }, {} as Record<string, boolean>);
     },
-    [permissions]
+    [permissions, isSuperAdmin]
   );
 
   return {
@@ -118,8 +160,10 @@ export function usePermissions(
     error,
     hasAllPermissions,
     hasAnyPermission,
+    isSuperAdmin,
     // Generic permission check (legacy support)
-    can: (permission: string) => permissions[permission] || false,
+    can: (permission: string) =>
+      isSuperAdmin ? true : permissions[permission] || false,
     // New module-based permission checks
     canAccess,
     canPerformAll,

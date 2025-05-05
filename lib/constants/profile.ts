@@ -87,9 +87,13 @@ export const ROLE_LABELS: Record<string, string> = {
 
 // Default permissions for new roles
 export const DEFAULT_ROLE_PERMISSIONS = {
-  view_dashboard: true,
-  view_profile: true
+  view_dashboard: true, // Allows access to the dashboard page
+  view_profile: true // Allows users to view their own profile
 };
+
+// Add comment explaining these default permissions
+// These are the bare minimum permissions that all roles should have
+// to allow basic navigation. Any other permissions must be explicitly granted.
 
 // Permission groups for common operations
 export const PERMISSION_GROUPS = [

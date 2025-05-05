@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
-import { ArrowUp, PlusCircle } from 'lucide-react';
+import { ArrowUp, PlusCircle, AlertCircle } from 'lucide-react';
 import { RoleManagementList } from './_components/role-management-list';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { UserService } from '@/lib/services/users/user-service';
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { CreateRoleDialog } from './_components/create-role-dialog';
 import { PageBreadcrumb } from '@/components/navigation';
 import { AuthService } from '@/lib/auth/auth-service';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default function RoleManagementPage() {
   const router = useRouter();
@@ -211,6 +212,16 @@ export default function RoleManagementPage() {
             Create Role
           </Button>
         </div>
+
+        <Alert className='mb-6 border-blue-500 bg-blue-50'>
+          <AlertCircle className='h-4 w-4 text-blue-500' />
+          <AlertTitle>Improved Permission Management</AlertTitle>
+          <AlertDescription>
+            We&apos;ve updated the role editor with a new &quot;Pages&quot; tab
+            that makes it easier to manage permissions. First enable access to a
+            page, then configure the specific actions allowed for that page.
+          </AlertDescription>
+        </Alert>
 
         {isLoading ? (
           <div className='flex justify-center items-center min-h-[400px]'>
