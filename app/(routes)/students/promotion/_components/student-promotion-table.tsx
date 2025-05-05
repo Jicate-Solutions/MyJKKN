@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/table';
 import { Student } from '@/types/student';
 import { Badge } from '@/components/ui/badge';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface StudentPromotionTableProps {
   students: Student[];
@@ -24,6 +25,8 @@ export default function StudentPromotionTable({
   students,
   isLoading
 }: StudentPromotionTableProps) {
+  const { canAccess, isSuperAdmin } = usePermissions();
+
   if (isLoading) {
     return (
       <div className='py-8 text-center'>
@@ -104,20 +107,62 @@ export default function StudentPromotionTable({
                 </TableCell>
                 <TableCell className='text-right'>
                   <div className='flex justify-end gap-2'>
-                    <Button size='icon' variant='ghost' asChild>
-                      <Link href={`/students/${student.id}`}>
-                        <EyeIcon className='h-4 w-4' />
-                        <span className='sr-only'>View student</span>
-                      </Link>
-                    </Button>
-                    <Button size='icon' variant='ghost' asChild>
-                      <Link
-                        href={`/students/${student.id}/edit?returnTo=/students/promotion`}
-                      >
-                        <FileEdit className='h-4 w-4' />
-                        <span className='sr-only'>Edit student</span>
-                      </Link>
-                    </Button>
+                    {(isSuperAdmin || canAccess('students', 'view')) && (
+                      <Button size='icon' variant='ghost' asChild>
+                        <Link
+                          href={`/students/${student.id}`}
+                          aria-disabled={
+                            !isSuperAdmin && !canAccess('students', 'view')
+                          }
+                          tabIndex={
+                            isSuperAdmin || canAccess('students', 'view')
+                              ? 0
+                              : -1
+                          }
+                          style={{
+                            opacity:
+                              isSuperAdmin || canAccess('students', 'view')
+                                ? 1
+                                : 0.5,
+                            pointerEvents:
+                              isSuperAdmin || canAccess('students', 'view')
+                                ? 'auto'
+                                : 'none'
+                          }}
+                        >
+                          <EyeIcon className='h-4 w-4' />
+                          <span className='sr-only'>View student</span>
+                        </Link>
+                      </Button>
+                    )}
+                    {(isSuperAdmin || canAccess('students', 'edit')) && (
+                      <Button size='icon' variant='ghost' asChild>
+                        <Link
+                          href={`/students/${student.id}/edit?returnTo=/students/promotion`}
+                          aria-disabled={
+                            !isSuperAdmin && !canAccess('students', 'edit')
+                          }
+                          tabIndex={
+                            isSuperAdmin || canAccess('students', 'edit')
+                              ? 0
+                              : -1
+                          }
+                          style={{
+                            opacity:
+                              isSuperAdmin || canAccess('students', 'edit')
+                                ? 1
+                                : 0.5,
+                            pointerEvents:
+                              isSuperAdmin || canAccess('students', 'edit')
+                                ? 'auto'
+                                : 'none'
+                          }}
+                        >
+                          <FileEdit className='h-4 w-4' />
+                          <span className='sr-only'>Edit student</span>
+                        </Link>
+                      </Button>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>

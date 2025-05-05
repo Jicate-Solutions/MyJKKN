@@ -73,6 +73,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import StudentPromotionTable from './_components/student-promotion-table';
 import { BulkStudentUpdate } from './_components/bulk-student-update';
 import { DownloadStudentTemplateButton } from './_components/download-student-template-button';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Define the DateRange type
 type DateRange = {
@@ -91,6 +92,13 @@ export default function StudentPromotionPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewPromotion =
+    isSuperAdmin || canAccess('students.promotion', 'view');
+  const canEditPromotion =
+    isSuperAdmin || canAccess('students.promotion', 'edit');
 
   // State for institution/program filters
   const [institutions, setInstitutions] = useState<
@@ -544,15 +552,18 @@ export default function StudentPromotionPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
-            <DownloadStudentTemplateButton />
-            <BulkStudentUpdate />
-            <Button
-              variant='default'
-              onClick={() => router.push('/students')}
-              className='w-full sm:w-auto'
-            >
-              View All Students
-            </Button>
+            {isSuperAdmin && <DownloadStudentTemplateButton />}
+            {isSuperAdmin && <BulkStudentUpdate />}
+            {canViewPromotion && (
+              <Button
+                variant='default'
+                onClick={() => router.push('/students')}
+                className='w-full sm:w-auto'
+                disabled={!canViewPromotion}
+              >
+                View All Students
+              </Button>
+            )}
           </div>
         </div>
 
@@ -909,18 +920,80 @@ export default function StudentPromotionPage() {
                               </TableCell>
                               <TableCell className='text-right'>
                                 <div className='flex justify-end gap-2'>
-                                  <Button variant='outline' size='icon' asChild>
-                                    <Link href={`/students/${student.id}`}>
-                                      <EyeIcon className='h-4 w-4' />
-                                      <span className='sr-only'>View</span>
-                                    </Link>
-                                  </Button>
-                                  <Button variant='default' size='icon' asChild>
-                                    <Link href={`/students/${student.id}/edit`}>
-                                      <FileEdit className='h-4 w-4' />
-                                      <span className='sr-only'>Edit</span>
-                                    </Link>
-                                  </Button>
+                                  {(isSuperAdmin ||
+                                    canAccess('students', 'view')) && (
+                                    <Button
+                                      variant='outline'
+                                      size='icon'
+                                      asChild
+                                    >
+                                      <Link
+                                        href={`/students/${student.id}`}
+                                        aria-disabled={
+                                          !isSuperAdmin &&
+                                          !canAccess('students', 'view')
+                                        }
+                                        tabIndex={
+                                          isSuperAdmin ||
+                                          canAccess('students', 'view')
+                                            ? 0
+                                            : -1
+                                        }
+                                        style={{
+                                          opacity:
+                                            isSuperAdmin ||
+                                            canAccess('students', 'view')
+                                              ? 1
+                                              : 0.5,
+                                          pointerEvents:
+                                            isSuperAdmin ||
+                                            canAccess('students', 'view')
+                                              ? 'auto'
+                                              : 'none'
+                                        }}
+                                      >
+                                        <EyeIcon className='h-4 w-4' />
+                                        <span className='sr-only'>View</span>
+                                      </Link>
+                                    </Button>
+                                  )}
+                                  {(isSuperAdmin ||
+                                    canAccess('students', 'edit')) && (
+                                    <Button
+                                      variant='default'
+                                      size='icon'
+                                      asChild
+                                    >
+                                      <Link
+                                        href={`/students/${student.id}/edit`}
+                                        aria-disabled={
+                                          !isSuperAdmin &&
+                                          !canAccess('students', 'edit')
+                                        }
+                                        tabIndex={
+                                          isSuperAdmin ||
+                                          canAccess('students', 'edit')
+                                            ? 0
+                                            : -1
+                                        }
+                                        style={{
+                                          opacity:
+                                            isSuperAdmin ||
+                                            canAccess('students', 'edit')
+                                              ? 1
+                                              : 0.5,
+                                          pointerEvents:
+                                            isSuperAdmin ||
+                                            canAccess('students', 'edit')
+                                              ? 'auto'
+                                              : 'none'
+                                        }}
+                                      >
+                                        <FileEdit className='h-4 w-4' />
+                                        <span className='sr-only'>Edit</span>
+                                      </Link>
+                                    </Button>
+                                  )}
                                 </div>
                               </TableCell>
                             </TableRow>

@@ -103,7 +103,16 @@ export function usePermissions(
     (module: string, action: string) => {
       // Super admins can access everything
       if (isSuperAdmin) return true;
+
       const permKey = `${module}.${action}`;
+
+      // Log detailed debugging info
+      console.log(`[canAccess] Checking permission: ${permKey}`, {
+        permissionExists: permKey in permissions,
+        permissionValue: permissions[permKey],
+        allPermissions: Object.keys(permissions)
+      });
+
       return permissions[permKey] || false;
     },
     [permissions, isSuperAdmin]

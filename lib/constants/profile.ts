@@ -219,6 +219,16 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Students',
+    key: 'students',
+    permissions: [
+      { key: 'students.view', label: 'View Students' },
+      { key: 'students.edit', label: 'Edit Students' },
+      { key: 'students.promotion.view', label: 'View Promotion' },
+      { key: 'students.promotion.edit', label: 'Edit Promotion' }
+    ]
+  },
+  {
     name: 'Staff Management',
     key: 'staff',
     permissions: [

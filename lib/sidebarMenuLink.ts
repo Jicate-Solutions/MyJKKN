@@ -311,9 +311,9 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Learners Management',
       menus: [
         {
-          href: '',
+          href: '/students',
           label: 'All Learners',
-          active: pathname === '',
+          active: pathname === '/students',
           icon: Users,
           submenus: [
             {
