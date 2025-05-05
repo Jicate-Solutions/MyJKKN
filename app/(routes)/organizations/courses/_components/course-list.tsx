@@ -15,6 +15,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { Course } from '@/types/organizations';
 import { CourseService } from '@/lib/services/organization/course-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -64,6 +65,14 @@ export function CourseList({
 }: CourseListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewCourses =
+    isSuperAdmin || canAccess('organizations.courses', 'view');
+  const canEditCourses =
+    isSuperAdmin || canAccess('organizations.courses', 'edit');
+  const canDeleteCourses =
+    isSuperAdmin || canAccess('organizations.courses', 'delete');
 
   const handleDelete = async () => {
     if (!courseToDelete) return;
@@ -96,6 +105,7 @@ export function CourseList({
           size='sm'
           onClick={onRefresh}
           className='ml-auto'
+          disabled={!canViewCourses}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -128,12 +138,16 @@ export function CourseList({
               courses.map((course) => (
                 <TableRow key={course.id}>
                   <TableCell className='font-medium'>
-                    <Link
-                      href={`/organizations/courses/${course.id}`}
-                      className='hover:text-primary'
-                    >
-                      {course.course_code}
-                    </Link>
+                    {canViewCourses ? (
+                      <Link
+                        href={`/organizations/courses/${course.id}`}
+                        className='hover:text-primary'
+                      >
+                        {course.course_code}
+                      </Link>
+                    ) : (
+                      course.course_code
+                    )}
                   </TableCell>
                   <TableCell>{course.course_name}</TableCell>
                   <TableCell>{course.department?.department_name}</TableCell>
@@ -153,31 +167,63 @@ export function CourseList({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/courses/${course.id}`}
-                            className='cursor-pointer'
-                          >
-                            <BookOpen className='mr-2 h-4 w-4' />
-                            View Details
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canViewCourses}
+                          disabled={!canViewCourses}
+                          style={{ opacity: canViewCourses ? 1 : 0.5 }}
+                        >
+                          {canViewCourses ? (
+                            <Link
+                              href={`/organizations/courses/${course.id}`}
+                              className='cursor-pointer'
+                            >
+                              <BookOpen className='mr-2 h-4 w-4' />
+                              View
+                            </Link>
+                          ) : (
+                            <div>
+                              <BookOpen className='mr-2 h-4 w-4' />
+                              View
+                            </div>
+                          )}
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/courses/${course.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Course
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canEditCourses}
+                          disabled={!canEditCourses}
+                          style={{ opacity: canEditCourses ? 1 : 0.5 }}
+                        >
+                          {canEditCourses ? (
+                            <Link
+                              href={`/organizations/courses/${course.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className='flex items-center gap-2'>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </div>
+                          )}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onClick={() => setCourseToDelete(course)}
-                          className='text-destructive focus:text-destructive cursor-pointer'
+                          onClick={
+                            canDeleteCourses
+                              ? () => setCourseToDelete(course)
+                              : undefined
+                          }
+                          disabled={!canDeleteCourses}
+                          className={
+                            canDeleteCourses
+                              ? 'text-destructive focus:text-destructive cursor-pointer'
+                              : 'cursor-pointer'
+                          }
+                          style={{ opacity: canDeleteCourses ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
-                          Delete Course
+                          Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -221,7 +267,7 @@ export function CourseList({
       )}
 
       <AlertDialog
-        open={!!courseToDelete}
+        open={!!courseToDelete && canDeleteCourses}
         onOpenChange={(open) => !open && setCourseToDelete(null)}
       >
         <AlertDialogContent>

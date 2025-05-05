@@ -22,26 +22,31 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/profile';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  CardFooter
-} from '@/components/ui/card';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
-import { AlertCircle } from 'lucide-react';
-import { RolePermissionGroups } from './role-permission-groups';
-import { PagePermissionToggle } from './page-permission-toggle';
 import { toast } from 'react-hot-toast';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger
+} from '@/components/ui/accordion';
+import { Search } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
+import { Info } from 'lucide-react';
 
 interface EditRoleDialogProps {
   open: boolean;
@@ -85,15 +90,33 @@ const nestPermissions = (
 ): NestedPermissions => {
   const nested: NestedPermissions = {};
   if (!flat) return nested;
+
+  // Debug the incoming flat permissions
+  console.log('Nesting flat permissions:', flat);
+
   Object.entries(flat).forEach(([key, value]) => {
     const parts = key.split('.');
     const moduleKey = parts[0];
-    const action = parts.length > 1 ? parts.slice(1).join('.') : '_';
+
+    // Create a normalized version of the action key by replacing dots with underscores
+    // This ensures we don't have property names with dots in them
+    let actionKey;
+    if (parts.length > 1) {
+      // For multi-part keys, replace dots with underscores after the first dot
+      const remainingParts = parts.slice(1);
+      actionKey = remainingParts.join('_');
+    } else {
+      actionKey = '_'; // Default for keys without dots
+    }
+
     if (!nested[moduleKey]) {
       nested[moduleKey] = {};
     }
-    nested[moduleKey][action] = Boolean(value);
+    nested[moduleKey][actionKey] = Boolean(value);
   });
+
+  
+
   return nested;
 };
 
@@ -103,15 +126,25 @@ const flattenPermissions = (
 ): Record<string, boolean> => {
   const flat: Record<string, boolean> = {};
   if (!nested) return flat;
+
   Object.entries(nested).forEach(([moduleKey, actions]) => {
     if (typeof actions === 'object' && actions !== null) {
-      Object.entries(actions).forEach(([action, value]) => {
-        // Handle placeholder key from nesting or reconstruct full key
-        const finalKey = action === '_' ? moduleKey : `${moduleKey}.${action}`;
+      Object.entries(actions).forEach(([actionKey, value]) => {
+        // Reconstruct the original permission key
+        let finalKey;
+        if (actionKey === '_') {
+          finalKey = moduleKey; // Single-level key
+        } else {
+          // Convert underscores back to dots for multi-level keys
+          const parts = actionKey.split('_');
+          finalKey = `${moduleKey}.${parts.join('.')}`;
+        }
         flat[finalKey] = Boolean(value);
       });
     }
   });
+
+ 
   return flat;
 };
 
@@ -125,8 +158,7 @@ export function EditRoleDialog({
     []
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPermissionCheck, setShowPermissionCheck] = useState(false);
-  const [missingPermissions, setMissingPermissions] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Check if this is the super_admin role
   const isSuperAdmin = role.role_key === SYSTEM_ROLES.SUPER_ADMIN;
@@ -144,24 +176,58 @@ export function EditRoleDialog({
 
   // Initial default values for the form (nested structure)
   const defaultFormValues = useMemo(() => {
+    // Debug the incoming role permissions
+    console.log('Role permissions received:', role.permissions);
+
     const nestedPerms = nestPermissions(role.permissions || {});
+
     // Ensure all possible keys are present in the nested structure
     PERMISSION_CATEGORIES.forEach((category) => {
       if (!nestedPerms[category.key]) nestedPerms[category.key] = {};
+
       category.permissions.forEach((permission) => {
-        const action = permission.key.substring(category.key.length + 1);
-        if (nestedPerms[category.key][action] === undefined) {
-          nestedPerms[category.key][action] =
-            role.permissions?.[permission.key] || false;
+        // For multi-part permissions like "application_hub.guidelines.view"
+        const fullKey = permission.key;
+        const parts = fullKey.split('.');
+        const moduleKey = parts[0];
+
+        // Normalize action key with underscores instead of dots
+        let actionKey;
+        if (parts.length > 1) {
+          const remainingParts = parts.slice(1);
+          actionKey = remainingParts.join('_');
+        } else {
+          actionKey = '_';
+        }
+
+        // Set default value if not already present
+        if (nestedPerms[moduleKey][actionKey] === undefined) {
+          nestedPerms[moduleKey][actionKey] =
+            role.permissions?.[fullKey] || false;
+
+          // Debug when setting a specific permission
+          if (fullKey === 'application_hub.guidelines.view') {
+            console.log(
+              'Setting application_hub.guidelines.view to:',
+              role.permissions?.[fullKey],
+              'Path:',
+              `${moduleKey}.${actionKey}`
+            );
+          }
         }
       });
     });
 
-    return {
+    const result = {
       role_name: role.role_name,
       description: role.description || '',
       permissions: nestedPerms
     };
+
+    // Debug the final form values
+    console.log('Form default values:', result);
+
+    return result;
   }, [role]);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -172,14 +238,15 @@ export function EditRoleDialog({
   // Reset form when role changes
   useEffect(() => {
     form.reset(defaultFormValues);
+
+    // Debug form values after reset
+    console.log('Form values after reset:', form.getValues());
   }, [form, role, defaultFormValues]);
 
   // Adjusted handleSubmit to flatten permissions before calling onSubmit
   const handleSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
       setIsSubmitting(true);
-
-      // Form values now have nested permissions
 
       // Flatten the nested permissions from the form values
       const flatPermissions = flattenPermissions(values.permissions);
@@ -190,11 +257,6 @@ export function EditRoleDialog({
           flatPermissions[key] = false; // Default to false if missing
         }
       });
-
-      console.log(
-        'Flat permissions keys count:',
-        Object.keys(flatPermissions).length
-      );
 
       // Create the final update payload with flat permissions
       const updatePayload = {
@@ -222,29 +284,144 @@ export function EditRoleDialog({
     }
   };
 
-  // Function to check for missing permissions
-  const checkMissingPermissions = () => {
-    // Get all permission keys from PERMISSION_CATEGORIES
-    const definedPermissionKeys: string[] = [];
-    PERMISSION_CATEGORIES.forEach((category) => {
-      category.permissions.forEach((permission) => {
-        definedPermissionKeys.push(permission.key);
-      });
-    });
+  // Get the active permissions count for a category
+  const getCategoryActiveCount = (categoryKey: string) => {
+    const flatPerms = flattenPermissions(form.watch('permissions'));
+    const categoryPermissions =
+      PERMISSION_CATEGORIES.find((cat) => cat.key === categoryKey)
+        ?.permissions || [];
 
-    // Check all menu permissions against defined permissions
-    const menuPermissionValues = Object.values(MENU_PERMISSIONS);
-    const missing = menuPermissionValues.filter(
-      (permKey) => !definedPermissionKeys.includes(permKey)
+    const active = categoryPermissions.reduce((count, perm) => {
+      return flatPerms[perm.key] ? count + 1 : count;
+    }, 0);
+
+    return { active, total: categoryPermissions.length };
+  };
+
+  // Toggle all permissions in a category
+  const toggleCategoryPermissions = (categoryKey: string, enabled: boolean) => {
+    if (isSuperAdmin) return; // Don't allow changes for super admin
+
+    // Prevent default form submission behavior
+    try {
+      const currentNestedPerms = { ...form.getValues('permissions') };
+      const categoryPerms = PERMISSION_CATEGORIES.find(
+        (cat) => cat.key === categoryKey
+      );
+
+      if (categoryPerms && currentNestedPerms[categoryKey]) {
+        categoryPerms.permissions.forEach((perm) => {
+          // Handle multi-part permission keys correctly
+          const fullKey = perm.key;
+          const parts = fullKey.split('.');
+          const moduleKey = parts[0];
+
+          // Normalize action key with underscores
+          let actionKey;
+          if (parts.length > 1) {
+            const remainingParts = parts.slice(1);
+            actionKey = remainingParts.join('_');
+          } else {
+            actionKey = '_';
+          }
+
+          if (currentNestedPerms[moduleKey]) {
+            currentNestedPerms[moduleKey][actionKey] = enabled;
+          }
+        });
+
+        // Update the form state without triggering submission
+        form.setValue('permissions', currentNestedPerms, {
+          shouldDirty: true,
+          shouldValidate: true,
+          shouldTouch: false // Don't mark as touched to prevent auto-submission
+        });
+      }
+    } catch (error) {
+      console.error('Error updating form permissions:', error);
+    }
+  };
+
+  // Toggle all permissions of a specific action type in a category
+  const toggleActionPermissions = (
+    categoryKey: string,
+    actionType: string,
+    enabled: boolean
+  ) => {
+    if (isSuperAdmin) return; // Don't allow changes for super admin
+
+    try {
+      const currentNestedPerms = { ...form.getValues('permissions') };
+      const categoryPerms = PERMISSION_CATEGORIES.find(
+        (cat) => cat.key === categoryKey
+      );
+
+      if (categoryPerms && currentNestedPerms[categoryKey]) {
+        // Filter permissions by action type (e.g., 'view', 'edit', 'create', 'delete')
+        const actionPerms = categoryPerms.permissions.filter(
+          (perm) =>
+            perm.key.toLowerCase().includes(`.${actionType.toLowerCase()}`) ||
+            perm.key.toLowerCase().endsWith(`.${actionType.toLowerCase()}`)
+        );
+
+        if (actionPerms.length > 0) {
+          // Update only this action type
+          actionPerms.forEach((perm) => {
+            // Handle multi-part permission keys correctly
+            const fullKey = perm.key;
+            const parts = fullKey.split('.');
+            const moduleKey = parts[0];
+
+            // Normalize action key with underscores
+            let actionKey;
+            if (parts.length > 1) {
+              const remainingParts = parts.slice(1);
+              actionKey = remainingParts.join('_');
+            } else {
+              actionKey = '_';
+            }
+
+            if (currentNestedPerms[moduleKey]) {
+              currentNestedPerms[moduleKey][actionKey] = enabled;
+            }
+          });
+
+          // Update form state
+          form.setValue('permissions', currentNestedPerms, {
+            shouldDirty: true,
+            shouldValidate: true,
+            shouldTouch: false
+          });
+        } else {
+          toast.success(`No ${actionType} permissions found in this category`, {
+            duration: 3000
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`Error updating ${actionType} permissions:`, error);
+    }
+  };
+
+  // Filter categories and permissions based on search query
+  const filteredCategories = PERMISSION_CATEGORIES.filter((category) => {
+    if (!searchQuery) return true;
+
+    const matchesCategory = category.name
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    const hasMatchingPermissions = category.permissions.some(
+      (perm) =>
+        perm.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        perm.key.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    setMissingPermissions(missing);
-    setShowPermissionCheck(true);
-  };
+    return matchesCategory || hasMatchingPermissions;
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-[600px] max-h-[90vh] overflow-y-auto'>
+      <DialogContent className='sm:max-w-[700px] max-h-[90vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>
             {isSuperAdmin
@@ -267,11 +444,10 @@ export function EditRoleDialog({
             onSubmit={form.handleSubmit(handleSubmit)}
             className='space-y-6'
           >
-            <Tabs defaultValue='pages' className='w-full'>
-              <TabsList className='grid w-full grid-cols-3'>
+            <Tabs defaultValue='details' className='w-full'>
+              <TabsList className='grid w-full grid-cols-2'>
                 <TabsTrigger value='details'>Details</TabsTrigger>
-                <TabsTrigger value='pages'>Pages</TabsTrigger>
-                <TabsTrigger value='permissions'>Advanced</TabsTrigger>
+                <TabsTrigger value='permissions'>Permissions</TabsTrigger>
               </TabsList>
 
               <TabsContent value='details' className='space-y-4 mt-4'>
@@ -333,242 +509,307 @@ export function EditRoleDialog({
                 />
               </TabsContent>
 
-              <TabsContent value='pages' className='mt-4'>
-                <ScrollArea className='h-[400px] pr-4'>
-                  {isSuperAdmin && (
-                    <div className='mb-4 p-3 bg-primary/10 rounded-md'>
-                      <p className='text-sm font-medium'>
-                        Super Admin has all permissions. These settings cannot
-                        be modified.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className='mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md'>
-                    <p className='text-sm text-blue-800'>
-                      First enable access to a page, then configure specific
-                      actions when expanded.
-                    </p>
-                  </div>
-
-                  {/* New PagePermissionToggle component */}
-                  <PagePermissionToggle
-                    permissions={flattenPermissions(form.watch('permissions'))}
-                    onChange={(newPermissions) => {
-                      // Convert flat permissions back to nested format
-                      const nestedPermissions = nestPermissions(newPermissions);
-
-                      // Log permission changes for debugging
-                      console.log('Updated permissions from Page toggle:', {
-                        before: Object.keys(form.watch('permissions')).filter(
-                          (k) => form.watch('permissions')[k]
-                        ).length,
-                        after: Object.keys(newPermissions).filter(
-                          (k) => newPermissions[k]
-                        ).length
-                      });
-
-                      // Check if this is a reset action (all permissions are false)
-                      const isReset =
-                        Object.values(newPermissions).every(
-                          (value) => value === false
-                        ) ||
-                        Object.values(newPermissions).filter(Boolean).length <=
-                          2; // Allow for 1-2 default permissions
-
-                      if (isReset) {
-                        console.log(
-                          'Reset detected: Permissions have been reset to defaults'
-                        );
-
-                        // Log which menu items will still be visible in sidebar
-                        const visibleMenus = Object.entries(MENU_PERMISSIONS)
-                          .filter(
-                            ([_, permission]) =>
-                              newPermissions[permission] === true
-                          )
-                          .map(([path]) => path);
-
-                        console.log(
-                          'The following menu items will remain visible:',
-                          visibleMenus
-                        );
-
-                        // Add a toast to inform user about possible remaining visible items
-                        if (visibleMenus.length > 0) {
-                          toast.success(
-                            `Reset complete. Note: Dashboard and ${visibleMenus.length} other pages may remain visible.`
-                          );
-                        }
-                      }
-
-                      // Update the form with complete nested permissions
-                      form.setValue('permissions', nestedPermissions, {
-                        shouldDirty: true,
-                        shouldValidate: true
-                      });
-                    }}
-                    disabled={isSuperAdmin || isSubmitting}
-                  />
-                </ScrollArea>
-              </TabsContent>
-
               <TabsContent value='permissions' className='mt-4'>
-                <ScrollArea className='h-[400px] pr-4'>
-                  {isSuperAdmin && (
-                    <div className='mb-4 p-3 bg-primary/10 rounded-md'>
-                      <p className='text-sm font-medium'>
-                        Super Admin has all permissions. These settings cannot
-                        be modified.
-                      </p>
+                <Card className='mb-4'>
+                  <CardHeader className='pb-2'>
+                    {isSuperAdmin && (
+                      <div className='mb-4 p-3 bg-primary/10 rounded-md'>
+                        <p className='text-sm font-medium'>
+                          Super Admin has all permissions. These settings cannot
+                          be modified.
+                        </p>
+                      </div>
+                    )}
+                    <div className='relative'>
+                      <Search className='absolute left-2 top-2.5 h-4 w-4 text-muted-foreground' />
+                      <Input
+                        placeholder='Search permissions...'
+                        className='pl-8'
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                      />
                     </div>
-                  )}
+                  </CardHeader>
+                  <CardContent>
+                    <p className='text-sm text-muted-foreground'>
+                      Manage permissions by expanding each category below and
+                      toggling specific permissions.
+                    </p>
+                  </CardContent>
+                </Card>
 
-                  {/* Diagnostic tool for admin users */}
-                  {role.role_key === SYSTEM_ROLES.SUPER_ADMIN && (
-                    <div className='mb-4'>
-                      <Button
-                        type='button'
-                        variant='outline'
-                        onClick={checkMissingPermissions}
-                        className='w-full'
-                      >
-                        Check for Missing Permissions
-                      </Button>
+                <ScrollArea className='h-[500px] pr-4'>
+                  <Accordion type='multiple' className='space-y-4'>
+                    {filteredCategories.map((category) => {
+                      const { active, total } = getCategoryActiveCount(
+                        category.key
+                      );
+                      const filteredPermissions = searchQuery
+                        ? category.permissions.filter(
+                            (perm) =>
+                              perm.label
+                                .toLowerCase()
+                                .includes(searchQuery.toLowerCase()) ||
+                              perm.key
+                                .toLowerCase()
+                                .includes(searchQuery.toLowerCase())
+                          )
+                        : category.permissions;
 
-                      {showPermissionCheck && (
-                        <div className='mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md'>
-                          <div className='flex items-start'>
-                            <AlertCircle className='h-5 w-5 text-yellow-500 mr-2 mt-0.5' />
-                            <div>
-                              <p className='text-sm font-medium text-yellow-800 mb-1'>
-                                Permission Configuration Status
-                              </p>
-                              {missingPermissions.length === 0 ? (
-                                <p className='text-sm text-green-600'>
-                                  All menu permissions are correctly defined! ✓
-                                </p>
-                              ) : (
-                                <>
-                                  <p className='text-sm text-yellow-700 mb-1'>
-                                    Found {missingPermissions.length}{' '}
-                                    permission(s) used in menus but not defined
-                                    in PERMISSION_CATEGORIES:
-                                  </p>
-                                  <ul className='text-xs text-yellow-700 list-disc pl-5'>
-                                    {missingPermissions.map((perm) => (
-                                      <li key={perm}>{perm}</li>
-                                    ))}
-                                  </ul>
-                                </>
-                              )}
+                      if (filteredPermissions.length === 0) return null;
+
+                      return (
+                        <AccordionItem
+                          key={category.key}
+                          value={category.key}
+                          className='border rounded-lg overflow-hidden'
+                        >
+                          <AccordionTrigger className='px-4 py-3 hover:bg-muted/50 group'>
+                            <div className='flex items-center w-full justify-between pr-4'>
+                              <div>
+                                <span className='font-medium'>
+                                  {category.name}
+                                </span>
+                              </div>
+                              <div className='flex items-center gap-2'>
+                                <Badge
+                                  variant={active > 0 ? 'default' : 'outline'}
+                                >
+                                  {active}/{total} enabled
+                                </Badge>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      )}
+                          </AccordionTrigger>
+                          <AccordionContent className='px-4 pb-3 pt-1'>
+                            {!isSuperAdmin && (
+                              <div className='flex justify-between items-center mb-3 px-1 pt-2'>
+                                <div className='flex items-center gap-1'>
+                                  <span className='text-sm font-medium'>
+                                    All permissions in this category
+                                  </span>
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Info className='h-4 w-4 text-muted-foreground cursor-help' />
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p className='max-w-xs'>
+                                          Don&apos;t forget to click &quot;Save
+                                          Changes&quot; after making your
+                                          selections
+                                        </p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                </div>
+                                <div className='flex gap-2'>
+                                  <Button
+                                    variant='outline'
+                                    size='sm'
+                                    type='button'
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleCategoryPermissions(
+                                        category.key,
+                                        true
+                                      );
+                                    }}
+                                    disabled={isSuperAdmin || isSubmitting}
+                                  >
+                                    Enable All
+                                  </Button>
+                                  <Button
+                                    variant='outline'
+                                    size='sm'
+                                    type='button'
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleCategoryPermissions(
+                                        category.key,
+                                        false
+                                      );
+                                    }}
+                                    disabled={isSuperAdmin || isSubmitting}
+                                  >
+                                    Disable All
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                            <div className='flex flex-wrap gap-2 mb-4'>
+                              <div className='flex flex-col gap-2 w-full'>
+                                <span className='text-xs font-medium text-muted-foreground'>
+                                  Enable/disable specific permission types:
+                                </span>
+                                <div className='flex flex-wrap gap-2'>
+                                  <Button
+                                    variant='secondary'
+                                    size='sm'
+                                    type='button'
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleActionPermissions(
+                                        category.key,
+                                        'view',
+                                        true
+                                      );
+                                    }}
+                                    disabled={isSuperAdmin || isSubmitting}
+                                    className='px-2 py-1 h-7 text-xs'
+                                  >
+                                    View
+                                  </Button>
+                                  <Button
+                                    variant='secondary'
+                                    size='sm'
+                                    type='button'
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleActionPermissions(
+                                        category.key,
+                                        'create',
+                                        true
+                                      );
+                                    }}
+                                    disabled={isSuperAdmin || isSubmitting}
+                                    className='px-2 py-1 h-7 text-xs'
+                                  >
+                                    Create
+                                  </Button>
+                                  <Button
+                                    variant='secondary'
+                                    size='sm'
+                                    type='button'
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleActionPermissions(
+                                        category.key,
+                                        'edit',
+                                        true
+                                      );
+                                    }}
+                                    disabled={isSuperAdmin || isSubmitting}
+                                    className='px-2 py-1 h-7 text-xs'
+                                  >
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    variant='secondary'
+                                    size='sm'
+                                    type='button'
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleActionPermissions(
+                                        category.key,
+                                        'delete',
+                                        true
+                                      );
+                                    }}
+                                    disabled={isSuperAdmin || isSubmitting}
+                                    className='px-2 py-1 h-7 text-xs'
+                                  >
+                                    Delete
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                            <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
+                              {filteredPermissions.map((permission) => {
+                                // Construct the correct path for nested form
+                                // This is the critical part for multi-level permissions
+                                const fullKey = permission.key;
+                                const parts = fullKey.split('.');
+                                const moduleKey = parts[0];
+
+                                // Normalize the action key with underscores instead of dots
+                                let actionKey;
+                                if (parts.length > 1) {
+                                  const remainingParts = parts.slice(1);
+                                  actionKey = remainingParts.join('_');
+                                } else {
+                                  actionKey = '_';
+                                }
+
+                                // Debug when rendering the specific permission
+                                if (
+                                  fullKey === 'application_hub.guidelines.view'
+                                ) {
+                                  console.log(
+                                    'Rendering application_hub.guidelines.view',
+                                    `Current value from form: ${form.getValues(
+                                      `permissions.${moduleKey}.${actionKey}`
+                                    )}`
+                                  );
+                                }
+
+                                const fieldName =
+                                  `permissions.${moduleKey}.${actionKey}` as const;
+
+                                return (
+                                  <FormField
+                                    key={permission.key}
+                                    control={form.control}
+                                    name={fieldName}
+                                    render={({ field }) => (
+                                      <div className='flex items-center justify-between space-x-2 rounded-md border p-3 hover:bg-muted/50'>
+                                        <div className='space-y-0.5'>
+                                          <FormLabel className='text-sm'>
+                                            {permission.label}
+                                          </FormLabel>
+                                          <FormDescription className='text-xs'>
+                                            {permission.key}
+                                          </FormDescription>
+                                        </div>
+                                        <FormControl>
+                                          <Switch
+                                            checked={Boolean(field.value)}
+                                            onCheckedChange={(checked) => {
+                                              field.onChange(checked);
+                                              // Debug when a permission is toggled
+                                              console.log(
+                                                `Toggled ${permission.key} to:`,
+                                                checked
+                                              );
+                                            }}
+                                            disabled={
+                                              isSuperAdmin || isSubmitting
+                                            }
+                                            aria-readonly={isSuperAdmin}
+                                            aria-label={`Toggle ${permission.label}`}
+                                          />
+                                        </FormControl>
+                                      </div>
+                                    )}
+                                  />
+                                );
+                              })}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
+                    })}
+                  </Accordion>
+
+                  {filteredCategories.length === 0 && (
+                    <div className='flex flex-col items-center justify-center py-8 text-center'>
+                      <p className='text-muted-foreground'>
+                        No permissions match your search
+                      </p>
+                      <Button
+                        variant='link'
+                        onClick={() => setSearchQuery('')}
+                        className='mt-2'
+                      >
+                        Clear search
+                      </Button>
                     </div>
                   )}
-
-                  <div className='space-y-6'>
-                    {PERMISSION_CATEGORIES.map((category) => (
-                      <Card key={category.name} id={category.key}>
-                        <CardHeader className='pb-3'>
-                          <CardTitle>{category.name}</CardTitle>
-                          <CardDescription>
-                            {category.name} related permissions
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent className='space-y-4'>
-                          {/* Add permission group selector */}
-                          <RolePermissionGroups
-                            moduleKey={category.key}
-                            moduleName={category.name}
-                            permissionKeys={allFlatPermissionKeys}
-                            currentPermissions={flattenPermissions({
-                              [category.key]:
-                                form.watch('permissions')?.[category.key] || {}
-                            })}
-                            onPermissionsChange={(newFlatModulePermissions) => {
-                              console.log(
-                                `Updating permissions for module ${category.key}:`,
-                                newFlatModulePermissions
-                              );
-
-                              // Get the current full nested state from the form
-                              const currentFullNestedState =
-                                form.getValues('permissions') || {};
-
-                              // Prepare the updated actions for this module by nesting the flat input
-                              const updatedModuleActions =
-                                nestPermissions(newFlatModulePermissions)[
-                                  category.key
-                                ] || {};
-
-                              // Create the new complete nested state by replacing this module's actions
-                              const newFullNestedState: NestedPermissions = {
-                                ...currentFullNestedState,
-                                [category.key]: updatedModuleActions
-                              };
-
-                              console.log(
-                                'New full nested permissions state to set:',
-                                newFullNestedState
-                              );
-
-                              form.setValue('permissions', newFullNestedState, {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                                shouldTouch: true
-                              });
-                            }}
-                            disabled={isSuperAdmin || isSubmitting}
-                          />
-
-                          <div className='grid grid-cols-2 gap-4'>
-                            {category.permissions.map((permission) => {
-                              // Construct the correct path for react-hook-form
-                              const pathParts = permission.key.split('.');
-                              const moduleKey = pathParts[0];
-                              const actionKey = pathParts.slice(1).join('.'); // Reconstruct action, handling cases like 'system.api.edit'
-                              const fieldName =
-                                `permissions.${moduleKey}.${actionKey}` as const; // Use 'as const' for type safety
-
-                              return (
-                                <FormField
-                                  key={permission.key}
-                                  control={form.control}
-                                  name={fieldName} // Use the correctly constructed nested path
-                                  render={({ field }) => (
-                                    <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
-                                      <div className='space-y-0.5'>
-                                        <FormLabel className='text-sm'>
-                                          {permission.label}
-                                        </FormLabel>
-                                        <FormDescription className='text-xs'>
-                                          {permission.key}
-                                        </FormDescription>
-                                      </div>
-                                      <FormControl>
-                                        <Switch
-                                          // Ensure field.value is treated as boolean
-                                          checked={Boolean(field.value)}
-                                          onCheckedChange={field.onChange}
-                                          disabled={
-                                            isSuperAdmin || isSubmitting
-                                          }
-                                          aria-readonly={isSuperAdmin}
-                                        />
-                                      </FormControl>
-                                    </FormItem>
-                                  )}
-                                />
-                              );
-                            })}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
                 </ScrollArea>
               </TabsContent>
             </Tabs>

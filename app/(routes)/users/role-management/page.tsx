@@ -81,7 +81,6 @@ export default function RoleManagementPage() {
       await RoleService.createRole(role);
       await fetchRoles();
       setShowCreateDialog(false);
-      toast.success('Role created successfully');
     } catch (error) {
       console.error('Error creating role:', error);
       toast.error(
@@ -100,10 +99,6 @@ export default function RoleManagementPage() {
       permissions?: Record<string, boolean>;
     }
   ) => {
-    console.log(
-      '>>> STEP 1: handleUpdateRole in page.tsx CALLED for key:',
-      roleKey
-    );
     try {
       setIsLoading(true);
 
@@ -121,10 +116,6 @@ export default function RoleManagementPage() {
       // Call the service to update the role
 
       await RoleService.updateRole(roleKey, cleanUpdates);
-
-      // Notify successful update
-
-      toast.success(`Role "${roleKey}" updated successfully at ${updateTime}`);
 
       // Refresh the roles list
       await fetchRoles();

@@ -7,6 +7,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { useSections } from '@/hooks/organization/use-sections';
 import { Card, CardContent } from '@/components/ui/card';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -34,9 +35,23 @@ export default function SectionsPage() {
     fetchSections
   } = useSections();
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewSections =
+    isSuperAdmin || canAccess('organizations.sections', 'view');
+  const canCreateSections =
+    isSuperAdmin || canAccess('organizations.sections', 'create');
+  const canEditSections =
+    isSuperAdmin || canAccess('organizations.sections', 'edit');
+  const canDeleteSections =
+    isSuperAdmin || canAccess('organizations.sections', 'delete');
+
   useEffect(() => {
-    fetchSections();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Only fetch sections if user has permission
+    if (canViewSections) {
+      fetchSections();
+    }
+  }, [fetchSections, canViewSections]);
 
   if (error) {
     return (
@@ -47,6 +62,7 @@ export default function SectionsPage() {
             variant='outline'
             onClick={() => fetchSections()}
             className='mt-4'
+            disabled={!canViewSections}
           >
             Try Again
           </Button>
@@ -86,15 +102,26 @@ export default function SectionsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <DownloadSectionTemplateButton />
-            <ExportSections />
-            <BulkUploadSections />
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/organizations/sections/new'>
+            {isSuperAdmin && <DownloadSectionTemplateButton />}
+            {isSuperAdmin && <ExportSections />}
+            {isSuperAdmin && <BulkUploadSections />}
+            {canCreateSections ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/organizations/sections/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Add Section
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                className='w-full sm:w-auto opacity-50'
+                disabled
+                variant='outline'
+              >
                 <Plus className='mr-2 h-4 w-4' />
                 Add Section
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -112,6 +139,8 @@ export default function SectionsPage() {
                 metadata={metadata}
                 onPageChange={changePage}
                 onRefresh={fetchSections}
+                canEdit={canEditSections}
+                canDelete={canDeleteSections}
               />
             )}
           </CardContent>

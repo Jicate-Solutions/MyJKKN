@@ -21,7 +21,6 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
@@ -32,15 +31,22 @@ import {
 } from '@/lib/constants/profile';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from '@/components/ui/card';
-import { RolePermissionGroups } from './role-permission-groups';
-import { PagePermissionToggle } from './page-permission-toggle';
-import toast from 'react-hot-toast';
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger
+} from '@/components/ui/accordion';
+import { Search, Info } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { toast } from 'react-hot-toast';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 
 interface CreateRoleDialogProps {
   open: boolean;
@@ -81,6 +87,7 @@ export function CreateRoleDialog({
 }: CreateRoleDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [allPermissionKeys, setAllPermissionKeys] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const permissionKeys: string[] = [];
@@ -151,9 +158,79 @@ export function CreateRoleDialog({
     }
   };
 
+  // Get the active permissions count for a category
+  const getCategoryActiveCount = (categoryKey: string) => {
+    const permissions = form.watch('permissions');
+    const categoryPermCount =
+      PERMISSION_CATEGORIES.find(
+        (cat) => cat.key === categoryKey
+      )?.permissions.reduce((count, perm) => {
+        return permissions[perm.key] ? count + 1 : count;
+      }, 0) || 0;
+
+    const totalPermCount =
+      PERMISSION_CATEGORIES.find((cat) => cat.key === categoryKey)?.permissions
+        .length || 0;
+
+    return { active: categoryPermCount, total: totalPermCount };
+  };
+
+  // Toggle all permissions in a category
+  const toggleCategoryPermissions = (categoryKey: string, enabled: boolean) => {
+    try {
+      // Prevent default submission behavior
+      const newPermissions = { ...form.getValues('permissions') };
+
+      PERMISSION_CATEGORIES.find(
+        (cat) => cat.key === categoryKey
+      )?.permissions.forEach((perm) => {
+        newPermissions[perm.key] = enabled;
+      });
+
+      // Update form without triggering submission
+      form.setValue('permissions', newPermissions, {
+        shouldDirty: true,
+        shouldValidate: true,
+        shouldTouch: false // Don't mark as touched to prevent auto-submission
+      });
+
+      // For create dialog, we can't save automatically since the role doesn't exist yet
+      // But we can provide feedback to the user
+      const categoryName =
+        PERMISSION_CATEGORIES.find((cat) => cat.key === categoryKey)?.name ||
+        categoryKey;
+      toast.success(
+        `All permissions in ${categoryName} ${
+          enabled ? 'enabled' : 'disabled'
+        }`,
+        {
+          duration: 3000
+        }
+      );
+    } catch (error) {
+      console.error('Error updating form permissions:', error);
+    }
+  };
+
+  // Filter categories and permissions based on search query
+  const filteredCategories = PERMISSION_CATEGORIES.filter((category) => {
+    if (!searchQuery) return true;
+
+    const matchesCategory = category.name
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    const hasMatchingPermissions = category.permissions.some(
+      (perm) =>
+        perm.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        perm.key.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    return matchesCategory || hasMatchingPermissions;
+  });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-[600px] max-h-[90vh] overflow-y-auto'>
+      <DialogContent className='sm:max-w-[700px] max-h-[90vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle>Create New Role</DialogTitle>
           <DialogDescription>
@@ -166,11 +243,10 @@ export function CreateRoleDialog({
             onSubmit={form.handleSubmit(handleSubmit)}
             className='space-y-6'
           >
-            <Tabs defaultValue='pages' className='w-full'>
-              <TabsList className='grid w-full grid-cols-3'>
+            <Tabs defaultValue='details' className='w-full'>
+              <TabsList className='grid w-full grid-cols-2'>
                 <TabsTrigger value='details'>Details</TabsTrigger>
-                <TabsTrigger value='pages'>Pages</TabsTrigger>
-                <TabsTrigger value='permissions'>Advanced</TabsTrigger>
+                <TabsTrigger value='permissions'>Permissions</TabsTrigger>
               </TabsList>
 
               <TabsContent value='details' className='space-y-4 mt-4'>
@@ -241,129 +317,173 @@ export function CreateRoleDialog({
                 />
               </TabsContent>
 
-              <TabsContent value='pages' className='mt-4'>
-                <ScrollArea className='h-[400px] pr-4'>
-                  <div className='mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md'>
-                    <p className='text-sm text-blue-800'>
-                      First enable access to a page, then configure specific
-                      actions when expanded.
-                    </p>
-                  </div>
-
-                  <PagePermissionToggle
-                    permissions={form.watch('permissions')}
-                    onChange={(newPermissions) => {
-                      // Check if this is a reset action (all permissions are false)
-                      const isReset =
-                        Object.values(newPermissions).every(
-                          (value) => value === false
-                        ) ||
-                        Object.values(newPermissions).filter(Boolean).length <=
-                          2; // Allow for 1-2 default permissions
-
-                      if (isReset) {
-                        console.log('Reset detected in Create Role Dialog');
-
-                        // Get default permissions
-                        const defaultPerms = getDefaultPermissions();
-
-                        // Log count of enabled permissions
-                        console.log(
-                          'Default permissions count:',
-                          Object.values(defaultPerms).filter(Boolean).length
-                        );
-
-                        // Apply default permissions
-                        form.setValue('permissions', defaultPerms, {
-                          shouldDirty: true,
-                          shouldValidate: true
-                        });
-
-                        // Show toast with clear information
-                        toast.success(
-                          'Permissions reset. Basic dashboard access is preserved.'
-                        );
-                      } else {
-                        form.setValue('permissions', newPermissions, {
-                          shouldDirty: true,
-                          shouldValidate: true
-                        });
-                      }
-                    }}
-                    disabled={isLoading}
-                  />
-                </ScrollArea>
-              </TabsContent>
-
               <TabsContent value='permissions' className='mt-4'>
-                <ScrollArea className='h-[400px] pr-4'>
-                  <div className='space-y-6'>
-                    {PERMISSION_CATEGORIES.map((category) => (
-                      <Card key={category.name} id={category.key}>
-                        <CardHeader className='pb-3'>
-                          <CardTitle>{category.name}</CardTitle>
-                          <CardDescription>
-                            {category.name} related permissions
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent className='space-y-4'>
-                          <RolePermissionGroups
-                            moduleKey={category.key}
-                            moduleName={category.name}
-                            permissionKeys={allPermissionKeys}
-                            currentPermissions={{
-                              ...form.watch('permissions')
-                            }}
-                            onPermissionsChange={(newPermissions) => {
-                              const updatedPermissions = {
-                                ...form.getValues('permissions'),
-                                ...newPermissions
-                              };
-                              console.log(
-                                'Updating permissions from group in create dialog:',
-                                updatedPermissions
-                              );
-                              form.setValue('permissions', updatedPermissions, {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                                shouldTouch: true
-                              });
-                            }}
-                            disabled={isLoading}
-                          />
+                <Card className='mb-4'>
+                  <CardHeader className='pb-2'>
+                    <div className='relative'>
+                      <Search className='absolute left-2 top-2.5 h-4 w-4 text-muted-foreground' />
+                      <Input
+                        placeholder='Search permissions...'
+                        className='pl-8'
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                      />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className='text-sm text-muted-foreground'>
+                      Manage permissions by expanding each category below and
+                      toggling specific permissions.
+                    </p>
+                  </CardContent>
+                </Card>
 
-                          <div className='grid grid-cols-2 gap-4'>
-                            {category.permissions.map((permission) => (
-                              <FormField
-                                key={permission.key}
-                                control={form.control}
-                                name={`permissions.${permission.key}`}
-                                render={({ field }) => (
-                                  <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
-                                    <div className='space-y-0.5'>
-                                      <FormLabel className='text-sm'>
-                                        {permission.label}
-                                      </FormLabel>
-                                      <FormDescription className='text-xs'>
-                                        {permission.key}
-                                      </FormDescription>
+                <ScrollArea className='h-[500px] pr-4'>
+                  <Accordion type='multiple' className='space-y-4'>
+                    {filteredCategories.map((category) => {
+                      const { active, total } = getCategoryActiveCount(
+                        category.key
+                      );
+                      const filteredPermissions = searchQuery
+                        ? category.permissions.filter(
+                            (perm) =>
+                              perm.label
+                                .toLowerCase()
+                                .includes(searchQuery.toLowerCase()) ||
+                              perm.key
+                                .toLowerCase()
+                                .includes(searchQuery.toLowerCase())
+                          )
+                        : category.permissions;
+
+                      if (filteredPermissions.length === 0) return null;
+
+                      return (
+                        <AccordionItem
+                          key={category.key}
+                          value={category.key}
+                          className='border rounded-lg overflow-hidden'
+                        >
+                          <AccordionTrigger className='px-4 py-3 hover:bg-muted/50 group'>
+                            <div className='flex items-center w-full justify-between pr-4'>
+                              <div>
+                                <span className='font-medium'>
+                                  {category.name}
+                                </span>
+                              </div>
+                              <div className='flex items-center gap-2'>
+                                <Badge
+                                  variant={active > 0 ? 'default' : 'outline'}
+                                >
+                                  {active}/{total} enabled
+                                </Badge>
+                              </div>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className='px-4 pb-3 pt-1'>
+                            <div className='flex justify-between items-center mb-3 px-1 pt-2'>
+                              <div className='flex items-center gap-1'>
+                                <span className='text-sm font-medium'>
+                                  All permissions in this category
+                                </span>
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Info className='h-4 w-4 text-muted-foreground cursor-help' />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p className='max-w-xs'>
+                                        Don&apos;t forget to click &quot;Create
+                                        Role&quot; after making your selections
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                              <div className='flex gap-2'>
+                                <Button
+                                  variant='outline'
+                                  size='sm'
+                                  type='button'
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    toggleCategoryPermissions(
+                                      category.key,
+                                      true
+                                    );
+                                  }}
+                                  disabled={isLoading}
+                                >
+                                  Enable All
+                                </Button>
+                                <Button
+                                  variant='outline'
+                                  size='sm'
+                                  type='button'
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    toggleCategoryPermissions(
+                                      category.key,
+                                      false
+                                    );
+                                  }}
+                                  disabled={isLoading}
+                                >
+                                  Disable All
+                                </Button>
+                              </div>
+                            </div>
+                            <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
+                              {filteredPermissions.map((permission) => (
+                                <FormField
+                                  key={permission.key}
+                                  control={form.control}
+                                  name={`permissions.${permission.key}`}
+                                  render={({ field }) => (
+                                    <div className='flex items-center justify-between space-x-2 rounded-md border p-3 hover:bg-muted/50'>
+                                      <div className='space-y-0.5'>
+                                        <FormLabel className='text-sm'>
+                                          {permission.label}
+                                        </FormLabel>
+                                        <FormDescription className='text-xs'>
+                                          {permission.key}
+                                        </FormDescription>
+                                      </div>
+                                      <FormControl>
+                                        <Switch
+                                          checked={field.value}
+                                          onCheckedChange={field.onChange}
+                                          disabled={isLoading}
+                                          aria-label={`Toggle ${permission.label}`}
+                                        />
+                                      </FormControl>
                                     </div>
-                                    <FormControl>
-                                      <Switch
-                                        checked={field.value}
-                                        onCheckedChange={field.onChange}
-                                        disabled={isLoading}
-                                      />
-                                    </FormControl>
-                                  </FormItem>
-                                )}
-                              />
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                                  )}
+                                />
+                              ))}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
+                    })}
+                  </Accordion>
+
+                  {filteredCategories.length === 0 && (
+                    <div className='flex flex-col items-center justify-center py-8 text-center'>
+                      <p className='text-muted-foreground'>
+                        No permissions match your search
+                      </p>
+                      <Button
+                        variant='link'
+                        onClick={() => setSearchQuery('')}
+                        className='mt-2'
+                      >
+                        Clear search
+                      </Button>
+                    </div>
+                  )}
                 </ScrollArea>
               </TabsContent>
             </Tabs>

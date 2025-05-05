@@ -6,6 +6,7 @@ import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { usePrograms } from '@/hooks/organization/use-programs';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
@@ -35,9 +36,21 @@ export default function ProgramsPage() {
     fetchPrograms
   } = usePrograms();
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewPrograms =
+    isSuperAdmin || canAccess('organizations.programs', 'view');
+  const canCreatePrograms =
+    isSuperAdmin || canAccess('organizations.programs', 'create');
+  const canEditPrograms =
+    isSuperAdmin || canAccess('organizations.programs', 'edit');
+
   useEffect(() => {
-    fetchPrograms();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Only fetch programs if user has permission
+    if (canViewPrograms) {
+      fetchPrograms();
+    }
+  }, [fetchPrograms, canViewPrograms]);
 
   if (error) {
     return (
@@ -48,6 +61,7 @@ export default function ProgramsPage() {
             variant='outline'
             onClick={() => fetchPrograms()}
             className='mt-4'
+            disabled={!canViewPrograms}
           >
             Try Again
           </Button>
@@ -87,15 +101,26 @@ export default function ProgramsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <DownloadProgramTemplateButton />
-            <ExportPrograms />
-            <BulkUploadPrograms />
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/organizations/programs/new'>
+            {isSuperAdmin && <DownloadProgramTemplateButton />}
+            {isSuperAdmin && <ExportPrograms />}
+            {isSuperAdmin && <BulkUploadPrograms />}
+            {canCreatePrograms ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/organizations/programs/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Add Program
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                className='w-full sm:w-auto opacity-50'
+                disabled
+                variant='outline'
+              >
                 <Plus className='mr-2 h-4 w-4' />
                 Add Program
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 

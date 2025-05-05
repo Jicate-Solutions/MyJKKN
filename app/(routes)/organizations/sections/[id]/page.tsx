@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, PenSquare } from 'lucide-react';
 import { SectionService } from '@/lib/services/organization/section-service';
 import type { Section } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -31,9 +32,22 @@ export default function SectionDetailsPage({
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<Section | null>(null);
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewSections =
+    isSuperAdmin || canAccess('organizations.sections', 'view');
+  const canEditSections =
+    isSuperAdmin || canAccess('organizations.sections', 'edit');
+
   useEffect(() => {
     async function fetchSection() {
       try {
+        if (!canViewSections) {
+          setError("You don't have permission to view sections");
+          setLoading(false);
+          return;
+        }
+
         setLoading(true);
         setError(null);
         const data = await SectionService.getSection(id);
@@ -49,7 +63,7 @@ export default function SectionDetailsPage({
     }
 
     fetchSection();
-  }, [id]);
+  }, [id, canViewSections]);
 
   if (loading) {
     return (
@@ -112,12 +126,19 @@ export default function SectionDetailsPage({
               Section Details
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/organizations/sections/${id}/edit`}>
+          {canEditSections ? (
+            <Button asChild>
+              <Link href={`/organizations/sections/${id}/edit`}>
+                <PenSquare className='mr-2 h-4 w-4' />
+                Edit
+              </Link>
+            </Button>
+          ) : (
+            <Button variant='outline' disabled className='opacity-50'>
               <PenSquare className='mr-2 h-4 w-4' />
-              Edit Section
-            </Link>
-          </Button>
+              Edit
+            </Button>
+          )}
         </div>
 
         <Card>
