@@ -101,7 +101,6 @@ export function RolesList({
     try {
       setIsUpdating(true);
       await onRoleUpdate(pendingUpdate.userId, pendingUpdate.newRole);
-      toast.success('Role updated successfully');
     } catch (error) {
       console.error('Error updating role:', error);
       toast.error(

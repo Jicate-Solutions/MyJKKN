@@ -2,10 +2,11 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -31,9 +32,21 @@ export default function CourseMappingsPage() {
     fetchCourseMappings
   } = useCourseMappings();
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewCourseMappings =
+    isSuperAdmin || canAccess('organizations.course_mappings', 'view');
+  const canCreateCourseMappings =
+    isSuperAdmin || canAccess('organizations.course_mappings', 'create');
+  const canEditCourseMappings =
+    isSuperAdmin || canAccess('organizations.course_mappings', 'edit');
+
   useEffect(() => {
-    fetchCourseMappings();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Only fetch course mappings if user has permission
+    if (canViewCourseMappings) {
+      fetchCourseMappings();
+    }
+  }, [fetchCourseMappings, canViewCourseMappings]);
 
   if (error) {
     return (
@@ -44,6 +57,7 @@ export default function CourseMappingsPage() {
             variant='outline'
             onClick={() => fetchCourseMappings()}
             className='mt-4'
+            disabled={!canViewCourseMappings}
           >
             Try Again
           </Button>
@@ -89,12 +103,23 @@ export default function CourseMappingsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/organizations/courses/mappings/new'>
+            {canCreateCourseMappings ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/organizations/courses/mappings/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Map Course
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                className='w-full sm:w-auto opacity-50'
+                disabled
+                variant='outline'
+              >
                 <Plus className='mr-2 h-4 w-4' />
                 Map Course
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 

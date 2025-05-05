@@ -54,13 +54,17 @@ interface SectionListProps {
   };
   onPageChange: (page: number) => void;
   onRefresh: () => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 export function SectionList({
   sections,
   metadata,
   onPageChange,
-  onRefresh
+  onRefresh,
+  canEdit = false,
+  canDelete = false
 }: SectionListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [sectionToDelete, setSectionToDelete] = useState<Section | null>(null);
@@ -165,26 +169,46 @@ export function SectionList({
                             className='cursor-pointer'
                           >
                             <FileText className='mr-2 h-4 w-4' />
-                            View Details
+                            View  
                           </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/sections/${section.id}/edit`}
-                            className='cursor-pointer'
-                          >
+
+                        {canEdit ? (
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/organizations/sections/${section.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit 
+                            </Link>
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem disabled className='opacity-50'>
                             <Edit className='mr-2 h-4 w-4' />
-                            Edit Section
-                          </Link>
-                        </DropdownMenuItem>
+                            Edit 
+                          </DropdownMenuItem>
+                        )}
+
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => setSectionToDelete(section)}
-                          className='text-destructive focus:text-destructive cursor-pointer'
-                        >
-                          <Trash2 className='mr-2 h-4 w-4' />
-                          Delete Section
-                        </DropdownMenuItem>
+
+                        {canDelete ? (
+                          <DropdownMenuItem
+                            onClick={() => setSectionToDelete(section)}
+                            className='text-destructive focus:text-destructive cursor-pointer'
+                          >
+                            <Trash2 className='mr-2 h-4 w-4' />
+                            Delete 
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem
+                            disabled
+                            className='text-destructive opacity-50'
+                          >
+                            <Trash2 className='mr-2 h-4 w-4' />
+                            Delete Section
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

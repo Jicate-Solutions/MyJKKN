@@ -15,6 +15,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { Semester } from '@/types/organizations';
 import { SemesterService } from '@/lib/services/organization/semester-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -66,6 +67,14 @@ export function SemesterList({
   const [semesterToDelete, setSemesterToDelete] = useState<Semester | null>(
     null
   );
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewSemesters =
+    isSuperAdmin || canAccess('organizations.semesters', 'view');
+  const canEditSemesters =
+    isSuperAdmin || canAccess('organizations.semesters', 'edit');
+  const canDeleteSemesters =
+    isSuperAdmin || canAccess('organizations.semesters', 'delete');
 
   const handleDelete = async () => {
     if (!semesterToDelete) return;
@@ -98,6 +107,7 @@ export function SemesterList({
           size='sm'
           onClick={onRefresh}
           className='ml-auto'
+          disabled={!canViewSemesters}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -131,12 +141,16 @@ export function SemesterList({
               semesters.map((semester) => (
                 <TableRow key={semester.id}>
                   <TableCell className='font-medium'>
-                    <Link
-                      href={`/organizations/semesters/${semester.id}`}
-                      className='hover:text-primary'
-                    >
-                      {semester.semester_code}
-                    </Link>
+                    {canViewSemesters ? (
+                      <Link
+                        href={`/organizations/semesters/${semester.id}`}
+                        className='hover:text-primary'
+                      >
+                        {semester.semester_code}
+                      </Link>
+                    ) : (
+                      semester.semester_code
+                    )}
                   </TableCell>
                   <TableCell>{semester.semester_name}</TableCell>
                   <TableCell>
@@ -163,31 +177,63 @@ export function SemesterList({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/semesters/${semester.id}`}
-                            className='cursor-pointer'
-                          >
-                            <FileText className='mr-2 h-4 w-4' />
-                            View Details
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canViewSemesters}
+                          disabled={!canViewSemesters}
+                          style={{ opacity: canViewSemesters ? 1 : 0.5 }}
+                        >
+                          {canViewSemesters ? (
+                            <Link
+                              href={`/organizations/semesters/${semester.id}`}
+                              className='cursor-pointer'
+                            >
+                              <FileText className='mr-2 h-4 w-4' />
+                              View
+                            </Link>
+                          ) : (
+                            <div>
+                              <FileText className='mr-2 h-4 w-4' />
+                              View
+                            </div>
+                          )}
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/semesters/${semester.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Semester
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canEditSemesters}
+                          disabled={!canEditSemesters}
+                          style={{ opacity: canEditSemesters ? 1 : 0.5 }}
+                        >
+                          {canEditSemesters ? (
+                            <Link
+                              href={`/organizations/semesters/${semester.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className='flex items-center gap-2'>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </div>
+                          )}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onClick={() => setSemesterToDelete(semester)}
-                          className='text-destructive focus:text-destructive cursor-pointer'
+                          onClick={
+                            canDeleteSemesters
+                              ? () => setSemesterToDelete(semester)
+                              : undefined
+                          }
+                          disabled={!canDeleteSemesters}
+                          className={
+                            canDeleteSemesters
+                              ? 'text-destructive focus:text-destructive cursor-pointer'
+                              : 'cursor-pointer'
+                          }
+                          style={{ opacity: canDeleteSemesters ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
-                          Delete Semester
+                          Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -231,7 +277,7 @@ export function SemesterList({
       )}
 
       <AlertDialog
-        open={!!semesterToDelete}
+        open={!!semesterToDelete && canDeleteSemesters}
         onOpenChange={(open) => !open && setSemesterToDelete(null)}
       >
         <AlertDialogContent>

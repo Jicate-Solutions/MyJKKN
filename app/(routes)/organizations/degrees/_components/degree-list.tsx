@@ -185,12 +185,12 @@ export function DegreeList({
                               className='cursor-pointer'
                             >
                               <FileText className='mr-2 h-4 w-4' />
-                              View Details
+                              View
                             </Link>
                           ) : (
                             <div>
                               <FileText className='mr-2 h-4 w-4' />
-                              View Details
+                              View
                             </div>
                           )}
                         </DropdownMenuItem>
@@ -205,12 +205,12 @@ export function DegreeList({
                               className='cursor-pointer'
                             >
                               <Edit className='mr-2 h-4 w-4' />
-                              Edit Degree
+                              Edit
                             </Link>
                           ) : (
-                            <div>
+                            <div className='flex items-center gap-2'>
                               <Edit className='mr-2 h-4 w-4' />
-                              Edit Degree
+                              Edit
                             </div>
                           )}
                         </DropdownMenuItem>
@@ -230,7 +230,7 @@ export function DegreeList({
                           style={{ opacity: canDeleteDegrees ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
-                          Delete Degree
+                          Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

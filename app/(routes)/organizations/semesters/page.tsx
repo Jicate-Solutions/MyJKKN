@@ -6,6 +6,7 @@ import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { useSemesters } from '@/hooks/organization/use-semesters';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
 import {
@@ -34,9 +35,21 @@ export default function SemestersPage() {
     fetchSemesters
   } = useSemesters();
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewSemesters =
+    isSuperAdmin || canAccess('organizations.semesters', 'view');
+  const canCreateSemesters =
+    isSuperAdmin || canAccess('organizations.semesters', 'create');
+  const canEditSemesters =
+    isSuperAdmin || canAccess('organizations.semesters', 'edit');
+
   useEffect(() => {
-    fetchSemesters();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Only fetch semesters if user has permission
+    if (canViewSemesters) {
+      fetchSemesters();
+    }
+  }, [fetchSemesters, canViewSemesters]);
 
   if (error) {
     return (
@@ -47,6 +60,7 @@ export default function SemestersPage() {
             variant='outline'
             onClick={() => fetchSemesters()}
             className='mt-4'
+            disabled={!canViewSemesters}
           >
             Try Again
           </Button>
@@ -86,15 +100,26 @@ export default function SemestersPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <DownloadSemesterTemplateButton />
-            <ExportSemesters />
-            <BulkUploadSemesters />
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/organizations/semesters/new'>
+            {isSuperAdmin && <DownloadSemesterTemplateButton />}
+            {isSuperAdmin && <ExportSemesters />}
+            {isSuperAdmin && <BulkUploadSemesters />}
+            {canCreateSemesters ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/organizations/semesters/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Add Semester
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                className='w-full sm:w-auto opacity-50'
+                disabled
+                variant='outline'
+              >
                 <Plus className='mr-2 h-4 w-4' />
                 Add Semester
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 

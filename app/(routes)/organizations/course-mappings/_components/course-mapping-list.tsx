@@ -6,6 +6,7 @@ import { MoreVertical, Eye, Edit, Trash2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { CourseMapping } from '@/types/organizations';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -57,6 +58,17 @@ export function CourseMappingList({
   const [mappingToDelete, setMappingToDelete] = useState<CourseMapping | null>(
     null
   );
+
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewCourseMappings =
+    isSuperAdmin || canAccess('organizations.course_mappings', 'view');
+  const canViewCourses =
+    isSuperAdmin || canAccess('organizations.courses', 'view');
+  const canEditCourseMappings =
+    isSuperAdmin || canAccess('organizations.course_mappings', 'edit');
+  const canDeleteCourseMappings =
+    isSuperAdmin || canAccess('organizations.course_mappings', 'delete');
 
   const handleDelete = async () => {
     if (!mappingToDelete) return;
@@ -110,12 +122,16 @@ export function CourseMappingList({
                 <TableRow key={mapping.id}>
                   <TableCell>{startSerialNumber + index}</TableCell>
                   <TableCell className='font-medium'>
-                    <Link
-                      href={`/organizations/courses/${mapping.course?.id}`}
-                      className='hover:underline'
-                    >
-                      {mapping.course?.course_code}
-                    </Link>
+                    {canViewCourses ? (
+                      <Link
+                        href={`/organizations/courses/${mapping.course?.id}`}
+                        className='hover:underline'
+                      >
+                        {mapping.course?.course_code}
+                      </Link>
+                    ) : (
+                      mapping.course?.course_code
+                    )}
                   </TableCell>
                   <TableCell>{mapping.course?.course_name}</TableCell>
                   <TableCell>{mapping.department?.department_name}</TableCell>
@@ -137,34 +153,61 @@ export function CourseMappingList({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/courses/${mapping.course?.id}`}
-                          >
-                            <Eye className='mr-2 h-4 w-4' />
-                            View Course
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canViewCourses}
+                          disabled={!canViewCourses}
+                          style={{ opacity: canViewCourses ? 1 : 0.5 }}
+                        >
+                          {canViewCourses ? (
+                            <Link
+                              href={`/organizations/courses/${mapping.course?.id}`}
+                            >
+                              <Eye className='mr-2 h-4 w-4' />
+                              View
+                            </Link>
+                          ) : (
+                            <div className='flex items-center gap-2'>
+                              <Eye className='mr-2 h-4 w-4' />
+                              View
+                            </div>
+                          )}
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/courses/mappings/${mapping.id}/edit`}
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Mapping
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canEditCourseMappings}
+                          disabled={!canEditCourseMappings}
+                          style={{ opacity: canEditCourseMappings ? 1 : 0.5 }}
+                        >
+                          {canEditCourseMappings ? (
+                            <Link
+                              href={`/organizations/courses/mappings/${mapping.id}/edit`}
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className='flex items-center gap-2'>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </div>
+                          )}
                         </DropdownMenuItem>
-                        <AlertDialogTrigger asChild>
-                          <DropdownMenuItem
-                            className='text-destructive focus:text-destructive focus:bg-destructive/10'
-                            onSelect={(e) => {
-                              e.preventDefault();
-                              setMappingToDelete(mapping);
-                            }}
-                          >
-                            <Trash2 className='mr-2 h-4 w-4' />
-                            Delete Mapping
-                          </DropdownMenuItem>
-                        </AlertDialogTrigger>
+                        {canDeleteCourseMappings && (
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem
+                              className='text-destructive focus:text-destructive focus:bg-destructive/10'
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                setMappingToDelete(mapping);
+                              }}
+                              style={{
+                                opacity: canDeleteCourseMappings ? 1 : 0.5
+                              }}
+                            >
+                              <Trash2 className='mr-2 h-4 w-4' />
+                              Delete
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

@@ -192,6 +192,22 @@ export const PERMISSION_CATEGORIES = [
       { key: 'organizations.courses.create', label: 'Create Courses' },
       { key: 'organizations.courses.edit', label: 'Edit Courses' },
       { key: 'organizations.courses.delete', label: 'Delete Courses' },
+      {
+        key: 'organizations.course_mappings.view',
+        label: 'View Course Mappings'
+      },
+      {
+        key: 'organizations.course_mappings.create',
+        label: 'Create Course Mappings'
+      },
+      {
+        key: 'organizations.course_mappings.edit',
+        label: 'Edit Course Mappings'
+      },
+      {
+        key: 'organizations.course_mappings.delete',
+        label: 'Delete Course Mappings'
+      },
       { key: 'organizations.semesters.view', label: 'View Semesters' },
       { key: 'organizations.semesters.create', label: 'Create Semesters' },
       { key: 'organizations.semesters.edit', label: 'Edit Semesters' },

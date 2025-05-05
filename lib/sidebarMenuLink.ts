@@ -193,13 +193,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Settings,
           submenus: []
         }
-        // {
-        //   href: '/users/activity',
-        //   label: 'User Activity Logs',
-        //   active: pathname === '/users/activity',
-        //   icon: ClipboardList,
-        //   submenus: []
-        // }
       ]
     },
     {
@@ -245,20 +238,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Tags,
           submenus: []
         }
-        // {
-        //   href: '/applications/integrations',
-        //   label: 'API Integrations',
-        //   active: pathname === '/applications/integrations',
-        //   icon: Link2,
-        //   submenus: []
-        // },
-        // {
-        //   href: '/applications/feedback',
-        //   label: 'Application Feedback',
-        //   active: pathname === '/applications/feedback',
-        //   icon: MessageCircle,
-        //   submenus: []
-        // }
       ]
     },
 
@@ -307,9 +286,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: BookOpen,
           submenus: [
             {
-              href: '/organizations/courses/new',
-              label: 'Add New Course',
-              active: pathname === '/organizations/courses/new'
+              href: '/organizations/courses',
+              label: 'All Courses',
+              active: pathname === '/organizations/courses'
             },
             {
               href: '/organizations/courses/mappings',
@@ -397,77 +376,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         }
       ]
     },
-    // {
-    //   groupLabel: 'Support & Feedback',
-    //   menus: [
-    //     {
-    //       href: '/support/tickets',
-    //       label: 'Support Tickets',
-    //       active: pathname === '/support/tickets',
-    //       icon: HeadphonesIcon,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/support/feedback',
-    //       label: 'Feedback',
-    //       active: pathname === '/support/feedback',
-    //       icon: MessageSquare,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/support/knowledge-base',
-    //       label: 'Knowledge Base',
-    //       active: pathname === '/support/knowledge-base',
-    //       icon: FileText,
-    //       submenus: []
-    //     }
-    //   ]
-    // },
-    // {
-    //   groupLabel: 'Settings',
-    //   menus: [
-    //     {
-    //       href: '/settings/general',
-    //       label: 'General Settings',
-    //       active: pathname === '/settings/general',
-    //       icon: Settings,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/settings/auth',
-    //       label: 'Authentication Settings',
-    //       active: pathname === '/settings/auth',
-    //       icon: Lock,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/settings/security',
-    //       label: 'Security Settings',
-    //       active: pathname === '/settings/security',
-    //       icon: Shield,
-    //       submenus: []
-    //     }
-    //   ]
-    // },
-    // {
-    //   groupLabel: 'Reports & Analytics',
-    //   menus: [
-    //     {
-    //       href: '/reports/users',
-    //       label: 'User Reports',
-    //       active: pathname === '/reports/users',
-    //       icon: BarChart,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/reports/usage',
-    //       label: 'Application Usage',
-    //       active: pathname === '/reports/usage',
-    //       icon: Gauge,
-    //       submenus: []
-    //     }
-    //   ]
-    // },
+
     {
       groupLabel: 'Admissions Management',
       menus: [
@@ -583,13 +492,6 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'System',
       menus: [
-        // {
-        //   href: '/system/database',
-        //   label: 'Database Management',
-        //   active: pathname === '/system/database',
-        //   icon: Database,
-        //   submenus: []
-        // },
         {
           href: '/system/api-management',
           label: 'API Management',
@@ -597,34 +499,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Key,
           submenus: []
         }
-        // {
-        //   href: '/system/localization',
-        //   label: 'Localization',
-        //   active: pathname === '/system/localization',
-        //   icon: Globe,
-        //   submenus: []
-        // }
       ]
     }
-    // {
-    //   groupLabel: 'Help & Support',
-    //   menus: [
-    //     {
-    //       href: '/help',
-    //       label: 'Help & Documentation',
-    //       active: pathname === '/help',
-    //       icon: HelpCircle,
-    //       submenus: []
-    //     },
-    //     {
-    //       href: '/logout',
-    //       label: 'Logout',
-    //       active: false,
-    //       icon: LogOut,
-    //       submenus: []
-    //     }
-    //   ]
-    // }
   ];
 }
 

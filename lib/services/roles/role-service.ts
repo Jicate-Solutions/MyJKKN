@@ -299,7 +299,6 @@ export class RoleService {
         throw finalFetchError;
       }
 
-      toast.success(`Role updated successfully`);
       return updatedRole;
     } catch (error) {
       console.error(`Error updating role ${roleKey}:`, error);

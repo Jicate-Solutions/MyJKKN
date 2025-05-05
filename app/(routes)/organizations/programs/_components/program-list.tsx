@@ -15,6 +15,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { Program } from '@/types/organizations';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -64,6 +65,14 @@ export function ProgramList({
 }: ProgramListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [programToDelete, setProgramToDelete] = useState<Program | null>(null);
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewPrograms =
+    isSuperAdmin || canAccess('organizations.programs', 'view');
+  const canEditPrograms =
+    isSuperAdmin || canAccess('organizations.programs', 'edit');
+  const canDeletePrograms =
+    isSuperAdmin || canAccess('organizations.programs', 'delete');
 
   const handleDelete = async () => {
     if (!programToDelete) return;
@@ -95,6 +104,7 @@ export function ProgramList({
           size='sm'
           onClick={onRefresh}
           className='ml-auto'
+          disabled={!canViewPrograms}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -129,12 +139,16 @@ export function ProgramList({
               programs.map((program) => (
                 <TableRow key={program.id}>
                   <TableCell className='font-medium'>
-                    <Link
-                      href={`/organizations/programs/${program.id}`}
-                      className='hover:text-primary'
-                    >
-                      {program.program_id}
-                    </Link>
+                    {canViewPrograms ? (
+                      <Link
+                        href={`/organizations/programs/${program.id}`}
+                        className='hover:text-primary'
+                      >
+                        {program.program_id}
+                      </Link>
+                    ) : (
+                      program.program_id
+                    )}
                   </TableCell>
                   <TableCell>{program.program_name}</TableCell>
                   <TableCell>{program.degree?.degree_name || 'N/A'}</TableCell>
@@ -160,31 +174,63 @@ export function ProgramList({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/programs/${program.id}`}
-                            className='cursor-pointer'
-                          >
-                            <BookOpen className='mr-2 h-4 w-4' />
-                            View Details
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canViewPrograms}
+                          disabled={!canViewPrograms}
+                          style={{ opacity: canViewPrograms ? 1 : 0.5 }}
+                        >
+                          {canViewPrograms ? (
+                            <Link
+                              href={`/organizations/programs/${program.id}`}
+                              className='cursor-pointer'
+                            >
+                              <BookOpen className='mr-2 h-4 w-4' />
+                              View
+                            </Link>
+                          ) : (
+                            <div>
+                              <BookOpen className='mr-2 h-4 w-4' />
+                              View
+                            </div>
+                          )}
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/programs/${program.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Program
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canEditPrograms}
+                          disabled={!canEditPrograms}
+                          style={{ opacity: canEditPrograms ? 1 : 0.5 }}
+                        >
+                          {canEditPrograms ? (
+                            <Link
+                              href={`/organizations/programs/${program.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </Link>
+                          ) : (
+                            <div className='flex items-center gap-2'>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </div>
+                          )}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onClick={() => setProgramToDelete(program)}
-                          className='text-destructive focus:text-destructive cursor-pointer'
+                          onClick={
+                            canDeletePrograms
+                              ? () => setProgramToDelete(program)
+                              : undefined
+                          }
+                          disabled={!canDeletePrograms}
+                          className={
+                            canDeletePrograms
+                              ? 'text-destructive focus:text-destructive cursor-pointer'
+                              : 'cursor-pointer'
+                          }
+                          style={{ opacity: canDeletePrograms ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
-                          Delete Program
+                          Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -228,7 +274,7 @@ export function ProgramList({
       )}
 
       <AlertDialog
-        open={!!programToDelete}
+        open={!!programToDelete && canDeletePrograms}
         onOpenChange={(open) => !open && setProgramToDelete(null)}
       >
         <AlertDialogContent>

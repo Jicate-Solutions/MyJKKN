@@ -6,6 +6,7 @@ import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -34,9 +35,21 @@ export default function CoursesPage() {
     fetchCourses
   } = useCourses();
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewCourses =
+    isSuperAdmin || canAccess('organizations.courses', 'view');
+  const canCreateCourses =
+    isSuperAdmin || canAccess('organizations.courses', 'create');
+  const canEditCourses =
+    isSuperAdmin || canAccess('organizations.courses', 'edit');
+
   useEffect(() => {
-    fetchCourses();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Only fetch courses if user has permission
+    if (canViewCourses) {
+      fetchCourses();
+    }
+  }, [fetchCourses, canViewCourses]);
 
   if (error) {
     return (
@@ -47,6 +60,7 @@ export default function CoursesPage() {
             variant='outline'
             onClick={() => fetchCourses()}
             className='mt-4'
+            disabled={!canViewCourses}
           >
             Try Again
           </Button>
@@ -86,15 +100,26 @@ export default function CoursesPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <DownloadCourseTemplateButton />
-            <ExportCourses />
-            <BulkUploadCourses />
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/organizations/courses/new'>
+            {isSuperAdmin && <DownloadCourseTemplateButton />}
+            {isSuperAdmin && <ExportCourses />}
+            {isSuperAdmin && <BulkUploadCourses />}
+            {canCreateCourses ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/organizations/courses/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Add Course
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                className='w-full sm:w-auto opacity-50'
+                disabled
+                variant='outline'
+              >
                 <Plus className='mr-2 h-4 w-4' />
                 Add Course
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 
