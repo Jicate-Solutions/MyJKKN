@@ -7,6 +7,7 @@ import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { useApplications } from '@/hooks/use-applications';
+import { usePermissions } from '@/hooks/use-permissions';
 import { ApplicationList } from './_components/application-list';
 import { ApplicationFilters } from './_components/application-filters';
 import {
@@ -31,6 +32,10 @@ export default function ApplicationsPage() {
     changePage,
     fetchApplications
   } = useApplications();
+
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canCreateApplications =
+    isSuperAdmin || canAccess('applications', 'create');
 
   // Initial fetch only
   useEffect(() => {
@@ -68,12 +73,19 @@ export default function ApplicationsPage() {
               Manage and monitor applications
             </p>
           </div>
-          <Button asChild>
-            <Link href='/applications/new'>
+          {canCreateApplications ? (
+            <Button asChild>
+              <Link href='/applications/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Add New Application
+              </Link>
+            </Button>
+          ) : (
+            <Button disabled variant='outline' className='opacity-50'>
               <Plus className='mr-2 h-4 w-4' />
               Add New Application
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         <div className='grid gap-4 md:grid-cols-3'>

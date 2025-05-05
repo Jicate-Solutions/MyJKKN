@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Application } from '@/types/applications';
 import { ApplicationService } from '@/lib/services/application/application-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -62,6 +63,7 @@ export function ApplicationList({
   const router = useRouter();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const { canAccess, isSuperAdmin } = usePermissions();
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -78,6 +80,11 @@ export function ApplicationList({
     }
   };
 
+  const canViewApplications = isSuperAdmin || canAccess('applications', 'view');
+  const canEditApplications = isSuperAdmin || canAccess('applications', 'edit');
+  const canDeleteApplications =
+    isSuperAdmin || canAccess('applications', 'delete');
+
   return (
     <div className='space-y-4'>
       <div className='flex justify-end'>
@@ -86,6 +93,7 @@ export function ApplicationList({
           size='sm'
           onClick={onRefresh}
           className='ml-auto'
+          disabled={!canViewApplications}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -138,22 +146,40 @@ export function ApplicationList({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align='end'>
                       <DropdownMenuItem
-                        onClick={() => router.push(`/applications/${app.id}`)}
+                        onClick={
+                          canViewApplications
+                            ? () => router.push(`/applications/${app.id}`)
+                            : undefined
+                        }
+                        disabled={!canViewApplications}
+                        style={{ opacity: canViewApplications ? 1 : 0.5 }}
                       >
                         <Eye className='mr-2 h-4 w-4' />
                         View Details
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() =>
-                          router.push(`/applications/${app.id}/edit`)
+                        onClick={
+                          canEditApplications
+                            ? () => router.push(`/applications/${app.id}/edit`)
+                            : undefined
                         }
+                        disabled={!canEditApplications}
+                        style={{ opacity: canEditApplications ? 1 : 0.5 }}
                       >
                         <Edit className='mr-2 h-4 w-4' />
                         Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        className='text-destructive'
-                        onClick={() => setDeleteId(app.id)}
+                        className={
+                          canDeleteApplications ? 'text-destructive' : ''
+                        }
+                        onClick={
+                          canDeleteApplications
+                            ? () => setDeleteId(app.id)
+                            : undefined
+                        }
+                        disabled={!canDeleteApplications}
+                        style={{ opacity: canDeleteApplications ? 1 : 0.5 }}
                       >
                         <Trash2 className='mr-2 h-4 w-4' />
                         Delete

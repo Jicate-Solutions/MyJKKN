@@ -8,6 +8,7 @@ import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { useDepartments } from '@/hooks/organization/use-departments';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
@@ -36,6 +37,15 @@ export default function DepartmentsPage() {
     fetchDepartments
   } = useDepartments();
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewDepartments =
+    isSuperAdmin || canAccess('organizations.departments', 'view');
+  const canCreateDepartments =
+    isSuperAdmin || canAccess('organizations.departments', 'create');
+  const canEditDepartments =
+    isSuperAdmin || canAccess('organizations.departments', 'edit');
+
   useEffect(() => {
     fetchDepartments();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -49,6 +59,7 @@ export default function DepartmentsPage() {
             variant='outline'
             onClick={() => fetchDepartments()}
             className='mt-4'
+            disabled={!canViewDepartments}
           >
             Try Again
           </Button>
@@ -88,15 +99,27 @@ export default function DepartmentsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <DownloadDepartmentTemplateButton />
-            <ExportDepartments />
-            <BulkUploadDepartments />
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/organizations/departments/new'>
+            {canViewDepartments && <DownloadDepartmentTemplateButton />}
+            {canViewDepartments && <ExportDepartments />}
+            {canCreateDepartments && <BulkUploadDepartments />}
+            {canCreateDepartments ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/organizations/departments/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Add Department
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                className='w-full sm:w-auto'
+                disabled
+                variant='outline'
+                className='opacity-50'
+              >
                 <Plus className='mr-2 h-4 w-4' />
                 Add Department
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 

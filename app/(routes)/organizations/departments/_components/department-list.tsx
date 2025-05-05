@@ -17,6 +17,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { Department } from '@/types/organizations';
 import { DepartmentService } from '@/lib/services/organization/department-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -67,6 +68,14 @@ export function DepartmentList({
   const [isLoading, setIsLoading] = useState(false);
   const [departmentToDelete, setDepartmentToDelete] =
     useState<Department | null>(null);
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewDepartments =
+    isSuperAdmin || canAccess('organizations.departments', 'view');
+  const canEditDepartments =
+    isSuperAdmin || canAccess('organizations.departments', 'edit');
+  const canDeleteDepartments =
+    isSuperAdmin || canAccess('organizations.departments', 'delete');
 
   const handleDelete = async () => {
     if (!departmentToDelete) return;
@@ -99,6 +108,7 @@ export function DepartmentList({
           size='sm'
           onClick={onRefresh}
           className='ml-auto'
+          disabled={!canViewDepartments}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -132,12 +142,16 @@ export function DepartmentList({
               departments.map((department) => (
                 <TableRow key={department.id}>
                   <TableCell className='font-medium'>
-                    <Link
-                      href={`/organizations/departments/${department.id}`}
-                      className='hover:text-primary'
-                    >
-                      {department.department_code}
-                    </Link>
+                    {canViewDepartments ? (
+                      <Link
+                        href={`/organizations/departments/${department.id}`}
+                        className='hover:text-primary'
+                      >
+                        {department.department_code}
+                      </Link>
+                    ) : (
+                      department.department_code
+                    )}
                   </TableCell>
                   <TableCell>{department.department_name}</TableCell>
                   <TableCell>{department.institution?.name}</TableCell>
@@ -160,28 +174,60 @@ export function DepartmentList({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/departments/${department.id}`}
-                            className='cursor-pointer'
-                          >
-                            <FileText className='mr-2 h-4 w-4' />
-                            View Details
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canViewDepartments}
+                          disabled={!canViewDepartments}
+                          style={{ opacity: canViewDepartments ? 1 : 0.5 }}
+                        >
+                          {canViewDepartments ? (
+                            <Link
+                              href={`/organizations/departments/${department.id}`}
+                              className='cursor-pointer'
+                            >
+                              <FileText className='mr-2 h-4 w-4' />
+                              View Details
+                            </Link>
+                          ) : (
+                            <div>
+                              <FileText className='mr-2 h-4 w-4' />
+                              View Details
+                            </div>
+                          )}
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/departments/${department.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Department
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canEditDepartments}
+                          disabled={!canEditDepartments}
+                          style={{ opacity: canEditDepartments ? 1 : 0.5 }}
+                        >
+                          {canEditDepartments ? (
+                            <Link
+                              href={`/organizations/departments/${department.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit Department
+                            </Link>
+                          ) : (
+                            <div>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit Department
+                            </div>
+                          )}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onClick={() => setDepartmentToDelete(department)}
-                          className='text-destructive focus:text-destructive cursor-pointer'
+                          onClick={
+                            canDeleteDepartments
+                              ? () => setDepartmentToDelete(department)
+                              : undefined
+                          }
+                          disabled={!canDeleteDepartments}
+                          className={
+                            canDeleteDepartments
+                              ? 'text-destructive focus:text-destructive cursor-pointer'
+                              : 'cursor-pointer'
+                          }
+                          style={{ opacity: canDeleteDepartments ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
                           Delete Department
@@ -228,7 +274,7 @@ export function DepartmentList({
       )}
 
       <AlertDialog
-        open={!!departmentToDelete}
+        open={!!departmentToDelete && canDeleteDepartments}
         onOpenChange={(open) => !open && setDepartmentToDelete(null)}
       >
         <AlertDialogContent>

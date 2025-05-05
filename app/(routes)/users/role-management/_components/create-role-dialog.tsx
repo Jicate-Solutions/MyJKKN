@@ -39,6 +39,8 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { RolePermissionGroups } from './role-permission-groups';
+import { PagePermissionToggle } from './page-permission-toggle';
+import toast from 'react-hot-toast';
 
 interface CreateRoleDialogProps {
   open: boolean;
@@ -164,10 +166,11 @@ export function CreateRoleDialog({
             onSubmit={form.handleSubmit(handleSubmit)}
             className='space-y-6'
           >
-            <Tabs defaultValue='details' className='w-full'>
-              <TabsList className='grid w-full grid-cols-2'>
+            <Tabs defaultValue='pages' className='w-full'>
+              <TabsList className='grid w-full grid-cols-3'>
                 <TabsTrigger value='details'>Details</TabsTrigger>
-                <TabsTrigger value='permissions'>Permissions</TabsTrigger>
+                <TabsTrigger value='pages'>Pages</TabsTrigger>
+                <TabsTrigger value='permissions'>Advanced</TabsTrigger>
               </TabsList>
 
               <TabsContent value='details' className='space-y-4 mt-4'>
@@ -236,6 +239,60 @@ export function CreateRoleDialog({
                     </FormItem>
                   )}
                 />
+              </TabsContent>
+
+              <TabsContent value='pages' className='mt-4'>
+                <ScrollArea className='h-[400px] pr-4'>
+                  <div className='mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md'>
+                    <p className='text-sm text-blue-800'>
+                      First enable access to a page, then configure specific
+                      actions when expanded.
+                    </p>
+                  </div>
+
+                  <PagePermissionToggle
+                    permissions={form.watch('permissions')}
+                    onChange={(newPermissions) => {
+                      // Check if this is a reset action (all permissions are false)
+                      const isReset =
+                        Object.values(newPermissions).every(
+                          (value) => value === false
+                        ) ||
+                        Object.values(newPermissions).filter(Boolean).length <=
+                          2; // Allow for 1-2 default permissions
+
+                      if (isReset) {
+                        console.log('Reset detected in Create Role Dialog');
+
+                        // Get default permissions
+                        const defaultPerms = getDefaultPermissions();
+
+                        // Log count of enabled permissions
+                        console.log(
+                          'Default permissions count:',
+                          Object.values(defaultPerms).filter(Boolean).length
+                        );
+
+                        // Apply default permissions
+                        form.setValue('permissions', defaultPerms, {
+                          shouldDirty: true,
+                          shouldValidate: true
+                        });
+
+                        // Show toast with clear information
+                        toast.success(
+                          'Permissions reset. Basic dashboard access is preserved.'
+                        );
+                      } else {
+                        form.setValue('permissions', newPermissions, {
+                          shouldDirty: true,
+                          shouldValidate: true
+                        });
+                      }
+                    }}
+                    disabled={isLoading}
+                  />
+                </ScrollArea>
               </TabsContent>
 
               <TabsContent value='permissions' className='mt-4'>

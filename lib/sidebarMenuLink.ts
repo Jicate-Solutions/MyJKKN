@@ -67,6 +67,9 @@ interface MenuPermissions {
 }
 
 export const MENU_PERMISSIONS: MenuPermissions = {
+  // Overview
+  '/': 'view_dashboard', // Dashboard should have a permission too
+
   // User Management
   '/users': 'users.view',
   '/users/roles': 'roles.assign',
@@ -95,10 +98,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/semesters': 'organizations.semesters.view',
   '/organizations/sections': 'organizations.sections.view',
   '/organizations/course-mappings': 'organizations.course_mappings.view',
+  '/organizations/courses/new': 'organizations.courses.create',
+  '/organizations/courses/mappings': 'organizations.course_mappings.view',
 
   //student management
   '/students': 'students.view',
   '/students/new': 'students.create',
+  '/students/promotion': 'students.promotion.view',
 
   // Staff Management
   '/staff/category': 'staff.categories.view',
@@ -124,14 +130,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resources/physical-resources/requests': 'physical_resources.requests.view',
 
   // digital Resources
-  '/resources/digital-resources/dashboard': 'view_digital_resources_dashboard',
-  '/resources/digital-resources/resources': 'view_digital_resources',
+  '/resources/digital-resources/dashboard': 'digital_resources.dashboard.view',
+  '/resources/digital-resources/resources': 'digital_resources.view',
   '/resources/digital-resources/categories':
-    'view_digital_resources_categories',
+    'digital_resources.categories.view',
   '/resources/digital-resources/reservations':
-    'view_digital_resources_reservations',
-  '/resources/digital-resources/policies': 'view_digital_resources_policies',
-  '/resources/digital-resources/reports': 'view_digital_resources_reports',
+    'digital_resources.reservations.view',
+  '/resources/digital-resources/policies': 'digital_resources.policies.view',
+  '/resources/digital-resources/reports': 'digital_resources.reports.view',
+
+  // Generic resource paths
+  '/resources': 'resources.view',
+  '/physical-resources': 'physical_resources.view',
+  '/digital-resources': 'digital_resources.view',
 
   // System Management
   '/system/api-management': 'system.api.view'
@@ -290,25 +301,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          href: '',
+          href: '/organizations/courses',
           label: 'Courses',
-          active: pathname === '',
+          active: pathname.startsWith('/organizations/courses'),
           icon: BookOpen,
           submenus: [
             {
-              href: '/organizations/courses',
-              label: 'All Courses',
-              active: pathname === '/organizations/courses'
-            },
-            {
               href: '/organizations/courses/new',
               label: 'Add New Course',
-              active: pathname.startsWith('/organizations/courses/new')
+              active: pathname === '/organizations/courses/new'
             },
             {
               href: '/organizations/courses/mappings',
               label: 'Course Mappings',
-              active: pathname.startsWith('/organizations/courses/mappings')
+              active: pathname === '/organizations/courses/mappings'
             }
           ]
         },
@@ -652,6 +658,30 @@ export function GetRoleBasedPages(
     ];
   }
 
+  // Check if all permissions are false (role has been reset or has no permissions)
+  const hasAnyPermission = Object.values(userRole.permissions).some(
+    (value) => value === true
+  );
+
+  // If all permissions are false, only show Dashboard
+  if (!hasAnyPermission) {
+    console.log('All permissions are false - showing only Dashboard');
+    return [
+      {
+        groupLabel: 'Overview',
+        menus: [
+          {
+            href: '/',
+            label: 'Dashboard',
+            active: pathname === '/',
+            icon: Home,
+            submenus: []
+          }
+        ]
+      }
+    ];
+  }
+
   // Filter menus based on permissions
   return allMenus
     .map((group) => {
@@ -663,7 +693,14 @@ export function GetRoleBasedPages(
 
           // Check if user has permission for this menu
           const requiredPermission = MENU_PERMISSIONS[menu.href];
-          if (!requiredPermission) return true; // No specific permission required
+
+          // If no specific permission is defined, hide by default (changed behavior)
+          if (!requiredPermission) {
+            console.log(
+              `Menu ${menu.label} has no permission defined in MENU_PERMISSIONS`
+            );
+            return false;
+          }
 
           return userRole.permissions[requiredPermission] === true;
         })
@@ -673,7 +710,7 @@ export function GetRoleBasedPages(
 
           const filteredSubmenus = menu.submenus.filter((submenu) => {
             const requiredPermission = MENU_PERMISSIONS[submenu.href];
-            if (!requiredPermission) return true;
+            if (!requiredPermission) return false; // Changed to false to be consistent
 
             return userRole.permissions[requiredPermission] === true;
           });

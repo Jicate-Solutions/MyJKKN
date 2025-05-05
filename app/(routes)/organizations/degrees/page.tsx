@@ -8,6 +8,7 @@ import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -36,6 +37,15 @@ export default function DegreesPage() {
     fetchDegrees
   } = useDegrees();
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewDegrees =
+    isSuperAdmin || canAccess('organizations.degrees', 'view');
+  const canCreateDegrees =
+    isSuperAdmin || canAccess('organizations.degrees', 'create');
+  const canEditDegrees =
+    isSuperAdmin || canAccess('organizations.degrees', 'edit');
+
   useEffect(() => {
     fetchDegrees();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -49,6 +59,7 @@ export default function DegreesPage() {
             variant='outline'
             onClick={() => fetchDegrees()}
             className='mt-4'
+            disabled={!canViewDegrees}
           >
             Try Again
           </Button>
@@ -88,15 +99,26 @@ export default function DegreesPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <DownloadDegreeTemplateButton />
-            <ExportDegrees />
-            <BulkUploadDegrees />
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/organizations/degrees/new'>
+            {canViewDegrees && <DownloadDegreeTemplateButton />}
+            {canViewDegrees && <ExportDegrees />}
+            {canCreateDegrees && <BulkUploadDegrees />}
+            {canCreateDegrees ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/organizations/degrees/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Add Degree
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                disabled
+                variant='outline'
+                className='w-full sm:w-auto opacity-50'
+              >
                 <Plus className='mr-2 h-4 w-4' />
                 Add Degree
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 
