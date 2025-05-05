@@ -512,14 +512,14 @@ export function EditRoleDialog({
               <TabsContent value='permissions' className='mt-4'>
                 <Card className='mb-4'>
                   <CardHeader className='pb-2'>
-                    {isSuperAdmin && (
-                      <div className='mb-4 p-3 bg-primary/10 rounded-md'>
-                        <p className='text-sm font-medium'>
-                          Super Admin has all permissions. These settings cannot
-                          be modified.
-                        </p>
-                      </div>
-                    )}
+                  {isSuperAdmin && (
+                    <div className='mb-4 p-3 bg-primary/10 rounded-md'>
+                      <p className='text-sm font-medium'>
+                        Super Admin has all permissions. These settings cannot
+                        be modified.
+                      </p>
+                    </div>
+                  )}
                     <div className='relative'>
                       <Search className='absolute left-2 top-2.5 h-4 w-4 text-muted-foreground' />
                       <Input
@@ -566,7 +566,7 @@ export function EditRoleDialog({
                         >
                           <AccordionTrigger className='px-4 py-3 hover:bg-muted/50 group'>
                             <div className='flex items-center w-full justify-between pr-4'>
-                              <div>
+                            <div>
                                 <span className='font-medium'>
                                   {category.name}
                                 </span>
@@ -635,9 +635,9 @@ export function EditRoleDialog({
                                   >
                                     Disable All
                                   </Button>
-                                </div>
-                              </div>
-                            )}
+                          </div>
+                        </div>
+                      )}
                             <div className='flex flex-wrap gap-2 mb-4'>
                               <div className='flex flex-col gap-2 w-full'>
                                 <span className='text-xs font-medium text-muted-foreground'>
@@ -710,8 +710,8 @@ export function EditRoleDialog({
                                         'delete',
                                         true
                                       );
-                                    }}
-                                    disabled={isSuperAdmin || isSubmitting}
+                            }}
+                            disabled={isSuperAdmin || isSubmitting}
                                     className='px-2 py-1 h-7 text-xs'
                                   >
                                     Delete
@@ -748,27 +748,27 @@ export function EditRoleDialog({
                                   );
                                 }
 
-                                const fieldName =
+                              const fieldName =
                                   `permissions.${moduleKey}.${actionKey}` as const;
 
-                                return (
-                                  <FormField
-                                    key={permission.key}
-                                    control={form.control}
+                              return (
+                                <FormField
+                                  key={permission.key}
+                                  control={form.control}
                                     name={fieldName}
-                                    render={({ field }) => (
+                                  render={({ field }) => (
                                       <div className='flex items-center justify-between space-x-2 rounded-md border p-3 hover:bg-muted/50'>
-                                        <div className='space-y-0.5'>
-                                          <FormLabel className='text-sm'>
-                                            {permission.label}
-                                          </FormLabel>
-                                          <FormDescription className='text-xs'>
-                                            {permission.key}
-                                          </FormDescription>
-                                        </div>
-                                        <FormControl>
-                                          <Switch
-                                            checked={Boolean(field.value)}
+                                      <div className='space-y-0.5'>
+                                        <FormLabel className='text-sm'>
+                                          {permission.label}
+                                        </FormLabel>
+                                        <FormDescription className='text-xs'>
+                                          {permission.key}
+                                        </FormDescription>
+                                      </div>
+                                      <FormControl>
+                                        <Switch
+                                          checked={Boolean(field.value)}
                                             onCheckedChange={(checked) => {
                                               field.onChange(checked);
                                               // Debug when a permission is toggled
@@ -777,19 +777,19 @@ export function EditRoleDialog({
                                                 checked
                                               );
                                             }}
-                                            disabled={
-                                              isSuperAdmin || isSubmitting
-                                            }
-                                            aria-readonly={isSuperAdmin}
+                                          disabled={
+                                            isSuperAdmin || isSubmitting
+                                          }
+                                          aria-readonly={isSuperAdmin}
                                             aria-label={`Toggle ${permission.label}`}
-                                          />
-                                        </FormControl>
+                                        />
+                                      </FormControl>
                                       </div>
-                                    )}
-                                  />
-                                );
-                              })}
-                            </div>
+                                  )}
+                                />
+                              );
+                            })}
+                          </div>
                           </AccordionContent>
                         </AccordionItem>
                       );
@@ -808,7 +808,7 @@ export function EditRoleDialog({
                       >
                         Clear search
                       </Button>
-                    </div>
+                  </div>
                   )}
                 </ScrollArea>
               </TabsContent>

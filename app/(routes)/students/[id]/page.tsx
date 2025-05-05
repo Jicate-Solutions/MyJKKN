@@ -3,7 +3,7 @@
 import { use } from 'react';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -13,6 +13,7 @@ import StudentDetailSkeleton from '../_components/student-detail-skeleton';
 import { StudentDetailActions } from '../_components/student-detail-actions';
 import { StudentDetail } from '../_components/student-detail';
 import { Student } from '@/types/student';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface StudentDetailPageProps {
   params: Promise<{ id: string }>;
@@ -20,9 +21,26 @@ interface StudentDetailPageProps {
 
 export default function StudentDetailPage({ params }: StudentDetailPageProps) {
   const { id } = use(params);
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [student, setStudent] = useState<Student | null>(null);
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  // Check for permission to view student details
+  useEffect(() => {
+    // Add a guard to prevent redirects with helpful debugging
+    const shouldRedirect = !isSuperAdmin && !canAccess('students', 'view');
+
+    if (shouldRedirect) {
+      // This will ensure users with students.view permission can still view details
+      console.log('Access check for student details:', {
+        hasPermission: canAccess('students', 'view'),
+        isSuperAdmin
+      });
+      router.push('/unauthorized');
+    }
+  }, [isSuperAdmin, canAccess, router]);
 
   useEffect(() => {
     async function fetchStudent() {

@@ -432,3 +432,10 @@ This project includes reusable client and server utility files:
 - `lib/supabase/server.ts` - For server-side usage
 
 These files provide consistent configuration and can be imported throughout the app.
+
+
+# role permission update guide:
+
+1. first update the sidebar menu links
+2. nextupdate the profile constant to include the permission categories
+3. 

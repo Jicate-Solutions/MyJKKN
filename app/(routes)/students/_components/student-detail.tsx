@@ -12,7 +12,10 @@ import {
   Mail,
   MapPin,
   School,
-  FileEdit
+  FileEdit,
+  Home,
+  Briefcase,
+  BookText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +29,8 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Student } from '@/types/student';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface StudentDetailProps {
   student: Student;
@@ -33,6 +38,7 @@ interface StudentDetailProps {
 
 export function StudentDetail({ student }: StudentDetailProps) {
   const [activeTab, setActiveTab] = useState('overview');
+  const { canAccess, isSuperAdmin } = usePermissions();
 
   const isProfileComplete =
     !!student.roll_number &&
@@ -152,12 +158,14 @@ export function StudentDetail({ student }: StudentDetailProps) {
                   <li className='text-red-600'>Student Photo</li>
                 )}
               </ul>
-              <Button className='mt-3' size='sm' asChild>
-                <Link href={`/students/${student.id}/edit`}>
-                  <FileEdit className='mr-2 h-4 w-4' />
-                  Complete Profile
-                </Link>
-              </Button>
+              {(isSuperAdmin || canAccess('students', 'edit')) && (
+                <Button className='mt-3' size='sm' asChild>
+                  <Link href={`/students/${student.id}/edit`}>
+                    <FileEdit className='mr-2 h-4 w-4' />
+                    Complete Profile
+                  </Link>
+                </Button>
+              )}
             </CardContent>
           </Card>
         )}
