@@ -12,6 +12,8 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Admission } from '@/types/admission';
+import { usePermissions } from '@/hooks/use-permissions';
+import { BeatLoader } from 'react-spinners';
 
 export default function EditAdmissionPage() {
   const params = useParams();
@@ -20,10 +22,41 @@ export default function EditAdmissionPage() {
   const [admission, setAdmission] = useState<Admission | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Get permissions with waitForLoad option to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Define access permissions
+  const canEditAdmissions = isSuperAdmin || canAccess('admissions', 'edit');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Edit Admission permissions debug:', {
+        isSuperAdmin,
+        canEditAdmissions: canAccess('admissions', 'edit')
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   const admissionId = params.id as string;
 
   useEffect(() => {
+    // Only fetch data if the user has permission to edit admissions
+    if (!permissionsLoaded) return;
+
+    if (!canEditAdmissions) {
+      console.log('User does not have permission to edit admissions');
+      router.push('/unauthorized');
+      return;
+    }
+
     async function fetchAdmission() {
       if (!admissionId) return;
 
@@ -39,7 +72,7 @@ export default function EditAdmissionPage() {
             institution:institutions(id, name),
             degree:degrees(id, degree_name),
             department:departments(id, department_name),
-            program:programs(id, program_name, program_code)
+            program:programs(id, program_name)
           `
           )
           .eq('id', admissionId)
@@ -252,10 +285,6 @@ export default function EditAdmissionPage() {
           formattedData.twelfthMarks
         );
 
-        // Log institution and program data
-        console.log('Institution data:', formattedData.institution);
-        console.log('Program data:', formattedData.program);
-
         setAdmission(formattedData);
       } catch (err: any) {
         console.error('Error fetching admission:', err);
@@ -266,95 +295,109 @@ export default function EditAdmissionPage() {
     }
 
     fetchAdmission();
-  }, [admissionId, supabase]);
+  }, [admissionId, supabase, permissionsLoaded, canEditAdmissions, router]);
 
-  // Helper function to validate UUID format
-  function isValidUUID(str: string) {
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuidPattern.test(str);
+  // Show loading state while permissions are loading
+  if (permissionsLoading || !permissionsLoaded) {
+    return (
+      <ContentLayout title='Edit Admission'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
   }
 
-  // Helper function to safely parse JSON that might be a string or already an object
-  function parseJsonSafely(value: any) {
-    if (!value) return null;
-
-    if (typeof value === 'string') {
-      try {
-        return JSON.parse(value);
-      } catch (e) {
-        console.error('Error parsing JSON:', e);
-        return null;
-      }
-    }
-
-    return value;
+  // Permission check (this is redundant due to the redirect above, but added for safety)
+  if (!canEditAdmissions) {
+    return (
+      <ContentLayout title='Edit Admission'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to edit admission applications
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/admissions'>Back to Admissions</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
   }
 
   if (isLoading) {
     return (
-      <div className='flex flex-col items-center justify-center min-h-[60vh]'>
-        <Loader2 className='h-8 w-8 animate-spin text-primary mb-4' />
-        <p className='text-muted-foreground'>Loading admission details...</p>
-      </div>
+      <ContentLayout title='Edit Admission'>
+        <div className='flex justify-center items-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading admission details...</span>
+        </div>
+      </ContentLayout>
     );
   }
 
   if (error) {
     return (
-      <div className='space-y-4'>
-        <div className='flex items-center mb-4'>
-          <Button variant='ghost' size='sm' asChild className='mr-2'>
-            <Link href='/admissions'>
-              <ArrowLeft className='mr-2 h-4 w-4' />
-              Back to Admissions
-            </Link>
-          </Button>
+      <ContentLayout title='Edit Admission'>
+        <div className='space-y-4'>
+          <div className='flex items-center mb-4'>
+            <Button variant='ghost' size='sm' asChild className='mr-2'>
+              <Link href='/admissions'>
+                <ArrowLeft className='mr-2 h-4 w-4' />
+                Back to Admissions
+              </Link>
+            </Button>
+          </div>
+
+          <Alert variant='destructive'>
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+
+          <Button onClick={() => router.back()}>Go Back</Button>
         </div>
-
-        <Alert variant='destructive'>
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-
-        <Button onClick={() => router.back()}>Go Back</Button>
-      </div>
+      </ContentLayout>
     );
   }
 
   if (!admission) {
     return (
-      <div className='space-y-4'>
-        <div className='flex items-center mb-4'>
-          <Button variant='ghost' size='sm' asChild className='mr-2'>
-            <Link href='/admissions'>
-              <ArrowLeft className='mr-2 h-4 w-4' />
-              Back to Admissions
-            </Link>
+      <ContentLayout title='Edit Admission'>
+        <div className='space-y-4'>
+          <div className='flex items-center mb-4'>
+            <Button variant='ghost' size='sm' asChild className='mr-2'>
+              <Link href='/admissions'>
+                <ArrowLeft className='mr-2 h-4 w-4' />
+                Back to Admissions
+              </Link>
+            </Button>
+          </div>
+
+          <Alert>
+            <AlertTitle>Admission Not Found</AlertTitle>
+            <AlertDescription>
+              The admission application you are looking for could not be found.
+            </AlertDescription>
+          </Alert>
+
+          <Button onClick={() => router.push('/admissions')}>
+            View All Admissions
           </Button>
         </div>
-
-        <Alert>
-          <AlertTitle>Admission Not Found</AlertTitle>
-          <AlertDescription>
-            The admission application you are looking for could not be found.
-          </AlertDescription>
-        </Alert>
-
-        <Button onClick={() => router.push('/admissions')}>
-          View All Admissions
-        </Button>
-      </div>
+      </ContentLayout>
     );
   }
 
   return (
-    <ContentLayout title='Admissions'>
+    <ContentLayout title='Edit Admission'>
       <div className='space-y-6'>
         <PageBreadcrumb
           items={[
-            { label: 'Home', href: '/' },
             { label: 'Admissions', href: '/admissions' },
+            {
+              label: 'Admission Details',
+              href: `/admissions/${admissionId}`
+            },
             { label: 'Edit Admission' }
           ]}
         />
@@ -362,25 +405,45 @@ export default function EditAdmissionPage() {
         <div className='flex items-center justify-between'>
           <div className='flex items-center space-x-2'>
             <Button variant='ghost' size='sm' asChild>
-              <Link href='/admissions'>
+              <Link href={`/admissions/${admissionId}`}>
                 <ArrowLeft className='mr-2 h-4 w-4' />
-                Back to Admissions
+                Back to Admission Details
               </Link>
             </Button>
           </div>
         </div>
 
-        <div className='flex flex-col space-y-1'>
+        <div>
           <h1 className='text-2xl font-bold tracking-tight'>Edit Admission</h1>
           <p className='text-muted-foreground'>
-            Update the admission application details below.
+            Update admission application details
           </p>
         </div>
 
-        <Card className='p-6'>
-          <AdmissionForm initialData={admission} isEditing={true} />
+        <Card>
+          <div className='p-6'>
+            <AdmissionForm initialData={admission} isEditing={true} />
+          </div>
         </Card>
       </div>
     </ContentLayout>
   );
+}
+
+function isValidUUID(str: string) {
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+function parseJsonSafely(value: any) {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch (e) {
+      console.error('Error parsing JSON:', e);
+      return null;
+    }
+  }
+  return value;
 }

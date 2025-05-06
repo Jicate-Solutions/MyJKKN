@@ -5,6 +5,7 @@
 import { use } from 'react';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,8 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { usePermissions } from '@/hooks/use-permissions';
+import { BeatLoader } from 'react-spinners';
 
 interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -29,11 +32,34 @@ interface StaffDetailsPageProps {
 
 export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
   const { id } = use(params);
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff | null>(null);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
 
+  // Track when permissions are loaded
   useEffect(() => {
+    if (!permissionsLoading) {
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading]);
+
+  // Fetch staff data after permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoaded) return;
+
+    const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
+    if (!canViewStaff) {
+      router.push('/unauthorized');
+      return;
+    }
+
     async function fetchStaff() {
       try {
         setLoading(true);
@@ -49,17 +75,23 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
     }
 
     fetchStaff();
-  }, [id]);
+  }, [id, permissionsLoaded, isSuperAdmin, canAccess, router]);
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
   };
 
-  if (loading) {
+  // Show loading when permissions or data are loading
+  if (permissionsLoading || (loading && permissionsLoaded)) {
     return (
       <ContentLayout title='Staff Details'>
         <div className='flex items-center justify-center min-h-[400px]'>
-          <Loader2 className='h-8 w-8 animate-spin' />
+          <BeatLoader color='#00e902' className='mr-2' />
+          <span>
+            {permissionsLoading
+              ? 'Loading permissions...'
+              : 'Loading staff details...'}
+          </span>
         </div>
       </ContentLayout>
     );
@@ -73,12 +105,14 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
             {error || 'Staff member not found'}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/staff'>Back to Staff</Link>
+            <Link href='/staff/list'>Back to Staff</Link>
           </Button>
         </div>
       </ContentLayout>
     );
   }
+
+  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
 
   return (
     <ContentLayout title='Staff Details'>
@@ -112,12 +146,19 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
               Staff Details
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/staff/list/${id}/edit`}>
+          {canEditStaff ? (
+            <Button asChild>
+              <Link href={`/staff/list/${id}/edit`}>
+                <PenSquare className='mr-2 h-4 w-4' />
+                Edit Staff
+              </Link>
+            </Button>
+          ) : (
+            <Button variant='outline' disabled className='opacity-50'>
               <PenSquare className='mr-2 h-4 w-4' />
               Edit Staff
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         {/* Profile Overview */}

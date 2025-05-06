@@ -46,6 +46,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface StaffListProps {
   staff: Staff[];
@@ -57,16 +58,23 @@ interface StaffListProps {
   };
   onPageChange: (page: number) => void;
   onRefresh: () => void;
+  canEdit?: boolean;
 }
 
 export function StaffList({
   staff,
   metadata,
   onPageChange,
-  onRefresh
+  onRefresh,
+  canEdit = false
 }: StaffListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [staffToDelete, setStaffToDelete] = useState<Staff | null>(null);
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
+  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit') || canEdit;
+  const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
 
   const handleDelete = async () => {
     if (!staffToDelete) return;
@@ -99,6 +107,7 @@ export function StaffList({
           size='sm'
           onClick={onRefresh}
           className='ml-auto'
+          disabled={!canViewStaff}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -174,28 +183,62 @@ export function StaffList({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/staff/list/${member.id}`}
-                            className='cursor-pointer'
-                          >
-                            <FileText className='mr-2 h-4 w-4' />
-                            View Details
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canViewStaff}
+                          disabled={!canViewStaff}
+                          style={{ opacity: canViewStaff ? 1 : 0.5 }}
+                        >
+                          {canViewStaff ? (
+                            <Link
+                              href={`/staff/list/${member.id}`}
+                              className='cursor-pointer'
+                            >
+                              <FileText className='mr-2 h-4 w-4' />
+                              View Details
+                            </Link>
+                          ) : (
+                            <div className='flex items-center gap-2'>
+                              <FileText className='mr-2 h-4 w-4' />
+                              View Details
+                            </div>
+                          )}
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/staff/list/${member.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Staff
-                          </Link>
+
+                        <DropdownMenuItem
+                          asChild={canEditStaff}
+                          disabled={!canEditStaff}
+                          style={{ opacity: canEditStaff ? 1 : 0.5 }}
+                        >
+                          {canEditStaff ? (
+                            <Link
+                              href={`/staff/list/${member.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit Staff
+                            </Link>
+                          ) : (
+                            <div className='flex items-center gap-2'>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit Staff
+                            </div>
+                          )}
                         </DropdownMenuItem>
+
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onClick={() => setStaffToDelete(member)}
-                          className='text-destructive focus:text-destructive cursor-pointer'
+                          onClick={
+                            canDeleteStaff
+                              ? () => setStaffToDelete(member)
+                              : undefined
+                          }
+                          disabled={!canDeleteStaff}
+                          className={
+                            canDeleteStaff
+                              ? 'text-destructive focus:text-destructive cursor-pointer'
+                              : 'cursor-pointer'
+                          }
+                          style={{ opacity: canDeleteStaff ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
                           Delete Staff
@@ -210,57 +253,58 @@ export function StaffList({
         </Table>
       </div>
 
+      {/* Pagination */}
       {metadata.totalPages > 1 && (
-        <div className='flex items-center justify-between px-2'>
+        <div className='flex items-center justify-end space-x-2 py-4'>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(metadata.page - 1)}
+            disabled={metadata.page <= 1}
+          >
+            <ChevronLeft className='h-4 w-4' />
+            <span className='sr-only'>Previous Page</span>
+          </Button>
           <div className='text-sm text-muted-foreground'>
-            Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
-            {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
-            {metadata.total} entries
+            Page {metadata.page} of {metadata.totalPages}
           </div>
-
-          <div className='flex items-center space-x-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => onPageChange(metadata.page - 1)}
-              disabled={metadata.page <= 1}
-            >
-              <ChevronLeft className='h-4 w-4' />
-              Previous
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => onPageChange(metadata.page + 1)}
-              disabled={metadata.page >= metadata.totalPages}
-            >
-              Next
-              <ChevronRight className='h-4 w-4' />
-            </Button>
-          </div>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(metadata.page + 1)}
+            disabled={metadata.page >= metadata.totalPages}
+          >
+            <ChevronRight className='h-4 w-4' />
+            <span className='sr-only'>Next Page</span>
+          </Button>
         </div>
       )}
 
+      {/* Delete Staff Dialog */}
       <AlertDialog
-        open={!!staffToDelete}
-        onOpenChange={(open) => !open && setStaffToDelete(null)}
+        open={!!staffToDelete && canDeleteStaff}
+        onOpenChange={() => setStaffToDelete(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Staff Member</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {staffToDelete?.first_name}{' '}
-              {staffToDelete?.last_name}? This action cannot be undone.
+              This will permanently delete the staff member{' '}
+              {staffToDelete?.first_name} {staffToDelete?.last_name}. This
+              action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={(e) => {
+                e.preventDefault();
+                handleDelete();
+              }}
               disabled={isLoading}
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              className='bg-destructive hover:bg-destructive/90'
             >
-              {isLoading ? 'Deleting...' : 'Delete Staff'}
+              {isLoading ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
