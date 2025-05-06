@@ -207,7 +207,6 @@ export function ExportCourses() {
             <ul className='list-disc pl-4 space-y-0.5'>
               <li>Course Code and Name</li>
               <li>Institution</li>
-              <li>Department</li>
               <li>Active Status</li>
               <li>Created/Updated Dates</li>
             </ul>

@@ -94,10 +94,6 @@ export class CourseService {
           id,
           name,
           counselling_code
-        ),
-        department:departments (
-          id,
-          department_name
         )
       `,
         { count: 'exact' }
@@ -114,10 +110,6 @@ export class CourseService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
-      if (filters.department_id) {
-        query = query.eq('department_id', filters.department_id);
-      }
-
       if (filters.isActive !== undefined) {
         query = query.eq('is_active', filters.isActive);
       }
@@ -132,7 +124,31 @@ export class CourseService {
 
       const { data: courses, error, count } = await query;
 
-      if (error) throw error;
+      if (error) {
+        // Check for relationship error (when removing departments)
+        if (
+          error.code === 'PGRST200' &&
+          error.message?.includes(
+            "relationship between 'courses' and 'departments'"
+          )
+        ) {
+          console.error('Database schema error:', error);
+          toast.error(
+            'Database schema needs to be updated. Please refresh the page or contact support.'
+          );
+          // Return empty data to prevent crashing
+          return {
+            data: [],
+            metadata: {
+              total: 0,
+              page,
+              limit,
+              totalPages: 0
+            }
+          };
+        }
+        throw error;
+      }
 
       return {
         data: courses || [],
@@ -160,75 +176,34 @@ export class CourseService {
             id,
             name,
             counselling_code
-          ),
-          department:departments (
-            id, 
-            department_name
           )
         `
         )
         .eq('id', id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // Check for relationship error (when removing departments)
+        if (
+          error.code === 'PGRST200' &&
+          error.message?.includes(
+            "relationship between 'courses' and 'departments'"
+          )
+        ) {
+          console.error('Database schema error:', error);
+          toast.error(
+            'Database schema needs to be updated. Please refresh the page or contact support.'
+          );
+          // Return basic course data to prevent crashing
+          return { id } as Course;
+        }
+        throw error;
+      }
 
       return course;
     } catch (error) {
       console.error('Error fetching course:', error);
       throw error;
-    }
-  }
-
-  static async getCoursesByDepartment(departmentId: string): Promise<Course[]> {
-    try {
-      // Check if departmentId is a UUID or a name/label
-      const isUUID =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          departmentId
-        );
-
-      let query;
-
-      if (isUUID) {
-        // If it's a UUID, use it directly with eq
-        query = this.supabase
-          .from('courses')
-          .select('*')
-          .eq('department_id', departmentId)
-          .eq('is_active', true)
-          .order('course_name');
-      } else {
-        // If it's not a UUID, try to find the department by name first
-        console.log('Searching for department with name:', departmentId);
-
-        const { data: department } = await this.supabase
-          .from('departments')
-          .select('id')
-          .ilike('department_name', departmentId)
-          .single();
-
-        if (department) {
-          console.log('Found department with ID:', department.id);
-          query = this.supabase
-            .from('courses')
-            .select('*')
-            .eq('department_id', department.id)
-            .eq('is_active', true)
-            .order('course_name');
-        } else {
-          console.log('No department found with name:', departmentId);
-          // Return empty array if no department found
-          return [];
-        }
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error fetching courses by department:', error);
-      return [];
     }
   }
 

@@ -236,7 +236,6 @@ export interface ProgramListResponse {
 export interface Course {
   id: string;
   institution_id: string;
-  department_id: string;
   course_code: string;
   course_name: string;
   is_active: boolean;
@@ -248,15 +247,10 @@ export interface Course {
     name: string;
     counselling_code?: string;
   };
-  department?: {
-    id: string;
-    department_name: string;
-  };
 }
 
 export interface CreateCourseDto {
   institution_id: string;
-  department_id: string;
   course_code: string;
   course_name: string;
   is_active?: boolean;
@@ -267,7 +261,6 @@ export interface UpdateCourseDto extends Partial<CreateCourseDto> {}
 export interface CourseFilters {
   search?: string;
   institution_id?: string;
-  department_id?: string;
   isActive?: boolean;
   page?: number;
   limit?: number;

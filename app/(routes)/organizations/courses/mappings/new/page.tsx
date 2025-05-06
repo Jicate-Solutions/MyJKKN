@@ -10,7 +10,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { CourseMappingForm } from '@/app/(routes)/organizations/course-mappings/_components/course-mapping-form';
+import { CourseMappingForm } from '../_components/course-mapping-form';
 
 export default function NewCourseMappingPage() {
   return (

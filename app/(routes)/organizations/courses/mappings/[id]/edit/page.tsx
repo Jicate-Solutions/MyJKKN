@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
 import type { CourseMapping } from '@/types/organizations';
-import { CourseMappingForm } from '@/app/(routes)/organizations/course-mappings/_components/course-mapping-form';
+import { CourseMappingForm } from '../../_components/course-mapping-form';
 
 interface EditCourseMappingPageProps {
   params: Promise<{ id: string }>;

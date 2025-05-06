@@ -17,8 +17,8 @@ import {
 } from '@/components/ui/breadcrumb';
 import { BeatLoader } from 'react-spinners';
 import { useCourseMappings } from '@/hooks/organization/use-course-mappings';
-import { CourseMappingFilters } from '@/app/(routes)/organizations/course-mappings/_components/course-mapping-filters';
-import { CourseMappingList } from '@/app/(routes)/organizations/course-mappings/_components/course-mapping-list';
+import { CourseMappingList } from './_components/course-mapping-list';
+import { CourseMappingFilters } from './_components/course-mapping-filters';
 
 export default function CourseMappingsPage() {
   const {

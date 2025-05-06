@@ -9,9 +9,6 @@ import { toast } from 'react-hot-toast';
 import { Course } from '@/types/organizations';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { DegreeService } from '@/lib/services/organization/degree-service';
-import { DepartmentService } from '@/lib/services/organization/department-service';
-import { ProgramService } from '@/lib/services/organization/program-service';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -35,7 +32,6 @@ import { Card, CardContent } from '@/components/ui/card';
 
 const courseSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
-  department_id: z.string().min(1, 'Department is required'),
   course_code: z
     .string()
     .min(2, 'Course code must be at least 2 characters')
@@ -62,15 +58,11 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
-  const [departments, setDepartments] = useState<
-    Array<{ id: string; department_name: string }>
-  >([]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(courseSchema),
     defaultValues: {
       institution_id: course?.institution_id || '',
-      department_id: course?.department_id || '',
       course_code: course?.course_code || '',
       course_name: course?.course_name || '',
       is_active: course?.is_active ?? true
@@ -90,26 +82,6 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
     }
     loadInstitutions();
   }, []);
-
-  useEffect(() => {
-    if (watchedInstitutionId) {
-      async function loadDepartments() {
-        try {
-          const { data } = await DepartmentService.getDepartments({
-            institution_id: watchedInstitutionId,
-            isActive: true
-          });
-          setDepartments(data);
-        } catch (error) {
-          console.error('Error loading departments:', error);
-        }
-      }
-      loadDepartments();
-    } else {
-      setDepartments([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedInstitutionId]);
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -159,31 +131,6 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
                         {institutions.map((inst) => (
                           <SelectItem key={inst.id} value={inst.id}>
                             {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='department_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Department</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select department' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.id}>
-                            {dept.department_name}
                           </SelectItem>
                         ))}
                       </SelectContent>
