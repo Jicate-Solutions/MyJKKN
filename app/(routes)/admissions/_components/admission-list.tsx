@@ -64,6 +64,8 @@ interface AdmissionListProps {
   metadata: PaginationMetadata;
   onPageChange: (page: number) => void;
   onRefresh: () => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 interface StatusUpdateInfo {
@@ -90,7 +92,9 @@ export function AdmissionList({
   admissions,
   metadata,
   onPageChange,
-  onRefresh
+  onRefresh,
+  canEdit = false,
+  canDelete = false
 }: AdmissionListProps) {
   const router = useRouter();
   const updateStatus = useUpdateAdmissionStatus();
@@ -105,12 +109,13 @@ export function AdmissionList({
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
 
   const handleUpdateStatus = (id: string, status: string) => {
+    if (!canEdit) return;
     setStatusUpdateInfo({ id, status });
     setIsConfirmDialogOpen(true);
   };
 
   const confirmStatusUpdate = async () => {
-    if (!statusUpdateInfo) return;
+    if (!statusUpdateInfo || !canEdit) return;
 
     const { id, status } = statusUpdateInfo;
     try {
@@ -142,7 +147,7 @@ export function AdmissionList({
   };
 
   const handleDeleteAdmission = async () => {
-    if (!admissionToDelete) return;
+    if (!admissionToDelete || !canDelete) return;
 
     try {
       await deleteAdmission.mutateAsync(admissionToDelete);
@@ -167,6 +172,89 @@ export function AdmissionList({
       />
     );
   };
+
+  const renderActionDropdown = (admission: AdmissionData) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant='ghost' size='sm'>
+          <MoreHorizontal className='h-4 w-4' />
+          <span className='sr-only'>Actions</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align='end'>
+        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+        <DropdownMenuItem asChild>
+          <Link href={`/admissions/${admission.id}`}>
+            <Eye className='mr-2 h-4 w-4' />
+            View Details
+          </Link>
+        </DropdownMenuItem>
+        {canEdit && (
+          <DropdownMenuItem asChild>
+            <Link href={`/admissions/${admission.id}/edit`}>
+              <Edit className='mr-2 h-4 w-4' />
+              Edit Application
+            </Link>
+          </DropdownMenuItem>
+        )}
+
+        {canEdit && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Clock className='mr-2 h-4 w-4' />
+                Update Status
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem
+                  onClick={() => handleUpdateStatus(admission.id, 'pending')}
+                  disabled={admission.status === 'pending'}
+                >
+                  <ClockIcon className='mr-2 h-4 w-4 text-yellow-500' />
+                  Mark as Pending
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleUpdateStatus(admission.id, 'approved')}
+                  disabled={admission.status === 'approved'}
+                >
+                  <CheckCircle className='mr-2 h-4 w-4 text-green-500' />
+                  Mark as Approved
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleUpdateStatus(admission.id, 'rejected')}
+                  disabled={admission.status === 'rejected'}
+                >
+                  <XCircle className='mr-2 h-4 w-4 text-red-500' />
+                  Mark as Rejected
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleUpdateStatus(admission.id, 'waitlisted')}
+                  disabled={admission.status === 'waitlisted'}
+                >
+                  <AlertCircle className='mr-2 h-4 w-4 text-blue-500' />
+                  Mark as Waitlisted
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
+        )}
+
+        {canDelete && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => setAdmissionToDelete(admission.id)}
+              className='text-red-600 focus:text-red-600'
+            >
+              <Trash2 className='mr-2 h-4 w-4' />
+              Delete Application
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <div>
@@ -249,121 +337,12 @@ export function AdmissionList({
                       variant='outline'
                       className={getStatusColor(admission.status)}
                     >
-                      {updatingId === admission.id ? (
-                        <span className='flex items-center'>
-                          <ClockIcon className='h-3 w-3 mr-1 animate-spin' />
-                          Updating...
-                        </span>
-                      ) : (
-                        admission.status.charAt(0).toUpperCase() +
-                          admission.status.slice(1) || 'Pending'
-                      )}
+                      {admission.status?.charAt(0).toUpperCase() +
+                        admission.status?.slice(1) || 'Unknown'}
                     </Badge>
                   </TableCell>
                   <TableCell className='text-right'>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant='ghost' size='icon'>
-                          <MoreHorizontal className='h-4 w-4' />
-                          <span className='sr-only'>Open menu</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/admissions/${admission.id}`}>
-                            <Eye className='mr-2 h-4 w-4' />
-                            View Details
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/admissions/${admission.id}/edit`}>
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Application
-                          </Link>
-                        </DropdownMenuItem>
-
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuSub>
-                          <DropdownMenuSubTrigger>
-                            <Clock className='mr-2 h-4 w-4' />
-                            Update Status
-                          </DropdownMenuSubTrigger>
-                          <DropdownMenuSubContent>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                handleUpdateStatus(admission.id, 'pending')
-                              }
-                              disabled={
-                                admission.status === 'pending' ||
-                                updatingId === admission.id
-                              }
-                            >
-                              <ClockIcon className='mr-2 h-4 w-4 text-yellow-500' />
-                              Pending
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                handleUpdateStatus(admission.id, 'approved')
-                              }
-                              disabled={
-                                admission.status === 'approved' ||
-                                updatingId === admission.id
-                              }
-                            >
-                              <CheckCircle className='mr-2 h-4 w-4 text-green-500' />
-                              Approved
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                handleUpdateStatus(admission.id, 'rejected')
-                              }
-                              disabled={
-                                admission.status === 'rejected' ||
-                                updatingId === admission.id
-                              }
-                            >
-                              <XCircle className='mr-2 h-4 w-4 text-red-500' />
-                              Rejected
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                handleUpdateStatus(admission.id, 'waitlisted')
-                              }
-                              disabled={
-                                admission.status === 'waitlisted' ||
-                                updatingId === admission.id
-                              }
-                            >
-                              <AlertCircle className='mr-2 h-4 w-4 text-blue-500' />
-                              Waitlisted
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                handleUpdateStatus(admission.id, 'enrolled')
-                              }
-                              disabled={
-                                admission.status === 'enrolled' ||
-                                updatingId === admission.id
-                              }
-                            >
-                              <UserCheck className='mr-2 h-4 w-4 text-purple-500' />
-                              Enrolled
-                            </DropdownMenuItem>
-                          </DropdownMenuSubContent>
-                        </DropdownMenuSub>
-
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuItem
-                          onClick={() => setAdmissionToDelete(admission.id)}
-                          className='text-destructive focus:text-destructive'
-                        >
-                          <Trash2 className='mr-2 h-4 w-4' />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {renderActionDropdown(admission)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -375,64 +354,57 @@ export function AdmissionList({
       {renderPagination()}
 
       <AlertDialog
-        open={!!admissionToDelete}
+        open={!!admissionToDelete && canDelete}
         onOpenChange={(open) => !open && setAdmissionToDelete(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Delete Admission Application</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the
-              admission application.
+              Are you sure you want to delete this admission application? This
+              action cannot be undone and all related data will be permanently
+              removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteAdmission.isPending}>
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteAdmission}
-              disabled={deleteAdmission.isPending}
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              className='bg-red-600 hover:bg-red-700'
             >
-              {deleteAdmission.isPending ? 'Deleting...' : 'Delete'}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       <AlertDialog
-        open={isConfirmDialogOpen}
+        open={isConfirmDialogOpen && canEdit}
         onOpenChange={setIsConfirmDialogOpen}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Status Update</AlertDialogTitle>
+            <AlertDialogTitle>Update Status</AlertDialogTitle>
             <AlertDialogDescription>
-              {statusUpdateInfo?.status === 'approved' && (
-                <div className='mb-2 text-yellow-700 font-semibold'>
-                  Approving this admission will automatically create a student
-                  record.
-                </div>
-              )}
-              Are you sure you want to update the status to{' '}
-              {statusUpdateInfo && (
-                <span className='font-bold'>
-                  {statusUpdateInfo.status.charAt(0).toUpperCase() +
-                    statusUpdateInfo.status.slice(1)}
-                </span>
-              )}
+              Are you sure you want to update the status to &quot;
+              {statusUpdateInfo && statusUpdateInfo.status
+                ? statusUpdateInfo.status.charAt(0).toUpperCase() +
+                  statusUpdateInfo.status.slice(1)
+                : ''}
+              &quot;?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={updatingId === statusUpdateInfo?.id}>
+            <AlertDialogCancel
+              onClick={() => {
+                setIsConfirmDialogOpen(false);
+                setStatusUpdateInfo(null);
+              }}
+            >
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmStatusUpdate}
-              disabled={updatingId === statusUpdateInfo?.id}
-            >
-              {updatingId === statusUpdateInfo?.id ? 'Updating...' : 'Confirm'}
+            <AlertDialogAction onClick={confirmStatusUpdate}>
+              Update Status
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

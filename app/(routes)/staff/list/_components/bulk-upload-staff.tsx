@@ -330,6 +330,7 @@ export default function BulkUploadStaff() {
             marital_status: row.marital_status?.toLowerCase(),
             blood_group: row.blood_group,
             email: row.email,
+            institution_email: row.institution_email || row.email,
             phone: row.phone,
             staff_id: row.staff_id,
             address: row.address,

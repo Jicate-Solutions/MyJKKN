@@ -5,6 +5,7 @@
 import { use } from 'react';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { StaffForm } from '../../_components/staff-form';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,6 +21,8 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { usePermissions } from '@/hooks/use-permissions';
+import { BeatLoader } from 'react-spinners';
 
 interface EditStaffPageProps {
   params: Promise<{ id: string }>;
@@ -27,11 +30,39 @@ interface EditStaffPageProps {
 
 export default function EditStaffPage({ params }: EditStaffPageProps) {
   const { id } = use(params);
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff | null>(null);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
 
+  // Track when permissions are loaded
   useEffect(() => {
+    if (!permissionsLoading) {
+      setPermissionsLoaded(true);
+      console.log('Edit Staff permissions debug:', {
+        isSuperAdmin,
+        canEditStaff: canAccess('staff', 'edit')
+      });
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
+
+  // Fetch staff data after permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoaded) return;
+
+    const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+    if (!canEditStaff) {
+      console.log('User does not have permission to edit staff');
+      router.push('/unauthorized');
+      return;
+    }
+
     async function fetchStaff() {
       try {
         setLoading(true);
@@ -47,13 +78,19 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
     }
 
     fetchStaff();
-  }, [id]);
+  }, [id, permissionsLoaded, isSuperAdmin, canAccess, router]);
 
-  if (loading) {
+  // Show loading state while permissions or data are loading
+  if (permissionsLoading || (loading && permissionsLoaded)) {
     return (
       <ContentLayout title='Edit Staff'>
         <div className='flex items-center justify-center min-h-[400px]'>
-          <Loader2 className='h-8 w-8 animate-spin' />
+          <BeatLoader color='#00e902' className='mr-2' />
+          <span>
+            {permissionsLoading
+              ? 'Loading permissions...'
+              : 'Loading staff details...'}
+          </span>
         </div>
       </ContentLayout>
     );
@@ -67,7 +104,7 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
             {error || 'Staff member not found'}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/staff'>Back to Staff</Link>
+            <Link href='/staff/list'>Back to Staff</Link>
           </Button>
         </div>
       </ContentLayout>

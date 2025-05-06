@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -20,8 +20,11 @@ import { CategoryFilters } from './_components/category-filters';
 import { CategoryList } from './_components/category-list';
 import DownloadCategoryTemplateButton from './_components/download-category-template';
 import BulkUploadCategories from './_components/bulk-upload-categories';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function CategoriesPage() {
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
   const {
     categories,
     loading,
@@ -33,9 +36,72 @@ export default function CategoriesPage() {
     fetchCategories
   } = useCategories();
 
+  // Use waitForLoad to ensure permissions are fully loaded before making decisions
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  const canViewCategories =
+    isSuperAdmin || canAccess('staff.categories', 'view');
+  const canCreateCategories =
+    isSuperAdmin || canAccess('staff.categories', 'create');
+  const canEditCategories =
+    isSuperAdmin || canAccess('staff.categories', 'edit');
+  const canDeleteCategories =
+    isSuperAdmin || canAccess('staff.categories', 'delete');
+
+  // Track when permissions are loaded
   useEffect(() => {
-    fetchCategories();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!permissionsLoading) {
+      console.log('Staff Categories permissions debug:', {
+        isSuperAdmin,
+        canViewCategories: canAccess('staff.categories', 'view'),
+        canCreateCategories: canAccess('staff.categories', 'create'),
+        canEditCategories: canAccess('staff.categories', 'edit'),
+        canDeleteCategories: canAccess('staff.categories', 'delete')
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
+
+  // Only fetch categories when permissions are loaded and user has view permission
+  useEffect(() => {
+    if (permissionsLoaded && canViewCategories) {
+      fetchCategories().catch((err) => {
+        console.error('Error fetching categories:', err);
+      });
+    }
+  }, [permissionsLoaded, canViewCategories, fetchCategories]);
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Staff Categories'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Check if user has permission to view categories
+  if (!canViewCategories) {
+    return (
+      <ContentLayout title='Staff Categories'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view staff categories
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/'>Go to Dashboard</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (error) {
     return (
@@ -85,14 +151,25 @@ export default function CategoriesPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            <DownloadCategoryTemplateButton />
-            <BulkUploadCategories />
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/staff/category/new'>
+            {isSuperAdmin && <DownloadCategoryTemplateButton />}
+            {isSuperAdmin && <BulkUploadCategories />}
+            {canCreateCategories ? (
+              <Button className='w-full sm:w-auto' asChild>
+                <Link href='/staff/category/new'>
+                  <Plus className='mr-2 h-4 w-4' />
+                  Add Category
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                className='w-full sm:w-auto opacity-50'
+                disabled
+                variant='outline'
+              >
                 <Plus className='mr-2 h-4 w-4' />
                 Add Category
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -110,6 +187,8 @@ export default function CategoriesPage() {
                 metadata={metadata}
                 onPageChange={changePage}
                 onRefresh={fetchCategories}
+                canEdit={canEditCategories}
+                canDelete={canDeleteCategories}
               />
             )}
           </CardContent>

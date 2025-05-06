@@ -3,6 +3,7 @@
 import { use } from 'react';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { CategoryForm } from '../../_components/category-form';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,8 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { CategoryService } from '@/lib/services/staff/category-service';
+import { usePermissions } from '@/hooks/use-permissions';
+import { BeatLoader } from 'react-spinners';
 
 interface EditCategoryPageProps {
   params: Promise<{ id: string }>;
@@ -24,11 +27,40 @@ interface EditCategoryPageProps {
 
 export default function EditCategoryPage({ params }: EditCategoryPageProps) {
   const { id } = use(params);
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState<EmploymentCategory | null>(null);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
 
+  // Track when permissions are loaded
   useEffect(() => {
+    if (!permissionsLoading) {
+      setPermissionsLoaded(true);
+      console.log('Edit Category permissions debug:', {
+        isSuperAdmin,
+        canEditCategories: canAccess('staff.categories', 'edit')
+      });
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
+
+  // Fetch category data after permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoaded) return;
+
+    const canEditCategories =
+      isSuperAdmin || canAccess('staff.categories', 'edit');
+    if (!canEditCategories) {
+      console.log('User does not have permission to edit categories');
+      router.push('/unauthorized');
+      return;
+    }
+
     async function fetchCategory() {
       try {
         setLoading(true);
@@ -46,13 +78,19 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
     }
 
     fetchCategory();
-  }, [id]);
+  }, [id, permissionsLoaded, isSuperAdmin, canAccess, router]);
 
-  if (loading) {
+  // Show loading when permissions or data are loading
+  if (permissionsLoading || (loading && permissionsLoaded)) {
     return (
       <ContentLayout title='Edit Category'>
         <div className='flex items-center justify-center min-h-[400px]'>
-          <Loader2 className='h-8 w-8 animate-spin' />
+          <BeatLoader color='#00e902' className='mr-2' />
+          <span>
+            {permissionsLoading
+              ? 'Loading permissions...'
+              : 'Loading category details...'}
+          </span>
         </div>
       </ContentLayout>
     );

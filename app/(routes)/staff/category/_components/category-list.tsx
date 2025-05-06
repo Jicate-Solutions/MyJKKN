@@ -54,13 +54,17 @@ interface CategoryListProps {
   };
   onPageChange: (page: number) => void;
   onRefresh: () => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 export function CategoryList({
   categories,
   metadata,
   onPageChange,
-  onRefresh
+  onRefresh,
+  canEdit = false,
+  canDelete = false
 }: CategoryListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [categoryToDelete, setCategoryToDelete] =
@@ -151,19 +155,40 @@ export function CategoryList({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align='end'>
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/staff/category/${category.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit Category
-                          </Link>
+                        <DropdownMenuItem
+                          asChild={canEdit}
+                          disabled={!canEdit}
+                          style={{ opacity: canEdit ? 1 : 0.5 }}
+                        >
+                          {canEdit ? (
+                            <Link
+                              href={`/staff/category/${category.id}/edit`}
+                              className='cursor-pointer'
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit Category
+                            </Link>
+                          ) : (
+                            <div className='flex items-center gap-2'>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit Category
+                            </div>
+                          )}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onClick={() => setCategoryToDelete(category)}
-                          className='text-destructive focus:text-destructive cursor-pointer'
+                          onClick={
+                            canDelete
+                              ? () => setCategoryToDelete(category)
+                              : undefined
+                          }
+                          disabled={!canDelete}
+                          className={
+                            canDelete
+                              ? 'text-destructive focus:text-destructive cursor-pointer'
+                              : 'cursor-pointer'
+                          }
+                          style={{ opacity: canDelete ? 1 : 0.5 }}
                         >
                           <Trash2 className='mr-2 h-4 w-4' />
                           Delete Category
@@ -179,46 +204,42 @@ export function CategoryList({
       </div>
 
       {metadata.totalPages > 1 && (
-        <div className='flex items-center justify-between px-2'>
+        <div className='flex items-center justify-end space-x-2 py-4'>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(metadata.page - 1)}
+            disabled={metadata.page <= 1}
+          >
+            <ChevronLeft className='h-4 w-4' />
+            <span className='sr-only'>Previous Page</span>
+          </Button>
           <div className='text-sm text-muted-foreground'>
-            Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
-            {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
-            {metadata.total} entries
+            Page {metadata.page} of {metadata.totalPages}
           </div>
-
-          <div className='flex items-center space-x-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => onPageChange(metadata.page - 1)}
-              disabled={metadata.page <= 1}
-            >
-              <ChevronLeft className='h-4 w-4' />
-              Previous
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => onPageChange(metadata.page + 1)}
-              disabled={metadata.page >= metadata.totalPages}
-            >
-              Next
-              <ChevronRight className='h-4 w-4' />
-            </Button>
-          </div>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => onPageChange(metadata.page + 1)}
+            disabled={metadata.page >= metadata.totalPages}
+          >
+            <ChevronRight className='h-4 w-4' />
+            <span className='sr-only'>Next Page</span>
+          </Button>
         </div>
       )}
 
       <AlertDialog
-        open={!!categoryToDelete}
-        onOpenChange={(open) => !open && setCategoryToDelete(null)}
+        open={!!categoryToDelete && canDelete}
+        onOpenChange={() => setCategoryToDelete(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Category</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete {categoryToDelete?.category_name}?
-              This action cannot be undone.
+              This action cannot be undone, and will affect all staff members
+              assigned to this category.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

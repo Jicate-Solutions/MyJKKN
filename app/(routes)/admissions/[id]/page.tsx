@@ -16,6 +16,7 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { BeatLoader } from 'react-spinners';
 import { PageBreadcrumb } from '@/components/navigation';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Status badge color mapping
 const statusColorMap: Record<string, string> = {
@@ -33,6 +34,30 @@ export default function AdmissionDetailsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const supabase = getSupabaseClient();
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Get permissions with waitForLoad option to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Define access permissions
+  const canViewAdmissions = isSuperAdmin || canAccess('admissions', 'view');
+  const canEditAdmissions = isSuperAdmin || canAccess('admissions', 'edit');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Admission Details permissions debug:', {
+        isSuperAdmin,
+        canViewAdmissions: canAccess('admissions', 'view'),
+        canEditAdmissions: canAccess('admissions', 'edit')
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   const admissionId = params.id as string;
 
@@ -87,15 +112,51 @@ export default function AdmissionDetailsPage() {
     }
   }, [admissionId, supabase]);
 
+  // Only fetch data if the user has permission to view admissions
   useEffect(() => {
-    fetchAdmission();
-  }, [fetchAdmission]);
+    if (permissionsLoaded && canViewAdmissions) {
+      fetchAdmission();
+    } else if (permissionsLoaded && !canViewAdmissions) {
+      // Redirect if user doesn't have permission
+      router.push('/unauthorized');
+    }
+  }, [fetchAdmission, permissionsLoaded, canViewAdmissions, router]);
 
+  // Show loading state while permissions are loading
+  if (permissionsLoading || !permissionsLoaded) {
+    return (
+      <ContentLayout title='Admission Details'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Permission check (this is redundant due to the redirect above, but added for safety)
+  if (!canViewAdmissions) {
+    return (
+      <ContentLayout title='Admission Details'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view admission details
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/'>Go to Dashboard</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Loading state for admission data
   if (isLoading) {
     return (
-      <ContentLayout title='Role Management'>
-        <div className='flex justify-center items-center min-h-[400px]'>
+      <ContentLayout title='Admission Details'>
+        <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading admission details...</span>
         </div>
       </ContentLayout>
     );
@@ -178,15 +239,27 @@ export default function AdmissionDetailsPage() {
               <RefreshCcw className='mr-2 h-4 w-4' />
               Refresh
             </Button>
-            <Button
-              variant='default'
-              size='sm'
-              onClick={() => router.push(`/admissions/${admissionId}/edit`)}
-              className='flex items-center'
-            >
-              <Edit className='mr-2 h-4 w-4' />
-              Edit
-            </Button>
+            {canEditAdmissions ? (
+              <Button
+                variant='default'
+                size='sm'
+                onClick={() => router.push(`/admissions/${admissionId}/edit`)}
+                className='flex items-center'
+              >
+                <Edit className='mr-2 h-4 w-4' />
+                Edit
+              </Button>
+            ) : (
+              <Button
+                variant='outline'
+                size='sm'
+                disabled
+                className='flex items-center opacity-50'
+              >
+                <Edit className='mr-2 h-4 w-4' />
+                Edit
+              </Button>
+            )}
           </div>
         </div>
 
@@ -258,10 +331,6 @@ export default function AdmissionDetailsPage() {
                   <DetailItem
                     label="Mother's Occupation"
                     value={admission.mother_occupation}
-                  />
-                  <DetailItem
-                    label="Mother's Mobile Number"
-                    value={admission.mother_mobile}
                   />
                 </div>
               </div>

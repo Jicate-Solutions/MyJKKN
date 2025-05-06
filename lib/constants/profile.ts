@@ -261,6 +261,17 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Admissions',
+    key: 'admissions',
+    permissions: [
+      { key: 'admissions.view', label: 'View Admissions' },
+      { key: 'admissions.create', label: 'Create Admissions' },
+      { key: 'admissions.edit', label: 'Edit Admissions' },
+      { key: 'admissions.delete', label: 'Delete Admissions' },
+      { key: 'admissions.crm.view', label: 'View CRM' },
+    ]
+  },
+  {
     name: 'Physical Resources Management',
     key: 'physical_resources',
     permissions: [

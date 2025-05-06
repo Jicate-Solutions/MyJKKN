@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Card,
@@ -18,12 +19,36 @@ import { AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useApiKey } from '@/hooks/crm/use-api-key';
 import { Button } from '@/components/ui/button';
+import { usePermissions } from '@/hooks/use-permissions';
+import { BeatLoader } from 'react-spinners';
 
 export default function CrmPage() {
   const [activeTab, setActiveTab] = useState('sources');
-  const { apiKey, loading, error } = useApiKey();
+  const { apiKey, loading: apiKeyLoading, error: apiKeyError } = useApiKey();
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Load permissions with waitForLoad to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Check if user has permission to view CRM
+  const canViewCrm = isSuperAdmin || canAccess('admissions.crm', 'view');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('CRM permissions debug:', {
+        isSuperAdmin,
+        canViewCrm: canAccess('admissions.crm', 'view')
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -35,7 +60,35 @@ export default function CrmPage() {
     }, 1000);
   };
 
-  if (loading) {
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='CRM'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Check if user has permission to view CRM
+  if (!canViewCrm) {
+    return (
+      <ContentLayout title='CRM'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view the CRM
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/admissions'>Back to Admissions</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (apiKeyLoading) {
     return (
       <ContentLayout title='CRM'>
         <div className='flex flex-col items-center justify-center min-h-[400px]'>
@@ -46,14 +99,14 @@ export default function CrmPage() {
     );
   }
 
-  if (error) {
+  if (apiKeyError) {
     return (
       <ContentLayout title='CRM'>
         <Alert variant='destructive'>
           <AlertCircle className='h-4 w-4' />
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>
-            {error.message ||
+            {apiKeyError.message ||
               'Failed to load API key configuration. Please check your server setup.'}
           </AlertDescription>
         </Alert>
