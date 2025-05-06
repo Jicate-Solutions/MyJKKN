@@ -318,6 +318,48 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Digital Resources Management',
+    key: 'digital_resources',
+    permissions: [
+      { key: 'digital_resources.dashboard.view', label: 'View Dashboard' },
+      { key: 'digital_resources.view', label: 'View Resources' },
+      { key: 'digital_resources.create', label: 'Create Resources' },
+      { key: 'digital_resources.edit', label: 'Edit Resources' },
+      { key: 'digital_resources.delete', label: 'Delete Resources' },
+      { key: 'digital_resources.categories.view', label: 'View Categories' },
+      {
+        key: 'digital_resources.categories.create',
+        label: 'Create Categories'
+      },
+      { key: 'digital_resources.categories.edit', label: 'Edit Categories' },
+      {
+        key: 'digital_resources.categories.delete',
+        label: 'Delete Categories'
+      },
+      {
+        key: 'digital_resources.reservations.view',
+        label: 'View Reservations'
+      },
+      {
+        key: 'digital_resources.reservations.create',
+        label: 'Create Reservations'
+      },
+      {
+        key: 'digital_resources.reservations.edit',
+        label: 'Edit Reservations'
+      },
+      {
+        key: 'digital_resources.reservations.delete',
+        label: 'Delete Reservations'
+      },
+      { key: 'digital_resources.reports.view', label: 'View Reports' },
+      { key: 'digital_resources.requests.view', label: 'View Requests' },
+      { key: 'digital_resources.requests.create', label: 'Create Requests' },
+      { key: 'digital_resources.requests.approve', label: 'Approve Requests' },
+      { key: 'digital_resources.requests.reject', label: 'Reject Requests' }
+    ]
+  },
+  {
     name: 'System',
     key: 'system',
     permissions: [

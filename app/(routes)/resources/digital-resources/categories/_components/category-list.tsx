@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useDigitalResourceCategories } from '@/hooks/resource/digital/use-digital-resource-categories';
-import { DigitalResourceCategory, DigitalResourceCategoryFilters } from '@/types/digital-resources';
+import {
+  DigitalResourceCategory,
+  DigitalResourceCategoryFilters
+} from '@/types/digital-resources';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -39,14 +41,26 @@ interface CategoryListProps {
   categories?: DigitalResourceCategory[];
   onEdit?: (category: DigitalResourceCategory) => void;
   onDelete?: (category: DigitalResourceCategory) => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
+  loading?: boolean;
+  error?: string | null;
 }
 
-export function CategoryList({ categories: propCategories, onEdit, onDelete }: CategoryListProps) {
+export function CategoryList({
+  categories: propCategories,
+  onEdit,
+  onDelete,
+  canEdit = true,
+  canDelete = true,
+  loading: propLoading,
+  error: propError
+}: CategoryListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const {
     categories: hookCategories,
-    loading,
-    error,
+    loading: categoriesLoading,
+    error: categoriesError,
     metadata,
     filters,
     updateFilters,
@@ -58,6 +72,8 @@ export function CategoryList({ categories: propCategories, onEdit, onDelete }: C
   });
 
   const categories = propCategories || hookCategories;
+  const loading = propLoading !== undefined ? propLoading : categoriesLoading;
+  const error = propError !== undefined ? propError : categoriesError;
 
   useEffect(() => {
     if (!propCategories) {
@@ -75,7 +91,9 @@ export function CategoryList({ categories: propCategories, onEdit, onDelete }: C
     }
   };
 
-  const handleFilterChange = (newFilters: Partial<DigitalResourceCategoryFilters>) => {
+  const handleFilterChange = (
+    newFilters: Partial<DigitalResourceCategoryFilters>
+  ) => {
     updateFilters(newFilters);
   };
 
@@ -199,7 +217,9 @@ export function CategoryList({ categories: propCategories, onEdit, onDelete }: C
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={category.is_active ? 'default' : 'destructive'}>
+                      <Badge
+                        variant={category.is_active ? 'default' : 'destructive'}
+                      >
                         {category.is_active ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>
@@ -213,19 +233,31 @@ export function CategoryList({ categories: propCategories, onEdit, onDelete }: C
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align='end'>
                           <DropdownMenuItem asChild>
-                            <Link href={`/resources/digital-resources/categories/${category.id}`}>
+                            <Link
+                              href={`/resources/digital-resources/categories/${category.id}`}
+                            >
                               <Eye className='h-4 w-4 mr-2' />
                               View
                             </Link>
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleEdit(category)}>
-                            <Edit className='h-4 w-4 mr-2' />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDelete(category)}>
-                            <Trash2 className='h-4 w-4 mr-2' />
-                            Delete
-                          </DropdownMenuItem>
+
+                          {canEdit && (
+                            <DropdownMenuItem
+                              onClick={() => handleEdit(category)}
+                            >
+                              <Edit className='h-4 w-4 mr-2' />
+                              Edit
+                            </DropdownMenuItem>
+                          )}
+
+                          {canDelete && (
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(category)}
+                            >
+                              <Trash2 className='h-4 w-4 mr-2' />
+                              Delete
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -237,21 +269,21 @@ export function CategoryList({ categories: propCategories, onEdit, onDelete }: C
 
           {!propCategories && metadata.totalPages > 1 && (
             <div className='flex justify-center mt-4'>
-              <div className="flex items-center justify-center space-x-2">
+              <div className='flex items-center justify-center space-x-2'>
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant='outline'
+                  size='sm'
                   onClick={() => changePage(metadata.page - 1)}
                   disabled={metadata.page <= 1}
                 >
                   Previous
                 </Button>
-                <span className="text-sm">
+                <span className='text-sm'>
                   Page {metadata.page} of {metadata.totalPages}
                 </span>
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant='outline'
+                  size='sm'
                   onClick={() => changePage(metadata.page + 1)}
                   disabled={metadata.page >= metadata.totalPages}
                 >

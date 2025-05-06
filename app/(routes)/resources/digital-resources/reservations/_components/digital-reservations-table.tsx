@@ -88,6 +88,14 @@ const PaginationEllipsis = ({ className }: { className?: string }) => (
   </div>
 );
 
+// Type to match the hook's expected status values
+type HookReservationStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'active'
+  | 'completed';
+
 export function DigitalReservationsTable() {
   const router = useRouter();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -122,10 +130,10 @@ export function DigitalReservationsTable() {
     limit: pageSize,
     status:
       selectedStatus !== 'all-statuses'
-        ? (selectedStatus as ReservationStatus)
+        ? (selectedStatus as HookReservationStatus)
         : undefined,
-    start_date: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
-    end_date: endDate ? format(endDate, 'yyyy-MM-dd') : undefined
+    startDate: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
+    endDate: endDate ? format(endDate, 'yyyy-MM-dd') : undefined
   });
 
   const handleSearch = () => {
@@ -134,10 +142,10 @@ export function DigitalReservationsTable() {
       page: 1,
       status:
         selectedStatus !== 'all-statuses'
-          ? (selectedStatus as ReservationStatus)
+          ? (selectedStatus as HookReservationStatus)
           : undefined,
-      start_date: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
-      end_date: endDate ? format(endDate, 'yyyy-MM-dd') : undefined
+      startDate: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
+      endDate: endDate ? format(endDate, 'yyyy-MM-dd') : undefined
     });
   };
 
@@ -152,10 +160,10 @@ export function DigitalReservationsTable() {
     fetchReservations({
       search: searchQuery,
       status:
-        value === 'all-statuses' ? undefined : (value as ReservationStatus),
+        value === 'all-statuses' ? undefined : (value as HookReservationStatus),
       page: 1,
-      start_date: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
-      end_date: endDate ? format(endDate, 'yyyy-MM-dd') : undefined
+      startDate: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
+      endDate: endDate ? format(endDate, 'yyyy-MM-dd') : undefined
     });
   };
 
@@ -168,8 +176,8 @@ export function DigitalReservationsTable() {
       search: undefined,
       status: undefined,
       page: 1,
-      start_date: undefined,
-      end_date: undefined
+      startDate: undefined,
+      endDate: undefined
     });
   };
 
@@ -284,14 +292,16 @@ export function DigitalReservationsTable() {
       page: newPage,
       status:
         selectedStatus !== 'all-statuses'
-          ? (selectedStatus as ReservationStatus)
+          ? (selectedStatus as HookReservationStatus)
           : undefined,
-      start_date: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
-      end_date: endDate ? format(endDate, 'yyyy-MM-dd') : undefined
+      startDate: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
+      endDate: endDate ? format(endDate, 'yyyy-MM-dd') : undefined
     });
   };
 
-  const getStatusBadge = (status: ReservationStatus) => {
+  const getStatusBadge = (
+    status: ReservationStatus | HookReservationStatus
+  ) => {
     switch (status) {
       case 'pending':
         return (
@@ -321,12 +331,17 @@ export function DigitalReservationsTable() {
           </Badge>
         );
       case 'canceled':
+      case 'active':
         return (
           <Badge
             variant='outline'
-            className='bg-gray-100 text-gray-800 hover:bg-gray-100'
+            className={
+              status === 'canceled'
+                ? 'bg-gray-100 text-gray-800 hover:bg-gray-100'
+                : 'bg-blue-100 text-blue-800 hover:bg-blue-100'
+            }
           >
-            Canceled
+            {status === 'canceled' ? 'Canceled' : 'Active'}
           </Badge>
         );
       case 'completed':

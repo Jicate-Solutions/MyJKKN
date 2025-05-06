@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { format, isValid, parseISO } from 'date-fns';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -35,13 +35,11 @@ import {
   Tag,
   FileText,
   CheckCircle,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type {
-  DigitalReservation,
-  ReservationStatus
-} from '@/types/digital-resources';
+import type { DigitalReservation } from '@/types/digital-resources';
 import { use } from 'react';
 import {
   Dialog,
@@ -52,6 +50,17 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { usePermissions } from '@/hooks/use-permissions';
+
+// Define local ReservationStatus to match actual values used
+type ReservationStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'canceled'
+  | 'active'
+  | 'completed';
 
 // Define the approver type
 interface ApproverUser {
@@ -68,6 +77,27 @@ export default function ViewDigitalReservationPage({
   const router = useRouter();
   const unwrappedParams = use(params);
   const id = unwrappedParams.id;
+  const supabase = createClientSupabaseClient();
+
+  // Authentication state
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<Error | null>(null);
+
+  // Permissions state
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Specific permission checks
+  const canViewReservations =
+    isSuperAdmin || canAccess('digital_resources.reservations', 'view');
+  const canEditReservations =
+    isSuperAdmin || canAccess('digital_resources.reservations', 'edit');
+  const canDeleteReservations =
+    isSuperAdmin || canAccess('digital_resources.reservations', 'delete');
 
   const [reservation, setReservation] = useState<DigitalReservation | null>(
     null
@@ -77,76 +107,122 @@ export default function ViewDigitalReservationPage({
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showApproveDialog, setShowApproveDialog] = useState(false);
 
+  // Check authentication
   useEffect(() => {
-    const fetchReservation = async () => {
-      setLoading(true);
+    const getUser = async () => {
       try {
-        const supabase = createClientSupabaseClient();
-
-        // Fetch the reservation with related data, but don't rely on foreign key relationships
-        const { data, error } = await supabase
-          .from('digital_reservations')
-          .select('*')
-          .eq('id', id)
-          .single();
-
+        const { data, error } = await supabase.auth.getUser();
         if (error) {
           throw error;
         }
-
-        // If we have the basic reservation, fetch related data separately
-        if (data) {
-          // Fetch the digital resource
-          if (data.digital_resource_id) {
-            const { data: resourceData } = await supabase
-              .from('digital_resources')
-              .select('id, digital_resource_name, type')
-              .eq('id', data.digital_resource_id)
-              .single();
-
-            if (resourceData) {
-              data.digital_resource = resourceData;
-            }
-          }
-
-          // Fetch user info
-          if (data.user_id) {
-            const { data: userData } = await supabase
-              .from('profiles')
-              .select('id, email, full_name')
-              .eq('id', data.user_id)
-              .single();
-
-            if (userData) {
-              data.user = userData;
-            }
-          }
-
-          // Fetch approver info
-          if (data.approver_id) {
-            const { data: approverData } = await supabase
-              .from('profiles')
-              .select('id, email, full_name')
-              .eq('id', data.approver_id)
-              .single();
-
-            if (approverData) {
-              data.approver = approverData;
-            }
-          }
-        }
-
-        setReservation(data as DigitalReservation);
+        setUser(data.user);
       } catch (error) {
-        console.error('Error fetching reservation:', error);
-        toast.error('Failed to load reservation details');
+        console.error('Error fetching user:', error);
+        setAuthError(
+          error instanceof Error
+            ? error
+            : new Error('Unknown authentication error')
+        );
+        toast.error('Authentication error. Please login again.');
       } finally {
-        setLoading(false);
+        setAuthLoading(false);
       }
     };
 
-    fetchReservation();
-  }, [id]);
+    getUser();
+  }, [supabase.auth]);
+
+  // Debug logging for permissions
+  useEffect(() => {
+    console.log('[ViewDigitalReservationPage] Permission check:', {
+      canViewReservations,
+      canEditReservations,
+      canDeleteReservations,
+      isLoading: authLoading || permissionsLoading,
+      authError
+    });
+  }, [
+    canViewReservations,
+    canEditReservations,
+    canDeleteReservations,
+    authLoading,
+    permissionsLoading,
+    authError
+  ]);
+
+  useEffect(() => {
+    // Only fetch reservation if user has permission to view
+    if (!authLoading && !permissionsLoading && canViewReservations) {
+      const fetchReservation = async () => {
+        setLoading(true);
+        try {
+          const supabase = createClientSupabaseClient();
+
+          // Fetch the reservation with related data, but don't rely on foreign key relationships
+          const { data, error } = await supabase
+            .from('digital_reservations')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+          if (error) {
+            throw error;
+          }
+
+          // If we have the basic reservation, fetch related data separately
+          if (data) {
+            // Fetch the digital resource
+            if (data.digital_resource_id) {
+              const { data: resourceData } = await supabase
+                .from('digital_resources')
+                .select('id, digital_resource_name, type')
+                .eq('id', data.digital_resource_id)
+                .single();
+
+              if (resourceData) {
+                data.digital_resource = resourceData;
+              }
+            }
+
+            // Fetch user info
+            if (data.user_id) {
+              const { data: userData } = await supabase
+                .from('profiles')
+                .select('id, email, full_name')
+                .eq('id', data.user_id)
+                .single();
+
+              if (userData) {
+                data.user = userData;
+              }
+            }
+
+            // Fetch approver info
+            if (data.approver_id) {
+              const { data: approverData } = await supabase
+                .from('profiles')
+                .select('id, email, full_name')
+                .eq('id', data.approver_id)
+                .single();
+
+              if (approverData) {
+                data.approver = approverData;
+              }
+            }
+          }
+
+          setReservation(data as DigitalReservation);
+        } catch (error) {
+          console.error('Error fetching reservation:', error);
+          toast.error('Failed to load reservation details');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchReservation();
+    }
+  }, [id, authLoading, permissionsLoading, canViewReservations]);
 
   const handleEdit = () => {
     router.push(`/resources/digital-resources/reservations/edit/${id}`);
@@ -315,14 +391,7 @@ export default function ViewDigitalReservationPage({
   const getStatusBadge = (status: ReservationStatus) => {
     switch (status) {
       case 'pending':
-        return (
-          <Badge
-            variant='outline'
-            className='bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
-          >
-            Pending
-          </Badge>
-        );
+        return <Badge variant='outline'>Pending</Badge>;
       case 'approved':
         return (
           <Badge
@@ -333,30 +402,18 @@ export default function ViewDigitalReservationPage({
           </Badge>
         );
       case 'rejected':
-        return (
-          <Badge
-            variant='outline'
-            className='bg-red-100 text-red-800 hover:bg-red-100'
-          >
-            Rejected
-          </Badge>
-        );
+        return <Badge variant='destructive'>Rejected</Badge>;
       case 'canceled':
-        return (
-          <Badge
-            variant='outline'
-            className='bg-gray-100 text-gray-800 hover:bg-gray-100'
-          >
-            Canceled
-          </Badge>
-        );
+        return <Badge variant='secondary'>Canceled</Badge>;
       case 'completed':
+        return <Badge variant='default'>Completed</Badge>;
+      case 'active':
         return (
           <Badge
             variant='outline'
             className='bg-blue-100 text-blue-800 hover:bg-blue-100'
           >
-            Completed
+            Active
           </Badge>
         );
       default:
@@ -365,18 +422,78 @@ export default function ViewDigitalReservationPage({
   };
 
   const formatDate = (dateString: string) => {
-    if (isValid(parseISO(dateString))) {
-      return format(parseISO(dateString), 'MMM d, yyyy');
-    }
-    return 'Invalid date';
+    if (!dateString) return 'N/A';
+    const date = parseISO(dateString);
+    return isValid(date) ? format(date, 'PPP p') : 'Invalid date';
   };
 
+  // Loading state
+  if (authLoading || permissionsLoading || (canViewReservations && loading)) {
+    return (
+      <ContentLayout title='Reservation Details'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <div className='animate-pulse flex flex-col w-full max-w-3xl gap-4'>
+            <div className='h-8 bg-muted rounded w-64'></div>
+            <div className='h-4 bg-muted rounded w-full'></div>
+            <div className='h-64 bg-muted rounded w-full'></div>
+          </div>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Authentication error state
+  if (authError) {
+    return (
+      <ContentLayout title='Reservation Details'>
+        <Alert variant='destructive'>
+          <AlertCircle className='h-4 w-4' />
+          <AlertTitle>Authentication Error</AlertTitle>
+          <AlertDescription>
+            There was an error authenticating your account. Please login again.
+          </AlertDescription>
+        </Alert>
+      </ContentLayout>
+    );
+  }
+
+  // Permission denied state
+  if (!canViewReservations) {
+    return (
+      <ContentLayout title='Reservation Details'>
+        <Alert variant='destructive'>
+          <AlertCircle className='h-4 w-4' />
+          <AlertTitle>Permission Denied</AlertTitle>
+          <AlertDescription>
+            You do not have permission to view digital resource reservations.
+          </AlertDescription>
+        </Alert>
+      </ContentLayout>
+    );
+  }
+
+  if (!reservation) {
+    return (
+      <ContentLayout title='Reservation Details'>
+        <div className='flex flex-col items-center justify-center min-h-[400px]'>
+          <p className='text-muted-foreground'>Reservation not found</p>
+          <Button
+            variant='outline'
+            className='mt-4'
+            onClick={() =>
+              router.push('/resources/digital-resources/reservations')
+            }
+          >
+            <ArrowLeft className='mr-2 h-4 w-4' />
+            Back to Reservations
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
-    <ContentLayout
-      title={
-        loading ? 'Loading...' : `Reservation: ${reservation?.title || ''}`
-      }
-    >
+    <ContentLayout title={`Reservation: ${reservation.title}`}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -400,312 +517,257 @@ export default function ViewDigitalReservationPage({
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>
-              {loading
-                ? 'Loading...'
-                : reservation?.title || 'Reservation Details'}
-            </BreadcrumbPage>
+            <BreadcrumbPage>{reservation.title}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
-      {loading ? (
-        <div className='flex justify-center items-center py-12'>
-          <Loader2 className='h-8 w-8 animate-spin' />
-        </div>
-      ) : reservation ? (
-        <div className='space-y-6 mt-4'>
-          <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4'>
-            <div>
-              <h1 className='text-2xl font-bold py-1'>{reservation.title}</h1>
-              <div className='flex items-center gap-2 mt-1'>
-                {getStatusBadge(reservation.status)}
-                {reservation.is_recurring && (
-                  <Badge
-                    variant='outline'
-                    className='bg-purple-100 text-purple-800 hover:bg-purple-100'
-                  >
-                    Recurring
-                  </Badge>
-                )}
-              </div>
-            </div>
-            <div className='flex flex-col sm:flex-row gap-2'>
-              {reservation.status === 'pending' ||
-              reservation.status === 'approved' ? (
-                <Dialog
-                  open={showCancelDialog}
-                  onOpenChange={setShowCancelDialog}
-                >
-                  <DialogTrigger asChild>
-                    <Button
-                      variant='outline'
-                      className='border-red-200 text-red-700 hover:bg-red-50'
-                    >
-                      Cancel Reservation
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Cancel Reservation</DialogTitle>
-                      <DialogDescription>
-                        Are you sure you want to cancel this reservation? This
-                        action cannot be undone.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                      <Button
-                        variant='outline'
-                        onClick={() => setShowCancelDialog(false)}
-                        disabled={processing}
-                      >
-                        No, Keep It
-                      </Button>
-                      <Button
-                        variant='destructive'
-                        onClick={handleCancel}
-                        disabled={processing}
-                      >
-                        {processing ? (
-                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                        ) : (
-                          'Yes, Cancel It'
-                        )}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              ) : null}
-
-              {reservation.status === 'pending' && (
-                <Dialog
-                  open={showApproveDialog}
-                  onOpenChange={setShowApproveDialog}
-                >
-                  <DialogTrigger asChild>
-                    <Button
-                      variant='outline'
-                      className='border-green-200 text-green-700 hover:bg-green-50'
-                    >
-                      Approve Reservation
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Approve Reservation</DialogTitle>
-                      <DialogDescription>
-                        Are you sure you want to approve this reservation?
-                      </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                      <Button
-                        variant='outline'
-                        onClick={() => setShowApproveDialog(false)}
-                        disabled={processing}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        variant='default'
-                        onClick={handleApprove}
-                        disabled={processing}
-                        className='bg-green-600 hover:bg-green-700'
-                      >
-                        {processing ? (
-                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                        ) : (
-                          'Approve'
-                        )}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+      <div className='space-y-6 mt-4'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
+          <div>
+            <h1 className='text-2xl font-bold py-1'>{reservation.title}</h1>
+            <div className='flex items-center gap-2 text-sm sm:text-base text-muted-foreground'>
+              Status: {getStatusBadge(reservation.status as ReservationStatus)}
+              {reservation.is_recurring && (
+                <Badge variant='secondary'>Recurring</Badge>
               )}
-
-              <Button variant='outline' onClick={handleEdit}>
+            </div>
+          </div>
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <Button
+              variant='outline'
+              onClick={() =>
+                router.push('/resources/digital-resources/reservations')
+              }
+            >
+              <ArrowLeft className='mr-2 h-4 w-4' />
+              Back
+            </Button>
+            {canEditReservations && reservation.status === 'pending' && (
+              <Button onClick={handleEdit}>
                 <Edit className='mr-2 h-4 w-4' />
                 Edit
               </Button>
-            </div>
+            )}
+            {canDeleteReservations && reservation.status === 'pending' && (
+              <Button
+                variant='destructive'
+                onClick={() => setShowCancelDialog(true)}
+              >
+                <Trash className='mr-2 h-4 w-4' />
+                Cancel
+              </Button>
+            )}
+            {canEditReservations && reservation.status === 'pending' && (
+              <Button
+                variant='outline'
+                onClick={() => setShowApproveDialog(true)}
+              >
+                <CheckCircle className='mr-2 h-4 w-4' />
+                Approve
+              </Button>
+            )}
           </div>
+        </div>
 
-          <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
-            <Card className='md:col-span-2'>
-              <CardHeader>
-                <CardTitle>Reservation Details</CardTitle>
-                <CardDescription>
-                  Information about this reservation
-                </CardDescription>
-              </CardHeader>
-              <CardContent className='space-y-6'>
-                {/* Purpose */}
-                {reservation.purpose && (
+        <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+          <Card>
+            <CardHeader>
+              <CardTitle>Reservation Details</CardTitle>
+              <CardDescription>Basic reservation information</CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <div>
+                <div className='flex items-start mb-2'>
+                  <Tag className='h-5 w-5 mr-2 text-muted-foreground' />
                   <div>
-                    <h3 className='text-sm font-medium flex items-center gap-2 mb-2'>
-                      <FileText className='h-4 w-4' />
-                      Purpose
-                    </h3>
-                    <p className='text-sm text-muted-foreground'>
-                      {reservation.purpose}
+                    <p className='text-sm font-semibold'>Resource</p>
+                    <p>
+                      {reservation.digital_resource?.digital_resource_name ||
+                        'Unknown Resource'}
                     </p>
                   </div>
-                )}
+                </div>
 
-                {/* Date Range */}
-                <div>
-                  <h3 className='text-sm font-medium flex items-center gap-2 mb-2'>
-                    <Calendar className='h-4 w-4' />
-                    Reservation Period
-                  </h3>
-                  <div className='flex flex-col sm:flex-row sm:items-center sm:gap-4'>
-                    <div className='rounded-md bg-muted p-2 text-sm'>
-                      <span className='font-medium'>Start:</span>{' '}
-                      {formatDate(reservation.reservation_start)}
-                    </div>
-                    <div className='rounded-md bg-muted p-2 text-sm mt-2 sm:mt-0'>
-                      <span className='font-medium'>End:</span>{' '}
+                <div className='flex items-start mb-2'>
+                  <User className='h-5 w-5 mr-2 text-muted-foreground' />
+                  <div>
+                    <p className='text-sm font-semibold'>Reserved By</p>
+                    <p>
+                      {reservation.user?.full_name ||
+                        reservation.user?.email ||
+                        'Unknown User'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className='flex items-start mb-2'>
+                  <Calendar className='h-5 w-5 mr-2 text-muted-foreground' />
+                  <div>
+                    <p className='text-sm font-semibold'>Reservation Period</p>
+                    <p>
+                      {formatDate(reservation.reservation_start)} -{' '}
                       {formatDate(reservation.reservation_end)}
-                    </div>
+                    </p>
                   </div>
                 </div>
 
-                {/* Digital Resource */}
-                <div>
-                  <h3 className='text-sm font-medium flex items-center gap-2 mb-2'>
-                    <BookOpen className='h-4 w-4' />
-                    Digital Resource
-                  </h3>
-                  {reservation.digital_resource ? (
+                {reservation.purpose && (
+                  <div className='flex items-start mb-2'>
+                    <FileText className='h-5 w-5 mr-2 text-muted-foreground' />
                     <div>
-                      <Link
-                        href={`/resources/digital-resources/${reservation.digital_resource.id}`}
-                        className='font-medium hover:underline'
-                      >
-                        {reservation.digital_resource.digital_resource_name}
-                      </Link>
-                      <span className='ml-2'>
-                        <Badge variant='outline'>
-                          {reservation.digital_resource.type}
-                        </Badge>
-                      </span>
+                      <p className='text-sm font-semibold'>Purpose</p>
+                      <p>{reservation.purpose}</p>
                     </div>
-                  ) : (
-                    <span className='text-muted-foreground'>
-                      Resource not found
-                    </span>
-                  )}
-                </div>
+                  </div>
+                )}
 
-                {/* License Key */}
                 {reservation.license_key && (
-                  <div>
-                    <h3 className='text-sm font-medium flex items-center gap-2 mb-2'>
-                      <Tag className='h-4 w-4' />
-                      License Key
-                    </h3>
-                    <div className='rounded-md bg-muted p-2 font-mono text-sm'>
-                      {reservation.license_key}
+                  <div className='flex items-start mb-2'>
+                    <BookOpen className='h-5 w-5 mr-2 text-muted-foreground' />
+                    <div>
+                      <p className='text-sm font-semibold'>License Key</p>
+                      <p className='font-mono text-sm bg-muted p-2 rounded'>
+                        {reservation.license_key}
+                      </p>
                     </div>
                   </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
 
-                {/* Approval Details */}
-                {(reservation.status === 'approved' ||
-                  reservation.status === 'rejected') && (
-                  <div>
-                    <h3 className='text-sm font-medium flex items-center gap-2 mb-2'>
-                      <CheckCircle className='h-4 w-4' />
-                      Approval Information
-                    </h3>
-                    <div className='rounded-md bg-muted p-3 text-sm'>
-                      <div>
-                        <span className='font-medium'>Status:</span>{' '}
-                        {getStatusBadge(reservation.status)}
-                      </div>
-                      {reservation.approver && (
-                        <div className='mt-2'>
-                          <span className='font-medium'>Approved by:</span>{' '}
-                          {reservation.approver.email}
-                        </div>
-                      )}
-                      {reservation.approval_datetime &&
-                        isValid(parseISO(reservation.approval_datetime)) && (
-                          <div className='mt-2'>
-                            <span className='font-medium'>Date:</span>{' '}
-                            {format(
-                              parseISO(reservation.approval_datetime),
-                              'MMM d, yyyy h:mm a'
-                            )}
-                          </div>
-                        )}
+          <Card>
+            <CardHeader>
+              <CardTitle>Approval Information</CardTitle>
+              <CardDescription>
+                Details about reservation approval
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              {reservation.status === 'approved' ? (
+                <>
+                  <div className='flex items-start mb-2'>
+                    <User className='h-5 w-5 mr-2 text-muted-foreground' />
+                    <div>
+                      <p className='text-sm font-semibold'>Approved By</p>
+                      <p>
+                        {reservation.approver?.full_name ||
+                          reservation.approver?.id ||
+                          'Unknown'}
+                      </p>
                     </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>User Information</CardTitle>
-                <CardDescription>Who made this reservation</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {reservation.user ? (
-                  <div className='space-y-4'>
-                    <div className='flex items-center gap-3 mb-4'>
-                      <div className='rounded-full bg-primary/10 p-2'>
-                        <User className='h-5 w-5 text-primary' />
-                      </div>
-                      <div>
-                        <div className='font-medium'>
-                          {reservation.user.full_name || 'Unnamed User'}
-                        </div>
-                        <div className='text-sm text-muted-foreground'>
-                          {reservation.user.email}
-                        </div>
-                      </div>
+                  <div className='flex items-start mb-2'>
+                    <Clock className='h-5 w-5 mr-2 text-muted-foreground' />
+                    <div>
+                      <p className='text-sm font-semibold'>Approval Date</p>
+                      <p>
+                        {reservation.approval_datetime
+                          ? formatDate(reservation.approval_datetime)
+                          : 'Not specified'}
+                      </p>
                     </div>
                   </div>
-                ) : (
-                  <div className='text-muted-foreground'>
-                    User information not available
-                  </div>
-                )}
-              </CardContent>
-              <CardFooter className='flex flex-col items-start border-t pt-4'>
-                <div className='text-sm text-muted-foreground'>
-                  <span className='font-medium'>Created:</span>{' '}
-                  {isValid(parseISO(reservation.created_at))
-                    ? format(parseISO(reservation.created_at), 'MMM d, yyyy')
-                    : 'Unknown'}
+                </>
+              ) : (
+                <div className='flex flex-col items-center justify-center h-32 text-center'>
+                  <p className='text-muted-foreground'>
+                    {reservation.status === 'pending'
+                      ? 'This reservation is pending approval.'
+                      : reservation.status === 'rejected'
+                      ? 'This reservation was rejected.'
+                      : (reservation.status as ReservationStatus) === 'canceled'
+                      ? 'This reservation was canceled.'
+                      : 'No approval information available.'}
+                  </p>
                 </div>
-                {isValid(parseISO(reservation.updated_at)) && (
-                  <div className='text-sm text-muted-foreground mt-1'>
-                    <span className='font-medium'>Last updated:</span>{' '}
-                    {format(parseISO(reservation.updated_at), 'MMM d, yyyy')}
-                  </div>
-                )}
-              </CardFooter>
-            </Card>
-          </div>
+              )}
+            </CardContent>
+            <CardFooter className='text-xs text-muted-foreground'>
+              <div>
+                Created: {formatDate(reservation.created_at)}
+                <br />
+                Last Updated: {formatDate(reservation.updated_at)}
+              </div>
+            </CardFooter>
+          </Card>
         </div>
-      ) : (
-        <div className='py-12 text-center'>
-          <h2 className='text-xl font-semibold'>Reservation not found</h2>
-          <p className='mt-2 text-gray-500'>
-            The reservation you are looking for doesn&apos;t exist or you
-            don&apos;t have permission to view it.
-          </p>
-          <Button
-            className='mt-4'
-            onClick={() =>
-              router.push('/resources/digital-resources/reservations')
-            }
-          >
-            Back to Reservations
-          </Button>
-        </div>
-      )}
+      </div>
+
+      {/* Cancel Confirmation Dialog */}
+      <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel Reservation</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to cancel this reservation? This action
+              cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setShowCancelDialog(false)}
+              disabled={processing}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant='destructive'
+              onClick={handleCancel}
+              disabled={processing}
+            >
+              {processing ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  Processing...
+                </>
+              ) : (
+                'Yes, Cancel Reservation'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approve Confirmation Dialog */}
+      <Dialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Approve Reservation</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to approve this reservation? You will be
+              recorded as the approver.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setShowApproveDialog(false)}
+              disabled={processing}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant='default'
+              className='bg-green-600 hover:bg-green-700 text-white'
+              onClick={handleApprove}
+              disabled={processing}
+            >
+              {processing ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  Processing...
+                </>
+              ) : (
+                'Yes, Approve Reservation'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }

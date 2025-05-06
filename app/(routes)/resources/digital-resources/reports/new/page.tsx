@@ -23,7 +23,7 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, InfoIcon } from 'lucide-react';
+import { Loader2, InfoIcon, AlertTriangle } from 'lucide-react';
 import {
   Form,
   FormControl,
@@ -46,6 +46,8 @@ import { toast } from 'react-hot-toast';
 import { DigitalResourceService } from '@/lib/services/resource/digital/digital-resource-service';
 import { useDigitalReports } from '@/hooks/resource/digital/use-digital-reports';
 import { GenerateDigitalUsageReportDto } from '@/types/digital-resources';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Form schema
 const formSchema = z
@@ -81,8 +83,110 @@ export default function NewReportPage() {
   >([]);
   const [loadingResources, setLoadingResources] = useState(true);
 
+  // Authentication state
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Permissions state
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
   // Use the digital reports hook
   const { generateReport, isGeneratingReport } = useDigitalReports();
+
+  // Combined loading state
+  const isLoading = authLoading || permissionsLoading;
+
+  // Specific permission check
+  const canCreateReports =
+    isSuperAdmin || canAccess('digital_resources.reports', 'create');
+
+  // Initialize Supabase and check auth state
+  useEffect(() => {
+    const supabase = createClientSupabaseClient();
+
+    // Check auth on component mount
+    const checkAuth = async () => {
+      try {
+        setAuthLoading(true);
+        const { data: sessionData } = await supabase.auth.getSession();
+
+        if (sessionData?.session) {
+          console.log(
+            'Create Report: Auth session found:',
+            sessionData.session.user.id
+          );
+          setUser(sessionData.session.user);
+        } else {
+          console.log('Create Report: No session found, trying to get user');
+          const { data } = await supabase.auth.getUser();
+          if (data?.user) {
+            console.log('Create Report: User found:', data.user.id);
+            setUser(data.user);
+          } else {
+            console.log('Create Report: No authenticated user found');
+            setUser(null);
+          }
+        }
+      } catch (error) {
+        console.error('Create Report: Auth check error:', error);
+        setUser(null);
+        setAuthError('Authentication error. Please try again.');
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    // Check auth immediately
+    checkAuth();
+
+    // Setup auth state change listener
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        console.log('Create Report: Auth state changed:', event);
+        if (session) {
+          console.log('Create Report: New session user:', session.user.id);
+          setUser(session.user);
+        } else {
+          setUser(null);
+        }
+      }
+    );
+
+    // Cleanup
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Debug permissions once they're loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Create Report permissions debug:', {
+        isSuperAdmin,
+        canCreateReports: canAccess('digital_resources.reports', 'create')
+      });
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
+
+  // Redirect if not allowed to create reports
+  useEffect(() => {
+    if (!isLoading && (!user || !canCreateReports)) {
+      if (!user) {
+        toast.error('You must be logged in to create digital resource reports');
+        router.push('/login');
+      } else if (!canCreateReports) {
+        toast.error(
+          'You do not have permission to create digital resource reports'
+        );
+        router.push('/resources/digital-resources/reports');
+      }
+    }
+  }, [user, isLoading, canCreateReports, router]);
 
   // Initialize form
   const form = useForm<FormValues>({
@@ -97,6 +201,8 @@ export default function NewReportPage() {
   // Fetch digital resources
   useEffect(() => {
     const fetchResources = async () => {
+      if (!user || !canCreateReports) return;
+
       try {
         setLoadingResources(true);
         const response = await DigitalResourceService.getDigitalResources();
@@ -109,10 +215,19 @@ export default function NewReportPage() {
       }
     };
 
-    fetchResources();
-  }, []);
+    if (!isLoading && user && canCreateReports) {
+      fetchResources();
+    }
+  }, [user, isLoading, canCreateReports]);
 
   const onSubmit = async (values: FormValues) => {
+    if (!canCreateReports) {
+      toast.error(
+        'You do not have permission to create digital resource reports'
+      );
+      return;
+    }
+
     try {
       await generateReport(values as GenerateDigitalUsageReportDto);
       router.push('/resources/digital-resources/reports');
@@ -121,6 +236,78 @@ export default function NewReportPage() {
       // Error handling is done in the hook
     }
   };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <ContentLayout title='Generate New Usage Report'>
+        <div className='flex justify-center items-center min-h-[400px]'>
+          <Loader2 className='h-8 w-8 animate-spin' />
+          <span className='ml-2'>Loading...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Auth error state
+  if (authError) {
+    return (
+      <ContentLayout title='Generate New Usage Report'>
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>Error</p>
+          <p className='text-muted-foreground mb-4'>{authError}</p>
+          <Button
+            variant='outline'
+            onClick={() => router.push('/login')}
+            className='mt-4'
+          >
+            Try Again
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // If not authenticated, show error state
+  if (!user) {
+    return (
+      <ContentLayout title='Generate New Usage Report'>
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>
+            Authentication Required
+          </p>
+          <p className='text-muted-foreground mb-4'>
+            You must be logged in to create digital resource reports
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/login'>Go to Login</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // If no permission to create reports
+  if (!canCreateReports) {
+    return (
+      <ContentLayout title='Generate New Usage Report'>
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>Access Denied</p>
+          <p className='text-muted-foreground mb-4'>
+            You do not have permission to create digital resource reports
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/resources/digital-resources/reports'>
+              Return to Reports
+            </Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title='Generate New Usage Report'>

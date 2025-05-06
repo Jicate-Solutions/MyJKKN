@@ -112,6 +112,9 @@ export function DigitalReservationForm({
     limit: 100
   });
 
+  // Get current user
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
   // Fetch users for the dropdown
   useEffect(() => {
     const fetchUsers = async () => {
@@ -152,15 +155,39 @@ export function DigitalReservationForm({
       reservation_end: reservation?.reservation_end
         ? parseISO(reservation.reservation_end)
         : (undefined as unknown as Date),
-      status: reservation?.status || ('pending' as ReservationStatus),
+      status:
+        (reservation?.status === 'active' ? 'approved' : reservation?.status) ||
+        'pending',
       license_key: reservation?.license_key || '',
       is_recurring: reservation?.is_recurring || false
     }
   });
 
+  // Set current user in form after form is initialized
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      setCurrentUser(user);
+
+      // Set the current user in the form
+      if (user && !reservation) {
+        form.setValue('user_id', user.id);
+      }
+    };
+
+    getCurrentUser();
+  }, [supabase.auth, form, reservation]);
+
   const onSubmit = async (data: FormValues) => {
     setIsSubmitting(true);
     try {
+      // Ensure the user_id is set to the current authenticated user for new reservations
+      if (!reservation && currentUser) {
+        data.user_id = currentUser.id;
+      }
+
       const formattedData = {
         ...data,
         reservation_start: format(data.reservation_start, 'yyyy-MM-dd'),
@@ -258,50 +285,54 @@ export function DigitalReservationForm({
                 )}
               />
 
-              {/* User */}
-              <FormField
-                control={form.control}
-                name='user_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>User</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                      disabled={loadingUsers || isSubmitting}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select a user' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {loadingUsers ? (
-                          <div className='flex justify-center items-center p-2'>
-                            <Loader2 className='h-4 w-4 animate-spin' />
-                          </div>
-                        ) : users.length > 0 ? (
-                          users.map((user) => (
+              {/* User - hidden field or only shown for admins */}
+              {reservation ? (
+                <FormField
+                  control={form.control}
+                  name='user_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>User</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                        disabled={true}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select a user' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {users.map((user) => (
                             <SelectItem key={user.id} value={user.id}>
                               {user.full_name
                                 ? `${user.full_name} (${user.email})`
                                 : user.email}
                             </SelectItem>
-                          ))
-                        ) : (
-                          <div className='p-2 text-center text-muted-foreground'>
-                            No users available
-                          </div>
-                        )}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      The user making this reservation
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        The user making this reservation
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                <FormField
+                  control={form.control}
+                  name='user_id'
+                  render={({ field }) => (
+                    <FormItem className='hidden'>
+                      <FormControl>
+                        <Input type='hidden' {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              )}
 
               {/* Title */}
               <FormField

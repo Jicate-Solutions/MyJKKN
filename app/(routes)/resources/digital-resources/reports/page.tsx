@@ -27,7 +27,8 @@ import {
   Search,
   Calendar,
   FileDown,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -51,6 +52,8 @@ import { Badge } from '@/components/ui/badge';
 import { DigitalResourceService } from '@/lib/services/resource/digital/digital-resource-service';
 import { useDigitalReports } from '@/hooks/resource/digital/use-digital-reports';
 import { DigitalUsageReport } from '@/types/digital-resources';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function ReportsPage() {
   const router = useRouter();
@@ -64,6 +67,18 @@ export default function ReportsPage() {
   >([]);
   const [loadingResources, setLoadingResources] = useState(true);
 
+  // Authentication state
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Permissions state
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
   // Use the custom hook for reports
   const {
     reports,
@@ -75,9 +90,104 @@ export default function ReportsPage() {
     refetchReports
   } = useDigitalReports();
 
+  // Combined loading state
+  const isLoading = authLoading || permissionsLoading || isLoadingReports;
+
+  // Specific permission checks
+  const canViewReports =
+    isSuperAdmin || canAccess('digital_resources.reports', 'view');
+  const canCreateReports =
+    isSuperAdmin || canAccess('digital_resources.reports', 'create');
+
+  // Initialize Supabase and check auth state
+  useEffect(() => {
+    const supabase = createClientSupabaseClient();
+
+    // Check auth on component mount
+    const checkAuth = async () => {
+      try {
+        setAuthLoading(true);
+        const { data: sessionData } = await supabase.auth.getSession();
+
+        if (sessionData?.session) {
+          console.log(
+            'Digital Reports: Auth session found:',
+            sessionData.session.user.id
+          );
+          setUser(sessionData.session.user);
+        } else {
+          console.log('Digital Reports: No session found, trying to get user');
+          const { data } = await supabase.auth.getUser();
+          if (data?.user) {
+            console.log('Digital Reports: User found:', data.user.id);
+            setUser(data.user);
+          } else {
+            console.log('Digital Reports: No authenticated user found');
+            setUser(null);
+          }
+        }
+      } catch (error) {
+        console.error('Digital Reports: Auth check error:', error);
+        setUser(null);
+        setAuthError('Authentication error. Please try again.');
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    // Check auth immediately
+    checkAuth();
+
+    // Setup auth state change listener
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        console.log('Digital Reports: Auth state changed:', event);
+        if (session) {
+          console.log('Digital Reports: New session user:', session.user.id);
+          setUser(session.user);
+        } else {
+          setUser(null);
+        }
+      }
+    );
+
+    // Cleanup
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Debug permissions once they're loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Digital Reports permissions debug:', {
+        isSuperAdmin,
+        canViewReports: canAccess('digital_resources.reports', 'view'),
+        canCreateReports: canAccess('digital_resources.reports', 'create')
+      });
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
+
+  // Redirect if not allowed to view reports
+  useEffect(() => {
+    if (!isLoading && (!user || !canViewReports)) {
+      if (!user) {
+        toast.error('You must be logged in to view digital resource reports');
+        router.push('/login');
+      } else if (!canViewReports) {
+        toast.error(
+          'You do not have permission to view digital resource reports'
+        );
+        router.push('/resources/digital-resources');
+      }
+    }
+  }, [user, isLoading, canViewReports, router]);
+
   // Fetch digital resources for dropdown
   useEffect(() => {
     const fetchResources = async () => {
+      if (!user || !canViewReports) return;
+
       try {
         setLoadingResources(true);
         const response = await DigitalResourceService.getDigitalResources();
@@ -89,11 +199,15 @@ export default function ReportsPage() {
       }
     };
 
-    fetchResources();
-  }, []);
+    if (!isLoading && user && canViewReports) {
+      fetchResources();
+    }
+  }, [user, isLoading, canViewReports]);
 
   // Apply filters
   useEffect(() => {
+    if (!user || !canViewReports) return;
+
     const debounce = setTimeout(() => {
       const newFilters: any = {
         page: 1 // Reset to first page when filters change
@@ -119,9 +233,22 @@ export default function ReportsPage() {
     }, 300);
 
     return () => clearTimeout(debounce);
-  }, [searchTerm, statusFilter, resourceFilter, sortOrder, updateFilters]);
+  }, [
+    searchTerm,
+    statusFilter,
+    resourceFilter,
+    sortOrder,
+    updateFilters,
+    user,
+    canViewReports
+  ]);
 
   const handleRefresh = async () => {
+    if (!canViewReports) {
+      toast.error('You do not have permission to refresh reports');
+      return;
+    }
+
     try {
       setRefreshing(true);
       await refetchReports();
@@ -152,6 +279,78 @@ export default function ReportsPage() {
         return 'secondary';
     }
   };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <ContentLayout title='Digital Resource Usage Reports'>
+        <div className='flex justify-center items-center min-h-[400px]'>
+          <Loader2 className='h-8 w-8 animate-spin' />
+          <span className='ml-2'>Loading...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Auth error state
+  if (authError) {
+    return (
+      <ContentLayout title='Digital Resource Usage Reports'>
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>Error</p>
+          <p className='text-muted-foreground mb-4'>{authError}</p>
+          <Button
+            variant='outline'
+            onClick={() => router.push('/login')}
+            className='mt-4'
+          >
+            Try Again
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // If not authenticated, show error state
+  if (!user) {
+    return (
+      <ContentLayout title='Digital Resource Usage Reports'>
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>
+            Authentication Required
+          </p>
+          <p className='text-muted-foreground mb-4'>
+            You must be logged in to view digital resource reports
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/login'>Go to Login</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // If no permission to view reports
+  if (!canViewReports) {
+    return (
+      <ContentLayout title='Digital Resource Usage Reports'>
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>Access Denied</p>
+          <p className='text-muted-foreground mb-4'>
+            You do not have permission to view digital resource reports
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/resources/digital-resources'>
+              Return to Digital Resources
+            </Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title='Digital Resource Usage Reports'>
@@ -199,15 +398,17 @@ export default function ReportsPage() {
                   )}
                   Refresh
                 </Button>
-                <Button
-                  size='sm'
-                  onClick={() =>
-                    router.push('/resources/digital-resources/reports/new')
-                  }
-                >
-                  <Plus className='h-4 w-4 mr-2' />
-                  Generate New Report
-                </Button>
+                {canCreateReports && (
+                  <Button
+                    size='sm'
+                    onClick={() =>
+                      router.push('/resources/digital-resources/reports/new')
+                    }
+                  >
+                    <Plus className='h-4 w-4 mr-2' />
+                    Generate New Report
+                  </Button>
+                )}
               </div>
             </div>
           </CardHeader>
@@ -276,6 +477,23 @@ export default function ReportsPage() {
               {isLoadingReports ? (
                 <div className='flex items-center justify-center h-40'>
                   <Loader2 className='h-8 w-8 animate-spin text-primary' />
+                </div>
+              ) : reportsError ? (
+                <div className='text-center py-8'>
+                  <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+                  <p className='text-destructive text-xl font-medium'>Error</p>
+                  <p className='text-muted-foreground mb-4'>
+                    {reportsError instanceof Error
+                      ? reportsError.message
+                      : String(reportsError)}
+                  </p>
+                  <Button
+                    variant='outline'
+                    onClick={handleRefresh}
+                    className='mt-4'
+                  >
+                    Try Again
+                  </Button>
                 </div>
               ) : reports.length > 0 ? (
                 <div className='rounded-md border'>
@@ -409,7 +627,8 @@ export default function ReportsPage() {
                   </p>
                   {!searchTerm &&
                     statusFilter === 'all' &&
-                    resourceFilter === 'all' && (
+                    resourceFilter === 'all' &&
+                    canCreateReports && (
                       <Button
                         className='mt-4'
                         onClick={() =>
