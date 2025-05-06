@@ -17,6 +17,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ResourceForm } from '../_components/resource-form';
 import { BeatLoader } from 'react-spinners';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function NewResourcePage() {
   const router = useRouter();
@@ -25,8 +26,40 @@ export default function NewResourcePage() {
   const supabase = createClientSupabaseClient();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Get permissions with waitForLoad option to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Define access permissions
+  const canCreateResources =
+    isSuperAdmin || canAccess('physical_resources', 'create');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Physical Resources Create permissions debug:', {
+        isSuperAdmin,
+        canCreateResources: canAccess('physical_resources', 'create')
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   useEffect(() => {
+    // Only check authentication if permissions are loaded
+    if (!permissionsLoaded) return;
+
+    if (!canCreateResources) {
+      console.log('User does not have permission to create physical resources');
+      router.push('/unauthorized');
+      return;
+    }
+
     const checkSession = async () => {
       try {
         const { data, error } = await supabase.auth.getUser();
@@ -45,7 +78,37 @@ export default function NewResourcePage() {
     };
 
     checkSession();
-  }, [router, supabase.auth]);
+  }, [router, supabase.auth, permissionsLoaded, canCreateResources]);
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Create Resource'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Permission check (redundant due to the redirect above, but added for safety)
+  if (permissionsLoaded && !canCreateResources) {
+    return (
+      <ContentLayout title='Create Resource'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to create resources
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/resources/physical-resources/resources'>
+              Back to Resources
+            </Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (loading) {
     return (

@@ -268,7 +268,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admissions.create', label: 'Create Admissions' },
       { key: 'admissions.edit', label: 'Edit Admissions' },
       { key: 'admissions.delete', label: 'Delete Admissions' },
-      { key: 'admissions.crm.view', label: 'View CRM' },
+      { key: 'admissions.crm.view', label: 'View CRM' }
     ]
   },
   {
@@ -312,6 +312,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'physical_resources.policies.delete', label: 'Delete Policies' },
       { key: 'physical_resources.reports.view', label: 'View Reports' },
       { key: 'physical_resources.requests.view', label: 'View Requests' },
+      { key: 'physical_resources.requests.create', label: 'Create Requests' },
       { key: 'physical_resources.requests.approve', label: 'Approve Requests' },
       { key: 'physical_resources.requests.reject', label: 'Reject Requests' }
     ]

@@ -87,6 +87,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from '@/components/ui/collapsible';
+import { BeatLoader } from 'react-spinners';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface ResponsesTabProps {
   apiKey: string;
@@ -112,7 +114,12 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
   const [viewingResponse, setViewingResponse] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
   // Advanced filter state
   const [filters, setFilters] = useState<FilterOptions>({
     status: 'all',
@@ -414,18 +421,20 @@ export function ResponsesTab({ apiKey }: ResponsesTabProps) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
-                variant='outline'
-                size='sm'
-                disabled={isExporting || !responses || responses.length === 0}
-              >
-                <Download
-                  className={`h-4 w-4 mr-1 ${
-                    isExporting ? 'animate-spin' : ''
-                  }`}
-                />
-                {isExporting ? 'Exporting...' : 'Export'}
-              </Button>
+              {isSuperAdmin && (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  disabled={isExporting || !responses || responses.length === 0}
+                >
+                  <Download
+                    className={`h-4 w-4 mr-1 ${
+                      isExporting ? 'animate-spin' : ''
+                    }`}
+                  />
+                  {isExporting ? 'Exporting...' : 'Export'}
+                </Button>
+              )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align='end'>
               <DropdownMenuLabel>Export Options</DropdownMenuLabel>

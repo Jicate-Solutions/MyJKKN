@@ -51,6 +51,8 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { ResourceFiltersComponent } from './resource-filters';
+import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'react-hot-toast';
 
 export function ResourceList() {
   const [showFilters, setShowFilters] = useState(false);
@@ -58,6 +60,19 @@ export function ResourceList() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [resourceToDelete, setResourceToDelete] = useState<string | null>(null);
   const [deletingResource, setDeletingResource] = useState(false);
+
+  // Get permissions
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  // Define access permissions
+  const canViewResources =
+    isSuperAdmin || canAccess('physical_resources', 'view');
+  const canEditResources =
+    isSuperAdmin || canAccess('physical_resources', 'edit');
+  const canDeleteResources =
+    isSuperAdmin || canAccess('physical_resources', 'delete');
+  const canReserveResources =
+    isSuperAdmin || canAccess('physical_resources.reservations', 'create');
 
   const {
     resources,
@@ -90,12 +105,16 @@ export function ResourceList() {
   };
 
   const openDeleteDialog = (id: string) => {
+    if (!canDeleteResources) {
+      toast.error('You do not have permission to delete resources');
+      return;
+    }
     setResourceToDelete(id);
     setDeleteDialogOpen(true);
   };
 
   const handleDelete = async () => {
-    if (!resourceToDelete) return;
+    if (!resourceToDelete || !canDeleteResources) return;
 
     try {
       setDeletingResource(true);
@@ -254,33 +273,50 @@ export function ResourceList() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align='end'>
-                          <Link href={`/resources/physical-resources/${resource.id}`}>
-                            <DropdownMenuItem>
+                          {/* Always show View since it requires same permission as viewing the page */}
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/resources/physical-resources/${resource.id}`}
+                            >
                               <Eye className='h-4 w-4 mr-2' />
                               View
-                            </DropdownMenuItem>
-                          </Link>
-                          <Link href={`/resources/physical-resources/${resource.id}/edit`}>
-                            <DropdownMenuItem>
-                              <PenSquare className='h-4 w-4 mr-2' />
-                              Edit
-                            </DropdownMenuItem>
-                          </Link>
-                          <Link
-                            href={`/resources/physical-resources/reservations/new?resource_id=${resource.id}`}
-                          >
-                            <DropdownMenuItem>
-                              <Calendar className='h-4 w-4 mr-2' />
-                              Reserve
-                            </DropdownMenuItem>
-                          </Link>
-                          <DropdownMenuItem
-                            className='text-red-600'
-                            onClick={() => openDeleteDialog(resource.id)}
-                          >
-                            <Trash2 className='h-4 w-4 mr-2' />
-                            Delete
+                            </Link>
                           </DropdownMenuItem>
+
+                          {/* Only show Edit if user has edit permission */}
+                          {canEditResources && (
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/resources/physical-resources/${resource.id}/edit`}
+                              >
+                                <PenSquare className='h-4 w-4 mr-2' />
+                                Edit
+                              </Link>
+                            </DropdownMenuItem>
+                          )}
+
+                          {/* Only show Reserve if user has reservation permission */}
+                          {canReserveResources && (
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/resources/physical-resources/reservations/new?resource_id=${resource.id}`}
+                              >
+                                <Calendar className='h-4 w-4 mr-2' />
+                                Reserve
+                              </Link>
+                            </DropdownMenuItem>
+                          )}
+
+                          {/* Only show Delete if user has delete permission */}
+                          {canDeleteResources && (
+                            <DropdownMenuItem
+                              className='text-red-600'
+                              onClick={() => openDeleteDialog(resource.id)}
+                            >
+                              <Trash2 className='h-4 w-4 mr-2' />
+                              Delete
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

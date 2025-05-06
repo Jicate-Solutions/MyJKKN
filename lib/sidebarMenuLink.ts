@@ -172,13 +172,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Users,
           submenus: []
         },
-        // {
-        //   href: '/users/new',
-        //   label: 'Add New User',
-        //   active: pathname === '/users/new',
-        //   icon: UserPlus,
-        //   submenus: []
-        // },
         {
           href: '/users/roles',
           label: 'Roles Assignment',
@@ -407,7 +400,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Resource Management',
       menus: [
         {
-          href: '',
+          href: '/resources/physical-resources/dashboard',
           label: 'Physical Resources',
           icon: Boxes,
           active: pathname === '',

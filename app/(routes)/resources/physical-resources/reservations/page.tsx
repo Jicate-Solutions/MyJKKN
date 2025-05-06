@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import {
@@ -58,6 +59,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { BeatLoader } from 'react-spinners';
 import { format } from 'date-fns';
 import { useReservations } from '@/hooks/resource/physical/use-reservations';
 import type {
@@ -78,8 +80,10 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from '@/components/ui/tooltip';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function ReservationsPage() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const [filters, setFilters] = useState<ReservationFilters>({
@@ -93,6 +97,50 @@ export default function ReservationsPage() {
   const [reservationToDelete, setReservationToDelete] = useState<string | null>(
     null
   );
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Get permissions with waitForLoad option to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Define access permissions
+  const canViewReservations =
+    isSuperAdmin || canAccess('physical_resources.reservations', 'view');
+  const canCreateReservations =
+    isSuperAdmin || canAccess('physical_resources.reservations', 'create');
+  const canEditReservations =
+    isSuperAdmin || canAccess('physical_resources.reservations', 'edit');
+  const canDeleteReservations =
+    isSuperAdmin || canAccess('physical_resources.reservations', 'delete');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Reservations List permissions debug:', {
+        isSuperAdmin,
+        canViewReservations: canAccess(
+          'physical_resources.reservations',
+          'view'
+        ),
+        canCreateReservations: canAccess(
+          'physical_resources.reservations',
+          'create'
+        ),
+        canEditReservations: canAccess(
+          'physical_resources.reservations',
+          'edit'
+        ),
+        canDeleteReservations: canAccess(
+          'physical_resources.reservations',
+          'delete'
+        )
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   const {
     reservations,
@@ -105,6 +153,8 @@ export default function ReservationsPage() {
   } = useReservations(filters);
 
   const fetchReservations = useCallback(async () => {
+    if (!canViewReservations) return;
+
     try {
       setRefreshing(true);
       await fetchReservationsFromHook();
@@ -113,11 +163,20 @@ export default function ReservationsPage() {
     } finally {
       setRefreshing(false);
     }
-  }, [fetchReservationsFromHook]);
+  }, [fetchReservationsFromHook, canViewReservations]);
 
   useEffect(() => {
+    // Only proceed if permissions are loaded
+    if (!permissionsLoaded) return;
+
+    if (!canViewReservations) {
+      console.log('User does not have permission to view reservations');
+      router.push('/unauthorized');
+      return;
+    }
+
     fetchReservations();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [permissionsLoaded, canViewReservations, fetchReservations, router]);
 
   const handleRefresh = () => {
     fetchReservations();
@@ -174,12 +233,16 @@ export default function ReservationsPage() {
   };
 
   const openDeleteDialog = (id: string) => {
+    if (!canDeleteReservations) {
+      toast.error('You do not have permission to delete reservations');
+      return;
+    }
     setReservationToDelete(id);
     setDeleteDialogOpen(true);
   };
 
   const handleDelete = async () => {
-    if (!reservationToDelete) return;
+    if (!reservationToDelete || !canDeleteReservations) return;
 
     try {
       setDeleting(true);
@@ -197,6 +260,36 @@ export default function ReservationsPage() {
     }
   };
 
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Reservations'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Permission check (redundant due to the redirect above, but added for safety)
+  if (permissionsLoaded && !canViewReservations) {
+    return (
+      <ContentLayout title='Reservations'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view reservations
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/resources/physical-resources/dashboard'>
+              Back to Resource Management
+            </Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
     <ContentLayout title='Reservations'>
       <Breadcrumb>
@@ -209,7 +302,9 @@ export default function ReservationsPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+              <Link href='/resources/physical-resources/dashboard'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -221,12 +316,14 @@ export default function ReservationsPage() {
 
       <div className='flex justify-between items-center mt-6'>
         <h1 className='text-2xl font-bold'>Resource Reservations</h1>
-        <Link href='/resources/physical-resources/reservations/new'>
-          <Button>
-            <PlusCircle className='mr-2 h-4 w-4' />
-            New Reservation
-          </Button>
-        </Link>
+        {canCreateReservations && (
+          <Link href='/resources/physical-resources/reservations/new'>
+            <Button>
+              <PlusCircle className='mr-2 h-4 w-4' />
+              New Reservation
+            </Button>
+          </Link>
+        )}
       </div>
 
       <Card className='mt-6'>
@@ -251,10 +348,10 @@ export default function ReservationsPage() {
                 />
               </div>
             </div>
-            <div className='w-full sm:w-[180px]'>
+            <div className='w-full sm:w-48'>
               <Select value={status} onValueChange={handleStatusChange}>
                 <SelectTrigger>
-                  <SelectValue placeholder='Status' />
+                  <SelectValue placeholder='Filter by status' />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value='all'>All Statuses</SelectItem>
@@ -267,50 +364,75 @@ export default function ReservationsPage() {
               </Select>
             </div>
             <div>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant='outline'
+                      size='icon'
+                      onClick={handleRefresh}
+                      disabled={refreshing}
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${
+                          refreshing ? 'animate-spin' : ''
+                        }`}
+                      />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Refresh reservations</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <div>
               <Button
                 variant='outline'
-                size='icon'
-                onClick={handleRefresh}
-                disabled={loading || refreshing}
+                className='w-full'
+                onClick={handleSearch}
               >
-                <RefreshCw
-                  className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}
-                />
+                Search
               </Button>
             </div>
           </div>
 
-          {loading ? (
-            <div className='flex justify-center items-center py-8'>
-              <Loader2 className='h-8 w-8 animate-spin' />
+          {loading && !refreshing ? (
+            <div className='flex justify-center items-center p-8'>
+              <Loader2 className='h-8 w-8 animate-spin mr-2' />
+              <span>Loading reservations...</span>
+            </div>
+          ) : error ? (
+            <div className='text-center p-8 text-destructive'>
+              <p>{error}</p>
+              <Button
+                variant='outline'
+                onClick={handleRefresh}
+                className='mt-4'
+              >
+                Try Again
+              </Button>
             </div>
           ) : reservations.length === 0 ? (
-            <div className='text-center py-8'>
-              <Calendar className='h-12 w-12 mx-auto text-muted-foreground' />
-              <h3 className='mt-4 text-lg font-medium'>
+            <div className='text-center p-8 border rounded-md'>
+              <p className='text-muted-foreground mb-4'>
                 No reservations found
-              </h3>
-              <p className='mt-2 text-sm text-muted-foreground'>
-                {searchQuery || status
-                  ? 'Try adjusting your filters'
-                  : 'Get started by creating a new reservation'}
               </p>
-              {!searchQuery && !status && (
-                <Button className='mt-4' asChild>
-                  <Link href='/resources/physical-resources/reservations/new'>
+              {canCreateReservations && (
+                <Link href='/resources/physical-resources/reservations/new'>
+                  <Button>
                     <PlusCircle className='mr-2 h-4 w-4' />
-                    New Reservation
-                  </Link>
-                </Button>
+                    Create Reservation
+                  </Button>
+                </Link>
               )}
             </div>
           ) : (
             <>
-              <div className='rounded-md border'>
+              <div className='border rounded-md overflow-auto'>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>S.No</TableHead>
                       <TableHead>Title</TableHead>
                       <TableHead>Resource</TableHead>
                       <TableHead>Start Time</TableHead>
@@ -320,30 +442,14 @@ export default function ReservationsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {reservations.map((reservation, index) => (
+                    {reservations.map((reservation) => (
                       <TableRow key={reservation.id}>
                         <TableCell className='font-medium'>
-                          {index + 1}
-                        </TableCell>
-                        <TableCell className='font-medium'>
-                          <Link
-                            href={`/resources/physical-resources/reservations/${reservation.id}`}
-                            className='hover:underline'
-                          >
-                            {reservation.title}
-                          </Link>
+                          {reservation.title}
                         </TableCell>
                         <TableCell>
-                          {reservation.resource ? (
-                            <Link
-                              href={`/resources/${reservation.resource_id}`}
-                              className='hover:underline'
-                            >
-                              {reservation.resource.resource_name}
-                            </Link>
-                          ) : (
-                            'Unknown Resource'
-                          )}
+                          {reservation.resource?.resource_name ||
+                            'Resource Not Found'}
                         </TableCell>
                         <TableCell>
                           {formatDate(reservation.start_datetime)}
@@ -355,54 +461,45 @@ export default function ReservationsPage() {
                           {getStatusBadge(reservation.status)}
                         </TableCell>
                         <TableCell className='text-right'>
-                          <TooltipProvider>
-                            <DropdownMenu>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant='ghost'
-                                      className='h-8 w-8 p-0'
-                                    >
-                                      <span className='sr-only'>Open menu</span>
-                                      <MoreHorizontal className='h-4 w-4' />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Reservation Actions</p>
-                                </TooltipContent>
-                              </Tooltip>
-                              <DropdownMenuContent align='end'>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant='ghost' size='sm'>
+                                <MoreHorizontal className='h-4 w-4' />
+                                <span className='sr-only'>Actions</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align='end'>
+                              <DropdownMenuItem asChild>
                                 <Link
                                   href={`/resources/physical-resources/reservations/${reservation.id}`}
                                 >
-                                  <DropdownMenuItem>
-                                    <Eye className='h-4 w-4 mr-2' />
-                                    View
-                                  </DropdownMenuItem>
+                                  <Eye className='mr-2 h-4 w-4' />
+                                  View Details
                                 </Link>
-                                {/* Note: The edit page needs to be created at /resources/reservations/[id]/edit */}
-                                <Link
-                                  href={`/resources/physical-resources/reservations/${reservation.id}/edit`}
-                                >
-                                  <DropdownMenuItem>
-                                    <PenSquare className='h-4 w-4 mr-2' />
+                              </DropdownMenuItem>
+                              {canEditReservations && (
+                                <DropdownMenuItem asChild>
+                                  <Link
+                                    href={`/resources/physical-resources/reservations/${reservation.id}/edit`}
+                                  >
+                                    <PenSquare className='mr-2 h-4 w-4' />
                                     Edit
-                                  </DropdownMenuItem>
-                                </Link>
+                                  </Link>
+                                </DropdownMenuItem>
+                              )}
+                              {canDeleteReservations && (
                                 <DropdownMenuItem
-                                  className='text-red-600'
                                   onClick={() =>
                                     openDeleteDialog(reservation.id)
                                   }
+                                  className='text-destructive focus:text-destructive'
                                 >
-                                  <Trash2 className='h-4 w-4 mr-2' />
+                                  <Trash2 className='mr-2 h-4 w-4' />
                                   Delete
                                 </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TooltipProvider>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -410,46 +507,47 @@ export default function ReservationsPage() {
                 </Table>
               </div>
 
-              {totalPages > 1 && (
-                <div className='flex justify-between items-center mt-4'>
-                  <div className='text-sm text-muted-foreground'>
-                    Showing {(currentPage - 1) * filters.limit! + 1} to{' '}
-                    {Math.min(currentPage * filters.limit!, totalReservations)}{' '}
-                    of {totalReservations} reservations
-                  </div>
-                  <div className='flex items-center space-x-2'>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      disabled={currentPage === 1}
-                    >
-                      <ChevronLeft className='h-4 w-4' />
-                    </Button>
-                    <div className='text-sm'>
-                      Page {currentPage} of {totalPages}
-                    </div>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      disabled={currentPage === totalPages}
-                    >
-                      <ChevronRight className='h-4 w-4' />
-                    </Button>
-                  </div>
+              <div className='flex justify-between items-center mt-4'>
+                <div className='text-sm text-muted-foreground'>
+                  Showing {(currentPage - 1) * filters.limit! + 1} to{' '}
+                  {Math.min(currentPage * filters.limit!, totalReservations)} of{' '}
+                  {totalReservations} reservations
                 </div>
-              )}
+                <div className='flex items-center space-x-2'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                  >
+                    <ChevronLeft className='h-4 w-4' />
+                    <span className='sr-only'>Previous Page</span>
+                  </Button>
+                  <div className='text-sm'>
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                  >
+                    <ChevronRight className='h-4 w-4' />
+                    <span className='sr-only'>Next Page</span>
+                  </Button>
+                </div>
+              </div>
             </>
           )}
         </CardContent>
       </Card>
 
+      {/* Delete confirmation dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className='flex items-center gap-2'>
-              <AlertTriangle className='h-5 w-5 text-destructive' />
+            <DialogTitle className='flex items-center'>
+              <AlertTriangle className='h-5 w-5 text-destructive mr-2' />
               Confirm Deletion
             </DialogTitle>
             <DialogDescription>
@@ -460,10 +558,8 @@ export default function ReservationsPage() {
           <DialogFooter>
             <Button
               variant='outline'
-              onClick={() => {
-                setDeleteDialogOpen(false);
-                setReservationToDelete(null);
-              }}
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleting}
             >
               Cancel
             </Button>
@@ -478,7 +574,7 @@ export default function ReservationsPage() {
                   Deleting...
                 </>
               ) : (
-                'Delete Reservation'
+                'Delete'
               )}
             </Button>
           </DialogFooter>

@@ -272,16 +272,10 @@ CREATE POLICY "Enable read access for authenticated users" ON public.sharing_pol
     TO authenticated
     USING (true);
 
-CREATE POLICY "Enable insert for authenticated admin users" ON public.sharing_policies
+CREATE POLICY "Enable insert for any authenticated user" ON public.sharing_policies
     FOR INSERT
     TO authenticated
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE profiles.id = auth.uid()
-            AND profiles.role IN ('administrator', 'super_admin')
-        )
-    );
+    WITH CHECK (true);
 
 CREATE POLICY "Enable update for authenticated admin users" ON public.sharing_policies
     FOR UPDATE

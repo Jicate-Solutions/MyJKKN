@@ -34,7 +34,8 @@ import {
   ArrowLeft,
   Building2,
   Tag,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -45,6 +46,16 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'react-hot-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 
 interface CategoryDetailPageProps {
   params: Promise<{
@@ -62,8 +73,54 @@ export default function CategoryDetailPage({
   const [category, setCategory] = useState<ResourceCategory | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Get permissions with waitForLoad option to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Define access permissions
+  const canViewCategories =
+    isSuperAdmin || canAccess('physical_resources.categories', 'view');
+  const canEditCategories =
+    isSuperAdmin || canAccess('physical_resources.categories', 'edit');
+  const canDeleteCategories =
+    isSuperAdmin || canAccess('physical_resources.categories', 'delete');
+  const canCreateResources =
+    isSuperAdmin || canAccess('physical_resources', 'create');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Category Details permissions debug:', {
+        isSuperAdmin,
+        canViewCategories: canAccess('physical_resources.categories', 'view'),
+        canEditCategories: canAccess('physical_resources.categories', 'edit'),
+        canDeleteCategories: canAccess(
+          'physical_resources.categories',
+          'delete'
+        ),
+        canCreateResources: canAccess('physical_resources', 'create')
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   useEffect(() => {
+    // Only proceed if permissions are loaded
+    if (!permissionsLoaded) return;
+
+    if (!canViewCategories) {
+      console.log('User does not have permission to view category details');
+      router.push('/unauthorized');
+      return;
+    }
+
     const checkSessionAndLoadData = async () => {
       try {
         // Check session
@@ -98,29 +155,63 @@ export default function CategoryDetailPage({
     };
 
     checkSessionAndLoadData();
-  }, [id, router, supabase.auth]);
+  }, [id, router, supabase.auth, permissionsLoaded, canViewCategories]);
+
+  const openDeleteDialog = () => {
+    if (!canDeleteCategories) {
+      toast.error('You do not have permission to delete categories');
+      return;
+    }
+    setDeleteDialogOpen(true);
+  };
 
   const handleDelete = async () => {
-    if (!category) return;
+    if (!category || !canDeleteCategories) return;
 
-    if (
-      window.confirm(
-        `Are you sure you want to delete the category "${category.category_name}"?`
-      )
-    ) {
-      try {
-        setLoading(true);
-        await ResourceCategoryService.deleteResourceCategory(category.id);
-        router.push('/resources/physical-resources/categories');
-      } catch (error) {
-        console.error('Error deleting category:', error);
-        setError(
-          error instanceof Error ? error.message : 'Failed to delete category'
-        );
-        setLoading(false);
-      }
+    try {
+      setIsDeleting(true);
+      await ResourceCategoryService.deleteResourceCategory(category.id);
+      toast.success('Category deleted successfully');
+      router.push('/resources/physical-resources/categories');
+    } catch (error) {
+      console.error('Error deleting category:', error);
+      setError(
+        error instanceof Error ? error.message : 'Failed to delete category'
+      );
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
     }
   };
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Category Details'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Permission check (redundant due to the redirect above, but added for safety)
+  if (permissionsLoaded && !canViewCategories) {
+    return (
+      <ContentLayout title='Category Details'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view category details
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/resources/physical-resources/dashboard'>
+              Back to Resource Management
+            </Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (loading) {
     return (
@@ -295,16 +386,22 @@ export default function CategoryDetailPage({
             </p>
           </div>
           <div className='flex space-x-2'>
-            <Link href={`/resources/categories/${category.id}/edit`}>
-              <Button variant='outline'>
-                <Edit className='h-4 w-4 mr-2' />
-                Edit
+            {canEditCategories && (
+              <Link
+                href={`/resources/physical-resources/categories/${category.id}/edit`}
+              >
+                <Button variant='outline'>
+                  <Edit className='h-4 w-4 mr-2' />
+                  Edit
+                </Button>
+              </Link>
+            )}
+            {canDeleteCategories && (
+              <Button variant='destructive' onClick={openDeleteDialog}>
+                <Trash2 className='h-4 w-4 mr-2' />
+                Delete
               </Button>
-            </Link>
-            <Button variant='destructive' onClick={handleDelete}>
-              <Trash2 className='h-4 w-4 mr-2' />
-              Delete
-            </Button>
+            )}
           </div>
         </div>
 
@@ -390,13 +487,15 @@ export default function CategoryDetailPage({
                 <h3 className='text-lg font-medium'>
                   Resources in this Category
                 </h3>
-                <Link
-                  href={`/resources/physical-resources/new?category_id=${category.id}`}
-                >
-                  <Button variant='outline' size='sm'>
-                    Add Resource
-                  </Button>
-                </Link>
+                {canCreateResources && (
+                  <Link
+                    href={`/resources/physical-resources/new?category_id=${category.id}`}
+                  >
+                    <Button variant='outline' size='sm'>
+                      Add Resource
+                    </Button>
+                  </Link>
+                )}
               </div>
 
               {resources.length === 0 ? (
@@ -404,11 +503,13 @@ export default function CategoryDetailPage({
                   <p className='text-muted-foreground'>
                     No resources in this category yet
                   </p>
-                  <Link
-                    href={`/resources/physical-resources/new?category_id=${category.id}`}
-                  >
-                    <Button className='mt-2'>Add Resource</Button>
-                  </Link>
+                  {canCreateResources && (
+                    <Link
+                      href={`/resources/physical-resources/new?category_id=${category.id}`}
+                    >
+                      <Button className='mt-2'>Add Resource</Button>
+                    </Link>
+                  )}
                 </div>
               ) : (
                 <div className='rounded-md border'>
@@ -480,6 +581,46 @@ export default function CategoryDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className='flex items-center'>
+              <AlertTriangle className='h-5 w-5 text-destructive mr-2' />
+              Confirm Deletion
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this category? Any resources
+              assigned to this category will be left without a category. This
+              action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant='destructive'
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }
