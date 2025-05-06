@@ -38,6 +38,9 @@ import { toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useDigitalReports } from '@/hooks/resource/digital/use-digital-reports';
 import { DigitalUsageReport } from '@/types/digital-resources';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useRouter } from 'next/navigation';
 
 // Helper function to get status badge
 function getStatusBadge(status: DigitalUsageReport['status']) {
@@ -80,16 +83,123 @@ export default function ReportDetailPage({
 }: {
   params: { id: string };
 }) {
+  const router = useRouter();
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
 
+  // Authentication state
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Permissions state
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
   // Get report data using hook
   const { useGetReportById, downloadReport } = useDigitalReports();
-  const { data: report, isLoading, error } = useGetReportById(params.id);
+  const {
+    data: report,
+    isLoading: reportLoading,
+    error
+  } = useGetReportById(params.id);
+
+  // Combined loading state
+  const isLoading = authLoading || permissionsLoading || reportLoading;
+
+  // Specific permission check
+  const canViewReports =
+    isSuperAdmin || canAccess('digital_resources.reports', 'view');
+
+  // Initialize Supabase and check auth state
+  useEffect(() => {
+    const supabase = createClientSupabaseClient();
+
+    // Check auth on component mount
+    const checkAuth = async () => {
+      try {
+        setAuthLoading(true);
+        const { data: sessionData } = await supabase.auth.getSession();
+
+        if (sessionData?.session) {
+          console.log(
+            'Report Detail: Auth session found:',
+            sessionData.session.user.id
+          );
+          setUser(sessionData.session.user);
+        } else {
+          console.log('Report Detail: No session found, trying to get user');
+          const { data } = await supabase.auth.getUser();
+          if (data?.user) {
+            console.log('Report Detail: User found:', data.user.id);
+            setUser(data.user);
+          } else {
+            console.log('Report Detail: No authenticated user found');
+            setUser(null);
+          }
+        }
+      } catch (error) {
+        console.error('Report Detail: Auth check error:', error);
+        setUser(null);
+        setAuthError('Authentication error. Please try again.');
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    // Check auth immediately
+    checkAuth();
+
+    // Setup auth state change listener
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        console.log('Report Detail: Auth state changed:', event);
+        if (session) {
+          console.log('Report Detail: New session user:', session.user.id);
+          setUser(session.user);
+        } else {
+          setUser(null);
+        }
+      }
+    );
+
+    // Cleanup
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Debug permissions once they're loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Report Detail permissions debug:', {
+        isSuperAdmin,
+        canViewReports: canAccess('digital_resources.reports', 'view')
+      });
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
+
+  // Redirect if not allowed to view reports
+  useEffect(() => {
+    if (!isLoading && (!user || !canViewReports)) {
+      if (!user) {
+        toast.error('You must be logged in to view digital resource reports');
+        router.push('/login');
+      } else if (!canViewReports) {
+        toast.error(
+          'You do not have permission to view digital resource reports'
+        );
+        router.push('/resources/digital-resources');
+      }
+    }
+  }, [user, isLoading, canViewReports, router]);
 
   // Handle "not found" case
   useEffect(() => {
-    if (error) {
+    if (error && !isLoading && user && canViewReports) {
       console.error('Error fetching report:', error);
 
       // Don't call notFound() immediately, let the error state be handled in the UI
@@ -102,9 +212,14 @@ export default function ReportDetailPage({
         toast.error(`Error: ${error.message || 'Failed to load report'}`);
       }
     }
-  }, [error]);
+  }, [error, isLoading, user, canViewReports]);
 
   const handleDownloadPdf = async () => {
+    if (!canViewReports) {
+      toast.error('You do not have permission to download reports');
+      return;
+    }
+
     try {
       setDownloadingPdf(true);
       await downloadReport(params.id, 'pdf');
@@ -117,6 +232,11 @@ export default function ReportDetailPage({
   };
 
   const handleDownloadCsv = async () => {
+    if (!canViewReports) {
+      toast.error('You do not have permission to download reports');
+      return;
+    }
+
     try {
       setDownloadingCsv(true);
       await downloadReport(params.id, 'csv');
@@ -127,6 +247,251 @@ export default function ReportDetailPage({
       setDownloadingCsv(false);
     }
   };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <ContentLayout title='Loading Report...'>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/'>Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources/reports'>
+                  Usage Reports
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Loading...</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className='flex justify-center items-center min-h-[400px]'>
+          <div className='animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full' />
+          <span className='ml-2'>Loading report details...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Auth error state
+  if (authError) {
+    return (
+      <ContentLayout title='Error'>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/'>Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources/reports'>
+                  Usage Reports
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Error</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>Error</p>
+          <p className='text-muted-foreground mb-4'>{authError}</p>
+          <Button
+            variant='outline'
+            onClick={() => router.push('/login')}
+            className='mt-4'
+          >
+            Try Again
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // If not authenticated, show error state
+  if (!user) {
+    return (
+      <ContentLayout title='Authentication Required'>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/'>Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources/reports'>
+                  Usage Reports
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Authentication Required</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>
+            Authentication Required
+          </p>
+          <p className='text-muted-foreground mb-4'>
+            You must be logged in to view digital resource reports
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/login'>Go to Login</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // If no permission to view reports
+  if (!canViewReports) {
+    return (
+      <ContentLayout title='Access Denied'>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/'>Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources/reports'>
+                  Usage Reports
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Access Denied</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>Access Denied</p>
+          <p className='text-muted-foreground mb-4'>
+            You do not have permission to view digital resource reports
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/resources/digital-resources'>
+              Return to Digital Resources
+            </Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // If there's an error fetching the report
+  if (error || !report) {
+    return (
+      <ContentLayout title='Report Not Found'>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/'>Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources'>
+                  Digital Resources
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/resources/digital-resources/reports'>
+                  Usage Reports
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Report Not Found</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <div className='text-center py-8 mt-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>
+            Report Not Found
+          </p>
+          <p className='text-muted-foreground mb-4'>
+            {error?.message ||
+              'The requested report does not exist or has been deleted.'}
+          </p>
+          <Button asChild className='mt-4'>
+            <Link href='/resources/digital-resources/reports'>
+              Return to Reports
+            </Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout
@@ -448,17 +813,6 @@ export default function ReportDetailPage({
                               engagement with content.
                             </span>
                           </li>
-                          <li className='flex items-start gap-2'>
-                            <CheckCircle className='h-5 w-5 text-green-500 mt-0.5' />
-                            <span>
-                              Each user accessed content approximately{' '}
-                              {Math.round(
-                                report.summary.total_views /
-                                  (report.summary.unique_users || 1)
-                              )}
-                              times on average.
-                            </span>
-                          </li>
                         </ul>
                       </div>
                     </CardContent>
@@ -470,252 +824,194 @@ export default function ReportDetailPage({
                     <CardHeader>
                       <CardTitle>Usage Analytics</CardTitle>
                       <CardDescription>
-                        Detailed analysis of resource usage patterns
+                        Detailed usage analytics for the selected period
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className='h-[300px] flex items-center justify-center bg-muted/30 rounded-md border border-dashed'>
-                        <div className='text-center'>
-                          <BarChart3 className='h-12 w-12 mx-auto text-muted-foreground' />
-                          <h3 className='mt-2 font-medium'>
-                            Usage Analytics Visualization
-                          </h3>
-                          <p className='text-sm text-muted-foreground'>
-                            In a real implementation, this would display charts
-                            and graphs showing usage patterns over time
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className='mt-8 space-y-6'>
-                        <div>
-                          <h3 className='text-lg font-semibold mb-2'>
-                            User Demographics
-                          </h3>
-                          <p className='text-muted-foreground mb-4'>
-                            Breakdown of users accessing this resource by
-                            department and role
-                          </p>
-                          <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                            <div className='bg-primary/5 p-4 rounded-lg'>
-                              <h4 className='font-medium mb-2'>
-                                Top Departments
-                              </h4>
-                              <ul className='space-y-2'>
-                                <li className='flex justify-between'>
-                                  <span>Computer Science</span>
-                                  <span className='font-medium'>32%</span>
-                                </li>
-                                <li className='flex justify-between'>
-                                  <span>Engineering</span>
-                                  <span className='font-medium'>28%</span>
-                                </li>
-                                <li className='flex justify-between'>
-                                  <span>Business School</span>
-                                  <span className='font-medium'>15%</span>
-                                </li>
-                                <li className='flex justify-between'>
-                                  <span>Other</span>
-                                  <span className='font-medium'>25%</span>
-                                </li>
-                              </ul>
-                            </div>
-                            <div className='bg-primary/5 p-4 rounded-lg'>
-                              <h4 className='font-medium mb-2'>User Roles</h4>
-                              <ul className='space-y-2'>
-                                <li className='flex justify-between'>
-                                  <span>Students</span>
-                                  <span className='font-medium'>65%</span>
-                                </li>
-                                <li className='flex justify-between'>
-                                  <span>Faculty</span>
-                                  <span className='font-medium'>20%</span>
-                                </li>
-                                <li className='flex justify-between'>
-                                  <span>Researchers</span>
-                                  <span className='font-medium'>12%</span>
-                                </li>
-                                <li className='flex justify-between'>
-                                  <span>Staff</span>
-                                  <span className='font-medium'>3%</span>
-                                </li>
-                              </ul>
+                      {report.report_type === 'detailed' ? (
+                        <div className='space-y-8'>
+                          <div>
+                            <h3 className='text-lg font-semibold mb-4'>
+                              Usage by Device Type
+                            </h3>
+                            <div className='grid grid-cols-1 sm:grid-cols-3 gap-4'>
+                              <div className='bg-primary/5 p-4 rounded-lg'>
+                                <h4 className='text-sm font-medium text-muted-foreground mb-1'>
+                                  Desktop
+                                </h4>
+                                <p className='text-2xl font-bold'>
+                                  {report.summary.device_breakdown?.desktop ||
+                                    'N/A'}
+                                </p>
+                                <p className='text-xs text-muted-foreground'>
+                                  {report.summary.device_breakdown?.desktop
+                                    ? Math.round(
+                                        (report.summary.device_breakdown
+                                          .desktop /
+                                          report.summary.total_views) *
+                                          100
+                                      )
+                                    : 0}
+                                  % of total views
+                                </p>
+                              </div>
+                              <div className='bg-primary/5 p-4 rounded-lg'>
+                                <h4 className='text-sm font-medium text-muted-foreground mb-1'>
+                                  Mobile
+                                </h4>
+                                <p className='text-2xl font-bold'>
+                                  {report.summary.device_breakdown?.mobile ||
+                                    'N/A'}
+                                </p>
+                                <p className='text-xs text-muted-foreground'>
+                                  {report.summary.device_breakdown?.mobile
+                                    ? Math.round(
+                                        (report.summary.device_breakdown
+                                          .mobile /
+                                          report.summary.total_views) *
+                                          100
+                                      )
+                                    : 0}
+                                  % of total views
+                                </p>
+                              </div>
+                              <div className='bg-primary/5 p-4 rounded-lg'>
+                                <h4 className='text-sm font-medium text-muted-foreground mb-1'>
+                                  Tablet
+                                </h4>
+                                <p className='text-2xl font-bold'>
+                                  {report.summary.device_breakdown?.tablet ||
+                                    'N/A'}
+                                </p>
+                                <p className='text-xs text-muted-foreground'>
+                                  {report.summary.device_breakdown?.tablet
+                                    ? Math.round(
+                                        (report.summary.device_breakdown
+                                          .tablet /
+                                          report.summary.total_views) *
+                                          100
+                                      )
+                                    : 0}
+                                  % of total views
+                                </p>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div>
-                          <h3 className='text-lg font-semibold mb-2'>
-                            Content Popularity
-                          </h3>
-                          <p className='text-muted-foreground mb-4'>
-                            Most accessed content within this digital resource
-                          </p>
-                          <div className='overflow-x-auto'>
-                            <table className='w-full border-collapse'>
-                              <thead>
-                                <tr className='border-b'>
-                                  <th className='text-left py-2 font-medium'>
-                                    Content Title
-                                  </th>
-                                  <th className='text-right py-2 font-medium'>
-                                    Views
-                                  </th>
-                                  <th className='text-right py-2 font-medium'>
-                                    Downloads
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                <tr className='border-b'>
-                                  <td className='py-2'>
-                                    Advanced Machine Learning Techniques
-                                  </td>
-                                  <td className='text-right py-2'>245</td>
-                                  <td className='text-right py-2'>87</td>
-                                </tr>
-                                <tr className='border-b'>
-                                  <td className='py-2'>
-                                    Introduction to Neural Networks
-                                  </td>
-                                  <td className='text-right py-2'>198</td>
-                                  <td className='text-right py-2'>62</td>
-                                </tr>
-                                <tr className='border-b'>
-                                  <td className='py-2'>
-                                    Blockchain Technology in Finance
-                                  </td>
-                                  <td className='text-right py-2'>156</td>
-                                  <td className='text-right py-2'>43</td>
-                                </tr>
-                                <tr className='border-b'>
-                                  <td className='py-2'>
-                                    Sustainable Energy Solutions
-                                  </td>
-                                  <td className='text-right py-2'>132</td>
-                                  <td className='text-right py-2'>38</td>
-                                </tr>
-                                <tr>
-                                  <td className='py-2'>
-                                    Quantum Computing: Current State
-                                  </td>
-                                  <td className='text-right py-2'>118</td>
-                                  <td className='text-right py-2'>29</td>
-                                </tr>
-                              </tbody>
-                            </table>
+                          <div>
+                            <h3 className='text-lg font-semibold mb-4'>
+                              Top Referring Sources
+                            </h3>
+                            <div className='space-y-3'>
+                              {report.summary.referrers &&
+                              report.summary.referrers.length > 0 ? (
+                                report.summary.referrers
+                                  .slice(0, 5)
+                                  .map((referrer, index) => (
+                                    <div
+                                      key={index}
+                                      className='flex items-center justify-between border-b pb-2'
+                                    >
+                                      <span className='font-medium'>
+                                        {referrer.source || 'Direct'}
+                                      </span>
+                                      <div className='flex items-center gap-2'>
+                                        <span>{referrer.count}</span>
+                                        <span className='text-xs text-muted-foreground'>
+                                          (
+                                          {Math.round(
+                                            (referrer.count /
+                                              (report.summary?.total_views ||
+                                                1)) *
+                                              100
+                                          )}
+                                          %)
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))
+                              ) : (
+                                <p className='text-muted-foreground'>
+                                  No referrer data available
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <h3 className='text-lg font-semibold mb-4'>
+                              User Demographics
+                            </h3>
+                            {report.summary.user_demographics ? (
+                              <div className='grid grid-cols-1 sm:grid-cols-2 gap-6'>
+                                <div>
+                                  <h4 className='text-sm font-medium mb-2'>
+                                    By Role
+                                  </h4>
+                                  <div className='space-y-2'>
+                                    {Object.entries(
+                                      report.summary.user_demographics
+                                        .by_role || {}
+                                    ).map(([role, count]) => (
+                                      <div
+                                        key={role}
+                                        className='flex items-center justify-between'
+                                      >
+                                        <span className='capitalize'>
+                                          {role}
+                                        </span>
+                                        <span>{count}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <h4 className='text-sm font-medium mb-2'>
+                                    By Department
+                                  </h4>
+                                  <div className='space-y-2'>
+                                    {Object.entries(
+                                      report.summary.user_demographics
+                                        .by_department || {}
+                                    ).map(([dept, count]) => (
+                                      <div
+                                        key={dept}
+                                        className='flex items-center justify-between'
+                                      >
+                                        <span>{dept || 'Unspecified'}</span>
+                                        <span>{count}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className='text-muted-foreground'>
+                                No demographic data available
+                              </p>
+                            )}
                           </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className='text-center py-8'>
+                          <AlertTriangle className='h-8 w-8 text-amber-500 mx-auto mb-2' />
+                          <p>
+                            Detailed analytics are only available for detailed
+                            reports
+                          </p>
+                          <p className='text-sm text-muted-foreground mt-1'>
+                            This is a standard report. Generate a detailed
+                            report to see advanced analytics.
+                          </p>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </TabsContent>
               </Tabs>
             )}
-
-            {report.status === 'processing' && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Report Processing</CardTitle>
-                  <CardDescription>
-                    Your report is being generated
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className='flex flex-col items-center justify-center py-12'>
-                  <div className='animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4'></div>
-                  <h3 className='text-xl font-semibold mb-2'>
-                    Processing Report
-                  </h3>
-                  <p className='text-muted-foreground text-center max-w-md'>
-                    This report is currently being generated. It might take a
-                    few minutes to complete. You can check back later or wait on
-                    this page.
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-
-            {report.status === 'failed' && (
-              <Card className='border-red-200'>
-                <CardHeader>
-                  <CardTitle className='text-red-700'>
-                    Report Generation Failed
-                  </CardTitle>
-                  <CardDescription>
-                    There was an error generating this report
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className='bg-red-50 p-4 rounded-md border border-red-200 mb-4'>
-                    <div className='flex items-start gap-3'>
-                      <XCircle className='h-5 w-5 text-red-500 mt-0.5' />
-                      <div>
-                        <h3 className='font-medium text-red-700 mb-1'>
-                          Error Message
-                        </h3>
-                        <p className='text-red-600'>
-                          {report.error_message ||
-                            'An unknown error occurred during report generation.'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className='space-y-4'>
-                    <h3 className='font-medium'>Possible solutions:</h3>
-                    <ul className='space-y-2'>
-                      <li className='flex items-start gap-2'>
-                        <span className='h-5 w-5 bg-muted text-primary rounded-full flex items-center justify-center text-xs font-bold'>
-                          1
-                        </span>
-                        <span>
-                          Try regenerating the report with a different date
-                          range
-                        </span>
-                      </li>
-                      <li className='flex items-start gap-2'>
-                        <span className='h-5 w-5 bg-muted text-primary rounded-full flex items-center justify-center text-xs font-bold'>
-                          2
-                        </span>
-                        <span>
-                          Check if the digital resource provider is currently
-                          experiencing issues
-                        </span>
-                      </li>
-                      <li className='flex items-start gap-2'>
-                        <span className='h-5 w-5 bg-muted text-primary rounded-full flex items-center justify-center text-xs font-bold'>
-                          3
-                        </span>
-                        <span>Contact support if the problem persists</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div className='mt-6'>
-                    <Button asChild>
-                      <Link href='/resources/digital-resources/reports/new'>
-                        Try Again
-                      </Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </>
-        ) : (
-          <div className='bg-muted/50 p-8 rounded-lg border border-dashed flex flex-col items-center justify-center'>
-            <XCircle className='h-12 w-12 text-muted-foreground mb-3' />
-            <h3 className='text-xl font-semibold mb-1'>Report Not Found</h3>
-            <p className='text-muted-foreground text-center max-w-md mb-6'>
-              The report you are looking for does not exist or has been deleted.
-            </p>
-            <Button asChild>
-              <Link href='/resources/digital-resources/reports'>
-                Return to Reports
-              </Link>
-            </Button>
-          </div>
-        )}
+        ) : null}
       </div>
     </ContentLayout>
   );

@@ -136,7 +136,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
     'digital_resources.categories.view',
   '/resources/digital-resources/reservations':
     'digital_resources.reservations.view',
-  '/resources/digital-resources/policies': 'digital_resources.policies.view',
   '/resources/digital-resources/reports': 'digital_resources.reports.view',
 
   // Generic resource paths
@@ -467,11 +466,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/resources/digital-resources/reservations',
               label: 'Reservations',
               active: pathname === '/resources/digital-resources/reservations'
-            },
-            {
-              href: '/resources/digital-resources/policies',
-              label: 'Sharing Policies',
-              active: pathname === '/resources/digital-resources/policies'
             },
             {
               href: '/resources/digital-resources/reports',

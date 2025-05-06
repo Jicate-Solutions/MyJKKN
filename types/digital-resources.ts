@@ -130,6 +130,7 @@ export interface DigitalResourceFilters {
   institution_id?: string;
   department_id?: string;
   type?: string;
+  access_method?: AccessMethod;
   owner_type?: string;
   owner_id?: string;
   isActive?: boolean;
@@ -167,6 +168,14 @@ export interface DigitalCategoryListResponse {
     limit: number;
     totalPages: number;
   };
+}
+
+export interface DigitalResourceCategoryFilters {
+  search?: string;
+  parent_category_id?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
 }
 
 // Digital Reservation Module
@@ -242,78 +251,6 @@ export interface DigitalReservationListResponse {
   };
 }
 
-// Digital Sharing Policy Module
-export interface DigitalSharingPolicy {
-  id: string;
-  category_id: string;
-  institution_id?: string;
-  approval_required: boolean;
-  max_concurrent_users?: number;
-  advance_notice_required?: number;
-  pricing_model?: {
-    internal_rate: number;
-    external_rate: number;
-    rate_unit: string;
-  };
-  access_window?: {
-    start_date?: string;
-    end_date?: string;
-  };
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-
-  // Include related data
-  category?: {
-    id: string;
-    category_name: string;
-  };
-  institution?: {
-    id: string;
-    name: string;
-  };
-}
-
-export interface CreateDigitalSharingPolicyDto {
-  category_id: string;
-  institution_id?: string;
-  approval_required: boolean;
-  max_concurrent_users?: number;
-  advance_notice_required?: number;
-  pricing_model?: {
-    internal_rate: number;
-    external_rate: number;
-    rate_unit: string;
-  };
-  access_window?: {
-    start_date?: string;
-    end_date?: string;
-  };
-  is_active?: boolean;
-}
-
-export interface UpdateDigitalSharingPolicyDto
-  extends Partial<CreateDigitalSharingPolicyDto> {}
-
-export interface DigitalSharingPolicyFilters {
-  category_id?: string;
-  institution_id?: string;
-  approval_required?: boolean;
-  isActive?: boolean;
-  page?: number;
-  limit?: number;
-}
-
-export interface DigitalSharingPolicyListResponse {
-  data: DigitalSharingPolicy[];
-  metadata: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
-}
-
 // Digital Resource Usage Report Module
 export interface DigitalUsageReport {
   id: string;
@@ -331,6 +268,19 @@ export interface DigitalUsageReport {
     unique_users: number;
     peak_usage_day?: string;
     peak_usage_count?: number;
+    device_breakdown?: {
+      desktop: number;
+      mobile: number;
+      tablet: number;
+    };
+    referrers?: Array<{
+      source: string;
+      count: number;
+    }>;
+    user_demographics?: {
+      by_role: Record<string, number>;
+      by_department: Record<string, number>;
+    };
   };
   created_at: string;
   updated_at: string;

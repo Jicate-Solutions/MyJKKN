@@ -16,8 +16,11 @@ import { DigitalReservationForm } from '../../_components/digital-reservation-fo
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { DigitalReservation } from '@/types/digital-resources';
 import { use } from 'react';
-import { Loader2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { Loader2, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { usePermissions } from '@/hooks/use-permissions';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 
 export default function EditDigitalReservationPage({
   params
@@ -27,45 +30,144 @@ export default function EditDigitalReservationPage({
   const router = useRouter();
   const unwrappedParams = use(params);
   const id = unwrappedParams.id;
+  const supabase = createClientSupabaseClient();
+
+  // Authentication state
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<Error | null>(null);
+
+  // Permissions state
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Specific permission checks
+  const canEditReservations =
+    isSuperAdmin || canAccess('digital_resources.reservations', 'edit');
 
   const [reservation, setReservation] = useState<DigitalReservation | null>(
     null
   );
   const [loading, setLoading] = useState(true);
 
+  // Check authentication
   useEffect(() => {
-    const fetchReservation = async () => {
-      setLoading(true);
+    const getUser = async () => {
       try {
-        const supabase = createClientSupabaseClient();
-        const { data, error } = await supabase
-          .from('digital_reservations')
-          .select('*')
-          .eq('id', id)
-          .single();
-
+        const { data, error } = await supabase.auth.getUser();
         if (error) {
           throw error;
         }
-
-        setReservation(data as DigitalReservation);
+        setUser(data.user);
       } catch (error) {
-        console.error('Error fetching reservation:', error);
-        toast.error('Failed to load reservation details');
-        router.push('/resources/digital-resources/reservations');
+        console.error('Error fetching user:', error);
+        setAuthError(
+          error instanceof Error
+            ? error
+            : new Error('Unknown authentication error')
+        );
+        toast.error('Authentication error. Please login again.');
       } finally {
-        setLoading(false);
+        setAuthLoading(false);
       }
     };
 
-    fetchReservation();
-  }, [id, router]);
+    getUser();
+  }, [supabase.auth]);
 
-  if (loading) {
+  // Debug logging for permissions
+  useEffect(() => {
+    console.log('[EditDigitalReservationPage] Permission check:', {
+      canEditReservations,
+      isLoading: authLoading || permissionsLoading,
+      authError
+    });
+  }, [canEditReservations, authLoading, permissionsLoading, authError]);
+
+  useEffect(() => {
+    // Only fetch reservation if user has permission to edit
+    if (!authLoading && !permissionsLoading && canEditReservations) {
+      const fetchReservation = async () => {
+        setLoading(true);
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data, error } = await supabase
+            .from('digital_reservations')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+          if (error) {
+            throw error;
+          }
+
+          setReservation(data as DigitalReservation);
+        } catch (error) {
+          console.error('Error fetching reservation:', error);
+          toast.error('Failed to load reservation details');
+          router.push('/resources/digital-resources/reservations');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchReservation();
+    }
+  }, [id, router, authLoading, permissionsLoading, canEditReservations]);
+
+  // Loading state
+  if (authLoading || permissionsLoading || (canEditReservations && loading)) {
     return (
-      <ContentLayout title='Loading Reservation...'>
-        <div className='flex justify-center items-center py-12'>
-          <Loader2 className='h-8 w-8 animate-spin' />
+      <ContentLayout title='Edit Reservation'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <div className='animate-pulse flex flex-col w-full max-w-3xl gap-4'>
+            <div className='h-8 bg-muted rounded w-64'></div>
+            <div className='h-4 bg-muted rounded w-full'></div>
+            <div className='h-64 bg-muted rounded w-full'></div>
+          </div>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Authentication error state
+  if (authError) {
+    return (
+      <ContentLayout title='Edit Reservation'>
+        <Alert variant='destructive'>
+          <AlertCircle className='h-4 w-4' />
+          <AlertTitle>Authentication Error</AlertTitle>
+          <AlertDescription>
+            There was an error authenticating your account. Please login again.
+          </AlertDescription>
+        </Alert>
+      </ContentLayout>
+    );
+  }
+
+  // Permission denied state
+  if (!canEditReservations) {
+    return (
+      <ContentLayout title='Edit Reservation'>
+        <Alert variant='destructive'>
+          <AlertCircle className='h-4 w-4' />
+          <AlertTitle>Permission Denied</AlertTitle>
+          <AlertDescription>
+            You do not have permission to edit digital resource reservations.
+          </AlertDescription>
+        </Alert>
+        <div className='mt-4 flex justify-center'>
+          <Button
+            variant='outline'
+            onClick={() =>
+              router.push('/resources/digital-resources/reservations')
+            }
+          >
+            Back to Reservations
+          </Button>
         </div>
       </ContentLayout>
     );
@@ -76,10 +178,19 @@ export default function EditDigitalReservationPage({
       <ContentLayout title='Reservation Not Found'>
         <div className='py-12 text-center'>
           <h2 className='text-xl font-semibold'>Reservation not found</h2>
-          <p className='mt-2 text-gray-500'>
-            The reservation you are looking for doesn&apos;t exist or you don&apos;t have
-            permission to edit it.
+          <p className='mt-2 text-muted-foreground'>
+            The reservation you are looking for doesn&apos;t exist or has been
+            deleted.
           </p>
+          <Button
+            variant='outline'
+            className='mt-4'
+            onClick={() =>
+              router.push('/resources/digital-resources/reservations')
+            }
+          >
+            Back to Reservations
+          </Button>
         </div>
       </ContentLayout>
     );

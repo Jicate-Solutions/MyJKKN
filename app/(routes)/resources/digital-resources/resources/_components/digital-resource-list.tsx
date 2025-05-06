@@ -51,10 +51,22 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DIGITAL_RESOURCE_TYPES, ACCESS_METHODS, OWNER_TYPES } from '@/types/digital-resources';
+import {
+  DIGITAL_RESOURCE_TYPES,
+  ACCESS_METHODS,
+  OWNER_TYPES
+} from '@/types/digital-resources';
 import { DigitalResourceFiltersComponent } from './digital-resource-filters';
 
-export default function DigitalResourceList() {
+export default function DigitalResourceList({
+  canEdit = false,
+  canDelete = false,
+  canReserve = false
+}: {
+  canEdit?: boolean;
+  canDelete?: boolean;
+  canReserve?: boolean;
+}) {
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -115,15 +127,15 @@ export default function DigitalResourceList() {
 
   const getAccessMethodBadge = (method: string) => {
     const colorMap: Record<string, string> = {
-      'online': 'bg-blue-100 text-blue-800',
-      'download': 'bg-green-100 text-green-800',
-      'api': 'bg-purple-100 text-purple-800',
-      'physical_media': 'bg-yellow-100 text-yellow-800'
+      online: 'bg-blue-100 text-blue-800',
+      download: 'bg-green-100 text-green-800',
+      api: 'bg-purple-100 text-purple-800',
+      physical_media: 'bg-yellow-100 text-yellow-800'
     };
 
     return (
       <Badge className={colorMap[method] || 'bg-gray-100 text-gray-800'}>
-        {method.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+        {method.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
       </Badge>
     );
   };
@@ -222,7 +234,9 @@ export default function DigitalResourceList() {
                       </Link>
                     </TableCell>
                     <TableCell>
-                      {Object.entries(DIGITAL_RESOURCE_TYPES).find(([_, value]) => value === resource.type)?.[0]?.replace(/_/g, ' ') || resource.type}
+                      {Object.entries(DIGITAL_RESOURCE_TYPES)
+                        .find(([_, value]) => value === resource.type)?.[0]
+                        ?.replace(/_/g, ' ') || resource.type}
                     </TableCell>
                     <TableCell>
                       {resource.category?.category_name || 'N/A'}
@@ -231,12 +245,16 @@ export default function DigitalResourceList() {
                       {getAccessMethodBadge(resource.access_method)}
                     </TableCell>
                     <TableCell>
-                      {resource.license_information?.allowed_users 
-                        ? `${resource.license_information.allowed_users} users` 
+                      {resource.license_information?.allowed_users
+                        ? `${resource.license_information.allowed_users} users`
                         : 'N/A'}
                     </TableCell>
                     <TableCell>
-                      {Object.entries(OWNER_TYPES).find(([_, value]) => value === resource.owner_type)?.[0]?.replace(/_/g, ' ') || resource.owner_type}
+                      {Object.entries(OWNER_TYPES)
+                        .find(
+                          ([_, value]) => value === resource.owner_type
+                        )?.[0]
+                        ?.replace(/_/g, ' ') || resource.owner_type}
                     </TableCell>
                     <TableCell className='text-right'>
                       <DropdownMenu>
@@ -247,33 +265,45 @@ export default function DigitalResourceList() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align='end'>
-                          <Link href={`/resources/digital-resources/${resource.id}`}>
-                            <DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/resources/digital-resources/${resource.id}`}
+                            >
                               <Eye className='h-4 w-4 mr-2' />
-                              View
-                            </DropdownMenuItem>
-                          </Link>
-                          <Link href={`/resources/digital-resources/edit/${resource.id}`}>
-                            <DropdownMenuItem>
-                              <PenSquare className='h-4 w-4 mr-2' />
-                              Edit
-                            </DropdownMenuItem>
-                          </Link>
-                          <Link
-                            href={`/resources/digital-resources/reservations/new?resource_id=${resource.id}`}
-                          >
-                            <DropdownMenuItem>
-                              <Calendar className='h-4 w-4 mr-2' />
-                              Reserve
-                            </DropdownMenuItem>
-                          </Link>
-                          <DropdownMenuItem
-                            className='text-red-600'
-                            onClick={() => openDeleteDialog(resource.id)}
-                          >
-                            <Trash2 className='h-4 w-4 mr-2' />
-                            Delete
+                              View Details
+                            </Link>
                           </DropdownMenuItem>
+
+                          {canReserve && (
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/resources/digital-resources/reservations/new?resource_id=${resource.id}`}
+                              >
+                                <Calendar className='h-4 w-4 mr-2' />
+                                Reserve
+                              </Link>
+                            </DropdownMenuItem>
+                          )}
+
+                          {canEdit && (
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/resources/digital-resources/edit/${resource.id}`}
+                              >
+                                <PenSquare className='h-4 w-4 mr-2' />
+                                Edit
+                              </Link>
+                            </DropdownMenuItem>
+                          )}
+
+                          {canDelete && (
+                            <DropdownMenuItem
+                              onClick={() => openDeleteDialog(resource.id)}
+                            >
+                              <Trash2 className='h-4 w-4 mr-2' />
+                              Delete
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -296,7 +326,8 @@ export default function DigitalResourceList() {
           <DialogHeader>
             <DialogTitle>Confirm Deletion</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this digital resource? This action cannot be undone.
+              Are you sure you want to delete this digital resource? This action
+              cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
