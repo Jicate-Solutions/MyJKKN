@@ -36,6 +36,8 @@ import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
+import { usePermissions } from '@/hooks/use-permissions';
+import { BeatLoader } from 'react-spinners';
 
 interface ResourceDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -49,8 +51,46 @@ export default function ResourceDetailsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [resource, setResource] = useState<Resource | null>(null);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Get permissions with waitForLoad option to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Define access permissions
+  const canViewResources =
+    isSuperAdmin || canAccess('physical_resources', 'view');
+  const canEditResources =
+    isSuperAdmin || canAccess('physical_resources', 'edit');
+  const canDeleteResources =
+    isSuperAdmin || canAccess('physical_resources', 'delete');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Physical Resource Details permissions debug:', {
+        isSuperAdmin,
+        canViewResources: canAccess('physical_resources', 'view'),
+        canEditResources: canAccess('physical_resources', 'edit'),
+        canDeleteResources: canAccess('physical_resources', 'delete')
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   useEffect(() => {
+    // Only proceed if permissions are loaded
+    if (!permissionsLoaded) return;
+
+    if (!canViewResources) {
+      console.log('User does not have permission to view physical resources');
+      router.push('/unauthorized');
+      return;
+    }
+
     async function fetchResource() {
       try {
         setLoading(true);
@@ -68,10 +108,10 @@ export default function ResourceDetailsPage({
     }
 
     fetchResource();
-  }, [id]);
+  }, [id, permissionsLoaded, canViewResources, router]);
 
   const handleDelete = async () => {
-    if (!resource) return;
+    if (!resource || !canDeleteResources) return;
 
     if (
       window.confirm(
@@ -111,6 +151,34 @@ export default function ResourceDetailsPage({
     return format(new Date(date), 'MMM d, yyyy');
   };
 
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Resource Details'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Permission check (redundant due to the redirect above, but added for safety)
+  if (permissionsLoaded && !canViewResources) {
+    return (
+      <ContentLayout title='Resource Details'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view resource details
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/'>Go to Dashboard</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   if (loading) {
     return (
       <ContentLayout title='Resource Details'>
@@ -124,13 +192,17 @@ export default function ResourceDetailsPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+                <Link href='/resources/physical-resources/dashboard'>
+                  Resource Management
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/resources'>Resources</Link>
+                <Link href='/resources/physical-resources/resources'>
+                  Resources
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -160,13 +232,17 @@ export default function ResourceDetailsPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources'>Resource Management</Link>
+                <Link href='/resources/physical-resources'>
+                  Resource Management
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/resources'>Resources</Link>
+                <Link href='/resources/physical-resources/resources'>
+                  Resources
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -179,7 +255,9 @@ export default function ResourceDetailsPage({
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>{error}</p>
           <Button variant='outline' asChild>
-            <Link href='/resources/physical-resources/resources'>Back to Resources</Link>
+            <Link href='/resources/physical-resources/resources'>
+              Back to Resources
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -199,13 +277,17 @@ export default function ResourceDetailsPage({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources'>Resource Management</Link>
+                <Link href='/resources/physical-resources'>
+                  Resource Management
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/resources/physical-resources/resources'>Resources</Link>
+                <Link href='/resources/physical-resources/resources'>
+                  Resources
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -218,7 +300,9 @@ export default function ResourceDetailsPage({
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>Resource not found</p>
           <Button variant='outline' asChild>
-            <Link href='/resources/physical-resources/resources'>Back to Resources</Link>
+            <Link href='/resources/physical-resources/resources'>
+              Back to Resources
+            </Link>
           </Button>
         </div>
       </ContentLayout>
@@ -237,13 +321,17 @@ export default function ResourceDetailsPage({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+              <Link href='/resources/physical-resources/dashboard'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/resources'>Resources</Link>
+              <Link href='/resources/physical-resources/resources'>
+                Resources
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -266,16 +354,20 @@ export default function ResourceDetailsPage({
             </p>
           </div>
           <div className='flex space-x-2'>
-            <Link href={`/resources/physical-resources/${resource.id}/edit`}>
-              <Button variant='outline'>
-                <PenSquare className='h-4 w-4 mr-2' />
-                Edit
+            {canEditResources && (
+              <Link href={`/resources/physical-resources/${resource.id}/edit`}>
+                <Button variant='outline'>
+                  <PenSquare className='h-4 w-4 mr-2' />
+                  Edit
+                </Button>
+              </Link>
+            )}
+            {canDeleteResources && (
+              <Button variant='destructive' onClick={handleDelete}>
+                <Trash2 className='h-4 w-4 mr-2' />
+                Delete
               </Button>
-            </Link>
-            <Button variant='destructive' onClick={handleDelete}>
-              <Trash2 className='h-4 w-4 mr-2' />
-              Delete
-            </Button>
+            )}
           </div>
         </div>
 
@@ -537,12 +629,16 @@ export default function ResourceDetailsPage({
                       Reserve
                     </Button>
                   </Link>
-                  <Link href={`/resources/physical-resources/${resource.id}/edit`}>
-                    <Button variant='outline' className='w-full'>
-                      <PenSquare className='h-4 w-4 mr-2' />
-                      Edit
-                    </Button>
-                  </Link>
+                  {canEditResources && (
+                    <Link
+                      href={`/resources/physical-resources/${resource.id}/edit`}
+                    >
+                      <Button variant='outline' className='w-full'>
+                        <PenSquare className='h-4 w-4 mr-2' />
+                        Edit
+                      </Button>
+                    </Link>
+                  )}
                 </div>
               </CardContent>
             </Card>

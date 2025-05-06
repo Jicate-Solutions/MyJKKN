@@ -56,7 +56,8 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useResourceRequests } from '@/hooks/resource/physical/use-resource-requests';
 import { ResourceRequestService } from '@/lib/services/resource/physical/resource-request-service';
 import { ResourceRequest } from '@/types/resources';
-import { useAuth } from '@/hooks/use-auth';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface ResourceRequestDetailPageProps {
   params: Promise<{ id: string }>;
@@ -66,7 +67,6 @@ export default function ResourceRequestDetailPage({
   params
 }: ResourceRequestDetailPageProps) {
   const router = useRouter();
-  const { user } = useAuth();
   const { approveRequest, rejectRequest, markAsAcquired, deleteRequest } =
     useResourceRequests();
 
@@ -79,11 +79,113 @@ export default function ResourceRequestDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [actionInProgress, setActionInProgress] = useState(false);
 
+  // Authentication state
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Permission state
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+  const isLoading = loading || authLoading || permissionsLoading;
+
+  // Specific permission checks
+  const canViewRequests =
+    isSuperAdmin || canAccess('physical_resources.requests', 'view');
+  const canCreateRequests =
+    isSuperAdmin || canAccess('physical_resources.requests', 'create');
+  const canApproveRequests =
+    isSuperAdmin || canAccess('physical_resources.requests', 'approve');
+  const canRejectRequests =
+    isSuperAdmin || canAccess('physical_resources.requests', 'reject');
+
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
   const [currentAction, setCurrentAction] = useState<
     'approve' | 'reject' | 'acquire' | 'delete' | null
   >(null);
   const [actionNotes, setActionNotes] = useState('');
+
+  // Initialize Supabase and check auth state
+  useEffect(() => {
+    const supabase = createClientSupabaseClient();
+
+    // Check auth on component mount
+    const checkAuth = async () => {
+      try {
+        setAuthLoading(true);
+        const { data: sessionData } = await supabase.auth.getSession();
+
+        if (sessionData?.session) {
+          console.log(
+            'Detail page: Auth session found:',
+            sessionData.session.user.id
+          );
+          setUser(sessionData.session.user);
+        } else {
+          console.log('Detail page: No session found, trying to get user');
+          const { data } = await supabase.auth.getUser();
+          if (data?.user) {
+            console.log('Detail page: User found:', data.user.id);
+            setUser(data.user);
+          } else {
+            console.log('Detail page: No authenticated user found');
+            setUser(null);
+          }
+        }
+      } catch (err) {
+        console.error('Detail page: Auth check error:', err);
+        setUser(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    checkAuth();
+
+    // Setup auth state change listener
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        console.log('Detail page: Auth state changed:', event);
+        if (session) {
+          console.log('Detail page: New session user:', session.user.id);
+          setUser(session.user);
+        } else {
+          setUser(null);
+        }
+      }
+    );
+
+    // Cleanup
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Debug permissions once they're loaded
+  useEffect(() => {
+    if (!permissionsLoading && user) {
+      console.log('Detail page permissions debug:', {
+        userId: user.id,
+        isSuperAdmin,
+        canViewRequests: canAccess('physical_resources.requests', 'view'),
+        canCreateRequests: canAccess('physical_resources.requests', 'create'),
+        canApproveRequests: canAccess('physical_resources.requests', 'approve'),
+        canRejectRequests: canAccess('physical_resources.requests', 'reject'),
+        userRole: user.app_metadata?.role
+      });
+    }
+  }, [
+    user,
+    permissionsLoading,
+    isSuperAdmin,
+    canAccess,
+    canViewRequests,
+    canCreateRequests,
+    canApproveRequests,
+    canRejectRequests
+  ]);
 
   useEffect(() => {
     const fetchRequest = async () => {
@@ -92,6 +194,7 @@ export default function ResourceRequestDetailPage({
         setError(null);
         const data = await ResourceRequestService.getResourceRequest(requestId);
         setRequest(data);
+        console.log('Loaded request with status:', data?.status);
       } catch (err) {
         console.error('Error fetching resource request:', err);
         setError('Failed to load resource request details');
@@ -210,33 +313,33 @@ export default function ResourceRequestDetailPage({
   };
 
   const canApproveReject = () => {
-    // Only pending requests can be approved/rejected by super_admin or administrator
+    // Only pending requests can be approved/rejected by admins or users with approve permission
     return (
       request?.status === 'pending' &&
-      (user?.role === 'super_admin' || user?.role === 'administrator')
+      (isSuperAdmin || canApproveRequests || canRejectRequests)
     );
   };
 
   const canMarkAsAcquired = () => {
-    // Only approved requests can be marked as acquired by super_admin or administrator
+    // Only approved requests can be marked as acquired by admins or users with edit permission
     return (
       request?.status === 'approved' &&
-      (user?.role === 'super_admin' || user?.role === 'administrator')
+      (isSuperAdmin || canAccess('physical_resources.requests', 'edit'))
     );
   };
 
   const canDelete = () => {
-    // Requesters can delete their own requests, super_admin or administrator can delete any
+    // Requesters can delete their own requests, super_admin or users with delete permission can delete any
     return (
       user?.id === request?.requester_id ||
-      user?.role === 'super_admin' ||
-      user?.role === 'administrator'
+      isSuperAdmin ||
+      canAccess('physical_resources.requests', 'delete')
     );
   };
 
   // Check if user has admin privileges
   const hasAdminPrivileges = () => {
-    return user?.role === 'super_admin' || user?.role === 'administrator';
+    return isSuperAdmin || canApproveRequests || canRejectRequests;
   };
 
   // Check if request is pending but user doesn't have admin privileges
@@ -344,7 +447,7 @@ export default function ResourceRequestDetailPage({
     );
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <ContentLayout title='Resource Request Details'>
         <div className='flex h-[400px] items-center justify-center'>
@@ -367,11 +470,32 @@ export default function ResourceRequestDetailPage({
             <Button
               variant='outline'
               className='mt-4'
-              onClick={() => router.push('/resources/physical-resources/requests')}
+              onClick={() =>
+                router.push('/resources/physical-resources/requests')
+              }
             >
               Back to Requests
             </Button>
           </div>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (!user) {
+    return (
+      <ContentLayout title='Resource Request Details'>
+        <div className='text-center py-8'>
+          <AlertTriangle className='h-12 w-12 text-amber-500 mx-auto mb-4' />
+          <p className='text-destructive text-xl font-medium'>
+            Authentication Required
+          </p>
+          <p className='text-muted-foreground mb-4'>
+            You must be logged in to view resource request details
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/login'>Go to Login</Link>
+          </Button>
         </div>
       </ContentLayout>
     );
@@ -389,13 +513,17 @@ export default function ResourceRequestDetailPage({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+              <Link href='/resources/physical-resources/dashboard'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/requests'>Resource Requests</Link>
+              <Link href='/resources/physical-resources/requests'>
+                Resource Requests
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -415,27 +543,28 @@ export default function ResourceRequestDetailPage({
           </Button>
 
           <div className='flex gap-2'>
-            {canApproveReject() && (
-              <>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  className='gap-1 text-destructive border-destructive hover:bg-destructive/10'
-                  onClick={() => openActionDialog('reject')}
-                >
-                  <XCircle className='h-4 w-4' />
-                  Reject
-                </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  className='gap-1 text-green-600 border-green-600 hover:bg-green-600/10'
-                  onClick={() => openActionDialog('approve')}
-                >
-                  <CheckCircle className='h-4 w-4' />
-                  Approve
-                </Button>
-              </>
+            {request?.status === 'pending' && canRejectRequests && (
+              <Button
+                variant='outline'
+                size='sm'
+                className='gap-1 text-destructive border-destructive hover:bg-destructive/10'
+                onClick={() => openActionDialog('reject')}
+              >
+                <XCircle className='h-4 w-4' />
+                Reject
+              </Button>
+            )}
+
+            {request?.status === 'pending' && canApproveRequests && (
+              <Button
+                variant='outline'
+                size='sm'
+                className='gap-1 text-green-600 border-green-600 hover:bg-green-600/10'
+                onClick={() => openActionDialog('approve')}
+              >
+                <CheckCircle className='h-4 w-4' />
+                Approve
+              </Button>
             )}
 
             {canMarkAsAcquired() && (

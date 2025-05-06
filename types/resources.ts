@@ -293,6 +293,7 @@ export interface SharingPolicy {
   resource_type?: {
     id: string;
     category_name: string;
+    name?: string;
   };
   institution?: {
     id: string;

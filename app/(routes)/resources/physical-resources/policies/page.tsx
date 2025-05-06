@@ -60,8 +60,12 @@ import { toast } from 'react-hot-toast';
 import { SharingPolicy } from '@/types/resources';
 import { useSharingPolicies } from '@/hooks/resource/physical/use-sharing-policies';
 import { PolicyFilters } from './_components/policy-filters';
+import { usePermissions } from '@/hooks/use-permissions';
+import { BeatLoader } from 'react-spinners';
+import { useRouter } from 'next/navigation';
 
 export default function SharingPoliciesPage() {
+  const router = useRouter();
   const {
     policies,
     loading,
@@ -78,10 +82,51 @@ export default function SharingPoliciesPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [policyToDelete, setPolicyToDelete] = useState<string | null>(null);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Get permissions with waitForLoad option to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Define access permissions
+  const canViewPolicies =
+    isSuperAdmin || canAccess('physical_resources.policies', 'view');
+  const canCreatePolicies =
+    isSuperAdmin || canAccess('physical_resources.policies', 'create');
+  const canEditPolicies =
+    isSuperAdmin || canAccess('physical_resources.policies', 'edit');
+  const canDeletePolicies =
+    isSuperAdmin || canAccess('physical_resources.policies', 'delete');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Policies permissions debug:', {
+        isSuperAdmin,
+        canViewPolicies: canAccess('physical_resources.policies', 'view'),
+        canCreatePolicies: canAccess('physical_resources.policies', 'create'),
+        canEditPolicies: canAccess('physical_resources.policies', 'edit'),
+        canDeletePolicies: canAccess('physical_resources.policies', 'delete')
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   useEffect(() => {
+    // Only proceed if permissions are loaded
+    if (!permissionsLoaded) return;
+
+    if (!canViewPolicies) {
+      console.log('User does not have permission to view policies');
+      router.push('/unauthorized');
+      return;
+    }
+
     fetchPolicies();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchPolicies, permissionsLoaded, canViewPolicies, router]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -115,12 +160,18 @@ export default function SharingPoliciesPage() {
   };
 
   const openDeleteDialog = (id: string) => {
+    // Check if user has delete permission before allowing this action
+    if (!canDeletePolicies) {
+      toast.error('You do not have permission to delete policies');
+      return;
+    }
+
     setPolicyToDelete(id);
     setDeleteDialogOpen(true);
   };
 
   const handleDelete = async () => {
-    if (!policyToDelete) return;
+    if (!policyToDelete || !canDeletePolicies) return;
 
     try {
       setDeleting(true);
@@ -138,6 +189,36 @@ export default function SharingPoliciesPage() {
     }
   };
 
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Sharing Policies'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Permission check (redundant due to the redirect above, but added for safety)
+  if (permissionsLoaded && !canViewPolicies) {
+    return (
+      <ContentLayout title='Sharing Policies'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view sharing policies
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/resources/physical-resources/dashboard'>
+              Back to Resource Management
+            </Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
     <ContentLayout title='Sharing Policies'>
       <Breadcrumb>
@@ -150,7 +231,9 @@ export default function SharingPoliciesPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/resources/physical-resources/dashboard'>Resource Management</Link>
+              <Link href='/resources/physical-resources/dashboard'>
+                Resource Management
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -162,12 +245,14 @@ export default function SharingPoliciesPage() {
 
       <div className='flex justify-between items-center mt-6'>
         <h1 className='text-2xl font-bold'>Resource Sharing Policies</h1>
-        <Link href='/resources/physical-resources/policies/new'>
-          <Button>
-            <PlusCircle className='mr-2 h-4 w-4' />
-            New Policy
-          </Button>
-        </Link>
+        {canCreatePolicies && (
+          <Link href='/resources/physical-resources/policies/new'>
+            <Button>
+              <PlusCircle className='mr-2 h-4 w-4' />
+              New Policy
+            </Button>
+          </Link>
+        )}
       </div>
 
       <Card className='mt-6'>
@@ -249,16 +334,16 @@ export default function SharingPoliciesPage() {
                   className='mt-4 mr-2'
                   onClick={handleResetFilters}
                 >
-                  <Filter className='mr-2 h-4 w-4' />
-                  Clear Filters
+                  Reset Filters
                 </Button>
-              ) : null}
-              <Button className='mt-4' asChild>
+              ) : canCreatePolicies ? (
                 <Link href='/resources/physical-resources/policies/new'>
-                  <PlusCircle className='mr-2 h-4 w-4' />
-                  New Policy
+                  <Button className='mt-4'>
+                    <PlusCircle className='mr-2 h-4 w-4' />
+                    Create Policy
+                  </Button>
                 </Link>
-              </Button>
+              ) : null}
             </div>
           ) : (
             <>
@@ -269,34 +354,20 @@ export default function SharingPoliciesPage() {
                       <TableHead>S.No</TableHead>
                       <TableHead>Resource Type</TableHead>
                       <TableHead>Institution</TableHead>
-                      <TableHead>Approval Required</TableHead>
-                      <TableHead>Max Duration</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Last Updated</TableHead>
                       <TableHead className='text-right'>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {policies.map((policy, index) => (
                       <TableRow key={policy.id}>
-                        <TableCell className='font-medium'>
-                          {index + 1}
-                        </TableCell>
-                        <TableCell className='font-medium'>
-                          <Link
-                            href={`/resources/physical-resources/policies/${policy.id}`}
-                            className='hover:underline'
-                          >
-                            {policy.resource_type?.category_name || 'All Types'}
-                          </Link>
+                        <TableCell>{index + 1}</TableCell>
+                        <TableCell>
+                          {policy.resource_type?.category_name || 'All Types'}
                         </TableCell>
                         <TableCell>
                           {policy.institution?.name || 'All Institutions'}
-                        </TableCell>
-                        <TableCell>
-                          {policy.approval_required ? 'Yes' : 'No'}
-                        </TableCell>
-                        <TableCell>
-                          {policy.max_reservation_duration} hours
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -304,6 +375,11 @@ export default function SharingPoliciesPage() {
                           >
                             {policy.is_active ? 'Active' : 'Inactive'}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {policy.updated_at
+                            ? formatDate(policy.updated_at)
+                            : 'N/A'}
                         </TableCell>
                         <TableCell className='text-right'>
                           <DropdownMenu>
@@ -314,27 +390,33 @@ export default function SharingPoliciesPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align='end'>
-                              <Link href={`/resources/physical-resources/policies/${policy.id}`}>
-                                <DropdownMenuItem>
-                                  <Eye className='h-4 w-4 mr-2' />
+                              <DropdownMenuItem asChild>
+                                <Link
+                                  href={`/resources/physical-resources/policies/${policy.id}`}
+                                >
+                                  <Eye className='mr-2 h-4 w-4' />
                                   View
-                                </DropdownMenuItem>
-                              </Link>
-                              <Link
-                                href={`/resources/physical-resources/policies/${policy.id}/edit`}
-                              >
-                                <DropdownMenuItem>
-                                  <PenSquare className='h-4 w-4 mr-2' />
-                                  Edit
-                                </DropdownMenuItem>
-                              </Link>
-                              <DropdownMenuItem
-                                className='text-red-600'
-                                onClick={() => openDeleteDialog(policy.id)}
-                              >
-                                <Trash2 className='h-4 w-4 mr-2' />
-                                Delete
+                                </Link>
                               </DropdownMenuItem>
+                              {canEditPolicies && (
+                                <DropdownMenuItem asChild>
+                                  <Link
+                                    href={`/resources/physical-resources/policies/${policy.id}/edit`}
+                                  >
+                                    <PenSquare className='mr-2 h-4 w-4' />
+                                    Edit
+                                  </Link>
+                                </DropdownMenuItem>
+                              )}
+                              {canDeletePolicies && (
+                                <DropdownMenuItem
+                                  className='text-destructive'
+                                  onClick={() => openDeleteDialog(policy.id)}
+                                >
+                                  <Trash2 className='mr-2 h-4 w-4' />
+                                  Delete
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -344,28 +426,31 @@ export default function SharingPoliciesPage() {
                 </Table>
               </div>
 
-              {metadata.totalPages > 1 && (
-                <div className='flex items-center justify-between mt-4'>
+              {/* Pagination */}
+              {metadata && (
+                <div className='flex items-center justify-between space-x-2 mt-4'>
                   <div className='text-sm text-muted-foreground'>
-                    Showing {policies.length} of {metadata.total} policies
+                    Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
+                    {Math.min(metadata.page * metadata.limit, metadata.total)}{' '}
+                    of {metadata.total} policies
                   </div>
-                  <div className='flex items-center gap-2'>
+                  <div className='flex items-center space-x-2'>
                     <Button
                       variant='outline'
                       size='sm'
                       onClick={() => changePage(metadata.page - 1)}
-                      disabled={metadata.page <= 1}
+                      disabled={metadata.page === 1}
                     >
                       Previous
                     </Button>
-                    <span className='text-sm text-muted-foreground'>
-                      Page {metadata.page} of {metadata.totalPages}
-                    </span>
                     <Button
                       variant='outline'
                       size='sm'
                       onClick={() => changePage(metadata.page + 1)}
-                      disabled={metadata.page >= metadata.totalPages}
+                      disabled={
+                        metadata.page === metadata.totalPages ||
+                        metadata.totalPages === 0
+                      }
                     >
                       Next
                     </Button>
@@ -377,11 +462,12 @@ export default function SharingPoliciesPage() {
         </CardContent>
       </Card>
 
+      {/* Delete confirmation dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
+        <DialogContent className='sm:max-w-[425px]'>
           <DialogHeader>
-            <DialogTitle className='flex items-center gap-2'>
-              <AlertTriangle className='h-5 w-5 text-destructive' />
+            <DialogTitle className='flex items-center'>
+              <AlertTriangle className='h-5 w-5 text-destructive mr-2' />
               Confirm Deletion
             </DialogTitle>
             <DialogDescription>
@@ -392,10 +478,8 @@ export default function SharingPoliciesPage() {
           <DialogFooter>
             <Button
               variant='outline'
-              onClick={() => {
-                setDeleteDialogOpen(false);
-                setPolicyToDelete(null);
-              }}
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleting}
             >
               Cancel
             </Button>
@@ -410,7 +494,7 @@ export default function SharingPoliciesPage() {
                   Deleting...
                 </>
               ) : (
-                'Delete Policy'
+                'Delete'
               )}
             </Button>
           </DialogFooter>

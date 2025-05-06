@@ -17,14 +17,49 @@ import {
 import { Button } from '@/components/ui/button';
 import { ResourceStatsDashboard } from '../_components/resource-stats-dashboard';
 import { BeatLoader } from 'react-spinners';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function ResourcesPage() {
   const router = useRouter();
   const supabase = createClientSupabaseClient();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Get permissions with waitForLoad option to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Define access permissions
+  const canViewDashboard =
+    isSuperAdmin || canAccess('physical_resources.dashboard', 'view');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Physical Resources Dashboard permissions debug:', {
+        isSuperAdmin,
+        canViewDashboard: canAccess('physical_resources.dashboard', 'view')
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   useEffect(() => {
+    // Only check authentication if the user has permission to view the dashboard
+    if (!permissionsLoaded) return;
+
+    if (!canViewDashboard) {
+      console.log(
+        'User does not have permission to view physical resources dashboard'
+      );
+      router.push('/unauthorized');
+      return;
+    }
+
     const checkSession = async () => {
       try {
         const { data, error } = await supabase.auth.getUser();
@@ -43,7 +78,36 @@ export default function ResourcesPage() {
     };
 
     checkSession();
-  }, [router, supabase.auth]);
+  }, [router, supabase.auth, permissionsLoaded, canViewDashboard]);
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Resource Management'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Permission check (this is redundant due to the redirect above, but added for safety)
+  if (permissionsLoaded && !canViewDashboard) {
+    return (
+      <ContentLayout title='Resource Management'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to access the resource management
+            dashboard
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/'>Go to Dashboard</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (loading) {
     return (

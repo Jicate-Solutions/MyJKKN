@@ -39,6 +39,7 @@ import {
   PopoverTrigger
 } from '@/components/ui/popover';
 import { CalendarIcon, Loader2 } from 'lucide-react';
+import { BeatLoader } from 'react-spinners';
 import { cn } from '@/lib/utils';
 import { ReservationService } from '@/lib/services/resource/physical/reservation-service';
 import { ResourceService } from '@/lib/services/resource/physical/resource-service';
@@ -49,6 +50,7 @@ import type { Institution } from '@/types/organizations';
 import type { Department } from '@/types/organizations';
 import { useAuth } from '@/hooks/use-auth';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Extend the user type to include the optional properties we need
 interface ExtendedUser {
@@ -71,6 +73,32 @@ export default function NewReservationPage() {
   const [filteredDepartments, setFilteredDepartments] = useState<Department[]>(
     []
   );
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  // Get permissions with waitForLoad option to ensure they're fully loaded
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions([], { waitForLoad: true });
+
+  // Define access permissions
+  const canCreateReservations =
+    isSuperAdmin || canAccess('physical_resources.reservations', 'create');
+
+  // Track when permissions are loaded
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('New Reservation permissions debug:', {
+        isSuperAdmin,
+        canCreateReservations: canAccess(
+          'physical_resources.reservations',
+          'create'
+        )
+      });
+      setPermissionsLoaded(true);
+    }
+  }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   // Add debug information for authentication status
   useEffect(() => {
@@ -92,8 +120,23 @@ export default function NewReservationPage() {
     notes: ''
   });
 
+  // Check for permission before loading data
+  useEffect(() => {
+    // Only proceed if permissions are loaded
+    if (!permissionsLoaded) return;
+
+    if (!canCreateReservations) {
+      console.log('User does not have permission to create reservations');
+      router.push('/unauthorized');
+      return;
+    }
+  }, [permissionsLoaded, canCreateReservations, router]);
+
   // Load resources, institutions, and departments
   useEffect(() => {
+    // Only fetch data if user has permission
+    if (!permissionsLoaded || !canCreateReservations) return;
+
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -118,7 +161,7 @@ export default function NewReservationPage() {
     };
 
     fetchData();
-  }, []);
+  }, [permissionsLoaded, canCreateReservations]);
 
   // Fetch departments when institution changes
   useEffect(() => {
@@ -207,79 +250,110 @@ export default function NewReservationPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Get fresh user data from supabase in case it wasn't loaded properly
-    // through the hook
-    const supabase = createClientSupabaseClient();
-    const { data: sessionData } = await supabase.auth.getSession();
-
-    if (!sessionData.session) {
-      toast.error('Your session has expired. Please log in again.');
-      router.push('/auth/login');
+    if (!canCreateReservations) {
+      toast.error('You do not have permission to create reservations');
       return;
     }
 
-    const userId = sessionData.session.user?.id;
-
-    if (!userId) {
-      toast.error('You must be logged in to create a reservation');
-      return;
-    }
-
+    // Validation
     if (!formData.resource_id) {
       toast.error('Please select a resource');
       return;
     }
 
-    if (!formData.requester_institution_id) {
-      toast.error('Please select your institution');
+    if (!formData.title.trim()) {
+      toast.error('Please provide a title for the reservation');
       return;
     }
 
-    setSubmitting(true);
+    if (!formData.purpose) {
+      toast.error('Please select a purpose for the reservation');
+      return;
+    }
 
+    if (!formData.requester_institution_id) {
+      toast.error('Please select an institution');
+      return;
+    }
+
+    if (!userExtended?.id) {
+      toast.error('User authentication required');
+      setSubmitting(false);
+      return;
+    }
+
+    // Create reservation
     try {
-      // Combine date and time
-      const startDateTime = new Date(formData.start_date);
-      const [startHours, startMinutes] = formData.start_time
-        .split(':')
-        .map(Number);
-      startDateTime.setHours(startHours, startMinutes);
+      setSubmitting(true);
 
-      const endDateTime = new Date(formData.end_date);
-      const [endHours, endMinutes] = formData.end_time.split(':').map(Number);
-      endDateTime.setHours(endHours, endMinutes);
+      // Format dates for submission
+      const startDate = format(formData.start_date, 'yyyy-MM-dd');
+      const endDate = format(formData.end_date, 'yyyy-MM-dd');
 
-      // Validate dates
-      if (endDateTime <= startDateTime) {
+      // Combine date and time for start and end
+      const startDateTime = `${startDate}T${formData.start_time}:00`;
+      const endDateTime = `${endDate}T${formData.end_time}:00`;
+
+      // Check if end date is before start date
+      if (new Date(endDateTime) <= new Date(startDateTime)) {
         toast.error('End time must be after start time');
         setSubmitting(false);
         return;
       }
 
-      // Create reservation
-      await ReservationService.createReservation({
+      const result = await ReservationService.createReservation({
         resource_id: formData.resource_id,
-        user_id: userId, // Use the user ID from the session
         title: formData.title,
         description: formData.description,
-        start_datetime: startDateTime.toISOString(),
-        end_datetime: endDateTime.toISOString(),
+        start_datetime: startDateTime,
+        end_datetime: endDateTime,
         purpose: formData.purpose,
         requester_institution_id: formData.requester_institution_id,
         requester_department_id: formData.requester_department_id || undefined,
-        notes: formData.notes
+        notes: formData.notes,
+        status: 'pending',
+        user_id: userExtended.id
       });
 
       toast.success('Reservation created successfully');
-      router.push('/resources/physical-resources/reservations');
+      router.push(`/resources/physical-resources/reservations/${result.id}`);
     } catch (error) {
       console.error('Error creating reservation:', error);
-      toast.error('Failed to create reservation');
+      toast.error('Failed to create reservation. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='New Reservation'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+          <span className='ml-2'>Loading permissions...</span>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Permission check (redundant due to the redirect above, but added for safety)
+  if (permissionsLoaded && !canCreateReservations) {
+    return (
+      <ContentLayout title='New Reservation'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to create reservations
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/resources/physical-resources/reservations'>
+              Back to Reservations
+            </Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title='New Reservation'>
@@ -313,257 +387,299 @@ export default function NewReservationPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='mt-6'>
-        <h1 className='text-2xl font-bold'>Create New Reservation</h1>
-      </div>
-
-      {loading ? (
-        <div className='flex justify-center items-center py-12'>
-          <Loader2 className='h-8 w-8 animate-spin' />
+      <div className='space-y-6 mt-6'>
+        <div className='flex justify-between items-center'>
+          <div>
+            <h1 className='text-2xl font-bold'>New Reservation</h1>
+            <p className='text-muted-foreground'>
+              Create a new resource reservation
+            </p>
+          </div>
         </div>
-      ) : (
-        <Card className='mt-6'>
+
+        <Card>
           <CardHeader>
             <CardTitle>Reservation Details</CardTitle>
             <CardDescription>
-              Fill in the details to request a resource reservation
+              Fill in the details to reserve a resource
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className='space-y-6'>
-              <div className='space-y-4'>
-                <div>
-                  <Label htmlFor='resource_id'>Resource</Label>
-                  <Select
-                    value={formData.resource_id}
-                    onValueChange={(value) =>
-                      handleSelectChange('resource_id', value)
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder='Select a resource' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {resources.map((resource) => (
-                        <SelectItem key={resource.id} value={resource.id}>
-                          {resource.resource_name} ({resource.resource_type})
+            {loading ? (
+              <div className='flex justify-center items-center py-8'>
+                <Loader2 className='h-8 w-8 animate-spin mr-2' />
+                <span>Loading...</span>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className='space-y-6'>
+                <div className='space-y-4'>
+                  <div>
+                    <Label htmlFor='resource_id'>Resource *</Label>
+                    <Select
+                      value={formData.resource_id}
+                      onValueChange={(value) =>
+                        handleSelectChange('resource_id', value)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select a resource' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {resources.length === 0 ? (
+                          <div className='p-2 text-center text-muted-foreground'>
+                            No resources available
+                          </div>
+                        ) : (
+                          resources.map((resource) => (
+                            <SelectItem key={resource.id} value={resource.id}>
+                              {resource.resource_name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor='title'>Title *</Label>
+                    <Input
+                      id='title'
+                      name='title'
+                      value={formData.title}
+                      onChange={handleInputChange}
+                      placeholder='e.g., Team Meeting, Conference'
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor='description'>Description</Label>
+                    <Textarea
+                      id='description'
+                      name='description'
+                      value={formData.description}
+                      onChange={handleInputChange}
+                      placeholder='Provide details about this reservation'
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                    <div className='space-y-2'>
+                      <Label>Start Date *</Label>
+                      <div className='flex flex-col space-y-2'>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant='outline'
+                              className={cn(
+                                'justify-start text-left font-normal',
+                                !formData.start_date && 'text-muted-foreground'
+                              )}
+                            >
+                              <CalendarIcon className='mr-2 h-4 w-4' />
+                              {formData.start_date ? (
+                                format(formData.start_date, 'PPP')
+                              ) : (
+                                <span>Pick a date</span>
+                              )}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className='w-auto p-0'>
+                            <Calendar
+                              mode='single'
+                              selected={formData.start_date}
+                              onSelect={(date) =>
+                                handleDateChange('start_date', date)
+                              }
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+
+                        <div>
+                          <Label htmlFor='start_time'>Start Time *</Label>
+                          <Input
+                            id='start_time'
+                            name='start_time'
+                            type='time'
+                            value={formData.start_time}
+                            onChange={handleInputChange}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className='space-y-2'>
+                      <Label>End Date *</Label>
+                      <div className='flex flex-col space-y-2'>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant='outline'
+                              className={cn(
+                                'justify-start text-left font-normal',
+                                !formData.end_date && 'text-muted-foreground'
+                              )}
+                            >
+                              <CalendarIcon className='mr-2 h-4 w-4' />
+                              {formData.end_date ? (
+                                format(formData.end_date, 'PPP')
+                              ) : (
+                                <span>Pick a date</span>
+                              )}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className='w-auto p-0'>
+                            <Calendar
+                              mode='single'
+                              selected={formData.end_date}
+                              onSelect={(date) =>
+                                handleDateChange('end_date', date)
+                              }
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+
+                        <div>
+                          <Label htmlFor='end_time'>End Time *</Label>
+                          <Input
+                            id='end_time'
+                            name='end_time'
+                            type='time'
+                            value={formData.end_time}
+                            onChange={handleInputChange}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor='purpose'>Purpose *</Label>
+                    <Select
+                      value={formData.purpose}
+                      onValueChange={(value) =>
+                        handleSelectChange('purpose', value)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select a purpose' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='meeting'>Meeting</SelectItem>
+                        <SelectItem value='class'>Class/Lecture</SelectItem>
+                        <SelectItem value='event'>Event</SelectItem>
+                        <SelectItem value='exam'>Examination</SelectItem>
+                        <SelectItem value='seminar'>
+                          Seminar/Conference
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor='title'>Title</Label>
-                  <Input
-                    id='title'
-                    name='title'
-                    value={formData.title}
-                    onChange={handleInputChange}
-                    placeholder='Enter a title for your reservation'
-                    required
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor='description'>Description</Label>
-                  <Textarea
-                    id='description'
-                    name='description'
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    placeholder='Describe the purpose of your reservation'
-                    rows={3}
-                  />
-                </div>
-
-                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                  <div>
-                    <Label>Start Date</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant='outline'
-                          className='w-full justify-start text-left font-normal'
-                        >
-                          <CalendarIcon className='mr-2 h-4 w-4' />
-                          {formData.start_date ? (
-                            format(formData.start_date, 'PPP')
-                          ) : (
-                            <span>Pick a date</span>
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className='w-auto p-0'>
-                        <Calendar
-                          mode='single'
-                          selected={formData.start_date}
-                          onSelect={(date) =>
-                            handleDateChange('start_date', date)
-                          }
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
+                        <SelectItem value='workshop'>Workshop</SelectItem>
+                        <SelectItem value='other'>Other</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
+
+                  <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                    <div>
+                      <Label htmlFor='requester_institution_id'>
+                        Institution *
+                      </Label>
+                      <Select
+                        value={formData.requester_institution_id}
+                        onValueChange={(value) =>
+                          handleSelectChange('requester_institution_id', value)
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select an institution' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {institutions.map((institution) => (
+                            <SelectItem
+                              key={institution.id}
+                              value={institution.id}
+                            >
+                              {institution.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor='requester_department_id'>
+                        Department
+                      </Label>
+                      <Select
+                        value={formData.requester_department_id}
+                        onValueChange={(value) =>
+                          handleSelectChange('requester_department_id', value)
+                        }
+                        disabled={!formData.requester_institution_id}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select a department' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {filteredDepartments.length === 0 ? (
+                            <div className='p-2 text-center text-muted-foreground'>
+                              {formData.requester_institution_id
+                                ? 'No departments available for this institution'
+                                : 'Select an institution first'}
+                            </div>
+                          ) : (
+                            filteredDepartments.map((department) => (
+                              <SelectItem
+                                key={department.id}
+                                value={department.id}
+                              >
+                                {department.department_name}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
                   <div>
-                    <Label htmlFor='start_time'>Start Time</Label>
-                    <Input
-                      id='start_time'
-                      name='start_time'
-                      type='time'
-                      value={formData.start_time}
+                    <Label htmlFor='notes'>Additional Notes</Label>
+                    <Textarea
+                      id='notes'
+                      name='notes'
+                      value={formData.notes}
                       onChange={handleInputChange}
-                      required
+                      placeholder='Any additional information about this reservation'
+                      rows={3}
                     />
                   </div>
                 </div>
 
-                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                  <div>
-                    <Label>End Date</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant='outline'
-                          className='w-full justify-start text-left font-normal'
-                        >
-                          <CalendarIcon className='mr-2 h-4 w-4' />
-                          {formData.end_date ? (
-                            format(formData.end_date, 'PPP')
-                          ) : (
-                            <span>Pick a date</span>
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className='w-auto p-0'>
-                        <Calendar
-                          mode='single'
-                          selected={formData.end_date}
-                          onSelect={(date) =>
-                            handleDateChange('end_date', date)
-                          }
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div>
-                    <Label htmlFor='end_time'>End Time</Label>
-                    <Input
-                      id='end_time'
-                      name='end_time'
-                      type='time'
-                      value={formData.end_time}
-                      onChange={handleInputChange}
-                      required
-                    />
-                  </div>
+                <div className='flex justify-end space-x-2'>
+                  <Button
+                    variant='outline'
+                    type='button'
+                    onClick={() => router.back()}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type='submit' disabled={submitting}>
+                    {submitting ? (
+                      <>
+                        <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                        Creating...
+                      </>
+                    ) : (
+                      'Create Reservation'
+                    )}
+                  </Button>
                 </div>
-
-                <div>
-                  <Label htmlFor='purpose'>Purpose</Label>
-                  <Input
-                    id='purpose'
-                    name='purpose'
-                    value={formData.purpose}
-                    onChange={handleInputChange}
-                    placeholder='Why do you need this resource?'
-                  />
-                </div>
-
-                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                  <div>
-                    <Label htmlFor='requester_institution_id'>
-                      Institution
-                    </Label>
-                    <Select
-                      value={formData.requester_institution_id}
-                      onValueChange={(value) =>
-                        handleSelectChange('requester_institution_id', value)
-                      }
-                      disabled={!!userExtended?.institution_id}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select your institution' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {institutions.map((institution) => (
-                          <SelectItem
-                            key={institution.id}
-                            value={institution.id}
-                          >
-                            {institution.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor='requester_department_id'>Department</Label>
-                    <Select
-                      value={formData.requester_department_id}
-                      onValueChange={(value) =>
-                        handleSelectChange('requester_department_id', value)
-                      }
-                      disabled={
-                        !formData.requester_institution_id ||
-                        !!userExtended?.department_id
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select your department' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {filteredDepartments.map((department) => (
-                          <SelectItem key={department.id} value={department.id}>
-                            {department.department_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor='notes'>Additional Notes</Label>
-                  <Textarea
-                    id='notes'
-                    name='notes'
-                    value={formData.notes}
-                    onChange={handleInputChange}
-                    placeholder='Any additional information'
-                    rows={3}
-                  />
-                </div>
-              </div>
-
-              <div className='flex justify-end space-x-4'>
-                <Button
-                  type='button'
-                  variant='outline'
-                  onClick={() =>
-                    router.push('/resources/physical-resources/reservations')
-                  }
-                  disabled={submitting}
-                >
-                  Cancel
-                </Button>
-                <Button type='submit' disabled={submitting}>
-                  {submitting ? (
-                    <>
-                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                      Creating...
-                    </>
-                  ) : (
-                    'Create Reservation'
-                  )}
-                </Button>
-              </div>
-            </form>
+              </form>
+            )}
           </CardContent>
         </Card>
-      )}
+      </div>
     </ContentLayout>
   );
 }

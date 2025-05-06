@@ -32,13 +32,39 @@ import {
   RefreshCw,
   Eye,
   Edit,
-  Trash2
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { CategoryFiltersComponent } from './category-filters';
+import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'react-hot-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 
 export function CategoryList() {
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Get permissions
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  // Define access permissions
+  const canViewCategories =
+    isSuperAdmin || canAccess('physical_resources.categories', 'view');
+  const canEditCategories =
+    isSuperAdmin || canAccess('physical_resources.categories', 'edit');
+  const canDeleteCategories =
+    isSuperAdmin || canAccess('physical_resources.categories', 'delete');
+
   const {
     categories,
     loading,
@@ -69,9 +95,29 @@ export function CategoryList() {
     updateFilters(newFilters);
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this category?')) {
-      await deleteCategory(id);
+  const openDeleteDialog = (id: string) => {
+    if (!canDeleteCategories) {
+      toast.error('You do not have permission to delete categories');
+      return;
+    }
+    setCategoryToDelete(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!categoryToDelete || !canDeleteCategories) return;
+
+    try {
+      setIsDeleting(true);
+      await deleteCategory(categoryToDelete);
+      toast.success('Category deleted successfully');
+      setDeleteDialogOpen(false);
+      setCategoryToDelete(null);
+    } catch (error) {
+      console.error('Error deleting category:', error);
+      toast.error('Failed to delete category');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -226,27 +272,38 @@ export function CategoryList() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align='end'>
-                          <Link href={`/resources/physical-resources/categories/${category.id}`}>
-                            <DropdownMenuItem>
+                          {/* View is always available since they already have view permission */}
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/resources/physical-resources/categories/${category.id}`}
+                            >
                               <Eye className='h-4 w-4 mr-2' />
                               View
-                            </DropdownMenuItem>
-                          </Link>
-                          <Link
-                            href={`/resources/physical-resources/categories/${category.id}/edit`}
-                          >
-                            <DropdownMenuItem>
-                              <Edit className='h-4 w-4 mr-2' />
-                              Edit
-                            </DropdownMenuItem>
-                          </Link>
-                          <DropdownMenuItem
-                            className='text-red-600'
-                            onClick={() => handleDelete(category.id)}
-                          >
-                            <Trash2 className='h-4 w-4 mr-2' />
-                            Delete
+                            </Link>
                           </DropdownMenuItem>
+
+                          {/* Only show Edit if user has edit permission */}
+                          {canEditCategories && (
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/resources/physical-resources/categories/${category.id}/edit`}
+                              >
+                                <Edit className='h-4 w-4 mr-2' />
+                                Edit
+                              </Link>
+                            </DropdownMenuItem>
+                          )}
+
+                          {/* Only show Delete if user has delete permission */}
+                          {canDeleteCategories && (
+                            <DropdownMenuItem
+                              className='text-red-600'
+                              onClick={() => openDeleteDialog(category.id)}
+                            >
+                              <Trash2 className='h-4 w-4 mr-2' />
+                              Delete
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -263,6 +320,39 @@ export function CategoryList() {
           />
         </>
       )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className='flex items-center'>
+              <AlertTriangle className='h-5 w-5 text-destructive mr-2' />
+              Confirm Deletion
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this category? This action cannot
+              be undone. Any resources assigned to this category will be left
+              without a category.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant='destructive'
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
