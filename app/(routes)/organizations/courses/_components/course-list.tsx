@@ -118,7 +118,7 @@ export function CourseList({
             <TableRow>
               <TableHead>Code</TableHead>
               <TableHead>Course Name</TableHead>
-              <TableHead>Department</TableHead>
+              <TableHead>Institution</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Created</TableHead>
               <TableHead className='text-right'>Actions</TableHead>
@@ -128,7 +128,7 @@ export function CourseList({
             {courses.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={5}
                   className='text-center text-muted-foreground h-24'
                 >
                   No courses found
@@ -150,7 +150,7 @@ export function CourseList({
                     )}
                   </TableCell>
                   <TableCell>{course.course_name}</TableCell>
-                  <TableCell>{course.department?.department_name}</TableCell>
+                  <TableCell>{course.institution?.name}</TableCell>
                   <TableCell>
                     <Badge variant={course.is_active ? 'default' : 'secondary'}>
                       {course.is_active ? 'Active' : 'Inactive'}

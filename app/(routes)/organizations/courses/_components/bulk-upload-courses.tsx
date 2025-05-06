@@ -24,19 +24,12 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { CourseService } from '@/lib/services/organization/course-service';
-import { DepartmentService } from '@/lib/services/organization/department-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 
 interface Institution {
   id: string;
   counselling_code: string;
   name: string;
-}
-
-interface Department {
-  id: string;
-  department_code: string;
-  institution_id: string;
 }
 
 interface ValidationResult {
@@ -46,16 +39,10 @@ interface ValidationResult {
 
 const validateRow = async (
   row: any,
-  institutions: Institution[],
-  departments: Department[]
+  institutions: Institution[]
 ): Promise<ValidationResult> => {
   const errors: string[] = [];
-  const requiredFields = [
-    'institution_id',
-    'department_id',
-    'course_code',
-    'course_name'
-  ];
+  const requiredFields = ['institution_id', 'course_code', 'course_name'];
 
   // Check required fields
   const missingFields = requiredFields.filter((field) => !row[field]);
@@ -75,40 +62,6 @@ const validateRow = async (
       isValid: false,
       errors
     };
-  }
-
-  // Validate department exists and belongs to institution
-  const department = departments.find(
-    (d) => d.id === row.department_id && d.institution_id === row.institution_id
-  );
-
-  if (!department) {
-    // Find departments for this institution to suggest
-    const validDepartments = departments
-      .filter((d) => d.institution_id === row.institution_id)
-      .slice(0, 3)
-      .map((d) => `${d.department_code} (${d.id})`)
-      .join('; ');
-
-    if (validDepartments) {
-      errors.push(
-        `Invalid department ID for this institution. Valid departments for this institution: ${validDepartments}`
-      );
-    } else {
-      // Just check if the department ID exists at all (might be for a different institution)
-      const departmentExists = departments.find(
-        (d) => d.id === row.department_id
-      );
-      if (departmentExists) {
-        errors.push(
-          `Department ID exists but belongs to a different institution (${departmentExists.institution_id}). Please use a department ID that belongs to institution ${row.institution_id}`
-        );
-      } else {
-        errors.push(
-          `Invalid department ID. This department ID doesn't exist in the system.`
-        );
-      }
-    }
   }
 
   // Validate course code format
@@ -151,40 +104,16 @@ export default function BulkUploadCourses() {
       const institutions = await OrganizationService.getInstitutionNames(true);
       console.log('Fetched institutions:', institutions.length);
 
-      // Fetch ALL active departments for validation (set a high limit)
-      const { data: allDepartments } = await DepartmentService.getDepartments({
-        isActive: true,
-        limit: 10000 // Fetch up to 10,000 departments
-      });
-
-      console.log('Fetched departments:', allDepartments.length);
-
-      // If no institutions or departments, show error
-      if (institutions.length === 0 || allDepartments.length === 0) {
-        toast.error(
-          'No active institutions or departments found. Please create them first.'
-        );
+      // If no institutions, show error
+      if (institutions.length === 0) {
+        toast.error('No active institutions found. Please create them first.');
         return;
       }
 
-      // Convert departments to format needed for validation
-      const departmentsWithProperStructure = allDepartments.map((dept) => ({
-        id: dept.id,
-        department_code: dept.department_code || '', // Ensure department_code exists
-        institution_id: dept.institution_id
-      }));
-
-      // Log sample valid institution and department IDs to help users
-      console.log('Valid institution and department examples:');
+      // Log sample valid institution IDs to help users
+      console.log('Valid institution examples:');
       institutions.slice(0, 3).forEach((inst) => {
         console.log(`Institution: ${inst.name} (${inst.id})`);
-        const depts = departmentsWithProperStructure
-          .filter((d) => d.institution_id === inst.id)
-          .slice(0, 2);
-
-        depts.forEach((d) => {
-          console.log(`  - Department: ${d.department_code} (${d.id})`);
-        });
       });
 
       const data = await file.arrayBuffer();
@@ -207,11 +136,7 @@ export default function BulkUploadCourses() {
       // Validate each row
       const validatedData = await Promise.all(
         jsonData.map(async (row: any, index) => {
-          const validation = await validateRow(
-            row,
-            institutions,
-            departmentsWithProperStructure
-          );
+          const validation = await validateRow(row, institutions);
           return {
             ...row,
             rowNumber: index + 2,
@@ -253,7 +178,6 @@ export default function BulkUploadCourses() {
       const promises = validRows.map((row) => {
         const courseData = {
           institution_id: row.institution_id,
-          department_id: row.department_id,
           course_code: row.course_code.toUpperCase(),
           course_name: row.course_name,
           is_active: true
@@ -321,8 +245,7 @@ export default function BulkUploadCourses() {
               <div className='mt-4 flex items-center gap-2 border border-amber-300 bg-amber-50 p-3 rounded-md'>
                 <AlertTriangle className='h-5 w-5 text-amber-500' />
                 <p className='text-sm text-amber-700'>
-                  Make sure to use our template with valid institution and
-                  department IDs
+                  Make sure to use our template with valid institution IDs
                 </p>
               </div>
               <div className='mt-2'>
@@ -362,7 +285,7 @@ export default function BulkUploadCourses() {
                       <p className='text-sm text-muted-foreground mt-1'>
                         Some rows contain invalid data. These issues must be
                         fixed before uploading. The most common issue is using
-                        incorrect institution or department IDs.
+                        incorrect institution IDs.
                       </p>
                       <Button
                         variant='outline'
@@ -388,7 +311,6 @@ export default function BulkUploadCourses() {
                     <TableRow>
                       <TableHead>Row</TableHead>
                       <TableHead>Institution ID</TableHead>
-                      <TableHead>Department ID</TableHead>
                       <TableHead>Course Code</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Status</TableHead>
@@ -400,7 +322,6 @@ export default function BulkUploadCourses() {
                       <TableRow key={row.rowNumber}>
                         <TableCell>{row.rowNumber}</TableCell>
                         <TableCell>{row.institution_id}</TableCell>
-                        <TableCell>{row.department_id}</TableCell>
                         <TableCell>{row.course_code}</TableCell>
                         <TableCell>{row.course_name}</TableCell>
                         <TableCell>

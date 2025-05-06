@@ -5,14 +5,12 @@ import { FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import * as XLSX from 'xlsx';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { DepartmentService } from '@/lib/services/organization/department-service';
 import { toast } from 'react-hot-toast';
 
 const COLUMN_WIDTHS = {
   A: 40, // institution_id
-  B: 40, // department_id
-  C: 15, // course_code
-  D: 50 // course_name
+  B: 15, // course_code
+  C: 50 // course_name
 };
 
 export default function DownloadCourseTemplateButton() {
@@ -21,7 +19,7 @@ export default function DownloadCourseTemplateButton() {
   const [sampleData, setSampleData] = useState<any[]>([]);
 
   useEffect(() => {
-    // Fetch real institution and department data for instructions
+    // Fetch real institution data for instructions
     const fetchData = async () => {
       try {
         const institutions = await OrganizationService.getInstitutionNames(
@@ -36,25 +34,12 @@ export default function DownloadCourseTemplateButton() {
         // Get the first institution
         const institution = institutions[0];
 
-        // Get departments for this institution
-        const departments = await DepartmentService.getDepartmentsByInstitution(
-          institution.id
-        );
-
-        if (departments.length === 0) {
-          setInstructions(getDefaultInstructions());
-          setSampleData(getDefaultSampleData());
-          return;
-        }
-
         // Create instructions with real IDs
         const instructionsWithRealData = [
           ['Instructions for filling the template:'],
           [''],
           ['⚠️ IMPORTANT - READ CAREFULLY ⚠️'],
-          [
-            'You MUST use the exact institution and department IDs listed below.'
-          ],
+          ['You MUST use the exact institution IDs listed below.'],
           ['Do NOT use any example IDs that are not listed in this template.'],
           ['Using incorrect IDs will result in validation errors.'],
           [''],
@@ -62,40 +47,25 @@ export default function DownloadCourseTemplateButton() {
           ['   - Must be a valid UUID of an existing institution'],
           [`   - Example: ${institution.id} (${institution.name})`],
           [''],
-          ['2. Department ID:'],
-          [
-            '   - Must be a valid UUID of a department that exists in the specified institution'
-          ],
-          [
-            `   - Example: ${departments[0].id} (${departments[0].department_name})`
-          ],
-          [''],
-          ['3. Course Code:'],
-          ['   - Must be unique within the department'],
+          ['2. Course Code:'],
+          ['   - Must be unique within the institution'],
           [
             '   - Use only uppercase letters, numbers, underscores, and hyphens'
           ],
           ['   - Example: CS8601'],
           [''],
-          ['4. Course Name:'],
+          ['3. Course Name:'],
           ['   - Full name of the course'],
           ['   - Example: Advanced Data Structures and Algorithms'],
           [''],
           ['Note:'],
           ['- All fields are required'],
-          ['- The department must belong to the specified institution'],
           ['- Institution must exist and be active'],
-          ['- Department must exist and be active'],
-          ['- Course codes must be unique within a department'],
+          ['- Course codes must be unique within an institution'],
           [''],
           ['Available Institutions:'],
           ...institutions.map((inst) => [
             `${inst.name} (${inst.counselling_code}): ${inst.id}`
-          ]),
-          [''],
-          ['Available Departments:'],
-          ...departments.map((dept) => [
-            `${dept.department_name} (${dept.department_code}): ${dept.id} - Institution: ${institution.name}`
           ])
         ];
 
@@ -103,13 +73,11 @@ export default function DownloadCourseTemplateButton() {
         const realSampleData = [
           {
             institution_id: institution.id,
-            department_id: departments[0].id,
             course_code: 'CS8601',
             course_name: 'Advanced Data Structures and Algorithms'
           },
           {
             institution_id: institution.id,
-            department_id: departments[0].id,
             course_code: 'CS8602',
             course_name: 'Compiler Design'
           }
@@ -140,27 +108,19 @@ export default function DownloadCourseTemplateButton() {
       ['   - Must be a valid UUID of an existing institution'],
       ['   - Example: 9c1554e8-12a2-4b76-a9d6-8242bb05eba1'],
       [''],
-      ['2. Department ID:'],
-      [
-        '   - Must be a valid UUID of a department that exists in the specified institution'
-      ],
-      ['   - Example: 7646521a-a252-4756-bd8f-ba7c1d36ff56'],
-      [''],
-      ['3. Course Code:'],
-      ['   - Must be unique within the department'],
+      ['2. Course Code:'],
+      ['   - Must be unique within the institution'],
       ['   - Use only uppercase letters, numbers, underscores, and hyphens'],
       ['   - Example: CS8601'],
       [''],
-      ['4. Course Name:'],
+      ['3. Course Name:'],
       ['   - Full name of the course'],
       ['   - Example: Advanced Data Structures and Algorithms'],
       [''],
       ['Note:'],
       ['- All fields are required'],
-      ['- The department must belong to the specified institution'],
       ['- Institution must exist and be active'],
-      ['- Department must exist and be active'],
-      ['- Course codes must be unique within a department']
+      ['- Course codes must be unique within an institution']
     ];
   };
 
@@ -168,13 +128,11 @@ export default function DownloadCourseTemplateButton() {
     return [
       {
         institution_id: '9c1554e8-12a2-4b76-a9d6-8242bb05eba1',
-        department_id: '7646521a-a252-4756-bd8f-ba7c1d36ff56',
         course_code: 'CS8601',
         course_name: 'Advanced Data Structures and Algorithms'
       },
       {
         institution_id: '9c1554e8-12a2-4b76-a9d6-8242bb05eba1',
-        department_id: '7646521a-a252-4756-bd8f-ba7c1d36ff56',
         course_code: 'CS8602',
         course_name: 'Compiler Design'
       }
@@ -196,20 +154,14 @@ export default function DownloadCourseTemplateButton() {
 
       // Create main template sheet
       const ws = XLSX.utils.json_to_sheet(sampleData, {
-        header: [
-          'institution_id',
-          'department_id',
-          'course_code',
-          'course_name'
-        ]
+        header: ['institution_id', 'course_code', 'course_name']
       });
 
       // Set column widths
       ws['!cols'] = [
         { wch: COLUMN_WIDTHS.A },
         { wch: COLUMN_WIDTHS.B },
-        { wch: COLUMN_WIDTHS.C },
-        { wch: COLUMN_WIDTHS.D }
+        { wch: COLUMN_WIDTHS.C }
       ];
 
       // Add sheets to workbook
