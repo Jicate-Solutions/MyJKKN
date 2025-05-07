@@ -270,7 +270,7 @@ export default function BulkUploadSections() {
       // Fetch courses for each program
       const courses = await Promise.all(
         flattenedPrograms.map(async (prog) => {
-          const coursesForProg = await CourseService.getCoursesByProgram(
+          const coursesForProg = await CourseService.getCoursesByMapping(
             prog.id
           );
           return coursesForProg.map((c) => ({

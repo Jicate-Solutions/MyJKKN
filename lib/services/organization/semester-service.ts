@@ -219,4 +219,48 @@ export class SemesterService {
       throw error;
     }
   }
+
+  /**
+   * Get semesters that are mapped to a specific course
+   * @param courseId - The course ID
+   * @returns List of semesters mapped to the course
+   */
+  static async getSemestersByCourse(courseId: string) {
+    try {
+      // Use course mappings to find semesters related to this course
+      const { data, error } = await this.supabase
+        .from('course_mappings')
+        .select(
+          `
+          semester_id,
+          semester:semesters (
+            id,
+            semester_name,
+            semester_code,
+            is_active
+          )
+        `
+        )
+        .eq('course_id', courseId)
+        .eq('is_active', true)
+        .filter('semester.is_active', 'eq', true);
+
+      if (error) throw error;
+
+      // Transform the data to return just the semester objects
+      const semesters = (data || [])
+        .filter((item) => item.semester)
+        .map((item) => ({
+          id: item.semester.id,
+          semester_name: item.semester.semester_name,
+          semester_code: item.semester.semester_code,
+          is_active: item.semester.is_active
+        }));
+
+      return semesters;
+    } catch (error) {
+      console.error('Error fetching semesters by course:', error);
+      throw error;
+    }
+  }
 }

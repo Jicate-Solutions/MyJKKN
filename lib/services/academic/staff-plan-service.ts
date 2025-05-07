@@ -127,6 +127,76 @@ export class StaffPlanService {
     }
   }
 
+  /**
+   * Get available courses for a staff plan based on course mappings
+   * This method fetches courses that are mapped to the specific institution/program/semester
+   * @param institutionId Institution ID
+   * @param departmentId Department ID
+   * @param programId Program ID
+   * @param semesterId Semester ID
+   * @returns Array of available courses with their mapping information
+   */
+  static async getAvailableCoursesFromMappings(
+    institutionId: string,
+    departmentId: string,
+    programId: string,
+    semesterId: string
+  ): Promise<
+    Array<{
+      id: string;
+      course_name: string;
+      course_code: string;
+      mapping_id: string;
+    }>
+  > {
+    try {
+      // Fetch courses based on course mappings
+      const { data, error } = await this.supabase
+        .from('course_mappings')
+        .select(
+          `
+          id,
+          course:courses (
+            id,
+            course_name,
+            course_code
+          )
+        `
+        )
+        .eq('institution_id', institutionId)
+        .eq('department_id', departmentId)
+        .eq('program_id', programId)
+        .eq('semester_id', semesterId)
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      // Transform the data to a more usable format
+      const result: Array<{
+        id: string;
+        course_name: string;
+        course_code: string;
+        mapping_id: string;
+      }> = [];
+
+      (data || []).forEach((mapping: any) => {
+        if (mapping.course && mapping.course.id) {
+          result.push({
+            id: mapping.course.id,
+            course_name: mapping.course.course_name,
+            course_code: mapping.course.course_code,
+            mapping_id: mapping.id
+          });
+        }
+      });
+
+      return result;
+    } catch (error) {
+      console.error('Error fetching available courses from mappings:', error);
+      throw error;
+    }
+  }
+
   static async getStaffPlanCourses(
     staffPlanId: string
   ): Promise<StaffPlanCourse[]> {
