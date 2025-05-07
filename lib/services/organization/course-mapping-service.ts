@@ -88,8 +88,6 @@ export class CourseMappingService {
         .eq('id', id);
 
       if (error) throw error;
-
-      toast.success('Course mapping deleted successfully');
     } catch (error) {
       console.error('Error deleting course mapping:', error);
       throw error;
