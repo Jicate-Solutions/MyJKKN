@@ -229,7 +229,7 @@ export function CourseMappingForm({
   }, [watchedProgramId, watchedDepartmentId, watchedInstitutionId]);
 
   useEffect(() => {
-    if (watchedInstitutionId && watchedDepartmentId && watchedSemesterId) {
+    if (watchedInstitutionId && watchedSemesterId) {
       async function loadUnmappedCourses() {
         try {
           // Basic validation still needed
@@ -246,7 +246,7 @@ export function CourseMappingForm({
 
           const courses = await CourseMappingService.getUnmappedCourses(
             watchedInstitutionId,
-            watchedDepartmentId,
+            watchedDepartmentId, // This will be ignored by the service now
             watchedSemesterId
           );
 
@@ -284,10 +284,10 @@ export function CourseMappingForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     watchedInstitutionId,
-    watchedDepartmentId,
     watchedSemesterId,
-    watchedDegreeId
-    // isEditing removed here to allow checkboxes to populate correctly on edit load
+    watchedDegreeId,
+    isEditing,
+    courseMapping
   ]);
 
   const onSubmit = async (values: FormValues) => {
@@ -349,7 +349,7 @@ export function CourseMappingForm({
       }
 
       if (successCount > 0 && errors.length === 0) {
-        router.push('/organizations/course-mappings');
+        router.push('/organizations/courses/mappings');
         router.refresh();
       } else {
         // If there were errors, refresh available courses
@@ -576,7 +576,7 @@ export function CourseMappingForm({
                       <p className='text-sm text-muted-foreground'>
                         {watchedSemesterId
                           ? 'No unmapped courses found for this selection.'
-                          : 'Please select Institution, Degree, Department, Program, and Semester first.'}
+                          : 'Please select Institution and Semester to view available courses.'}
                       </p>
                     ) : (
                       availableCourses.map((course) => (

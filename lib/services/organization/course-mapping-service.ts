@@ -240,18 +240,24 @@ export class CourseMappingService {
     }
   }
 
+  /**
+   * Get courses that are not yet mapped to a specific semester
+   * @param institutionId - The institution ID
+   * @param departmentId - Parameter kept for backward compatibility but no longer used
+   * @param semesterId - The semester ID
+   * @returns List of unmapped courses
+   */
   static async getUnmappedCourses(
     institutionId: string,
-    departmentId: string,
+    departmentId: string, // Kept for backward compatibility
     semesterId: string
   ): Promise<{ id: string; course_name: string; course_code: string }[]> {
     try {
-      // Get all courses for this institution/department
+      // Get all courses for this institution only (removed department filter)
       const { data: allCourses, error: coursesError } = await this.supabase
         .from('courses')
         .select('id, course_name, course_code')
         .eq('institution_id', institutionId)
-        .eq('department_id', departmentId)
         .eq('is_active', true);
 
       if (coursesError) throw coursesError;
@@ -261,7 +267,6 @@ export class CourseMappingService {
         .from('course_mappings')
         .select('course_id')
         .eq('institution_id', institutionId)
-        .eq('department_id', departmentId)
         .eq('semester_id', semesterId);
 
       if (mappingsError) throw mappingsError;
