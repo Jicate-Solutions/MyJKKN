@@ -92,13 +92,10 @@ export function StaffPlanList({
         if (semesterIds.length === 0) return;
 
         // Fetch sections for each semester
-        const newSectionMap: SectionMap = { ...sectionMap };
+        const newSectionMap: SectionMap = {};
 
         await Promise.all(
           semesterIds.map(async (semesterId) => {
-            // Skip if we already have this semester's sections
-            if (newSectionMap[semesterId]) return;
-
             try {
               const sections = await SectionService.getSectionsBySemester(
                 semesterId
@@ -125,7 +122,7 @@ export function StaffPlanList({
     }
 
     loadSections();
-  }, [staffPlans, sectionMap]);
+  }, [staffPlans]);
 
   // Get section name from section code
   const getSectionName = (plan: StaffPlan): string => {
