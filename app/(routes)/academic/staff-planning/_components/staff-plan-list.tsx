@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import {
@@ -43,6 +43,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
+import { SectionService } from '@/lib/services/organization/section-service';
 
 interface StaffPlanListProps {
   staffPlans: StaffPlan[];
@@ -56,6 +57,15 @@ interface StaffPlanListProps {
   onRefresh: () => void;
 }
 
+interface Section {
+  id: string;
+  section_code: string;
+  section_name: string;
+}
+
+// Map to cache sections by semester ID
+type SectionMap = Record<string, Record<string, Section>>;
+
 export function StaffPlanList({
   staffPlans,
   metadata,
@@ -64,6 +74,69 @@ export function StaffPlanList({
 }: StaffPlanListProps) {
   const [planToDelete, setPlanToDelete] = useState<StaffPlan | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [sectionMap, setSectionMap] = useState<SectionMap>({});
+
+  // Load sections for all unique semester IDs in staff plans
+  useEffect(() => {
+    async function loadSections() {
+      try {
+        // Get unique semester IDs
+        const semesterIds = [
+          ...new Set(
+            staffPlans
+              .filter((plan) => plan.semester_id && plan.section)
+              .map((plan) => plan.semester_id)
+          )
+        ];
+
+        if (semesterIds.length === 0) return;
+
+        // Fetch sections for each semester
+        const newSectionMap: SectionMap = { ...sectionMap };
+
+        await Promise.all(
+          semesterIds.map(async (semesterId) => {
+            // Skip if we already have this semester's sections
+            if (newSectionMap[semesterId]) return;
+
+            try {
+              const sections = await SectionService.getSectionsBySemester(
+                semesterId
+              );
+
+              // Create a map of section_code -> section for this semester
+              newSectionMap[semesterId] = sections.reduce((acc, section) => {
+                acc[section.section_code] = section;
+                return acc;
+              }, {} as Record<string, Section>);
+            } catch (error) {
+              console.error(
+                `Error loading sections for semester ${semesterId}:`,
+                error
+              );
+            }
+          })
+        );
+
+        setSectionMap(newSectionMap);
+      } catch (error) {
+        console.error('Error loading sections:', error);
+      }
+    }
+
+    loadSections();
+  }, [staffPlans, sectionMap]);
+
+  // Get section name from section code
+  const getSectionName = (plan: StaffPlan): string => {
+    if (!plan.semester_id || !plan.section) return plan.section || 'N/A';
+
+    const sections = sectionMap[plan.semester_id];
+    if (!sections) return plan.section;
+
+    const section = sections[plan.section];
+    return section ? section.section_name : plan.section;
+  };
 
   const handleDelete = async () => {
     if (!planToDelete) return;
@@ -93,7 +166,6 @@ export function StaffPlanList({
               <TableHead>Semester</TableHead>
               <TableHead>Section</TableHead>
               <TableHead>Academic Year</TableHead>
-              <TableHead>Period</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className='text-right'>Actions</TableHead>
             </TableRow>
@@ -114,13 +186,9 @@ export function StaffPlanList({
                   <TableCell>{plan.institution?.name}</TableCell>
                   <TableCell>{plan.program?.program_name}</TableCell>
                   <TableCell>{plan.semester?.semester_name}</TableCell>
-                  <TableCell>{plan.section}</TableCell>
+                  <TableCell>{getSectionName(plan)}</TableCell>
                   <TableCell>
                     {plan.academic_year?.academic_year_name}
-                  </TableCell>
-                  <TableCell>
-                    {format(new Date(plan.start_date), 'dd MMM yyyy')} -{' '}
-                    {format(new Date(plan.end_date), 'dd MMM yyyy')}
                   </TableCell>
                   <TableCell>
                     <Badge variant={plan.is_active ? 'success' : 'secondary'}>

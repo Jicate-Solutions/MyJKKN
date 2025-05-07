@@ -136,10 +136,15 @@ export function SectionFilters({
     if (filters.program_id) {
       async function loadCourses() {
         try {
-          const data = await CourseService.getCoursesByProgram(
+          const data = await CourseService.getCoursesByMapping(
             filters.program_id!
           );
-          setCourses(data);
+          setCourses(
+            data.map((course) => ({
+              id: course.id,
+              course_name: course.course_name
+            }))
+          );
         } catch (error) {
           console.error('Error loading courses:', error);
         }

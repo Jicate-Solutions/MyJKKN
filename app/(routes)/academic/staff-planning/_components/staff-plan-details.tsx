@@ -52,29 +52,42 @@ export function StaffPlanDetailsPage({ id }: StaffPlanDetailsProps) {
     async function loadData() {
       try {
         setLoading(true);
-        const [planData, coursesData] = await Promise.all([
-          StaffPlanService.getStaffPlan(id),
-          StaffPlanService.getStaffPlanCourses(id)
-        ]);
 
-        setStaffPlan(planData);
-        setCourses(coursesData);
+        // Load staff plan data
+        try {
+          const planData = await StaffPlanService.getStaffPlan(id);
+          setStaffPlan(planData);
 
-        // Fetch section data if we have semester ID and section code
-        if (planData.semester_id && planData.section) {
-          try {
-            const sections = await SectionService.getSectionsBySemester(
-              planData.semester_id
-            );
-            const matchingSection = sections.find(
-              (s) => s.section_code === planData.section
-            );
-            if (matchingSection) {
-              setSectionData(matchingSection);
+          // Fetch section data if we have semester ID and section code
+          if (planData.semester_id && planData.section) {
+            try {
+              const sections = await SectionService.getSectionsBySemester(
+                planData.semester_id
+              );
+              const matchingSection = sections.find(
+                (s) => s.section_code === planData.section
+              );
+              if (matchingSection) {
+                setSectionData(matchingSection);
+              }
+            } catch (sectionError) {
+              console.error('Error loading section data:', sectionError);
             }
-          } catch (sectionError) {
-            console.error('Error loading section data:', sectionError);
           }
+        } catch (planError) {
+          console.error('Error loading staff plan:', planError);
+          setError('Failed to load staff plan details');
+          setLoading(false);
+          return;
+        }
+
+        // Load course data separately, so page can still load if this fails
+        try {
+          const coursesData = await StaffPlanService.getStaffPlanCourses(id);
+          setCourses(coursesData);
+        } catch (coursesError) {
+          console.error('Error loading course assignments:', coursesError);
+          // Don't set the main error state, just show empty courses
         }
       } catch (error) {
         console.error('Error loading staff plan:', error);

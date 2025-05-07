@@ -182,7 +182,10 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             SemesterService.getSemestersByProgram(staffPlan.program_id),
             SectionService.getSectionsBySemester(staffPlan.semester_id),
             AcademicYearService.getAcademicYears({ isActive: true }),
-            CourseService.getCoursesByProgram(staffPlan.program_id),
+            CourseService.getCoursesByMapping(
+              staffPlan.program_id,
+              staffPlan.semester_id
+            ),
             StaffService.getStaff({ isActive: true })
           ]);
 
@@ -194,7 +197,14 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           setSemesters(semestersData);
           setSections(sectionsData);
           setAcademicYears(academicYearsData.data);
-          setCourses(coursesData);
+          // Format courses to have the expected structure
+          setCourses(
+            coursesData.map((course) => ({
+              id: course.id,
+              course_name: course.course_name,
+              course_code: course.course_code
+            }))
+          );
           setStaffMembers(staffData.data);
 
           // Set form values
@@ -313,16 +323,28 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     if (watchedProgramId && !isEditing) {
       const loadProgramData = async () => {
         try {
+          // Load semesters and mapped courses in parallel
           const [semestersData, coursesData] = await Promise.all([
             SemesterService.getSemestersByProgram(watchedProgramId),
-            CourseService.getCoursesByProgram(watchedProgramId)
+            CourseService.getCoursesByMapping(watchedProgramId)
           ]);
+
           setSemesters(semestersData);
-          setCourses(coursesData);
+
+          // Format courses to have the expected structure
+          setCourses(
+            coursesData.map((course) => ({
+              id: course.id,
+              course_name: course.course_name,
+              course_code: course.course_code
+            }))
+          );
+
           form.setValue('semester_id', '');
           form.setValue('section', '');
         } catch (error) {
           console.error('Error loading program data:', error);
+          toast.error('Failed to load courses. Please check your selections.');
         }
       };
       loadProgramData();
@@ -330,7 +352,40 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   }, [watchedProgramId, isEditing, form]);
 
   useEffect(() => {
-    if (watchedSemesterId && !isEditing) {
+    if (watchedSemesterId && watchedProgramId && !isEditing) {
+      const loadSemesterData = async () => {
+        try {
+          // Load sections and semester-specific courses in parallel
+          const [sectionsData, coursesData] = await Promise.all([
+            SectionService.getSectionsBySemester(watchedSemesterId),
+            CourseService.getCoursesByMapping(
+              watchedProgramId,
+              watchedSemesterId
+            )
+          ]);
+
+          setSections(sectionsData);
+
+          // Format courses to have the expected structure
+          setCourses(
+            coursesData.map((course) => ({
+              id: course.id,
+              course_name: course.course_name,
+              course_code: course.course_code
+            }))
+          );
+
+          form.setValue('section', '');
+        } catch (error) {
+          console.error('Error loading semester data:', error);
+          toast.error(
+            'Failed to load sections or courses. Please check your selections.'
+          );
+        }
+      };
+      loadSemesterData();
+    } else if (watchedSemesterId && !isEditing) {
+      // Just load sections if we don't have a program ID
       const loadSections = async () => {
         try {
           const data = await SectionService.getSectionsBySemester(
@@ -344,7 +399,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       };
       loadSections();
     }
-  }, [watchedSemesterId, isEditing, form]);
+  }, [watchedSemesterId, watchedProgramId, isEditing, form]);
 
   const onSubmit = async (values: FormValues) => {
     try {

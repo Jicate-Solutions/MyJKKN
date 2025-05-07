@@ -205,10 +205,16 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
     if (watchedProgramId) {
       async function loadCourses() {
         try {
-          const data = await CourseService.getCoursesByProgram(
+          const data = await CourseService.getCoursesByMapping(
             watchedProgramId
           );
-          setCourses(data);
+          // Extract just the id and course_name which is what the Course interface needs
+          setCourses(
+            data.map((course) => ({
+              id: course.id,
+              course_name: course.course_name
+            }))
+          );
         } catch (error) {
           console.error('Error loading courses:', error);
           toast.error('Failed to load courses');

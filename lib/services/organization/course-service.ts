@@ -230,4 +230,94 @@ export class CourseService {
       return null;
     }
   }
+
+  /**
+   * Get courses based on course mappings for a specific program and semester
+   * @param programId - Program ID
+   * @param semesterId - Semester ID
+   * @param isActive - Filter by active status (default: true)
+   * @returns Array of mapped courses with mapping information
+   */
+  static async getCoursesByMapping(
+    programId: string,
+    semesterId?: string,
+    isActive: boolean = true
+  ): Promise<Array<Course & { mapping_id: string }>> {
+    try {
+      let query = this.supabase
+        .from('course_mappings')
+        .select(
+          `
+          id,
+          course_id,
+          course:courses (
+            id,
+            course_name,
+            course_code,
+            institution_id,
+            is_active
+          )
+        `
+        )
+        .eq('program_id', programId)
+        .eq('is_active', isActive);
+
+      if (semesterId) {
+        query = query.eq('semester_id', semesterId);
+      }
+
+      // Only include active courses
+      query = query.filter('course.is_active', 'eq', isActive);
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      // Transform the data to a more usable format
+      const result: Array<Course & { mapping_id: string }> = [];
+
+      (data || []).forEach((mapping: any) => {
+        if (mapping.course && mapping.course.id) {
+          result.push({
+            id: mapping.course.id,
+            institution_id: mapping.course.institution_id,
+            course_name: mapping.course.course_name,
+            course_code: mapping.course.course_code,
+            is_active: mapping.course.is_active,
+            created_at: mapping.course.created_at || '',
+            updated_at: mapping.course.updated_at || '',
+            mapping_id: mapping.id
+          });
+        }
+      });
+
+      return result;
+    } catch (error) {
+      console.error('Error fetching courses by mapping:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get courses based on mappings for a specific program and/or semester
+   * Deprecated: Use getCoursesByMapping instead
+   */
+  static async getCoursesByProgram(
+    programId: string
+  ): Promise<Array<{ id: string; course_name: string; course_code: string }>> {
+    console.warn(
+      'getCoursesByProgram is deprecated. Use getCoursesByMapping instead.'
+    );
+    try {
+      const courses = await this.getCoursesByMapping(programId);
+      return courses.map((course) => ({
+        id: course.id,
+        course_name: course.course_name,
+        course_code: course.course_code
+      }));
+    } catch (error) {
+      console.error('Error fetching courses by program:', error);
+      throw error;
+    }
+  }
 }
