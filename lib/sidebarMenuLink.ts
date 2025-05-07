@@ -274,7 +274,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/organizations/courses',
           label: 'Courses',
-          active: pathname.startsWith('/organizations/courses'),
+          active: pathname === '',
           icon: BookOpen,
           submenus: [
             {
