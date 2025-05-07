@@ -75,8 +75,6 @@ export class CourseService {
         .eq('id', id);
 
       if (error) throw error;
-
-      toast.success('Course deleted successfully');
     } catch (error) {
       console.error('Error deleting course:', error);
       throw error;
