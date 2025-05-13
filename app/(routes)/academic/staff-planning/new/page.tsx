@@ -1,4 +1,7 @@
-import { Metadata } from 'next';
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Breadcrumb,
@@ -11,13 +14,62 @@ import {
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card } from '@/components/ui/card';
 import { StaffPlanForm } from '../_components/staff-plan-form';
-
-export const metadata: Metadata = {
-  title: 'Create Staff Plan | Staff Management',
-  description: 'Create a new staff plan'
-};
+import { usePermissions } from '@/hooks/use-permissions';
+import { useToast } from '@/hooks/use-toast';
+import Loading from '@/components/Loading/Loading';
+import { Button } from '@/components/ui/button';
 
 export default function NewStaffPlanPage() {
+  const [isCheckingPermissions, setIsCheckingPermissions] = useState(true);
+  const router = useRouter();
+  const { toast } = useToast();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
+
+  const canCreateStaffPlans =
+    isSuperAdmin || canAccess('academic.staff.planning', 'create');
+
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Can create staff plans:', canCreateStaffPlans);
+      console.log('Permissions check:', {
+        isSuperAdmin,
+        'academic.staff.planning.create': canAccess(
+          'academic.staff.planning',
+          'create'
+        )
+      });
+
+      if (!canCreateStaffPlans) {
+        toast({
+          title: 'Access Denied',
+          description: 'You do not have permission to create staff plans.',
+          variant: 'destructive'
+        });
+        router.push('/academic/staff-planning');
+      }
+      setIsCheckingPermissions(false);
+    }
+  }, [
+    permissionsLoading,
+    canCreateStaffPlans,
+    router,
+    toast,
+    isSuperAdmin,
+    canAccess
+  ]);
+
+  if (permissionsLoading || isCheckingPermissions) {
+    return <Loading title='Loading...' />;
+  }
+
+  if (!canCreateStaffPlans) {
+    return <Loading title='Redirecting...' />;
+  }
+
   return (
     <ContentLayout title='Create Staff Plan'>
       <Breadcrumb>
@@ -30,7 +82,7 @@ export default function NewStaffPlanPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/academic/staff-planning'>Academic</Link>
+              <Link href='/academic'>Academic</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

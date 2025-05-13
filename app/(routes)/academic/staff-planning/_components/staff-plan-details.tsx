@@ -32,6 +32,8 @@ import { SectionService } from '@/lib/services/organization/section-service';
 
 interface StaffPlanDetailsProps {
   id: string;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 interface Section {
@@ -40,7 +42,11 @@ interface Section {
   section_name: string;
 }
 
-export function StaffPlanDetailsPage({ id }: StaffPlanDetailsProps) {
+export function StaffPlanDetailsPage({
+  id,
+  canEdit = true,
+  canDelete = true
+}: StaffPlanDetailsProps) {
   const router = useRouter();
   const [staffPlan, setStaffPlan] = useState<StaffPlan | null>(null);
   const [courses, setCourses] = useState<StaffPlanCourse[]>([]);
@@ -162,12 +168,19 @@ export function StaffPlanDetailsPage({ id }: StaffPlanDetailsProps) {
               View staff plan details and course assignments
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/academic/staff-planning/${staffPlan.id}/edit`}>
+          {canEdit ? (
+            <Button asChild>
+              <Link href={`/academic/staff-planning/${staffPlan.id}/edit`}>
+                <Edit className='mr-2 h-4 w-4' />
+                Edit Plan
+              </Link>
+            </Button>
+          ) : (
+            <Button variant='outline' disabled className='opacity-50'>
               <Edit className='mr-2 h-4 w-4' />
               Edit Plan
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         <div className='grid gap-6 md:grid-cols-2'>

@@ -113,7 +113,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Academic Management
   '/academic/years': 'academic.years.view',
-  '/academic/staff-planning': 'academic.staff_planning.view',
+  '/academic/staff-planning': 'academic.staff.planning.view',
   '/academic/timetables': 'academic.timetables.view',
   '/academic/periods': 'academic.periods.view',
 

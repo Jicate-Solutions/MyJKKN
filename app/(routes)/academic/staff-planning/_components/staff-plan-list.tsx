@@ -55,6 +55,8 @@ interface StaffPlanListProps {
   };
   onPageChange: (page: number) => void;
   onRefresh: () => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 interface Section {
@@ -70,7 +72,9 @@ export function StaffPlanList({
   staffPlans,
   metadata,
   onPageChange,
-  onRefresh
+  onRefresh,
+  canEdit = true,
+  canDelete = true
 }: StaffPlanListProps) {
   const [planToDelete, setPlanToDelete] = useState<StaffPlan | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -208,22 +212,26 @@ export function StaffPlanList({
                             View Details
                           </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/academic/staff-planning/${plan.id}/edit`}
+                        {canEdit && (
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/academic/staff-planning/${plan.id}/edit`}
+                            >
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                        {canEdit && canDelete && <DropdownMenuSeparator />}
+                        {canDelete && (
+                          <DropdownMenuItem
+                            onClick={() => setPlanToDelete(plan)}
+                            className='text-destructive focus:text-destructive'
                           >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => setPlanToDelete(plan)}
-                          className='text-destructive focus:text-destructive'
-                        >
-                          <Trash2 className='mr-2 h-4 w-4' />
-                          Delete
-                        </DropdownMenuItem>
+                            <Trash2 className='mr-2 h-4 w-4' />
+                            Delete
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
