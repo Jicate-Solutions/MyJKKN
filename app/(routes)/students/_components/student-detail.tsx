@@ -38,12 +38,20 @@ interface StudentDetailProps {
 
 export function StudentDetail({ student }: StudentDetailProps) {
   const [activeTab, setActiveTab] = useState('overview');
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
 
   const isProfileComplete =
     !!student.roll_number &&
     !!student.college_email &&
     !!student.student_photo_url;
+
+  // Only access permissions after they've loaded
+  const hasEditPermission =
+    !permissionsLoading && (isSuperAdmin || canAccess('students', 'edit'));
 
   return (
     <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
@@ -158,7 +166,7 @@ export function StudentDetail({ student }: StudentDetailProps) {
                   <li className='text-red-600'>Student Photo</li>
                 )}
               </ul>
-              {(isSuperAdmin || canAccess('students', 'edit')) && (
+              {hasEditPermission && (
                 <Button className='mt-3' size='sm' asChild>
                   <Link href={`/students/${student.id}/edit`}>
                     <FileEdit className='mr-2 h-4 w-4' />
