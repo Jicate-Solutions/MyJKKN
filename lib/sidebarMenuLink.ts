@@ -40,7 +40,8 @@ import {
   FolderTree,
   Calendar,
   FileBarChart,
-  PlusCircle
+  PlusCircle,
+  Clock
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 
@@ -114,6 +115,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/years': 'academic.years.view',
   '/academic/staff-planning': 'academic.staff_planning.view',
   '/academic/timetables': 'academic.timetables.view',
+  '/academic/periods': 'academic.periods.view',
 
   // Resource Management
 
@@ -350,6 +352,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Academic Years',
           active: pathname === '/academic/years',
           icon: CalendarDays,
+          submenus: []
+        },
+        {
+          href: '/academic/periods',
+          label: 'Periods',
+          active: pathname === '/academic/periods',
+          icon: Clock,
           submenus: []
         },
         {
