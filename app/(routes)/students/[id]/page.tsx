@@ -25,10 +25,27 @@ export default function StudentDetailPage({ params }: StudentDetailPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [student, setStudent] = useState<Student | null>(null);
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
 
   // Check for permission to view student details
   useEffect(() => {
+    // Skip permission check while permissions are still loading
+    if (permissionsLoading) {
+      console.log('Permissions are still loading...');
+      return;
+    }
+
+    // Detailed console logging to help debug permission issues
+    console.log('Permission check details:', {
+      isSuperAdmin,
+      hasStudentsViewPermission: canAccess('students', 'view'),
+      permissionsLoaded: !permissionsLoading
+    });
+
     // Add a guard to prevent redirects with helpful debugging
     const shouldRedirect = !isSuperAdmin && !canAccess('students', 'view');
 
@@ -40,7 +57,7 @@ export default function StudentDetailPage({ params }: StudentDetailPageProps) {
       });
       router.push('/unauthorized');
     }
-  }, [isSuperAdmin, canAccess, router]);
+  }, [isSuperAdmin, canAccess, router, permissionsLoading]);
 
   useEffect(() => {
     async function fetchStudent() {
