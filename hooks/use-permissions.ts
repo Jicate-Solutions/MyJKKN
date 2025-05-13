@@ -103,30 +103,15 @@ export function usePermissions(
     (module: string, action: string) => {
       // Super admins can access everything
       if (isSuperAdmin) {
-        console.log(
-          `[canAccess] Super admin always has access to ${module}.${action}`
-        );
         return true;
       }
 
       // If permissions are still loading, log and return false to prevent premature redirects
       if (isLoading) {
-        console.log(
-          `[canAccess] Permissions still loading for ${module}.${action} check`
-        );
         return false;
       }
 
       const permKey = `${module}.${action}`;
-
-      // Log detailed debugging info
-      console.log(`[canAccess] Checking permission: ${permKey}`, {
-        permissionExists: permKey in permissions,
-        permissionValue: permissions[permKey],
-        allPermissions: Object.keys(permissions),
-        isSuperAdmin,
-        isLoading
-      });
 
       return permissions[permKey] || false;
     },
