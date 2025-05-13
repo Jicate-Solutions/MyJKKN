@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -18,8 +18,11 @@ import { BeatLoader } from 'react-spinners';
 import { StaffPlanFilters } from './_components/staff-plan-filters';
 import { StaffPlanList } from './_components/staff-plan-list';
 import { useStaffPlans } from '@/hooks/academic/use-staff-plans';
+import { usePermissions } from '@/hooks/use-permissions';
+import Loading from '@/components/Loading/Loading';
 
 export default function StaffPlanningPage() {
+  const [isPageLoading, setIsPageLoading] = useState(true);
   const {
     staffPlans,
     loading,
@@ -31,9 +34,33 @@ export default function StaffPlanningPage() {
     fetchStaffPlans
   } = useStaffPlans();
 
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canViewStaffPlans =
+    isSuperAdmin || canAccess('academic.staff.planning', 'view');
+  const canCreateStaffPlans =
+    isSuperAdmin || canAccess('academic.staff.planning', 'create');
+  const canEditStaffPlans =
+    isSuperAdmin || canAccess('academic.staff.planning', 'edit');
+  const canDeleteStaffPlans =
+    isSuperAdmin || canAccess('academic.staff.planning', 'delete');
+
   useEffect(() => {
-    fetchStaffPlans();
+    const loadData = async () => {
+      await fetchStaffPlans();
+      setIsPageLoading(false);
+    };
+
+    loadData();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (isPageLoading) {
+    return (
+      <div className='flex justify-center items-center w-full h-screen'>
+        <BeatLoader color='#00e902' />
+      </div>
+    );
+  }
 
   if (error) {
     return (
@@ -64,7 +91,7 @@ export default function StaffPlanningPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/academic/staff-planning'>Academic</Link>
+              <Link href='/academic'>Academic</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -82,12 +109,23 @@ export default function StaffPlanningPage() {
               Manage staff course assignments and planning
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/academic/staff-planning/new'>
+          {canCreateStaffPlans ? (
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/academic/staff-planning/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Create Staff Plan
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              className='w-full sm:w-auto opacity-50'
+              disabled
+              variant='outline'
+            >
               <Plus className='mr-2 h-4 w-4' />
               Create Staff Plan
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         <Card>
@@ -107,6 +145,8 @@ export default function StaffPlanningPage() {
                 metadata={metadata}
                 onPageChange={changePage}
                 onRefresh={fetchStaffPlans}
+                canEdit={canEditStaffPlans}
+                canDelete={canDeleteStaffPlans}
               />
             )}
           </CardContent>

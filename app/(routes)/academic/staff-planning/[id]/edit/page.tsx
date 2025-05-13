@@ -1,6 +1,7 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Breadcrumb,
@@ -13,6 +14,9 @@ import {
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card } from '@/components/ui/card';
 import { StaffPlanForm } from '../../_components/staff-plan-form';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useToast } from '@/hooks/use-toast';
+import Loading from '@/components/Loading/Loading';
 
 interface EditStaffPlanPageProps {
   params: Promise<{ id: string }>;
@@ -20,6 +24,55 @@ interface EditStaffPlanPageProps {
 
 export default function EditStaffPlanPage({ params }: EditStaffPlanPageProps) {
   const { id } = use(params);
+  const [isCheckingPermissions, setIsCheckingPermissions] = useState(true);
+  const router = useRouter();
+  const { toast } = useToast();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
+
+  const canEditStaffPlans =
+    isSuperAdmin || canAccess('academic.staff.planning', 'edit');
+
+  useEffect(() => {
+    if (!permissionsLoading) {
+      console.log('Can edit staff plans:', canEditStaffPlans);
+      console.log('Permissions check:', {
+        isSuperAdmin,
+        'academic.staff.planning.edit': canAccess(
+          'academic.staff.planning',
+          'edit'
+        )
+      });
+
+      if (!canEditStaffPlans) {
+        toast({
+          title: 'Access Denied',
+          description: 'You do not have permission to edit staff plans.',
+          variant: 'destructive'
+        });
+        router.push('/academic/staff-planning');
+      }
+      setIsCheckingPermissions(false);
+    }
+  }, [
+    permissionsLoading,
+    canEditStaffPlans,
+    router,
+    toast,
+    isSuperAdmin,
+    canAccess
+  ]);
+
+  if (permissionsLoading || isCheckingPermissions) {
+    return <Loading title='Loading...' />;
+  }
+
+  if (!canEditStaffPlans) {
+    return <Loading title='Redirecting...' />;
+  }
 
   return (
     <ContentLayout title='Edit Staff Plan'>
@@ -33,7 +86,7 @@ export default function EditStaffPlanPage({ params }: EditStaffPlanPageProps) {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/academic/staff-planning'>Academic</Link>
+              <Link href='/academic'>Academic</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
