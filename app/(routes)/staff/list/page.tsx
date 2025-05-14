@@ -22,7 +22,10 @@ import { StaffFilters } from './_components/staff-filters';
 import { StaffList } from './_components/staff-list';
 import DownloadStaffTemplateButton from './_components/download-staff-template';
 import BulkUploadStaff from './_components/bulk-upload-staff';
+import ExportStaff from './_components/export-staff';
 import { usePermissions } from '@/hooks/use-permissions';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Info } from 'lucide-react';
 
 export default function StaffPage() {
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
@@ -127,6 +130,7 @@ export default function StaffPage() {
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
             {isSuperAdmin && <DownloadStaffTemplateButton />}
+            {isSuperAdmin && <ExportStaff />}
             {isSuperAdmin && <BulkUploadStaff />}
             {canCreateStaff ? (
               <Button className='w-full sm:w-auto' asChild>
@@ -146,6 +150,35 @@ export default function StaffPage() {
               </Button>
             )}
           </div>
+        </div>
+
+        <div className='mb-4'>
+          <Alert variant='default' className='bg-sky-50 border-sky-200'>
+            <Info className='h-4 w-4 text-sky-600' />
+            <AlertTitle className='text-sky-700'>About Bulk Upload</AlertTitle>
+            <AlertDescription className='text-sky-600 text-sm'>
+              <p className='mb-2'>
+                You can download templates for bulk upload in two formats:
+              </p>
+              <ul className='list-disc ml-6 mb-2 space-y-1'>
+                <li>
+                  <strong>Name-based template:</strong> Use institution,
+                  department and category names. Easier to read but names must
+                  match exactly.
+                </li>
+                <li>
+                  <strong>ID-based template:</strong> Use institution,
+                  department and category IDs. More reliable but requires
+                  copying IDs from the template.
+                </li>
+              </ul>
+              <p>
+                Both templates include instructions and reference data. The bulk
+                upload tool validates data before import and skips any invalid
+                rows.
+              </p>
+            </AlertDescription>
+          </Alert>
         </div>
 
         <Card>
