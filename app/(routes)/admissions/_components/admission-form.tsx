@@ -567,7 +567,7 @@ export function AdmissionForm({
         mother_occupation: data.motherOccupation || '',
         mother_mobile: data.motherMobile,
         date_of_birth: data.dateOfBirth,
-        gender: data.gender,
+        gender: data.gender ? data.gender.toLowerCase() : '',
         religion: data.religion,
         community: data.community,
         caste: data.caste || '',

@@ -71,6 +71,8 @@ export default function StudentPromotionTable({
             if (!student.roll_number) missingFields.push('Roll Number');
             if (!student.college_email) missingFields.push('College Email');
             if (!student.student_photo_url) missingFields.push('Photo');
+            if (!student.semester_id) missingFields.push('Semester');
+            if (!student.section_id) missingFields.push('Section');
 
             return (
               <TableRow key={student.id}>
@@ -138,7 +140,7 @@ export default function StudentPromotionTable({
                     {(isSuperAdmin || canAccess('students', 'edit')) && (
                       <Button size='icon' variant='ghost' asChild>
                         <Link
-                          href={`/students/${student.id}/edit?returnTo=/students/promotion`}
+                          href={`/students/${student.id}/edit-promotion?returnTo=/students/promotion`}
                           aria-disabled={
                             !isSuperAdmin && !canAccess('students', 'edit')
                           }

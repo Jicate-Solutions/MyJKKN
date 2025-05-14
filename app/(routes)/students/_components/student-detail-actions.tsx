@@ -9,6 +9,7 @@ import {
   Loader2,
   MoreVertical,
   FileEdit,
+  UserCheck,
   UserCog
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {
@@ -43,6 +45,13 @@ export function StudentDetailActions({ student }: StudentDetailActionsProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
+
+  // Check if student profile is incomplete
+  const isProfileIncomplete =
+    !student.roll_number ||
+    !student.college_email ||
+    !student.semester_id ||
+    !student.section_id;
 
   const handleDeleteStudent = async () => {
     try {
@@ -86,13 +95,29 @@ export function StudentDetailActions({ student }: StudentDetailActionsProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align='end'>
             {(isSuperAdmin || canAccess('students', 'edit')) && (
-              <DropdownMenuItem
-                onClick={() => router.push(`/students/${student.id}/edit`)}
-              >
-                <FileEdit className='mr-2 h-4 w-4' />
-                Edit Details
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuItem
+                  onClick={() => router.push(`/students/${student.id}/edit`)}
+                >
+                  <FileEdit className='mr-2 h-4 w-4' />
+                  Edit Full Details
+                </DropdownMenuItem>
+
+                {isProfileIncomplete && (
+                  <DropdownMenuItem
+                    onClick={() =>
+                      router.push(`/students/${student.id}/edit-promotion`)
+                    }
+                  >
+                    <UserCheck className='mr-2 h-4 w-4' />
+                    Complete Profile
+                  </DropdownMenuItem>
+                )}
+
+                <DropdownMenuSeparator />
+              </>
             )}
+
             {(isSuperAdmin || canAccess('students', 'delete')) && (
               <DropdownMenuItem
                 onClick={() => setShowDeleteDialog(true)}

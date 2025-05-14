@@ -61,6 +61,8 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { SemesterService } from '@/lib/services/organization/semester-service';
+import { SectionService } from '@/lib/services/organization/section-service';
 import { format } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import {
@@ -100,7 +102,7 @@ export default function StudentPromotionPage() {
   const canEditPromotion =
     isSuperAdmin || canAccess('students.promotion', 'edit');
 
-  // State for institution/program filters
+  // State for institution/program/semester/section filters
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -109,6 +111,12 @@ export default function StudentPromotionPage() {
   >([]);
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
+  >([]);
+  const [semesters, setSemesters] = useState<
+    Array<{ id: string; semester_name: string; semester_code: string }>
+  >([]);
+  const [sections, setSections] = useState<
+    Array<{ id: string; section_name: string; section_code: string }>
   >([]);
 
   // New states for advanced filters
@@ -180,6 +188,44 @@ export default function StudentPromotionPage() {
       setPrograms([]);
     }
   }, [filters.department]);
+
+  // Load semesters when program changes
+  useEffect(() => {
+    if (filters.program) {
+      async function loadSemesters() {
+        try {
+          const data = await SemesterService.getSemestersByProgram(
+            filters.program as string
+          );
+          setSemesters(data);
+        } catch (error) {
+          console.error('Error loading semesters:', error);
+        }
+      }
+      loadSemesters();
+    } else {
+      setSemesters([]);
+    }
+  }, [filters.program]);
+
+  // Load sections when semester changes
+  useEffect(() => {
+    if (filters.semester) {
+      async function loadSections() {
+        try {
+          const data = await SectionService.getSectionsBySemester(
+            filters.semester as string
+          );
+          setSections(data);
+        } catch (error) {
+          console.error('Error loading sections:', error);
+        }
+      }
+      loadSections();
+    } else {
+      setSections([]);
+    }
+  }, [filters.semester]);
 
   const handleSearchChange = (searchTerm: string) => {
     setFilters({
@@ -346,6 +392,36 @@ export default function StudentPromotionPage() {
             <X
               className='ml-1 h-3 w-3 cursor-pointer'
               onClick={() => handleRemoveFilter('program')}
+            />
+          </Badge>
+        );
+      }
+    }
+
+    if (filters.semester) {
+      const semester = semesters.find((s) => s.id === filters.semester);
+      if (semester) {
+        activeFilters.push(
+          <Badge key='semester' variant='outline' className='mr-2 mb-2'>
+            Semester: {semester.semester_name}
+            <X
+              className='ml-1 h-3 w-3 cursor-pointer'
+              onClick={() => handleRemoveFilter('semester')}
+            />
+          </Badge>
+        );
+      }
+    }
+
+    if (filters.section) {
+      const section = sections.find((s) => s.id === filters.section);
+      if (section) {
+        activeFilters.push(
+          <Badge key='section' variant='outline' className='mr-2 mb-2'>
+            Section: {section.section_name}
+            <X
+              className='ml-1 h-3 w-3 cursor-pointer'
+              onClick={() => handleRemoveFilter('section')}
             />
           </Badge>
         );
@@ -620,7 +696,9 @@ export default function StudentPromotionPage() {
                       handleFilterChange({
                         institution: value === 'all' ? undefined : value,
                         department: undefined,
-                        program: undefined
+                        program: undefined,
+                        semester: undefined,
+                        section: undefined
                       })
                     }
                   >
@@ -642,7 +720,9 @@ export default function StudentPromotionPage() {
                     onValueChange={(value) =>
                       handleFilterChange({
                         department: value === 'all' ? undefined : value,
-                        program: undefined
+                        program: undefined,
+                        semester: undefined,
+                        section: undefined
                       })
                     }
                     disabled={!filters.institution}
@@ -664,7 +744,9 @@ export default function StudentPromotionPage() {
                     value={filters.program || 'all'}
                     onValueChange={(value) =>
                       handleFilterChange({
-                        program: value === 'all' ? undefined : value
+                        program: value === 'all' ? undefined : value,
+                        semester: undefined,
+                        section: undefined
                       })
                     }
                     disabled={!filters.department}
@@ -685,6 +767,51 @@ export default function StudentPromotionPage() {
 
                 <div className='grid gap-4 md:grid-cols-3 mb-4'>
                   <Select
+                    value={filters.semester || 'all'}
+                    onValueChange={(value) =>
+                      handleFilterChange({
+                        semester: value === 'all' ? undefined : value,
+                        section: undefined
+                      })
+                    }
+                    disabled={!filters.program}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='Select Semester' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Semesters</SelectItem>
+                      {semesters.map((semester) => (
+                        <SelectItem key={semester.id} value={semester.id}>
+                          {semester.semester_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select
+                    value={filters.section || 'all'}
+                    onValueChange={(value) =>
+                      handleFilterChange({
+                        section: value === 'all' ? undefined : value
+                      })
+                    }
+                    disabled={!filters.semester}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='Select Section' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Sections</SelectItem>
+                      {sections.map((section) => (
+                        <SelectItem key={section.id} value={section.id}>
+                          {section.section_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select
                     value={filters.gender || 'all'}
                     onValueChange={(value) =>
                       handleFilterChange({
@@ -702,7 +829,9 @@ export default function StudentPromotionPage() {
                       <SelectItem value='Other'>Other</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
 
+                <div className='grid gap-4 md:grid-cols-3 mb-4'>
                   <Select
                     value={filters.entry_type || 'all'}
                     onValueChange={(value) =>
@@ -893,6 +1022,10 @@ export default function StudentPromotionPage() {
                             missingFields.push('College Email');
                           if (!student.student_photo_url)
                             missingFields.push('Photo');
+                          if (!student.semester_id)
+                            missingFields.push('Semester');
+                          if (!student.section_id)
+                            missingFields.push('Section');
 
                           return (
                             <TableRow key={student.id}>
@@ -965,7 +1098,7 @@ export default function StudentPromotionPage() {
                                       asChild
                                     >
                                       <Link
-                                        href={`/students/${student.id}/edit`}
+                                        href={`/students/${student.id}/edit-promotion`}
                                         aria-disabled={
                                           !isSuperAdmin &&
                                           !canAccess('students', 'edit')
