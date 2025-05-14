@@ -42,6 +42,8 @@ export interface Student {
   degree_id?: string;
   department_id?: string;
   program_id?: string;
+  semester_id?: string;
+  section_id?: string;
   entry_type: string; // FIRST YEAR, LATERAL ENTRY, etc.
   permanent_address_street: string;
   permanent_address_taluk?: string;
@@ -88,6 +90,16 @@ export interface Student {
     id: string;
     program_name: string;
   };
+  semester?: {
+    id: string;
+    semester_name: string;
+    semester_code: string;
+  };
+  section?: {
+    id: string;
+    section_name: string;
+    section_code: string;
+  };
 }
 
 // Zod schema for validation
@@ -97,7 +109,9 @@ export const studentSchema = z.object({
   mother_name: z.string().min(2, "Mother's name is required"),
   roll_number: z.string().optional(),
   college_email: z.string().email('Invalid college email').optional(),
-  student_photo_url: z.string().optional()
+  student_photo_url: z.string().optional(),
+  semester_id: z.string().optional(),
+  section_id: z.string().optional()
 });
 
 export interface CreateStudentDto
@@ -129,6 +143,8 @@ export interface StudentFilters {
   institution?: string;
   department?: string;
   program?: string;
+  semester?: string;
+  section?: string;
   gender?: string;
   entry_type?: string;
   accommodation_type?: string;

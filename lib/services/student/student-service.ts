@@ -61,7 +61,9 @@ export class StudentService {
           institution:institutions(id, name),
           degree:degrees(id, degree_name),
           department:departments(id, department_name),
-          program:programs(id, program_name)
+          program:programs(id, program_name),
+          semester:semesters!semester_id(id, semester_name, semester_code),
+          section:sections!section_id(id, section_name, section_code)
         `
         )
         .eq('id', id)
@@ -79,116 +81,110 @@ export class StudentService {
     }
   }
 
-  static async createStudent(data: CreateStudentDto): Promise<Student> {
+  static async createStudent(
+    studentData: CreateStudentDto
+  ): Promise<Student | null> {
     try {
-      console.log(
-        'Data received by createStudent:',
-        JSON.stringify(data, null, 2)
-      );
+      const now = new Date().toISOString();
 
-      // Prepare the payload using the input data
-      const insertPayload = {
-        ...data, // Spread the data, which should include status: 'active' when called from createStudentFromAdmission
-        // Calculate is_profile_complete based on the input data
-        is_profile_complete:
-          !!data.roll_number &&
-          !!data.college_email &&
-          !!data.student_photo_url,
-        // Set created_by
-        created_by: (await this.supabase.auth.getUser()).data.user?.id
-        // REMOVED: Redundant status: 'active' setting inside createStudent
-      };
-
-      console.log(
-        'Payload for students insert:',
-        JSON.stringify(insertPayload, null, 2)
-      );
+      // Calculate if profile is complete
+      const is_profile_complete =
+        this.calculateProfileCompleteness(studentData);
 
       const { data: student, error } = await this.supabase
         .from('students')
-        .insert([insertPayload]) // Pass the constructed payload
-        .select()
+        .insert({
+          ...studentData,
+          is_profile_complete,
+          created_at: now,
+          updated_at: now,
+          created_by: (await this.supabase.auth.getUser()).data.user?.id
+        })
+        .select(
+          `
+          *,
+          institution:institutions(id, name),
+          degree:degrees(id, degree_name),
+          department:departments(id, department_name),
+          program:programs(id, program_name),
+          semester:semesters!semester_id(id, semester_name, semester_code),
+          section:sections!section_id(id, section_name, section_code)
+        `
+        )
         .single();
 
-      // Log error if exists
-      if (error) {
-        console.error('Supabase insert error:', JSON.stringify(error, null, 2));
-        throw error; // Re-throw the specific Supabase error
-      }
+      if (error) throw error;
 
       toast.success('Student record created successfully');
       return student;
     } catch (error) {
-      console.error('Error in createStudent method:', error);
-      // Avoid generic toast if Supabase error was already thrown
-      if (!(error && typeof error === 'object' && 'code' in error)) {
-        toast.error('Failed to create student record');
-      }
-      throw error; // Re-throw any caught error
+      console.error('Error creating student:', error);
+      toast.error('Failed to create student');
+      throw error;
     }
   }
 
   static async updateStudent(
     id: string,
-    data: UpdateStudentDto
-  ): Promise<Student> {
+    updateData: UpdateStudentDto
+  ): Promise<Student | null> {
     try {
-      // 1. Fetch the current student record
+      // Get current student data to correctly calculate profile completeness
       const { data: currentStudent, error: fetchError } = await this.supabase
         .from('students')
-        .select(
-          'roll_number, college_email, student_photo_url, is_profile_complete'
-        )
+        .select('*')
         .eq('id', id)
         .single();
 
       if (fetchError) throw fetchError;
-      if (!currentStudent) throw new Error('Student not found for update');
 
-      // 2. Merge the current data with the incoming update data
-      const mergedData = { ...currentStudent, ...data };
+      // Merge current data with updates for profile completeness check
+      const mergedData = { ...currentStudent, ...updateData };
 
-      // 3. Calculate is_profile_complete based on the merged data
-      // The is_profile_complete flag is recalculated on every update
-      // When all required fields are filled, the student will automatically
-      // be promoted from the Student Promotion page to the main Student List
-      const isProfileComplete =
-        !!mergedData.roll_number &&
-        !!mergedData.college_email &&
-        !!mergedData.student_photo_url;
+      // Calculate if profile is complete
+      const is_profile_complete = this.calculateProfileCompleteness(mergedData);
 
-      // 4. Perform the update with the calculated flag
-      const { data: updatedStudent, error: updateError } = await this.supabase
+      const { data: student, error } = await this.supabase
         .from('students')
         .update({
-          ...data, // Apply the actual updates from the payload
-          is_profile_complete: isProfileComplete, // Set the calculated flag
-          updated_by: (await this.supabase.auth.getUser()).data.user?.id,
-          updated_at: new Date().toISOString()
+          ...updateData,
+          is_profile_complete,
+          updated_at: new Date().toISOString(),
+          updated_by: (await this.supabase.auth.getUser()).data.user?.id
         })
         .eq('id', id)
-        .select() // Re-select the full updated record
+        .select(
+          `
+          *,
+          institution:institutions(id, name),
+          degree:degrees(id, degree_name),
+          department:departments(id, department_name),
+          program:programs(id, program_name),
+          semester:semesters!semester_id(id, semester_name, semester_code),
+          section:sections!section_id(id, section_name, section_code)
+        `
+        )
         .single();
 
-      if (updateError) throw updateError;
+      if (error) throw error;
 
       // --- BEGIN: Auto User Creation Logic ---
       // Check if profile just became complete and college_email exists
       if (
         !currentStudent.is_profile_complete && // Was false before
-        isProfileComplete && // Is true now
-        updatedStudent.college_email // Email exists
+        is_profile_complete && // Is true now
+        student.college_email // Email exists
       ) {
         console.log(
-          `Profile for student ${updatedStudent.id} marked complete. Attempting user creation.`
+          `Profile for student ${student.id} marked complete. Attempting user creation.`
         );
         const tempPassword = generateTemporaryPassword();
         const userPayload: CreateUserRequest = {
-          email: updatedStudent.college_email,
-          full_name: updatedStudent.student_name,
+          email: student.college_email,
+          full_name: student.student_name,
           password: tempPassword,
           role: 'student', // Default role
-          phone_number: updatedStudent.student_mobile || null
+          phone_number: student.student_mobile || null
         };
 
         try {
@@ -229,10 +225,10 @@ export class StudentService {
             }
           } else {
             console.log(
-              `Successfully created user for student ${updatedStudent.id} with email ${updatedStudent.college_email}`
+              `Successfully created user for student ${student.id} with email ${student.college_email}`
             );
             // Optionally, you could add another toast, but it might be too much.
-            // toast.info(`User account created for ${updatedStudent.student_name}.`);
+            // toast.info(`User account created for ${student.student_name}.`);
             // IMPORTANT: You need a mechanism to communicate the temporary password
             // or force a password reset on first login for the new student user.
             // This implementation does not handle password communication.
@@ -247,10 +243,10 @@ export class StudentService {
       // --- END: Auto User Creation Logic ---
 
       toast.success('Student record updated successfully');
-      return updatedStudent;
+      return student;
     } catch (error) {
-      console.error('Error updating student record:', error);
-      toast.error('Failed to update student record');
+      console.error('Error updating student:', error);
+      toast.error('Failed to update student');
       throw error;
     }
   }
@@ -352,7 +348,9 @@ export class StudentService {
           institution:institutions(id, name),
           degree:degrees(id, degree_name),
           department:departments(id, department_name),
-          program:programs(id, program_name)
+          program:programs(id, program_name),
+          semester:semesters!semester_id(id, semester_name, semester_code),
+          section:sections!section_id(id, section_name, section_code)
         `
         )
         .eq('id', id)
@@ -501,7 +499,9 @@ export class StudentService {
         reference_name: admission.reference_name || '',
         reference_contact: admission.reference_contact || '',
         is_profile_complete: false,
-        status: 'active' // Use a valid student_status enum value
+        status: 'active', // Use a valid student_status enum value
+        semester_id: admission.semester_id || null,
+        section_id: admission.section_id || null
       };
 
       // Create the student record
@@ -553,5 +553,26 @@ export class StudentService {
       console.error('Error fetching student stats:', error);
       throw error;
     }
+  }
+
+  private static calculateProfileCompleteness(
+    student: Partial<Student>
+  ): boolean {
+    // List of required fields for a complete profile
+    const requiredFields = [
+      'roll_number',
+      'college_email',
+      'student_photo_url',
+      'semester_id',
+      'section_id'
+    ];
+
+    // Check if all required fields are present and not empty
+    return requiredFields.every(
+      (field) =>
+        student[field as keyof Student] !== null &&
+        student[field as keyof Student] !== undefined &&
+        student[field as keyof Student] !== ''
+    );
   }
 }

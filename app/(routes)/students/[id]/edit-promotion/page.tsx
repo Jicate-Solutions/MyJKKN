@@ -1,0 +1,576 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import React from 'react';
+import {
+  Loader2,
+  Save,
+  ArrowLeft,
+  UserCheck,
+  Upload,
+  User
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
+import { useStudent, useUpdateStudent } from '@/hooks/student/use-students';
+import { PhotoUpload } from '../../_components/photo-upload';
+import toast from 'react-hot-toast';
+import { SemesterService } from '@/lib/services/organization/semester-service';
+import { SectionService } from '@/lib/services/organization/section-service';
+
+// Form schema for student promotion edit (focusing only on the required fields for promotion)
+const promotionEditSchema = z.object({
+  roll_number: z.string().min(1, 'Roll number is required'),
+  college_email: z.string().email('Invalid college email format'),
+  student_photo_url: z.string().optional(),
+  semester_id: z.string().min(1, 'Semester is required'),
+  section_id: z.string().min(1, 'Section is required')
+});
+
+type PromotionEditFormValues = z.infer<typeof promotionEditSchema>;
+
+interface EditPromotionPageProps {
+  params: Promise<{
+    id: string;
+  }>;
+}
+
+// Custom hook to handle semester and section loading
+const useStudentSemesterAndSection = (student: any, form: any) => {
+  const [semesters, setSemesters] = useState<
+    Array<{ id: string; semester_name: string; semester_code: string }>
+  >([]);
+  const [sections, setSections] = useState<
+    Array<{ id: string; section_name: string; section_code: string }>
+  >([]);
+  const [isLoadingSemesters, setIsLoadingSemesters] = useState(false);
+  const [isLoadingSections, setIsLoadingSections] = useState(false);
+
+  const loadSections = useCallback(
+    async (semesterId: string | undefined) => {
+      if (!semesterId) {
+        setSections([]);
+        form.setValue('section_id', ''); // Clear section in form if no semesterId
+        return;
+      }
+      try {
+        setIsLoadingSections(true);
+        const data = await SectionService.getSectionsBySemester(semesterId);
+        setSections(data);
+        // If student's section_id matches a loaded section for the current semester_id, set it in the form
+        if (
+          student?.semester_id === semesterId &&
+          student?.section_id &&
+          data.some((s) => s.id === student.section_id)
+        ) {
+          form.setValue('section_id', student.section_id);
+        } else if (data.length > 0 && student?.semester_id !== semesterId) {
+          // If sections loaded for a NEW semester (not initial), don't auto-select student's old section_id
+          // form.setValue('section_id', ''); // Or handled by semester change effect
+        } else if (data.length === 0) {
+          form.setValue('section_id', ''); // No sections available, clear form value
+        }
+      } catch (error) {
+        console.error('Error loading sections:', error);
+        setSections([]);
+        form.setValue('section_id', '');
+      } finally {
+        setIsLoadingSections(false);
+      }
+    },
+    [student?.semester_id, student?.section_id, form]
+  );
+
+  const loadSemesters = useCallback(async () => {
+    if (!student?.program_id) {
+      setSemesters([]);
+      setSections([]); // Also clear sections if no program
+      form.setValue('semester_id', '');
+      form.setValue('section_id', '');
+      return;
+    }
+    try {
+      setIsLoadingSemesters(true);
+      const data = await SemesterService.getSemestersByProgram(
+        student.program_id
+      );
+      setSemesters(data);
+      // If student has a semester_id and it's in the loaded list, set it and load sections
+      if (
+        student.semester_id &&
+        data.some((s) => s.id === student.semester_id)
+      ) {
+        form.setValue('semester_id', student.semester_id);
+        await loadSections(student.semester_id); // Await here to ensure sections are loaded based on this
+      } else {
+        // No pre-existing semester_id or it's not in the list, clear sections
+        await loadSections(undefined);
+      }
+    } catch (error) {
+      console.error('Error loading semesters:', error);
+      setSemesters([]);
+      setSections([]);
+      form.setValue('semester_id', '');
+      form.setValue('section_id', '');
+    } finally {
+      setIsLoadingSemesters(false);
+    }
+  }, [student?.program_id, student?.semester_id, loadSections, form]);
+
+  useEffect(() => {
+    if (student) {
+      loadSemesters(); // This will also trigger loadSections if semester_id is present
+    }
+  }, [student, loadSemesters]);
+
+  return {
+    semesters,
+    sections,
+    isLoadingSemesters,
+    isLoadingSections,
+    loadSections // Expose loadSections to be called on semester change in form
+  };
+};
+
+export default function EditPromotionPage({ params }: EditPromotionPageProps) {
+  // Unwrap params using React.use()
+  const resolvedParams = React.use(params);
+  const { id } = resolvedParams;
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get('returnTo') || '/students/promotion';
+
+  const { data: student, isLoading: isLoadingStudent } = useStudent(id);
+  const updateStudent = useUpdateStudent(id);
+
+  // Initialize form with default values
+  const form = useForm<PromotionEditFormValues>({
+    resolver: zodResolver(promotionEditSchema),
+    defaultValues: {
+      roll_number: '',
+      college_email: '',
+      student_photo_url: '',
+      semester_id: '',
+      section_id: ''
+    }
+  });
+
+  // Use custom hook for semester and section loading, passing the form instance
+  const {
+    semesters,
+    sections,
+    isLoadingSemesters,
+    isLoadingSections,
+    loadSections
+  } = useStudentSemesterAndSection(student, form);
+
+  // Effect to reset form when student data changes (initial load)
+  useEffect(() => {
+    if (student) {
+      form.reset({
+        roll_number: student.roll_number || '',
+        college_email: student.college_email || '',
+        student_photo_url: student.student_photo_url || '',
+        semester_id: student.semester_id || '',
+        section_id: student.section_id || ''
+      });
+    }
+  }, [student, form]);
+
+  // Watch for semester_id changes in the form to reload sections
+  useEffect(() => {
+    const subscription = form.watch((value, { name, type }) => {
+      if (name === 'semester_id' && type === 'change') {
+        const newSemesterId = value.semester_id as string | undefined;
+        loadSections(newSemesterId);
+        // If the change was manual (not initial load by hook), clear the section_id field
+        if (student?.semester_id !== newSemesterId) {
+          form.setValue('section_id', '');
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form, loadSections, student?.semester_id]);
+
+  // Handle form submission
+  const onSubmit = async (data: PromotionEditFormValues) => {
+    try {
+      // Check if all required fields are filled
+      const isComplete =
+        !!data.roll_number &&
+        !!data.college_email &&
+        !!data.semester_id &&
+        !!data.section_id;
+
+      // If all required fields are filled, also set status to active
+      const updatePayload = {
+        ...data,
+        status: isComplete ? ('active' as const) : undefined
+      };
+
+      // Submit the data payload
+      await updateStudent.mutateAsync(updatePayload);
+
+      toast.success('Student profile updated for promotion');
+
+      router.push(returnTo);
+    } catch (error) {
+      console.error('Error updating student:', error);
+      toast.error('Failed to update student');
+    }
+  };
+
+  // Loading state
+  if (isLoadingStudent) {
+    return (
+      <ContentLayout title='Complete Student Profile'>
+        <div className='flex flex-col items-center justify-center min-h-[400px]'>
+          <Loader2 className='h-8 w-8 animate-spin text-primary mb-4' />
+          <p className='text-muted-foreground'>Loading student data...</p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Student not found
+  if (!student) {
+    return (
+      <ContentLayout title='Complete Student Profile'>
+        <div className='flex flex-col items-center justify-center min-h-[400px]'>
+          <p className='text-muted-foreground'>Student not found</p>
+          <Button
+            variant='outline'
+            className='mt-4'
+            onClick={() => router.push('/students/promotion')}
+          >
+            Go Back to Promotion
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  const isProfileComplete =
+    !!student.roll_number &&
+    !!student.college_email &&
+    !!student.semester_id &&
+    !!student.section_id;
+
+  return (
+    <ContentLayout title='Complete Student Profile'>
+      <div className='space-y-6'>
+        <PageBreadcrumb
+          items={[
+            { label: 'Home', href: '/' },
+            { label: 'Students', href: '/students' },
+            { label: 'Promotion', href: '/students/promotion' },
+            { label: student.student_name, href: `/students/${id}` },
+            { label: 'Complete Profile' }
+          ]}
+        />
+
+        <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
+          <div>
+            <h1 className='text-2xl font-bold tracking-tight'>
+              Complete Profile: {student.student_name}
+            </h1>
+            <p className='text-muted-foreground'>
+              Fill in required information to promote this student
+            </p>
+          </div>
+          <div className='flex items-center gap-2'>
+            <Button variant='outline' onClick={() => router.back()}>
+              <ArrowLeft className='mr-2 h-4 w-4' />
+              Back
+            </Button>
+            <Button
+              onClick={form.handleSubmit(onSubmit)}
+              disabled={updateStudent.isPending}
+            >
+              {updateStudent.isPending ? (
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+              ) : (
+                <Save className='mr-2 h-4 w-4' />
+              )}
+              Save Profile
+            </Button>
+          </div>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className='flex items-center gap-2'>
+              <UserCheck className='h-5 w-5' />
+              Required Information
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className='space-y-4'>
+              <div className='p-4 border rounded-md bg-yellow-50'>
+                <h3 className='font-semibold mb-2'>
+                  Profile Completion Status
+                </h3>
+                <p className='text-sm text-muted-foreground mb-2'>
+                  To complete the student profile, please fill in the following
+                  required fields:
+                </p>
+                <ul className='text-sm list-disc list-inside space-y-1'>
+                  <li
+                    className={
+                      student.roll_number ? 'text-green-600' : 'text-red-600'
+                    }
+                  >
+                    Roll Number {student.roll_number ? '✓' : '✗'}
+                  </li>
+                  <li
+                    className={
+                      student.college_email ? 'text-green-600' : 'text-red-600'
+                    }
+                  >
+                    College Email {student.college_email ? '✓' : '✗'}
+                  </li>
+                  <li
+                    className={
+                      student.student_photo_url
+                        ? 'text-green-600'
+                        : 'text-yellow-600'
+                    }
+                  >
+                    Student Photo (Optional){' '}
+                    {student.student_photo_url ? '✓' : '⚠️'}
+                  </li>
+                  <li
+                    className={
+                      student.semester_id ? 'text-green-600' : 'text-red-600'
+                    }
+                  >
+                    Semester {student.semester_id ? '✓' : '✗'}
+                  </li>
+                  <li
+                    className={
+                      student.section_id ? 'text-green-600' : 'text-red-600'
+                    }
+                  >
+                    Section {student.section_id ? '✓' : '✗'}
+                  </li>
+                </ul>
+              </div>
+
+              <Form {...form}>
+                <form className='space-y-6'>
+                  <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                    <FormField
+                      control={form.control}
+                      name='roll_number'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Roll Number*</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder='Enter roll number' />
+                          </FormControl>
+                          <FormDescription>
+                            The official student roll number
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='college_email'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>College Email*</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='email'
+                              placeholder='student@college.edu'
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Official college email address for the student
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                    <FormField
+                      control={form.control}
+                      name='semester_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Semester*</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value || ''}
+                            disabled={isLoadingSemesters}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder='Select semester' />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {isLoadingSemesters ? (
+                                <div className='flex items-center justify-center p-2'>
+                                  <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                  Loading...
+                                </div>
+                              ) : semesters.length === 0 ? (
+                                <div className='p-2 text-center text-sm text-muted-foreground'>
+                                  No semesters available
+                                </div>
+                              ) : (
+                                semesters.map((semester) => (
+                                  <SelectItem
+                                    key={semester.id}
+                                    value={semester.id}
+                                  >
+                                    {semester.semester_name} (
+                                    {semester.semester_code})
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Current semester of the student
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='section_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Section*</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value || ''}
+                            disabled={
+                              !form.watch('semester_id') || isLoadingSections
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder='Select section' />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {!form.watch('semester_id') ? (
+                                <div className='p-2 text-center text-sm text-muted-foreground'>
+                                  Select a semester first
+                                </div>
+                              ) : isLoadingSections ? (
+                                <div className='flex items-center justify-center p-2'>
+                                  <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                  Loading...
+                                </div>
+                              ) : sections.length === 0 ? (
+                                <div className='p-2 text-center text-sm text-muted-foreground'>
+                                  No sections available
+                                </div>
+                              ) : (
+                                sections.map((section) => (
+                                  <SelectItem
+                                    key={section.id}
+                                    value={section.id}
+                                  >
+                                    {section.section_name} (
+                                    {section.section_code})
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Current section of the student
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div>
+                    <FormField
+                      control={form.control}
+                      name='student_photo_url'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Student Photo (Optional)</FormLabel>
+                          <FormControl>
+                            <PhotoUpload
+                              value={field.value}
+                              onChange={field.onChange}
+                              onRemove={() => field.onChange('')}
+                              studentId={id}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Upload a passport-size photograph of the student
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </form>
+              </Form>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className='flex justify-end gap-2 mt-6'>
+          <Button variant='outline' onClick={() => router.back()}>
+            Cancel
+          </Button>
+          <Button
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={updateStudent.isPending}
+          >
+            {updateStudent.isPending ? (
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            ) : (
+              <Save className='mr-2 h-4 w-4' />
+            )}
+            Save Profile
+          </Button>
+        </div>
+      </div>
+    </ContentLayout>
+  );
+}

@@ -254,7 +254,7 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Gender</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value || ''}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder='Select gender' />
@@ -263,6 +263,7 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
                 <SelectContent>
                   <SelectItem value='male'>Male</SelectItem>
                   <SelectItem value='female'>Female</SelectItem>
+                  <SelectItem value='other'>Other</SelectItem>
                 </SelectContent>
               </Select>
               <FormMessage />
