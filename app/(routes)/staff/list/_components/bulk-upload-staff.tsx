@@ -416,7 +416,7 @@ export default function BulkUploadStaff() {
 
       let successCount = 0;
       let errorCount = 0;
-      let errorDetails = [];
+      const errorDetails: string[] = [];
 
       for (const batch of batches) {
         const promises = batch.map((row) => {

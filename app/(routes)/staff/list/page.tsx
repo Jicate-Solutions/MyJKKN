@@ -152,35 +152,6 @@ export default function StaffPage() {
           </div>
         </div>
 
-        <div className='mb-4'>
-          <Alert variant='default' className='bg-sky-50 border-sky-200'>
-            <Info className='h-4 w-4 text-sky-600' />
-            <AlertTitle className='text-sky-700'>About Bulk Upload</AlertTitle>
-            <AlertDescription className='text-sky-600 text-sm'>
-              <p className='mb-2'>
-                You can download templates for bulk upload in two formats:
-              </p>
-              <ul className='list-disc ml-6 mb-2 space-y-1'>
-                <li>
-                  <strong>Name-based template:</strong> Use institution,
-                  department and category names. Easier to read but names must
-                  match exactly.
-                </li>
-                <li>
-                  <strong>ID-based template:</strong> Use institution,
-                  department and category IDs. More reliable but requires
-                  copying IDs from the template.
-                </li>
-              </ul>
-              <p>
-                Both templates include instructions and reference data. The bulk
-                upload tool validates data before import and skips any invalid
-                rows.
-              </p>
-            </AlertDescription>
-          </Alert>
-        </div>
-
         <Card>
           <CardContent className='p-6'>
             <StaffFilters filters={filters} onFilterChange={updateFilters} />
