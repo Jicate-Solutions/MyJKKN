@@ -44,6 +44,10 @@ import { PhotoUpload } from '../../_components/photo-upload';
 import toast from 'react-hot-toast';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
+import { ProgramService } from '@/lib/services/organization/program-service';
 
 // Form schema for student edit (focusing on additional required fields)
 const editStudentSchema = z.object({
@@ -104,7 +108,39 @@ const editStudentSchema = z.object({
   // Others
   reference_type: z.string().optional(),
   reference_name: z.string().optional(),
-  reference_contact: z.string().optional()
+  reference_contact: z.string().optional(),
+
+  // Previous Academic Qualifications
+  tenth_marks: z
+    .object({
+      max_marks: z.string().optional(),
+      obtained_marks: z.string().optional(),
+      percentage: z.string().optional()
+    })
+    .optional()
+    .nullable(),
+
+  twelfth_marks: z
+    .object({
+      group: z.string().optional(),
+      max_marks: z.string().optional(),
+      obtained_marks: z.string().optional(),
+      percentage: z.string().optional(),
+      subjects: z.record(z.string().optional()).optional()
+    })
+    .optional()
+    .nullable(),
+
+  medical_cutoff_marks: z.string().optional(),
+  engineering_cutoff_marks: z.string().optional(),
+  neet_roll_number: z.string().optional(),
+  counseling_applied: z.boolean().optional(),
+  counseling_number: z.string().optional(),
+  first_graduate: z.boolean().optional(),
+
+  // New fields
+  quota: z.string().optional(),
+  category: z.string().optional()
 });
 
 type EditStudentFormValues = z.infer<typeof editStudentSchema>;
@@ -212,6 +248,28 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
   };
 };
 
+// After useEffect to reset form
+// Add utility function to normalize accommodation type
+const normalizeAccommodationType = (
+  type: string | undefined | null
+): string => {
+  if (!type) return '';
+
+  // Convert to uppercase for consistency
+  const upperType = type.toUpperCase();
+
+  // Handle different formats
+  if (upperType === 'HOSTEL' || upperType === 'DAY SCHOLAR') {
+    return upperType;
+  }
+
+  // Handle lowercase formats from admission form
+  if (type === 'hostel') return 'HOSTEL';
+  if (type === 'day_scholar') return 'DAY SCHOLAR';
+
+  return type; // Return as-is if no match
+};
+
 export default function EditStudentPage({ params }: EditStudentPageProps) {
   // Unwrap params using React.use()
   const resolvedParams = React.use(params);
@@ -220,6 +278,30 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
   const router = useRouter();
   const { data: student, isLoading: isLoadingStudent } = useStudent(id);
   const updateStudent = useUpdateStudent(id);
+
+  // State for entity names
+  const [institutionName, setInstitutionName] = useState<string>('');
+  const [degreeName, setDegreeName] = useState<string>('');
+  const [departmentName, setDepartmentName] = useState<string>('');
+  const [programName, setProgramName] = useState<string>('');
+
+  // Add states for dropdown options
+  const [institutions, setInstitutions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [degrees, setDegrees] = useState<
+    Array<{ id: string; degree_name: string }>
+  >([]);
+  const [departments, setDepartments] = useState<
+    Array<{ id: string; department_name: string }>
+  >([]);
+  const [programs, setPrograms] = useState<
+    Array<{ id: string; program_name: string }>
+  >([]);
+  const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(false);
+  const [isLoadingDegrees, setIsLoadingDegrees] = useState(false);
+  const [isLoadingDepartments, setIsLoadingDepartments] = useState(false);
+  const [isLoadingPrograms, setIsLoadingPrograms] = useState(false);
 
   // Initialize form with default values
   const form = useForm<EditStudentFormValues>({
@@ -265,7 +347,27 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
       status: 'active',
       reference_type: '',
       reference_name: '',
-      reference_contact: ''
+      reference_contact: '',
+      tenth_marks: {
+        max_marks: '',
+        obtained_marks: '',
+        percentage: ''
+      },
+      twelfth_marks: {
+        group: '',
+        max_marks: '',
+        obtained_marks: '',
+        percentage: '',
+        subjects: {}
+      },
+      medical_cutoff_marks: '',
+      engineering_cutoff_marks: '',
+      neet_roll_number: '',
+      counseling_applied: false,
+      counseling_number: '',
+      first_graduate: false,
+      quota: '',
+      category: ''
     }
   });
 
@@ -293,6 +395,20 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
       const normalizedGender = student.gender
         ? student.gender.toLowerCase()
         : '';
+
+      // Process tenth marks data
+      const tenthMarks = student.tenth_marks || {};
+      // Convert from string to object if needed
+      const processedTenthMarks =
+        typeof tenthMarks === 'string' ? JSON.parse(tenthMarks) : tenthMarks;
+
+      // Process twelfth marks data
+      const twelfthMarks = student.twelfth_marks || {};
+      // Convert from string to object if needed
+      const processedTwelfthMarks =
+        typeof twelfthMarks === 'string'
+          ? JSON.parse(twelfthMarks)
+          : twelfthMarks;
 
       form.reset({
         student_name: student.student_name || '',
@@ -327,7 +443,9 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
         permanent_address_district: student.permanent_address_district || '',
         permanent_address_pin_code: student.permanent_address_pin_code || '',
         permanent_address_state: student.permanent_address_state || '',
-        accommodation_type: student.accommodation_type || '',
+        accommodation_type: normalizeAccommodationType(
+          student.accommodation_type
+        ),
         hostel_type: student.hostel_type || '',
         bus_required: student.bus_required || false,
         bus_route: student.bus_route || '',
@@ -335,7 +453,27 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
         status: student.status || 'active',
         reference_type: student.reference_type || '',
         reference_name: student.reference_name || '',
-        reference_contact: student.reference_contact || ''
+        reference_contact: student.reference_contact || '',
+        tenth_marks: {
+          max_marks: processedTenthMarks.max_marks || '',
+          obtained_marks: processedTenthMarks.obtained_marks || '',
+          percentage: processedTenthMarks.percentage || ''
+        },
+        twelfth_marks: {
+          group: processedTwelfthMarks.group || '',
+          max_marks: processedTwelfthMarks.max_marks || '',
+          obtained_marks: processedTwelfthMarks.obtained_marks || '',
+          percentage: processedTwelfthMarks.percentage || '',
+          subjects: processedTwelfthMarks.subjects || {}
+        },
+        medical_cutoff_marks: student.medical_cutoff_marks || '',
+        engineering_cutoff_marks: student.engineering_cutoff_marks || '',
+        neet_roll_number: student.neet_roll_number || '',
+        counseling_applied: student.counseling_applied || false,
+        counseling_number: student.counseling_number || '',
+        first_graduate: student.first_graduate || false,
+        quota: student.quota || '',
+        category: student.category || ''
       });
 
       // Explicitly set gender value after form reset
@@ -361,6 +499,260 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
     return () => subscription.unsubscribe();
   }, [form, loadSections, student?.semester_id]);
 
+  // Fetch entity names when student data loads
+  useEffect(() => {
+    async function fetchEntityNames() {
+      if (!student) return;
+
+      // Fetch institution name
+      if (student.institution_id) {
+        try {
+          const institutions = await OrganizationService.getInstitutionNames();
+          const institution = institutions.find(
+            (i) => i.id === student.institution_id
+          );
+          if (institution) {
+            setInstitutionName(institution.name);
+          }
+        } catch (error) {
+          console.error('Error fetching institution name:', error);
+        }
+      }
+
+      // Fetch degree name
+      if (student.degree_id) {
+        try {
+          const degreesResponse = await DegreeService.getDegrees();
+          const degree = degreesResponse.data.find(
+            (d) => d.id === student.degree_id
+          );
+          if (degree) {
+            setDegreeName(degree.degree_name);
+          }
+        } catch (error) {
+          console.error('Error fetching degree name:', error);
+        }
+      }
+
+      // Fetch department name
+      if (student.department_id) {
+        try {
+          const departmentsResponse = await DepartmentService.getDepartments();
+          const department = departmentsResponse.data.find(
+            (d) => d.id === student.department_id
+          );
+          if (department) {
+            setDepartmentName(department.department_name);
+          }
+        } catch (error) {
+          console.error('Error fetching department name:', error);
+        }
+      }
+
+      // Fetch program name
+      if (student.program_id) {
+        try {
+          const programsResponse = await ProgramService.getPrograms();
+          const program = programsResponse.data.find(
+            (p) => p.id === student.program_id
+          );
+          if (program) {
+            setProgramName(program.program_name);
+          }
+        } catch (error) {
+          console.error('Error fetching program name:', error);
+        }
+      }
+    }
+
+    fetchEntityNames();
+  }, [student]);
+
+  // Modify fetchFormOptions to load initial values based on the student
+  useEffect(() => {
+    async function fetchFormOptions() {
+      // Fetch institutions for all cases
+      try {
+        setIsLoadingInstitutions(true);
+        const institutionsData =
+          await OrganizationService.getInstitutionNames();
+        setInstitutions(institutionsData);
+      } catch (error) {
+        console.error('Error fetching institutions:', error);
+      } finally {
+        setIsLoadingInstitutions(false);
+      }
+
+      // Load initial degrees based on student's institution
+      if (student?.institution_id) {
+        try {
+          setIsLoadingDegrees(true);
+          // We know student.institution_id is defined here
+          const degreesData = await DegreeService.getDegreesByInstitution(
+            student.institution_id!
+          );
+          setDegrees(degreesData);
+        } catch (error) {
+          console.error('Error fetching degrees:', error);
+        } finally {
+          setIsLoadingDegrees(false);
+        }
+      }
+
+      // Load initial departments based on student's degree
+      if (student?.degree_id) {
+        try {
+          setIsLoadingDepartments(true);
+          // We know student.degree_id is defined here
+          const departmentsData =
+            await DepartmentService.getDepartmentsByDegree(student.degree_id!);
+          setDepartments(departmentsData);
+        } catch (error) {
+          console.error('Error fetching departments:', error);
+        } finally {
+          setIsLoadingDepartments(false);
+        }
+      }
+
+      // Load initial programs based on student's department
+      if (student?.department_id) {
+        try {
+          setIsLoadingPrograms(true);
+          // We know student.department_id is defined here
+          const programsData = await ProgramService.getProgramsByDepartment(
+            student.department_id!
+          );
+          setPrograms(programsData);
+        } catch (error) {
+          console.error('Error fetching programs:', error);
+        } finally {
+          setIsLoadingPrograms(false);
+        }
+      }
+    }
+
+    if (student) {
+      fetchFormOptions();
+    }
+  }, [student]);
+
+  // Add an effect to filter degrees when institution changes
+  useEffect(() => {
+    const institutionId = form.getValues('institution_id');
+    // Skip if there's no institutionId or we're still in initial loading
+    if (!institutionId || isLoadingStudent) {
+      return;
+    }
+
+    async function filterDegreesByInstitution() {
+      try {
+        setIsLoadingDegrees(true);
+        // Non-null assertion is safe here because we checked institutionId above
+        const degreesData = await DegreeService.getDegreesByInstitution(
+          institutionId!
+        );
+        setDegrees(degreesData);
+
+        // Clear dependent fields if the institution changes
+        if (student?.institution_id !== institutionId) {
+          form.setValue('degree_id', '');
+          form.setValue('department_id', '');
+          form.setValue('program_id', '');
+        }
+      } catch (error) {
+        console.error('Error filtering degrees by institution:', error);
+      } finally {
+        setIsLoadingDegrees(false);
+      }
+    }
+
+    // Watch for institution_id changes
+    const subscription = form.watch((value, { name, type }) => {
+      if (name === 'institution_id' && type === 'change') {
+        filterDegreesByInstitution();
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [form, student?.institution_id, isLoadingStudent]);
+
+  // Add an effect to filter departments when degree changes
+  useEffect(() => {
+    const degreeId = form.getValues('degree_id');
+    // Skip if there's no degreeId or we're still in initial loading
+    if (!degreeId || isLoadingStudent) {
+      return;
+    }
+
+    async function filterDepartmentsByDegree() {
+      try {
+        setIsLoadingDepartments(true);
+        // Non-null assertion is safe here because we checked degreeId above
+        const departmentsData = await DepartmentService.getDepartmentsByDegree(
+          degreeId!
+        );
+        setDepartments(departmentsData);
+
+        // Clear dependent fields if the degree changes
+        if (student?.degree_id !== degreeId) {
+          form.setValue('department_id', '');
+          form.setValue('program_id', '');
+        }
+      } catch (error) {
+        console.error('Error filtering departments by degree:', error);
+      } finally {
+        setIsLoadingDepartments(false);
+      }
+    }
+
+    // Watch for degree_id changes
+    const subscription = form.watch((value, { name, type }) => {
+      if (name === 'degree_id' && type === 'change') {
+        filterDepartmentsByDegree();
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [form, student?.degree_id, isLoadingStudent]);
+
+  // Add an effect to filter programs when department changes
+  useEffect(() => {
+    const departmentId = form.getValues('department_id');
+    // Skip if there's no departmentId or we're still in initial loading
+    if (!departmentId || isLoadingStudent) {
+      return;
+    }
+
+    async function filterProgramsByDepartment() {
+      try {
+        setIsLoadingPrograms(true);
+        // Non-null assertion is safe here because we checked departmentId above
+        const programsData = await ProgramService.getProgramsByDepartment(
+          departmentId!
+        );
+        setPrograms(programsData);
+
+        // Clear dependent field if the department changes
+        if (student?.department_id !== departmentId) {
+          form.setValue('program_id', '');
+        }
+      } catch (error) {
+        console.error('Error filtering programs by department:', error);
+      } finally {
+        setIsLoadingPrograms(false);
+      }
+    }
+
+    // Watch for department_id changes
+    const subscription = form.watch((value, { name, type }) => {
+      if (name === 'department_id' && type === 'change') {
+        filterProgramsByDepartment();
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [form, student?.department_id, isLoadingStudent]);
+
   // Handle form submission
   const onSubmit = async (data: EditStudentFormValues) => {
     try {
@@ -371,9 +763,42 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
         !!data.semester_id &&
         !!data.section_id;
 
+      // Transform marks data to ensure compatibility with UpdateStudentDto
+      const transformedData = {
+        ...data,
+        // Convert null to undefined or ensure object properties are strings
+        tenth_marks: data.tenth_marks
+          ? {
+              max_marks: data.tenth_marks.max_marks || '',
+              obtained_marks: data.tenth_marks.obtained_marks || '',
+              percentage: data.tenth_marks.percentage || ''
+            }
+          : undefined,
+
+        // Convert null to undefined or ensure object properties are strings
+        twelfth_marks: data.twelfth_marks
+          ? {
+              group: data.twelfth_marks.group || '',
+              max_marks: data.twelfth_marks.max_marks || '',
+              obtained_marks: data.twelfth_marks.obtained_marks || '',
+              percentage: data.twelfth_marks.percentage || '',
+              // Ensure all subject values are strings (not undefined)
+              subjects: data.twelfth_marks.subjects
+                ? Object.entries(data.twelfth_marks.subjects).reduce(
+                    (acc, [key, value]) => {
+                      acc[key] = value || '';
+                      return acc;
+                    },
+                    {} as Record<string, string>
+                  )
+                : {}
+            }
+          : undefined
+      };
+
       // If all required fields are filled, also set status to active
       const updatePayload = {
-        ...data,
+        ...transformedData,
         status: isComplete ? ('active' as const) : undefined
       };
 
@@ -475,9 +900,12 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
               <Form {...form}>
                 <form className='space-y-6'>
                   <Tabs defaultValue='basic'>
-                    <TabsList className='grid grid-cols-5 mb-4'>
+                    <TabsList className='grid grid-cols-6 mb-4'>
                       <TabsTrigger value='basic'>Basic Info</TabsTrigger>
                       <TabsTrigger value='academic'>Academic</TabsTrigger>
+                      <TabsTrigger value='qualifications'>
+                        Qualifications
+                      </TabsTrigger>
                       <TabsTrigger value='contact'>
                         Contact & Address
                       </TabsTrigger>
@@ -732,7 +1160,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                       </div>
                     </TabsContent>
 
-                    {/* Academic Tab */}
+                    {/* Academic Information Tab */}
                     <TabsContent value='academic' className='space-y-6'>
                       <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                         <FormField
@@ -780,16 +1208,33 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                       <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                         <FormField
                           control={form.control}
-                          name='last_school'
+                          name='quota'
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Last School Attended</FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  placeholder='Enter last school name'
-                                />
-                              </FormControl>
+                              <FormLabel>Admission Quota</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select quota' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='GOVERNMENT'>
+                                    Government Quota
+                                  </SelectItem>
+                                  <SelectItem value='MANAGEMENT'>
+                                    Management Quota
+                                  </SelectItem>
+                                  <SelectItem value='NRI'>NRI Quota</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                The admission quota under which the student was
+                                admitted
+                              </FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -797,16 +1242,220 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
 
                         <FormField
                           control={form.control}
-                          name='board_of_study'
+                          name='category'
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Board of Study</FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  placeholder='Enter board of study'
-                                />
-                              </FormControl>
+                              <FormLabel>Category</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select category' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='GENERAL'>
+                                    General
+                                  </SelectItem>
+                                  <SelectItem value='OBC'>OBC</SelectItem>
+                                  <SelectItem value='SC'>SC</SelectItem>
+                                  <SelectItem value='ST'>ST</SelectItem>
+                                  <SelectItem value='OTHER'>Other</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                The reservation category of the student
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                        <FormField
+                          control={form.control}
+                          name='institution_id'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Institution</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                                disabled={isLoadingInstitutions}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select institution' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {isLoadingInstitutions ? (
+                                    <div className='flex items-center justify-center p-2'>
+                                      <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                      Loading...
+                                    </div>
+                                  ) : institutions.length === 0 ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      No institutions available
+                                    </div>
+                                  ) : (
+                                    institutions.map((institution) => (
+                                      <SelectItem
+                                        key={institution.id}
+                                        value={institution.id}
+                                      >
+                                        {institution.name}
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                Institution identifier
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='degree_id'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Degree</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                                disabled={isLoadingDegrees}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select degree' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {isLoadingDegrees ? (
+                                    <div className='flex items-center justify-center p-2'>
+                                      <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                      Loading...
+                                    </div>
+                                  ) : degrees.length === 0 ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      No degrees available
+                                    </div>
+                                  ) : (
+                                    degrees.map((degree) => (
+                                      <SelectItem
+                                        key={degree.id}
+                                        value={degree.id}
+                                      >
+                                        {degree.degree_name}
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                Degree identifier
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                        <FormField
+                          control={form.control}
+                          name='department_id'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Department</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                                disabled={isLoadingDepartments}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select department' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {isLoadingDepartments ? (
+                                    <div className='flex items-center justify-center p-2'>
+                                      <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                      Loading...
+                                    </div>
+                                  ) : departments.length === 0 ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      No departments available
+                                    </div>
+                                  ) : (
+                                    departments.map((department) => (
+                                      <SelectItem
+                                        key={department.id}
+                                        value={department.id}
+                                      >
+                                        {department.department_name}
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                Department identifier
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='program_id'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Program</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                                disabled={isLoadingPrograms}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select program' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {isLoadingPrograms ? (
+                                    <div className='flex items-center justify-center p-2'>
+                                      <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                      Loading...
+                                    </div>
+                                  ) : programs.length === 0 ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      No programs available
+                                    </div>
+                                  ) : (
+                                    programs.map((program) => (
+                                      <SelectItem
+                                        key={program.id}
+                                        value={program.id}
+                                      >
+                                        {program.program_name}
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                Program identifier
+                              </FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -1004,6 +1653,362 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                       />
                     </TabsContent>
 
+                    {/* Previous Academic Qualifications Tab */}
+                    <TabsContent value='qualifications' className='space-y-6'>
+                      <div>
+                        <h3 className='text-lg font-medium mb-2'>
+                          Previous Academic Qualifications
+                        </h3>
+                        <p className='text-sm text-muted-foreground mb-4'>
+                          Details of previous academic background and
+                          achievements
+                        </p>
+                      </div>
+
+                      <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                        <FormField
+                          control={form.control}
+                          name='last_school'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Last School/College</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  placeholder='Name of previous school/college'
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='board_of_study'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Board of Study</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select board' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='State Board'>
+                                    State Board
+                                  </SelectItem>
+                                  <SelectItem value='CBSE'>CBSE</SelectItem>
+                                  <SelectItem value='ICSE'>ICSE</SelectItem>
+                                  <SelectItem value='Others'>Others</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <Separator className='my-4' />
+
+                      <div>
+                        <h4 className='text-md font-medium mb-3'>
+                          Class 10 Marks
+                        </h4>
+                        <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+                          <FormField
+                            control={form.control}
+                            name={`tenth_marks.max_marks`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Maximum Marks</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    type='text'
+                                    placeholder='Maximum possible marks'
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name={`tenth_marks.obtained_marks`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Obtained Marks</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    type='text'
+                                    placeholder='Marks obtained'
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name={`tenth_marks.percentage`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Percentage (%)</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    type='text'
+                                    placeholder='Percentage'
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      </div>
+
+                      <Separator className='my-4' />
+
+                      <div>
+                        <h4 className='text-md font-medium mb-3'>
+                          Class 12 Marks
+                        </h4>
+                        <FormField
+                          control={form.control}
+                          name={`twelfth_marks.group`}
+                          render={({ field }) => (
+                            <FormItem className='mb-4'>
+                              <FormLabel>Group/Stream</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select group/stream' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='pcbm'>
+                                    Physics, Chemistry, Biology, Mathematics
+                                  </SelectItem>
+                                  <SelectItem value='pccs'>
+                                    Physics, Chemistry, Computer Science,
+                                    Mathematics
+                                  </SelectItem>
+                                  <SelectItem value='pcbz'>
+                                    Physics, Chemistry, Botany, Zoology
+                                  </SelectItem>
+                                  <SelectItem value='others'>
+                                    Other Groups
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                12th standard group/stream
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+                          <FormField
+                            control={form.control}
+                            name={`twelfth_marks.max_marks`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Maximum Marks</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    type='text'
+                                    placeholder='Maximum possible marks'
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name={`twelfth_marks.obtained_marks`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Obtained Marks</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    type='text'
+                                    placeholder='Marks obtained'
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name={`twelfth_marks.percentage`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Percentage (%)</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    type='text'
+                                    placeholder='Percentage'
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      </div>
+
+                      <Separator className='my-4' />
+
+                      <div>
+                        <h4 className='text-md font-medium mb-3'>
+                          Entrance Exam & Cutoff Marks
+                        </h4>
+                        <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                          <FormField
+                            control={form.control}
+                            name='medical_cutoff_marks'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Medical Cutoff</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder='Medical cutoff marks'
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  For medical/healthcare courses
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='engineering_cutoff_marks'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Engineering Cutoff</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder='Engineering cutoff marks'
+                                  />
+                                </FormControl>
+                                <FormDescription>
+                                  For engineering courses
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='neet_roll_number'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>NEET Roll Number</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder='NEET roll number'
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name='counseling_number'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Counseling Number</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder='Counseling application number'
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <div className='flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 mt-4'>
+                          <FormField
+                            control={form.control}
+                            name='first_graduate'
+                            render={({ field }) => (
+                              <FormItem className='flex flex-row items-start space-x-3 space-y-0'>
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                                <div className='space-y-1 leading-none'>
+                                  <FormLabel>First Graduate</FormLabel>
+                                  <FormDescription>
+                                    Student is the first graduate in their
+                                    family
+                                  </FormDescription>
+                                </div>
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <div className='flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 mt-4'>
+                          <FormField
+                            control={form.control}
+                            name='counseling_applied'
+                            render={({ field }) => (
+                              <FormItem className='flex flex-row items-start space-x-3 space-y-0'>
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                                <div className='space-y-1 leading-none'>
+                                  <FormLabel>Applied for Counseling</FormLabel>
+                                  <FormDescription>
+                                    Student has applied for counseling
+                                  </FormDescription>
+                                </div>
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      </div>
+                    </TabsContent>
+
                     {/* Contact & Address Tab */}
                     <TabsContent value='contact' className='space-y-6'>
                       <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
@@ -1140,7 +2145,13 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                             <FormItem>
                               <FormLabel>Accommodation Type</FormLabel>
                               <Select
-                                onValueChange={field.onChange}
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  // Reset hostel_type if day scholar is selected
+                                  if (value !== 'HOSTEL') {
+                                    form.setValue('hostel_type', '');
+                                  }
+                                }}
                                 value={field.value || ''}
                               >
                                 <FormControl>
@@ -1155,6 +2166,9 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                                   <SelectItem value='HOSTEL'>Hostel</SelectItem>
                                 </SelectContent>
                               </Select>
+                              <FormDescription>
+                                Student&apos;s accommodation arrangement
+                              </FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}

@@ -318,7 +318,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             {
               href: '/students ',
               label: 'Learners List',
-              active: pathname === '/students'
+              active: pathname.startsWith('/students')
             }
           ]
         }
