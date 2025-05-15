@@ -12,7 +12,9 @@ import {
   FileText,
   RefreshCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Degree } from '@/types/organizations';
@@ -67,6 +69,8 @@ export function DegreeList({
 }: DegreeListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [degreeToDelete, setDegreeToDelete] = useState<Degree | null>(null);
+  const [selectedDegrees, setSelectedDegrees] = useState<string[]>([]);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewDegrees =
@@ -94,18 +98,70 @@ export function DegreeList({
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedDegrees.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      // Process deletions sequentially
+      for (const id of selectedDegrees) {
+        await DegreeService.deleteDegree(id);
+      }
+
+      toast.success(`${selectedDegrees.length} degrees deleted successfully`);
+      setSelectedDegrees([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting degrees:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete degrees'
+      );
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedDegrees.length === degrees.length) {
+      setSelectedDegrees([]);
+    } else {
+      setSelectedDegrees(degrees.map((degree) => degree.id));
+    }
+  };
+
+  const toggleSelectDegree = (id: string) => {
+    if (selectedDegrees.includes(id)) {
+      setSelectedDegrees(selectedDegrees.filter((itemId) => itemId !== id));
+    } else {
+      setSelectedDegrees([...selectedDegrees, id]);
+    }
+  };
+
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy');
   };
 
   return (
     <div className='space-y-4'>
-      <div className='flex justify-end'>
+      <div className='flex justify-between items-center'>
+        {selectedDegrees.length > 0 && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setShowBulkDeleteDialog(true)}
+            disabled={!canDeleteDegrees || isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedDegrees.length})
+          </Button>
+        )}
         <Button
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className='ml-auto'
+          className={selectedDegrees.length > 0 ? 'ml-auto' : 'ml-auto'}
           disabled={!canViewDegrees}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
@@ -117,6 +173,18 @@ export function DegreeList({
         <Table>
           <TableHeader>
             <TableRow>
+              {canDeleteDegrees && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedDegrees.length === degrees.length &&
+                    degrees.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>Degree ID</TableHead>
               <TableHead>Degree Name</TableHead>
               <TableHead>Type</TableHead>
@@ -130,7 +198,7 @@ export function DegreeList({
             {degrees.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={canDeleteDegrees ? 8 : 7}
                   className='text-center text-muted-foreground h-24'
                 >
                   No degrees found
@@ -138,7 +206,26 @@ export function DegreeList({
               </TableRow>
             ) : (
               degrees.map((degree) => (
-                <TableRow key={degree.id}>
+                <TableRow
+                  key={degree.id}
+                  className={
+                    selectedDegrees.includes(degree.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  {canDeleteDegrees && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectDegree(degree.id)}
+                      >
+                        {selectedDegrees.includes(degree.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className='font-medium'>
                     {canViewDegrees ? (
                       <Link
@@ -273,6 +360,7 @@ export function DegreeList({
         </div>
       )}
 
+      {/* Single Delete Dialog */}
       <AlertDialog
         open={!!degreeToDelete && canDeleteDegrees}
         onOpenChange={(open) => !open && setDegreeToDelete(null)}
@@ -293,6 +381,34 @@ export function DegreeList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete Degree'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog && canDeleteDegrees}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Degrees</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedDegrees.length} degrees?
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedDegrees.length} Degrees`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

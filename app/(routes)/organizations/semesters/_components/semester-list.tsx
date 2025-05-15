@@ -10,7 +10,9 @@ import {
   FileText,
   RefreshCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Semester } from '@/types/organizations';
@@ -67,6 +69,8 @@ export function SemesterList({
   const [semesterToDelete, setSemesterToDelete] = useState<Semester | null>(
     null
   );
+  const [selectedSemesters, setSelectedSemesters] = useState<string[]>([]);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewSemesters =
@@ -95,18 +99,72 @@ export function SemesterList({
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedSemesters.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      // Process deletions sequentially
+      for (const id of selectedSemesters) {
+        await SemesterService.deleteSemester(id);
+      }
+
+      toast.success(
+        `${selectedSemesters.length} semesters deleted successfully`
+      );
+      setSelectedSemesters([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting semesters:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete semesters'
+      );
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedSemesters.length === semesters.length) {
+      setSelectedSemesters([]);
+    } else {
+      setSelectedSemesters(semesters.map((semester) => semester.id));
+    }
+  };
+
+  const toggleSelectSemester = (id: string) => {
+    if (selectedSemesters.includes(id)) {
+      setSelectedSemesters(selectedSemesters.filter((itemId) => itemId !== id));
+    } else {
+      setSelectedSemesters([...selectedSemesters, id]);
+    }
+  };
+
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy');
   };
 
   return (
     <div className='space-y-4'>
-      <div className='flex justify-end'>
+      <div className='flex justify-between items-center'>
+        {selectedSemesters.length > 0 && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setShowBulkDeleteDialog(true)}
+            disabled={!canDeleteSemesters || isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedSemesters.length})
+          </Button>
+        )}
         <Button
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className='ml-auto'
+          className={selectedSemesters.length > 0 ? 'ml-auto' : 'ml-auto'}
           disabled={!canViewSemesters}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
@@ -118,6 +176,18 @@ export function SemesterList({
         <Table>
           <TableHeader>
             <TableRow>
+              {canDeleteSemesters && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedSemesters.length === semesters.length &&
+                    semesters.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>Code</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
@@ -131,7 +201,7 @@ export function SemesterList({
             {semesters.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={canDeleteSemesters ? 8 : 7}
                   className='text-center text-muted-foreground h-24'
                 >
                   No semesters found
@@ -139,7 +209,26 @@ export function SemesterList({
               </TableRow>
             ) : (
               semesters.map((semester) => (
-                <TableRow key={semester.id}>
+                <TableRow
+                  key={semester.id}
+                  className={
+                    selectedSemesters.includes(semester.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  {canDeleteSemesters && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectSemester(semester.id)}
+                      >
+                        {selectedSemesters.includes(semester.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className='font-medium'>
                     {canViewSemesters ? (
                       <Link
@@ -276,6 +365,7 @@ export function SemesterList({
         </div>
       )}
 
+      {/* Single Delete Dialog */}
       <AlertDialog
         open={!!semesterToDelete && canDeleteSemesters}
         onOpenChange={(open) => !open && setSemesterToDelete(null)}
@@ -296,6 +386,34 @@ export function SemesterList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete Semester'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog && canDeleteSemesters}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Semesters</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedSemesters.length}{' '}
+              semesters? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedSemesters.length} Semesters`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

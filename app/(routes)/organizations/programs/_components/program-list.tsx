@@ -10,7 +10,9 @@ import {
   BookOpen,
   RefreshCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Program } from '@/types/organizations';
@@ -65,6 +67,8 @@ export function ProgramList({
 }: ProgramListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [programToDelete, setProgramToDelete] = useState<Program | null>(null);
+  const [selectedPrograms, setSelectedPrograms] = useState<string[]>([]);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewPrograms =
@@ -92,18 +96,70 @@ export function ProgramList({
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedPrograms.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      // Process deletions sequentially
+      for (const id of selectedPrograms) {
+        await ProgramService.deleteProgram(id);
+      }
+
+      toast.success(`${selectedPrograms.length} programs deleted successfully`);
+      setSelectedPrograms([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting programs:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete programs'
+      );
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedPrograms.length === programs.length) {
+      setSelectedPrograms([]);
+    } else {
+      setSelectedPrograms(programs.map((program) => program.id));
+    }
+  };
+
+  const toggleSelectProgram = (id: string) => {
+    if (selectedPrograms.includes(id)) {
+      setSelectedPrograms(selectedPrograms.filter((itemId) => itemId !== id));
+    } else {
+      setSelectedPrograms([...selectedPrograms, id]);
+    }
+  };
+
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy');
   };
 
   return (
     <div className='space-y-4'>
-      <div className='flex justify-end'>
+      <div className='flex justify-between items-center'>
+        {selectedPrograms.length > 0 && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setShowBulkDeleteDialog(true)}
+            disabled={!canDeletePrograms || isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedPrograms.length})
+          </Button>
+        )}
         <Button
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className='ml-auto'
+          className={selectedPrograms.length > 0 ? 'ml-auto' : 'ml-auto'}
           disabled={!canViewPrograms}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
@@ -115,6 +171,18 @@ export function ProgramList({
         <Table>
           <TableHeader>
             <TableRow>
+              {canDeletePrograms && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedPrograms.length === programs.length &&
+                    programs.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>Program ID</TableHead>
               <TableHead>Program Name</TableHead>
               <TableHead>Degree</TableHead>
@@ -129,7 +197,7 @@ export function ProgramList({
             {programs.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={canDeletePrograms ? 9 : 8}
                   className='text-center text-muted-foreground h-24'
                 >
                   No programs found
@@ -137,7 +205,26 @@ export function ProgramList({
               </TableRow>
             ) : (
               programs.map((program) => (
-                <TableRow key={program.id}>
+                <TableRow
+                  key={program.id}
+                  className={
+                    selectedPrograms.includes(program.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  {canDeletePrograms && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectProgram(program.id)}
+                      >
+                        {selectedPrograms.includes(program.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className='font-medium'>
                     {canViewPrograms ? (
                       <Link
@@ -273,6 +360,7 @@ export function ProgramList({
         </div>
       )}
 
+      {/* Single Delete Dialog */}
       <AlertDialog
         open={!!programToDelete && canDeletePrograms}
         onOpenChange={(open) => !open && setProgramToDelete(null)}
@@ -293,6 +381,34 @@ export function ProgramList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete Program'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog && canDeletePrograms}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Programs</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedPrograms.length}{' '}
+              programs? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedPrograms.length} Programs`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
