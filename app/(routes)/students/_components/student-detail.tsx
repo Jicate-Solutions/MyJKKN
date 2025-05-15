@@ -40,7 +40,7 @@ interface StudentDetailProps {
 }
 
 export function StudentDetail({ student }: StudentDetailProps) {
-  const [activeSection, setActiveSection] = useState('profile');
+  const [activeSection, setActiveSection] = useState('personal');
   const {
     canAccess,
     isSuperAdmin,
@@ -124,95 +124,6 @@ export function StudentDetail({ student }: StudentDetailProps) {
       {/* Main Content Area */}
       <div className='flex-1'>
         <Card className='h-full'>
-          {activeSection === 'profile' && (
-            <>
-              <CardHeader>
-                <CardTitle>Edit profile</CardTitle>
-                <CardDescription>
-                  Update your personal information
-                </CardDescription>
-              </CardHeader>
-              <CardContent className='space-y-6'>
-                {/* Avatar Section */}
-                <div>
-                  <h3 className='text-sm font-medium mb-3'>Avatar</h3>
-                  <div className='flex items-start space-x-4'>
-                    <div className='relative h-20 w-20'>
-                      {student.student_photo_url ? (
-                        <div className='relative h-full w-full'>
-                          <Image
-                            src={student.student_photo_url}
-                            alt={student.student_name}
-                            className='rounded-full object-cover'
-                            fill
-                            unoptimized={true}
-                            referrerPolicy='no-referrer'
-                          />
-                        </div>
-                      ) : (
-                        <div className='h-full w-full rounded-full bg-muted flex items-center justify-center'>
-                          <User className='h-8 w-8 text-muted-foreground' />
-                        </div>
-                      )}
-                    </div>
-                    <div className='space-y-2'>
-                      <p className='text-xs text-muted-foreground max-w-xs'>
-                        At least 400x400 is recommended. PNG or JPG format only.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <Separator />
-
-                {/* Name Section */}
-                <div>
-                  <h3 className='text-sm font-medium mb-3'>Name</h3>
-                  <div className='relative'>
-                    <Input
-                      value={student.student_name}
-                      readOnly
-                      className='pr-10'
-                    />
-                  </div>
-                </div>
-
-                {/* Location Section */}
-                <div>
-                  <h3 className='text-sm font-medium mb-3'>Location</h3>
-                  <div className='flex items-center space-x-2'>
-                    <MapPin className='h-4 w-4 text-muted-foreground' />
-                    <span className='text-sm'>
-                      {student.permanent_address_district &&
-                      student.permanent_address_state
-                        ? `${student.permanent_address_district}, ${student.permanent_address_state}`
-                        : 'Location not specified'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Bio Section */}
-                <div>
-                  <h3 className='text-sm font-medium mb-3'>Bio</h3>
-                  <p className='text-sm'>
-                    {student.institution?.name ? (
-                      <>
-                        Student at{' '}
-                        <span className='font-medium'>
-                          {student.institution.name}
-                        </span>
-                        {student.program?.program_name && (
-                          <>, studying {student.program.program_name}</>
-                        )}
-                      </>
-                    ) : (
-                      'No institution information available'
-                    )}
-                  </p>
-                </div>
-              </CardContent>
-            </>
-          )}
-
           {activeSection === 'academic' && (
             <>
               <CardHeader>
