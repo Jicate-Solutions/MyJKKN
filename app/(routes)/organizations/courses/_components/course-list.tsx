@@ -10,7 +10,9 @@ import {
   BookOpen,
   RefreshCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Course } from '@/types/organizations';
@@ -65,6 +67,8 @@ export function CourseList({
 }: CourseListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
+  const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewCourses =
@@ -93,18 +97,70 @@ export function CourseList({
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedCourses.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      // Process deletions sequentially
+      for (const id of selectedCourses) {
+        await CourseService.deleteCourse(id);
+      }
+
+      toast.success(`${selectedCourses.length} courses deleted successfully`);
+      setSelectedCourses([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting courses:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete courses'
+      );
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedCourses.length === courses.length) {
+      setSelectedCourses([]);
+    } else {
+      setSelectedCourses(courses.map((course) => course.id));
+    }
+  };
+
+  const toggleSelectCourse = (id: string) => {
+    if (selectedCourses.includes(id)) {
+      setSelectedCourses(selectedCourses.filter((itemId) => itemId !== id));
+    } else {
+      setSelectedCourses([...selectedCourses, id]);
+    }
+  };
+
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy');
   };
 
   return (
     <div className='space-y-4'>
-      <div className='flex justify-end'>
+      <div className='flex justify-between items-center'>
+        {selectedCourses.length > 0 && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setShowBulkDeleteDialog(true)}
+            disabled={!canDeleteCourses || isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedCourses.length})
+          </Button>
+        )}
         <Button
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className='ml-auto'
+          className={selectedCourses.length > 0 ? 'ml-auto' : 'ml-auto'}
           disabled={!canViewCourses}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
@@ -116,6 +172,18 @@ export function CourseList({
         <Table>
           <TableHeader>
             <TableRow>
+              {canDeleteCourses && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedCourses.length === courses.length &&
+                    courses.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>Code</TableHead>
               <TableHead>Course Name</TableHead>
               <TableHead>Institution</TableHead>
@@ -128,7 +196,7 @@ export function CourseList({
             {courses.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={canDeleteCourses ? 7 : 6}
                   className='text-center text-muted-foreground h-24'
                 >
                   No courses found
@@ -136,7 +204,26 @@ export function CourseList({
               </TableRow>
             ) : (
               courses.map((course) => (
-                <TableRow key={course.id}>
+                <TableRow
+                  key={course.id}
+                  className={
+                    selectedCourses.includes(course.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  {canDeleteCourses && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectCourse(course.id)}
+                      >
+                        {selectedCourses.includes(course.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className='font-medium'>
                     {canViewCourses ? (
                       <Link
@@ -266,6 +353,7 @@ export function CourseList({
         </div>
       )}
 
+      {/* Single Delete Dialog */}
       <AlertDialog
         open={!!courseToDelete && canDeleteCourses}
         onOpenChange={(open) => !open && setCourseToDelete(null)}
@@ -286,6 +374,34 @@ export function CourseList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete Course'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog && canDeleteCourses}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Courses</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedCourses.length} courses?
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedCourses.length} Courses`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

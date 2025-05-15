@@ -10,7 +10,9 @@ import {
   FileText,
   RefreshCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Section } from '@/types/organizations';
@@ -68,6 +70,8 @@ export function SectionList({
 }: SectionListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [sectionToDelete, setSectionToDelete] = useState<Section | null>(null);
+  const [selectedSections, setSelectedSections] = useState<string[]>([]);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
 
   const handleDelete = async () => {
     if (!sectionToDelete) return;
@@ -88,18 +92,70 @@ export function SectionList({
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedSections.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      // Process deletions sequentially
+      for (const id of selectedSections) {
+        await SectionService.deleteSection(id);
+      }
+
+      toast.success(`${selectedSections.length} sections deleted successfully`);
+      setSelectedSections([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting sections:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete sections'
+      );
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedSections.length === sections.length) {
+      setSelectedSections([]);
+    } else {
+      setSelectedSections(sections.map((section) => section.id));
+    }
+  };
+
+  const toggleSelectSection = (id: string) => {
+    if (selectedSections.includes(id)) {
+      setSelectedSections(selectedSections.filter((itemId) => itemId !== id));
+    } else {
+      setSelectedSections([...selectedSections, id]);
+    }
+  };
+
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy');
   };
 
   return (
     <div className='space-y-4'>
-      <div className='flex justify-end'>
+      <div className='flex justify-between items-center'>
+        {selectedSections.length > 0 && canDelete && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setShowBulkDeleteDialog(true)}
+            disabled={isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedSections.length})
+          </Button>
+        )}
         <Button
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className='ml-auto'
+          className={selectedSections.length > 0 ? 'ml-auto' : 'ml-auto'}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -110,6 +166,18 @@ export function SectionList({
         <Table>
           <TableHeader>
             <TableRow>
+              {canDelete && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedSections.length === sections.length &&
+                    sections.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>Code</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Course</TableHead>
@@ -124,7 +192,7 @@ export function SectionList({
             {sections.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={canDelete ? 9 : 8}
                   className='text-center text-muted-foreground h-24'
                 >
                   No sections found
@@ -132,7 +200,26 @@ export function SectionList({
               </TableRow>
             ) : (
               sections.map((section) => (
-                <TableRow key={section.id}>
+                <TableRow
+                  key={section.id}
+                  className={
+                    selectedSections.includes(section.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  {canDelete && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectSection(section.id)}
+                      >
+                        {selectedSections.includes(section.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className='font-medium'>
                     <Link
                       href={`/organizations/sections/${section.id}`}
@@ -169,7 +256,7 @@ export function SectionList({
                             className='cursor-pointer'
                           >
                             <FileText className='mr-2 h-4 w-4' />
-                            View  
+                            View
                           </Link>
                         </DropdownMenuItem>
 
@@ -180,13 +267,13 @@ export function SectionList({
                               className='cursor-pointer'
                             >
                               <Edit className='mr-2 h-4 w-4' />
-                              Edit 
+                              Edit
                             </Link>
                           </DropdownMenuItem>
                         ) : (
                           <DropdownMenuItem disabled className='opacity-50'>
                             <Edit className='mr-2 h-4 w-4' />
-                            Edit 
+                            Edit
                           </DropdownMenuItem>
                         )}
 
@@ -198,7 +285,7 @@ export function SectionList({
                             className='text-destructive focus:text-destructive cursor-pointer'
                           >
                             <Trash2 className='mr-2 h-4 w-4' />
-                            Delete 
+                            Delete
                           </DropdownMenuItem>
                         ) : (
                           <DropdownMenuItem
@@ -250,6 +337,7 @@ export function SectionList({
         </div>
       )}
 
+      {/* Single Delete Dialog */}
       <AlertDialog
         open={!!sectionToDelete}
         onOpenChange={(open) => !open && setSectionToDelete(null)}
@@ -270,6 +358,34 @@ export function SectionList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete Section'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Sections</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedSections.length}{' '}
+              sections? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedSections.length} Sections`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

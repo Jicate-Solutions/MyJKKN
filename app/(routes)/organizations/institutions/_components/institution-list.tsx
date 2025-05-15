@@ -11,7 +11,9 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  Ban
+  Ban,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Institution } from '@/types/organizations';
@@ -46,6 +48,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { Pagination } from '@/components/pagination';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface InstitutionListProps {
   institutions: Institution[];
@@ -68,6 +71,10 @@ export function InstitutionList({
   const [isLoading, setIsLoading] = useState(false);
   const [institutionToDelete, setInstitutionToDelete] =
     useState<Institution | null>(null);
+  const [selectedInstitutions, setSelectedInstitutions] = useState<string[]>(
+    []
+  );
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewInstitutions =
@@ -96,18 +103,74 @@ export function InstitutionList({
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedInstitutions.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      // Process deletions sequentially to handle potential storage cleanup properly
+      for (const id of selectedInstitutions) {
+        await OrganizationService.deleteInstitution(id);
+      }
+
+      toast.success(
+        `${selectedInstitutions.length} institutions deleted successfully`
+      );
+      setSelectedInstitutions([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting institutions:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete institutions'
+      );
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedInstitutions.length === institutions.length) {
+      setSelectedInstitutions([]);
+    } else {
+      setSelectedInstitutions(institutions.map((inst) => inst.id));
+    }
+  };
+
+  const toggleSelectInstitution = (id: string) => {
+    if (selectedInstitutions.includes(id)) {
+      setSelectedInstitutions(
+        selectedInstitutions.filter((itemId) => itemId !== id)
+      );
+    } else {
+      setSelectedInstitutions([...selectedInstitutions, id]);
+    }
+  };
+
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy');
   };
 
   return (
     <div className='space-y-4'>
-      <div className='flex justify-end'>
+      <div className='flex justify-between items-center'>
+        {selectedInstitutions.length > 0 && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setShowBulkDeleteDialog(true)}
+            disabled={!canDeleteInstitutions || isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedInstitutions.length})
+          </Button>
+        )}
         <Button
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className='ml-auto'
+          className={selectedInstitutions.length > 0 ? 'ml-auto' : 'ml-auto'}
           disabled={!canViewInstitutions}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
@@ -119,6 +182,18 @@ export function InstitutionList({
         <Table>
           <TableHeader>
             <TableRow>
+              {canDeleteInstitutions && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedInstitutions.length === institutions.length &&
+                    institutions.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>Code</TableHead>
               <TableHead>Institution Name</TableHead>
               <TableHead>Contact</TableHead>
@@ -131,7 +206,7 @@ export function InstitutionList({
             {institutions.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={canDeleteInstitutions ? 7 : 6}
                   className='text-center text-muted-foreground h-24'
                 >
                   No institutions found
@@ -139,7 +214,28 @@ export function InstitutionList({
               </TableRow>
             ) : (
               institutions.map((institution) => (
-                <TableRow key={institution.id}>
+                <TableRow
+                  key={institution.id}
+                  className={
+                    selectedInstitutions.includes(institution.id)
+                      ? 'bg-muted/50'
+                      : ''
+                  }
+                >
+                  {canDeleteInstitutions && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectInstitution(institution.id)}
+                      >
+                        {selectedInstitutions.includes(institution.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className='font-medium'>
                     {canViewInstitutions ? (
                       <Link
@@ -286,6 +382,34 @@ export function InstitutionList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete Institution'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={showBulkDeleteDialog && canDeleteInstitutions}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Institutions</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedInstitutions.length}{' '}
+              institutions? This action cannot be undone, and will also delete
+              all departments associated with these institutions.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedInstitutions.length} Institutions`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
