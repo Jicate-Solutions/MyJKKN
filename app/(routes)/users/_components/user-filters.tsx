@@ -59,7 +59,7 @@ export function UserFiltersComponent({
           <SelectTrigger>
             <SelectValue placeholder='Filter by role' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Roles</SelectItem>
             {Object.entries(ROLE_LABELS).map(([value, label]) => (
               <SelectItem key={value} value={value}>
@@ -88,7 +88,7 @@ export function UserFiltersComponent({
           <SelectTrigger>
             <SelectValue placeholder='Filter by status' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Status</SelectItem>
             <SelectItem value='active'>Active</SelectItem>
             <SelectItem value='inactive'>Inactive</SelectItem>

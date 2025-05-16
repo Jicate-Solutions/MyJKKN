@@ -101,7 +101,7 @@ export function ProgramFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select institution' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Institutions</SelectItem>
             {institutions.map((inst: Institution) => (
               <SelectItem key={inst.id} value={inst.id}>
@@ -124,7 +124,7 @@ export function ProgramFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select degree' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Degrees</SelectItem>
             {degrees.map((degree: Degree) => (
               <SelectItem key={degree.id} value={degree.id}>
@@ -151,7 +151,7 @@ export function ProgramFilters({
           <SelectTrigger>
             <SelectValue placeholder='Filter by status' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Status</SelectItem>
             <SelectItem value='active'>Active</SelectItem>
             <SelectItem value='inactive'>Inactive</SelectItem>

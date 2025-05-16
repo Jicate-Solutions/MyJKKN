@@ -205,7 +205,7 @@ export function AccommodationPreferencesForm({
                       <SelectValue placeholder='Select hostel type' />
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent>
+                  <SelectContent className='max-h-60 overflow-y-auto'>
                     {hostelTypeOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
@@ -276,7 +276,7 @@ export function AccommodationPreferencesForm({
                             <SelectValue placeholder='Select bus route' />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent>
+                        <SelectContent className='max-h-60 overflow-y-auto'>
                           {busRouteOptions.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               {option.label}
@@ -308,7 +308,7 @@ export function AccommodationPreferencesForm({
                               <SelectValue placeholder='Select pickup location' />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
                             {getPickupLocations().map((option) => (
                               <SelectItem
                                 key={option.value}
@@ -348,7 +348,7 @@ export function AccommodationPreferencesForm({
                       <SelectValue placeholder='Select reference type' />
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent>
+                  <SelectContent className='max-h-60 overflow-y-auto'>
                     {referenceTypeOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}

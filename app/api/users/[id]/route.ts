@@ -120,6 +120,9 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Ensure params is properly handled
+    const { id } = params;
+
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -174,7 +177,7 @@ export async function PATCH(
     const { data: targetUser } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
 
     if (targetUser?.role === 'super_admin' && role !== 'super_admin') {
@@ -191,7 +194,7 @@ export async function PATCH(
         role,
         updated_at: new Date().toISOString()
       })
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 
@@ -212,6 +215,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Ensure params is properly handled
+    const { id } = params;
+
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -262,7 +268,7 @@ export async function DELETE(
     const { data: targetUser } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
 
     if (
@@ -279,7 +285,7 @@ export async function DELETE(
     const { error: profileDeleteError } = await supabaseAdmin
       .from('profiles')
       .delete()
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (profileDeleteError) {
       console.error('Error deleting profile:', profileDeleteError);
@@ -294,7 +300,7 @@ export async function DELETE(
 
     // Then delete from auth.users table
     const { error: authDeleteError } =
-      await supabaseAdmin.auth.admin.deleteUser(params.id);
+      await supabaseAdmin.auth.admin.deleteUser(id);
 
     if (authDeleteError) {
       console.error('Error deleting auth user:', authDeleteError);

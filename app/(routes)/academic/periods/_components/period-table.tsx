@@ -2,7 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Edit, Trash2, MoreHorizontal } from 'lucide-react';
+import {
+  Edit,
+  Trash2,
+  MoreHorizontal,
+  CheckSquare,
+  Square
+} from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -32,6 +38,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { Period } from '@/types/academics';
+import { PeriodService } from '@/lib/services/academic/period-service';
 
 interface PeriodTableProps {
   periods: Period[];
@@ -49,6 +56,9 @@ export function PeriodTable({
   const { toast } = useToast();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [periodToDelete, setPeriodToDelete] = useState<Period | null>(null);
+  const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const formatTime = (time: string) => {
     // Format time from HH:MM:SS to 12-hour format (e.g., 09:30 AM)
@@ -86,12 +96,99 @@ export function PeriodTable({
     setPeriodToDelete(null);
   };
 
+  const toggleSelectAll = () => {
+    if (selectedPeriods.length === periods.length) {
+      setSelectedPeriods([]);
+    } else {
+      setSelectedPeriods(periods.map((period) => period.id));
+    }
+  };
+
+  const toggleSelectPeriod = (id: string) => {
+    if (selectedPeriods.includes(id)) {
+      setSelectedPeriods(selectedPeriods.filter((pid) => pid !== id));
+    } else {
+      setSelectedPeriods([...selectedPeriods, id]);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedPeriods.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      const result = await PeriodService.bulkDeletePeriods(selectedPeriods);
+
+      if (result.success.length > 0) {
+        toast({
+          title: 'Periods deleted',
+          description: `Successfully deleted ${result.success.length} periods.`
+        });
+      }
+
+      if (result.failed.length > 0) {
+        toast({
+          title: 'Deletion failed',
+          description: `Failed to delete ${result.failed.length} periods.`,
+          variant: 'destructive'
+        });
+        console.error('Failed deletions:', result.failed);
+      }
+
+      // Refresh the period list - we'll rely on the deletePeriod prop to trigger a refresh
+      // Just do a fake delete on the first id to trigger a refresh
+      if (result.success.length > 0) {
+        await deletePeriod(result.success[0]);
+      }
+
+      setSelectedPeriods([]);
+    } catch (error) {
+      console.error('Error performing bulk delete:', error);
+      toast({
+        title: 'Error',
+        description:
+          error instanceof Error ? error.message : 'Failed to delete periods',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+      setIsBulkDeleteDialogOpen(false);
+    }
+  };
+
   return (
     <>
+      {selectedPeriods.length > 0 && canDelete && (
+        <div className='mb-4'>
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setIsBulkDeleteDialogOpen(true)}
+            disabled={isLoading}
+          >
+            <Trash2 className='h-4 w-4 mr-2' />
+            Delete Selected ({selectedPeriods.length})
+          </Button>
+        </div>
+      )}
+
       <div className='rounded-md border'>
         <Table>
           <TableHeader>
             <TableRow>
+              {canDelete && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedPeriods.length === periods.length &&
+                    periods.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>S.No</TableHead>
               <TableHead>Period Name</TableHead>
               <TableHead>Start Time</TableHead>
@@ -111,7 +208,26 @@ export function PeriodTable({
               const durationMinutes = Math.floor(durationMs / (1000 * 60));
 
               return (
-                <TableRow key={period.id}>
+                <TableRow
+                  key={period.id}
+                  className={
+                    selectedPeriods.includes(period.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  {canDelete && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectPeriod(period.id)}
+                      >
+                        {selectedPeriods.includes(period.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell>{index + 1}</TableCell>
                   <TableCell className='font-medium'>
                     {period.period_name}
@@ -170,6 +286,7 @@ export function PeriodTable({
         </Table>
       </div>
 
+      {/* Single Delete Dialog */}
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
@@ -186,6 +303,34 @@ export function PeriodTable({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmDelete}>
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={isBulkDeleteDialogOpen}
+        onOpenChange={setIsBulkDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Periods</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedPeriods.length} periods?
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedPeriods.length} Periods`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

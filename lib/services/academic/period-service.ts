@@ -75,6 +75,30 @@ export class PeriodService {
     }
   }
 
+  static async bulkDeletePeriods(ids: string[]): Promise<{
+    success: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const success: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    // Process deletions sequentially
+    for (const id of ids) {
+      try {
+        await this.deletePeriod(id);
+        success.push(id);
+      } catch (error) {
+        console.error(`Error deleting period ${id}:`, error);
+        failed.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    return { success, failed };
+  }
+
   static async getPeriods(
     filters: PeriodFilters = {}
   ): Promise<PeriodListResponse> {

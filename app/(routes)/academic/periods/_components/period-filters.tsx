@@ -60,7 +60,7 @@ export function PeriodFilters({ filters, onFilterChange }: PeriodFiltersProps) {
         <SelectTrigger className='w-full sm:w-[180px]'>
           <SelectValue placeholder='Filter by type' />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className='max-h-60 overflow-y-auto'>
           <SelectItem value='all'>All Types</SelectItem>
           <SelectItem value='false'>Academic</SelectItem>
           <SelectItem value='true'>Break</SelectItem>

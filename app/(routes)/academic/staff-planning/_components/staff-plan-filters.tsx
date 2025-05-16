@@ -184,7 +184,7 @@ export function StaffPlanFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select institution' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Institutions</SelectItem>
             {institutions.map((inst) => (
               <SelectItem key={inst.id} value={inst.id}>
@@ -209,7 +209,7 @@ export function StaffPlanFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select degree' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Degrees</SelectItem>
             {degrees.map((degree) => (
               <SelectItem key={degree.id} value={degree.id}>
@@ -235,7 +235,7 @@ export function StaffPlanFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select department' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Departments</SelectItem>
             {departments.map((dept) => (
               <SelectItem key={dept.id} value={dept.id}>
@@ -258,7 +258,7 @@ export function StaffPlanFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select program' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Programs</SelectItem>
             {programs.map((program) => (
               <SelectItem key={program.id} value={program.id}>
@@ -280,7 +280,7 @@ export function StaffPlanFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select semester' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Semesters</SelectItem>
             {semesters.map((semester) => (
               <SelectItem key={semester.id} value={semester.id}>
@@ -303,7 +303,7 @@ export function StaffPlanFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select academic year' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Academic Years</SelectItem>
             {academicYears.map((year) => (
               <SelectItem key={year.id} value={year.id}>
@@ -330,7 +330,7 @@ export function StaffPlanFilters({
           <SelectTrigger>
             <SelectValue placeholder='Filter by status' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Status</SelectItem>
             <SelectItem value='active'>Active</SelectItem>
             <SelectItem value='inactive'>Inactive</SelectItem>

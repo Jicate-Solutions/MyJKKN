@@ -128,7 +128,7 @@ export default function EditTimetablePage({
         timetable_name: values.timetable_name,
         is_active: values.is_active,
         is_template: values.is_template,
-        template_name: values.is_template ? values.template_name : null
+        template_name: values.is_template ? values.template_name : undefined
       };
 
       const success = await updateTimetable(timetableId, updateData);

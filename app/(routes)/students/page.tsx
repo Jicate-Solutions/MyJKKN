@@ -76,6 +76,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { DownloadNewStudentTemplateButton } from './_components/download-new-student-template-button';
 import { BulkCreateStudents } from './_components/bulk-create-students';
 import { ExportStudents } from './_components/export-students';
+import { CreateStudentForm } from './_components/create-student-form';
 import { usePermissions } from '@/hooks/use-permissions';
 import { CanCreate, CanView } from '@/components/auth/permission-guard';
 
@@ -440,13 +441,16 @@ export default function StudentsPage() {
           </div>
           <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
             <CanCreate module='students' fallback={null}>
-              <DownloadNewStudentTemplateButton />
+              <CreateStudentForm onSuccess={() => refetch()} />
             </CanCreate>
             <CanView module='students' fallback={null}>
               <ExportStudents />
             </CanView>
             <CanCreate module='students' fallback={null}>
               <BulkCreateStudents />
+            </CanCreate>
+            <CanCreate module='students' fallback={null}>
+              <DownloadNewStudentTemplateButton />
             </CanCreate>
           </div>
         </div>

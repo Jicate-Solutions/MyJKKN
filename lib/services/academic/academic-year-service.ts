@@ -81,6 +81,30 @@ export class AcademicYearService {
     }
   }
 
+  static async bulkDeleteAcademicYears(ids: string[]): Promise<{
+    success: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const success: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    // Process deletions sequentially
+    for (const id of ids) {
+      try {
+        await this.deleteAcademicYear(id);
+        success.push(id);
+      } catch (error) {
+        console.error(`Error deleting academic year ${id}:`, error);
+        failed.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    return { success, failed };
+  }
+
   static async getAcademicYears(filters: AcademicYearFilters = {}) {
     try {
       let query = this.supabase

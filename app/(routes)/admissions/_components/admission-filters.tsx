@@ -154,7 +154,7 @@ export function AdmissionFilter({
             <SelectTrigger>
               <SelectValue placeholder='Institution' />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className='max-h-60 overflow-y-auto'>
               <SelectItem value='all'>All Institutions</SelectItem>
               {loadingInstitutions ? (
                 <div className='p-2'>
@@ -183,7 +183,7 @@ export function AdmissionFilter({
             <SelectTrigger>
               <SelectValue placeholder='Status' />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className='max-h-60 overflow-y-auto'>
               <SelectItem value='all'>All Statuses</SelectItem>
               <SelectItem value='pending'>Pending</SelectItem>
               <SelectItem value='approved'>Approved</SelectItem>

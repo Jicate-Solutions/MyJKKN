@@ -666,7 +666,7 @@ export function AcademicInformationForm({
                     <SelectValue placeholder='Select board' />
                   </SelectTrigger>
                 </FormControl>
-                <SelectContent>
+                <SelectContent className='max-h-60 overflow-y-auto'>
                   {boardOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -771,7 +771,7 @@ export function AcademicInformationForm({
                       <SelectValue placeholder='Select group/stream' />
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent>
+                  <SelectContent className='max-h-60 overflow-y-auto'>
                     {groupOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}

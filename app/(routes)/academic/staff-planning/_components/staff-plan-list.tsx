@@ -10,7 +10,9 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  FileText
+  FileText,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { StaffPlan } from '@/types/staff-planning';
@@ -79,6 +81,8 @@ export function StaffPlanList({
   const [planToDelete, setPlanToDelete] = useState<StaffPlan | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [sectionMap, setSectionMap] = useState<SectionMap>({});
+  const [selectedPlans, setSelectedPlans] = useState<string[]>([]);
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
 
   // Load sections for all unique semester IDs in staff plans
   useEffect(() => {
@@ -156,12 +160,86 @@ export function StaffPlanList({
     }
   };
 
+  const toggleSelectAll = () => {
+    if (selectedPlans.length === staffPlans.length) {
+      setSelectedPlans([]);
+    } else {
+      setSelectedPlans(staffPlans.map((plan) => plan.id));
+    }
+  };
+
+  const toggleSelectPlan = (id: string) => {
+    if (selectedPlans.includes(id)) {
+      setSelectedPlans(selectedPlans.filter((planId) => planId !== id));
+    } else {
+      setSelectedPlans([...selectedPlans, id]);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedPlans.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      const result = await StaffPlanService.bulkDeleteStaffPlans(selectedPlans);
+
+      if (result.success.length > 0) {
+        toast.success(
+          `Successfully deleted ${result.success.length} staff plans`
+        );
+      }
+
+      if (result.failed.length > 0) {
+        toast.error(`Failed to delete ${result.failed.length} staff plans`);
+        console.error('Failed deletions:', result.failed);
+      }
+
+      setSelectedPlans([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error performing bulk delete:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete staff plans'
+      );
+    } finally {
+      setIsLoading(false);
+      setIsBulkDeleteDialogOpen(false);
+    }
+  };
+
   return (
     <div className='space-y-4 mt-6'>
+      <div className='flex justify-between mb-2'>
+        {selectedPlans.length > 0 && canDelete && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setIsBulkDeleteDialogOpen(true)}
+            disabled={isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedPlans.length})
+          </Button>
+        )}
+      </div>
+
       <div className='rounded-md border'>
         <Table>
           <TableHeader>
             <TableRow>
+              {canDelete && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedPlans.length === staffPlans.length &&
+                    staffPlans.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>Institution</TableHead>
               <TableHead>Program</TableHead>
               <TableHead>Semester</TableHead>
@@ -175,7 +253,7 @@ export function StaffPlanList({
             {staffPlans.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={canDelete ? 9 : 8}
                   className='text-center text-muted-foreground h-24'
                 >
                   No staff plans found
@@ -183,7 +261,26 @@ export function StaffPlanList({
               </TableRow>
             ) : (
               staffPlans.map((plan) => (
-                <TableRow key={plan.id}>
+                <TableRow
+                  key={plan.id}
+                  className={
+                    selectedPlans.includes(plan.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  {canDelete && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectPlan(plan.id)}
+                      >
+                        {selectedPlans.includes(plan.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell>{plan.institution?.name}</TableCell>
                   <TableCell>{plan.program?.program_name}</TableCell>
                   <TableCell>{plan.semester?.semester_name}</TableCell>
@@ -273,6 +370,7 @@ export function StaffPlanList({
         </div>
       )}
 
+      {/* Single Delete Dialog */}
       <AlertDialog
         open={!!planToDelete}
         onOpenChange={(open) => !open && setPlanToDelete(null)}
@@ -293,6 +391,34 @@ export function StaffPlanList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete Plan'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={isBulkDeleteDialogOpen}
+        onOpenChange={setIsBulkDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Staff Plans</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedPlans.length} staff
+              plans? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedPlans.length} Staff Plans`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

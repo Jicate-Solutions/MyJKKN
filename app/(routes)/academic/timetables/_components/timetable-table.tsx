@@ -2,7 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Edit, Trash2, MoreHorizontal, Copy } from 'lucide-react';
+import {
+  Edit,
+  Trash2,
+  MoreHorizontal,
+  Copy,
+  CheckSquare,
+  Square
+} from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -32,6 +39,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { Timetable } from '@/types/academics';
+import { TimetableService } from '@/lib/services/academic/timetable-service';
 
 interface TimetableTableProps {
   timetables: Timetable[];
@@ -51,6 +59,9 @@ export function TimetableTable({
   const [timetableToDelete, setTimetableToDelete] = useState<Timetable | null>(
     null
   );
+  const [selectedTimetables, setSelectedTimetables] = useState<string[]>([]);
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleDeleteClick = (timetable: Timetable) => {
     setTimetableToDelete(timetable);
@@ -78,12 +89,103 @@ export function TimetableTable({
     setTimetableToDelete(null);
   };
 
+  const toggleSelectAll = () => {
+    if (selectedTimetables.length === timetables.length) {
+      setSelectedTimetables([]);
+    } else {
+      setSelectedTimetables(timetables.map((timetable) => timetable.id));
+    }
+  };
+
+  const toggleSelectTimetable = (id: string) => {
+    if (selectedTimetables.includes(id)) {
+      setSelectedTimetables(selectedTimetables.filter((tid) => tid !== id));
+    } else {
+      setSelectedTimetables([...selectedTimetables, id]);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedTimetables.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      const result = await TimetableService.bulkDeleteTimetables(
+        selectedTimetables
+      );
+
+      if (result.success.length > 0) {
+        toast({
+          title: 'Timetables deleted',
+          description: `Successfully deleted ${result.success.length} timetables.`
+        });
+      }
+
+      if (result.failed.length > 0) {
+        toast({
+          title: 'Deletion failed',
+          description: `Failed to delete ${result.failed.length} timetables.`,
+          variant: 'destructive'
+        });
+        console.error('Failed deletions:', result.failed);
+      }
+
+      // Refresh the timetable list - we'll rely on the deleteTimetable prop to trigger a refresh
+      // Just do a fake delete on the first id to trigger a refresh
+      if (result.success.length > 0) {
+        await deleteTimetable(result.success[0]);
+      }
+
+      setSelectedTimetables([]);
+    } catch (error) {
+      console.error('Error performing bulk delete:', error);
+      toast({
+        title: 'Error',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Failed to delete timetables',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+      setIsBulkDeleteDialogOpen(false);
+    }
+  };
+
   return (
     <>
+      {selectedTimetables.length > 0 && canDelete && (
+        <div className='mb-4'>
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setIsBulkDeleteDialogOpen(true)}
+            disabled={isLoading}
+          >
+            <Trash2 className='h-4 w-4 mr-2' />
+            Delete Selected ({selectedTimetables.length})
+          </Button>
+        </div>
+      )}
+
       <div className='rounded-md border'>
         <Table>
           <TableHeader>
             <TableRow>
+              {canDelete && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedTimetables.length === timetables.length &&
+                    timetables.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>S.No</TableHead>
               <TableHead>Timetable Name</TableHead>
               <TableHead>Academic Year</TableHead>
@@ -97,7 +199,26 @@ export function TimetableTable({
           </TableHeader>
           <TableBody>
             {timetables.map((timetable, index) => (
-              <TableRow key={timetable.id}>
+              <TableRow
+                key={timetable.id}
+                className={
+                  selectedTimetables.includes(timetable.id) ? 'bg-muted/50' : ''
+                }
+              >
+                {canDelete && (
+                  <TableCell>
+                    <div
+                      className='flex items-center'
+                      onClick={() => toggleSelectTimetable(timetable.id)}
+                    >
+                      {selectedTimetables.includes(timetable.id) ? (
+                        <CheckSquare className='h-4 w-4 cursor-pointer' />
+                      ) : (
+                        <Square className='h-4 w-4 cursor-pointer' />
+                      )}
+                    </div>
+                  </TableCell>
+                )}
                 <TableCell>{index + 1}</TableCell>
                 <TableCell className='font-medium'>
                   <Link
@@ -193,6 +314,7 @@ export function TimetableTable({
         </Table>
       </div>
 
+      {/* Single Delete Dialog */}
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
@@ -210,6 +332,34 @@ export function TimetableTable({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmDelete}>
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={isBulkDeleteDialogOpen}
+        onOpenChange={setIsBulkDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Timetables</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedTimetables.length}{' '}
+              timetables? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedTimetables.length} Timetables`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

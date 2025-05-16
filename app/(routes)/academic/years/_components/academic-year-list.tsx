@@ -12,7 +12,9 @@ import {
   Calendar,
   RefreshCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { AcademicYear } from '@/types/academics';
@@ -66,6 +68,8 @@ export function AcademicYearList({
 }: AcademicYearListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [yearToDelete, setYearToDelete] = useState<AcademicYear | null>(null);
+  const [selectedYears, setSelectedYears] = useState<string[]>([]);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
 
   const handleDelete = async () => {
     if (!yearToDelete) return;
@@ -74,6 +78,7 @@ export function AcademicYearList({
       setIsLoading(true);
       await AcademicYearService.deleteAcademicYear(yearToDelete.id);
       onRefresh();
+      toast.success('Academic year deleted successfully');
     } catch (error) {
       console.error('Error deleting academic year:', error);
       toast.error(
@@ -87,18 +92,81 @@ export function AcademicYearList({
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedYears.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      const result = await AcademicYearService.bulkDeleteAcademicYears(
+        selectedYears
+      );
+
+      if (result.success.length > 0) {
+        toast.success(
+          `Successfully deleted ${result.success.length} academic years`
+        );
+      }
+
+      if (result.failed.length > 0) {
+        toast.error(`Failed to delete ${result.failed.length} academic years`);
+        console.error('Failed deletions:', result.failed);
+      }
+
+      setSelectedYears([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error performing bulk delete:', error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to delete academic years'
+      );
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedYears.length === academicYears.length) {
+      setSelectedYears([]);
+    } else {
+      setSelectedYears(academicYears.map((year) => year.id));
+    }
+  };
+
+  const toggleSelectYear = (id: string) => {
+    if (selectedYears.includes(id)) {
+      setSelectedYears(selectedYears.filter((yearId) => yearId !== id));
+    } else {
+      setSelectedYears([...selectedYears, id]);
+    }
+  };
+
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy');
   };
 
   return (
     <div className='space-y-4'>
-      <div className='flex justify-end'>
+      <div className='flex justify-between'>
+        {selectedYears.length > 0 && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setShowBulkDeleteDialog(true)}
+            disabled={isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedYears.length})
+          </Button>
+        )}
         <Button
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className='ml-auto'
+          className={selectedYears.length > 0 ? 'ml-auto' : 'ml-auto'}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -109,6 +177,16 @@ export function AcademicYearList({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className='w-12'>
+                <div className='flex items-center' onClick={toggleSelectAll}>
+                  {selectedYears.length === academicYears.length &&
+                  academicYears.length > 0 ? (
+                    <CheckSquare className='h-4 w-4 cursor-pointer' />
+                  ) : (
+                    <Square className='h-4 w-4 cursor-pointer' />
+                  )}
+                </div>
+              </TableHead>
               <TableHead>Academic Year</TableHead>
               <TableHead>Institution</TableHead>
               <TableHead>Start Date</TableHead>
@@ -122,7 +200,7 @@ export function AcademicYearList({
             {academicYears.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className='text-center text-muted-foreground h-24'
                 >
                   No academic years found
@@ -130,7 +208,24 @@ export function AcademicYearList({
               </TableRow>
             ) : (
               academicYears.map((year) => (
-                <TableRow key={year.id}>
+                <TableRow
+                  key={year.id}
+                  className={
+                    selectedYears.includes(year.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  <TableCell>
+                    <div
+                      className='flex items-center'
+                      onClick={() => toggleSelectYear(year.id)}
+                    >
+                      {selectedYears.includes(year.id) ? (
+                        <CheckSquare className='h-4 w-4 cursor-pointer' />
+                      ) : (
+                        <Square className='h-4 w-4 cursor-pointer' />
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className='font-medium'>
                     <Link
                       href={`/academic/years/${year.id}`}
@@ -225,6 +320,7 @@ export function AcademicYearList({
         </div>
       )}
 
+      {/* Single Delete Dialog */}
       <AlertDialog
         open={!!yearToDelete}
         onOpenChange={(open) => !open && setYearToDelete(null)}
@@ -245,6 +341,34 @@ export function AcademicYearList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete Academic Year'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Academic Years</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedYears.length} academic
+              years? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedYears.length} Academic Years`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

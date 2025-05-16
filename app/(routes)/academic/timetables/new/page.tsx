@@ -359,7 +359,7 @@ export default function NewTimetablePage() {
                               <SelectValue placeholder='Select institution' />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
                             {institutions.map((institution) => (
                               <SelectItem
                                 key={institution.id}
@@ -394,7 +394,7 @@ export default function NewTimetablePage() {
                               <SelectValue placeholder='Select academic year' />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
                             {academicYears.map((year) => (
                               <SelectItem key={year.id} value={year.id}>
                                 {year.academic_year_name}
@@ -426,7 +426,7 @@ export default function NewTimetablePage() {
                               <SelectValue placeholder='Select degree' />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
                             {degrees.map((degree) => (
                               <SelectItem key={degree.id} value={degree.id}>
                                 {degree.degree_name}
@@ -456,7 +456,7 @@ export default function NewTimetablePage() {
                               <SelectValue placeholder='Select program' />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
                             {programs.map((program) => (
                               <SelectItem key={program.id} value={program.id}>
                                 {program.program_name}
@@ -486,7 +486,7 @@ export default function NewTimetablePage() {
                               <SelectValue placeholder='Select department' />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
                             {departments.map((department) => (
                               <SelectItem
                                 key={department.id}
@@ -521,7 +521,7 @@ export default function NewTimetablePage() {
                               <SelectValue placeholder='Select semester' />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
                             {semesters.map((semester) => (
                               <SelectItem
                                 key={semester.id}
@@ -560,7 +560,7 @@ export default function NewTimetablePage() {
                               <SelectValue placeholder='Select section' />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
                             {sections.map((section) => (
                               <SelectItem
                                 key={section.id}
