@@ -145,7 +145,7 @@ export function AcademicYearForm({
                           <SelectValue placeholder='Select institution' />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
                         {institutions.map((inst) => (
                           <SelectItem key={inst.id} value={inst.id}>
                             {inst.name}

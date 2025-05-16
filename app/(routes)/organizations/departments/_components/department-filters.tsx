@@ -105,7 +105,7 @@ export function DepartmentFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select institution' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Institutions</SelectItem>
             {institutions.map((inst) => (
               <SelectItem key={inst.id} value={inst.id}>
@@ -127,7 +127,7 @@ export function DepartmentFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select degree' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Degrees</SelectItem>
             {degrees.map((degree) => (
               <SelectItem key={degree.id} value={degree.id}>

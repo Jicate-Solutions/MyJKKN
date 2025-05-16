@@ -67,7 +67,7 @@ export function ApplicationHubFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select category' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Categories</SelectItem>
             {categories.map((category) => (
               <SelectItem key={category.id} value={category.id}>

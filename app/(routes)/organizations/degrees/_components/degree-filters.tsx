@@ -73,7 +73,7 @@ export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
           <SelectTrigger>
             <SelectValue placeholder='Select institution' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Institutions</SelectItem>
             {institutions.map((inst) => (
               <SelectItem key={inst.id} value={inst.id}>
@@ -94,7 +94,7 @@ export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
           <SelectTrigger>
             <SelectValue placeholder='Filter by type' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Types</SelectItem>
             <SelectItem value='ug'>UG</SelectItem>
             <SelectItem value='pg'>PG</SelectItem>

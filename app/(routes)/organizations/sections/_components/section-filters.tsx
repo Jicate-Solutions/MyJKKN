@@ -213,7 +213,7 @@ export function SectionFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select institution' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Institutions</SelectItem>
             {institutions.map((inst: Institution) => (
               <SelectItem key={inst.id} value={inst.id}>
@@ -239,7 +239,7 @@ export function SectionFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select degree' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Degrees</SelectItem>
             {degrees.map((degree: Degree) => (
               <SelectItem key={degree.id} value={degree.id}>
@@ -264,7 +264,7 @@ export function SectionFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select department' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Departments</SelectItem>
             {departments.map((dept: Department) => (
               <SelectItem key={dept.id} value={dept.id}>
@@ -288,7 +288,7 @@ export function SectionFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select program' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Programs</SelectItem>
             {programs.map((program: Program) => (
               <SelectItem key={program.id} value={program.id}>
@@ -311,7 +311,7 @@ export function SectionFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select course' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Courses</SelectItem>
             {courses.map((course: Course) => (
               <SelectItem key={course.id} value={course.id}>
@@ -333,7 +333,7 @@ export function SectionFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select semester' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Semesters</SelectItem>
             {semesters.map((semester: Semester) => (
               <SelectItem key={semester.id} value={semester.id}>

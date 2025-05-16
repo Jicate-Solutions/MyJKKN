@@ -38,6 +38,7 @@ export function SemesterFilters({
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
   >([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -55,12 +56,15 @@ export function SemesterFilters({
     if (filters.institution_id) {
       async function loadDegrees() {
         try {
+          setLoading(true);
           const data = await DegreeService.getDegreesByInstitution(
             filters.institution_id!
           );
           setDegrees(data);
         } catch (error) {
           console.error('Error loading degrees:', error);
+        } finally {
+          setLoading(false);
         }
       }
       loadDegrees();
@@ -69,8 +73,48 @@ export function SemesterFilters({
     }
   }, [filters.institution_id]);
 
-  // Similar effects for departments, programs, and courses...
-  // Add loading logic for each dependent dropdown
+  useEffect(() => {
+    if (filters.degree_id) {
+      async function loadDepartments() {
+        try {
+          setLoading(true);
+          const data = await DepartmentService.getDepartmentsByDegree(
+            filters.degree_id!
+          );
+          setDepartments(data);
+        } catch (error) {
+          console.error('Error loading departments:', error);
+        } finally {
+          setLoading(false);
+        }
+      }
+      loadDepartments();
+    } else {
+      setDepartments([]);
+    }
+  }, [filters.degree_id]);
+
+  useEffect(() => {
+    if (filters.department_id) {
+      async function loadPrograms() {
+        try {
+          setLoading(true);
+          const { data } = await ProgramService.getPrograms({
+            department_id: filters.department_id,
+            isActive: true
+          });
+          setPrograms(data);
+        } catch (error) {
+          console.error('Error loading programs:', error);
+        } finally {
+          setLoading(false);
+        }
+      }
+      loadPrograms();
+    } else {
+      setPrograms([]);
+    }
+  }, [filters.department_id]);
 
   const debouncedSearch = useDebounce((value: string) => {
     onFilterChange({ search: value });
@@ -110,7 +154,7 @@ export function SemesterFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select institution' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Institutions</SelectItem>
             {institutions.map((inst) => (
               <SelectItem key={inst.id} value={inst.id}>
@@ -120,7 +164,74 @@ export function SemesterFilters({
           </SelectContent>
         </Select>
 
-        {/* Add similar Select components for degree, department, program */}
+        <Select
+          value={filters.degree_id || 'all'}
+          onValueChange={(value) =>
+            onFilterChange({
+              degree_id: value === 'all' ? undefined : value,
+              department_id: undefined,
+              program_id: undefined
+            })
+          }
+          disabled={!filters.institution_id || loading}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='Select degree' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Degrees</SelectItem>
+            {degrees.map((degree) => (
+              <SelectItem key={degree.id} value={degree.id}>
+                {degree.degree_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={filters.department_id || 'all'}
+          onValueChange={(value) =>
+            onFilterChange({
+              department_id: value === 'all' ? undefined : value,
+              program_id: undefined
+            })
+          }
+          disabled={!filters.degree_id || loading}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='Select department' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Departments</SelectItem>
+            {departments.map((dept) => (
+              <SelectItem key={dept.id} value={dept.id}>
+                {dept.department_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={filters.program_id || 'all'}
+          onValueChange={(value) =>
+            onFilterChange({
+              program_id: value === 'all' ? undefined : value
+            })
+          }
+          disabled={!filters.department_id || loading}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='Select program' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Programs</SelectItem>
+            {programs.map((program) => (
+              <SelectItem key={program.id} value={program.id}>
+                {program.program_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Select
           value={filters.semester_type || 'all'}
@@ -134,7 +245,7 @@ export function SemesterFilters({
           <SelectTrigger>
             <SelectValue placeholder='Select type' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Types</SelectItem>
             <SelectItem value='even'>Even</SelectItem>
             <SelectItem value='odd'>Odd</SelectItem>

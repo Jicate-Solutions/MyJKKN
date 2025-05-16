@@ -260,7 +260,7 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
                     <SelectValue placeholder='Select gender' />
                   </SelectTrigger>
                 </FormControl>
-                <SelectContent>
+                <SelectContent className='max-h-60 overflow-y-auto'>
                   <SelectItem value='male'>Male</SelectItem>
                   <SelectItem value='female'>Female</SelectItem>
                   <SelectItem value='other'>Other</SelectItem>
@@ -283,7 +283,7 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
                     <SelectValue placeholder='Select religion' />
                   </SelectTrigger>
                 </FormControl>
-                <SelectContent>
+                <SelectContent className='max-h-60 overflow-y-auto'>
                   {religionOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -308,7 +308,7 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
                     <SelectValue placeholder='Select community' />
                   </SelectTrigger>
                 </FormControl>
-                <SelectContent>
+                <SelectContent className='max-h-60 overflow-y-auto'>
                   {communityOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}

@@ -468,7 +468,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           <SelectValue placeholder='Select institution' />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
                         {institutions.map((inst) => (
                           <SelectItem key={inst.id} value={inst.id}>
                             {inst.name}
@@ -502,7 +502,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           <SelectValue placeholder='Select degree' />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
                         {degrees.map((degree) => (
                           <SelectItem key={degree.id} value={degree.id}>
                             {degree.degree_name}
@@ -535,7 +535,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           <SelectValue placeholder='Select department' />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
                         {departments.map((dept) => (
                           <SelectItem key={dept.id} value={dept.id}>
                             {dept.department_name}
@@ -567,7 +567,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           <SelectValue placeholder='Select program' />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
                         {programs.map((program) => (
                           <SelectItem key={program.id} value={program.id}>
                             {program.program_name}
@@ -596,7 +596,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           <SelectValue placeholder='Select semester' />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
                         {semesters.map((semester) => (
                           <SelectItem key={semester.id} value={semester.id}>
                             {semester.semester_name}
@@ -625,7 +625,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           <SelectValue placeholder='Select section' />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
                         {sections.map((section) => (
                           <SelectItem
                             key={section.id}
@@ -653,7 +653,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           <SelectValue placeholder='Select academic year' />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
                         {academicYears.map((year) => (
                           <SelectItem key={year.id} value={year.id}>
                             {year.academic_year_name}
@@ -745,7 +745,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                                 <SelectValue placeholder='Select course' />
                               </SelectTrigger>
                             </FormControl>
-                            <SelectContent>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
                               {courses.map((course) => (
                                 <SelectItem key={course.id} value={course.id}>
                                   {course.course_name}
@@ -773,7 +773,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                                 <SelectValue placeholder='Select staff' />
                               </SelectTrigger>
                             </FormControl>
-                            <SelectContent>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
                               {staffMembers.map((staff) => (
                                 <SelectItem key={staff.id} value={staff.id}>
                                   {staff.first_name} {staff.last_name}
@@ -827,7 +827,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                                 <SelectValue placeholder='Select type' />
                               </SelectTrigger>
                             </FormControl>
-                            <SelectContent>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
                               <SelectItem value='lecturer'>Lecturer</SelectItem>
                               <SelectItem value='assistant_professor'>
                                 Assistant Professor

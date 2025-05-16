@@ -65,7 +65,7 @@ export function InstitutionFilter({
           <SelectTrigger>
             <SelectValue placeholder='Filter by status' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Status</SelectItem>
             <SelectItem value='active'>Active</SelectItem>
             <SelectItem value='inactive'>Inactive</SelectItem>

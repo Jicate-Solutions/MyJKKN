@@ -73,7 +73,7 @@ export function TimetableFilters({
           <SelectTrigger className='w-full'>
             <SelectValue placeholder='Filter by status' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Status</SelectItem>
             <SelectItem value='true'>Active</SelectItem>
             <SelectItem value='false'>Inactive</SelectItem>
@@ -93,7 +93,7 @@ export function TimetableFilters({
           <SelectTrigger className='w-full'>
             <SelectValue placeholder='Filter by type' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Types</SelectItem>
             <SelectItem value='false'>Regular</SelectItem>
             <SelectItem value='true'>Template</SelectItem>

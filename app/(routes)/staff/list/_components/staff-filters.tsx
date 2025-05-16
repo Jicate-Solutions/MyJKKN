@@ -93,7 +93,7 @@ export function StaffFilters({ filters, onFilterChange }: StaffFiltersProps) {
           <SelectTrigger>
             <SelectValue placeholder='Select institution' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Institutions</SelectItem>
             {institutions.map((inst) => (
               <SelectItem key={inst.id} value={inst.id}>
@@ -114,7 +114,7 @@ export function StaffFilters({ filters, onFilterChange }: StaffFiltersProps) {
           <SelectTrigger>
             <SelectValue placeholder='Select category' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Categories</SelectItem>
             {categories.map((cat) => (
               <SelectItem key={cat.id} value={cat.id}>
@@ -136,7 +136,7 @@ export function StaffFilters({ filters, onFilterChange }: StaffFiltersProps) {
           <SelectTrigger>
             <SelectValue placeholder='Select department' />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Departments</SelectItem>
             {departments.map((dept) => (
               <SelectItem key={dept.id} value={dept.id}>

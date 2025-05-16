@@ -1553,7 +1553,7 @@ export default function TimetableDetailPage({
                     <SelectTrigger id='course' className='w-full'>
                       <SelectValue placeholder='Select a course' />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className='max-h-60 overflow-y-auto'>
                       <SelectItem value='none'>None</SelectItem>
                       {courses.map((course) => (
                         <SelectItem key={course.id} value={course.id}>
@@ -1575,7 +1575,7 @@ export default function TimetableDetailPage({
                       <SelectTrigger id='staff' className='w-full'>
                         <SelectValue placeholder='Select staff member' />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
                         <SelectItem value='none'>None</SelectItem>
                         {staff.map((member) => (
                           <SelectItem key={member.id} value={member.id}>
