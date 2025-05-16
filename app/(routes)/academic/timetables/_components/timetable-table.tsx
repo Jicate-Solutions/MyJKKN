@@ -227,11 +227,6 @@ export function TimetableTable({
                   >
                     {timetable.timetable_name}
                   </Link>
-                  {timetable.is_template && (
-                    <Badge variant='secondary' className='ml-2'>
-                      Template
-                    </Badge>
-                  )}
                 </TableCell>
                 <TableCell>
                   {timetable.academic_year?.academic_year_name || 'Unknown'}
