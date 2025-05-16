@@ -15,7 +15,9 @@ import {
   Ban,
   Eye,
   Pencil,
-  Shield
+  Shield,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Profile } from '@/types/auth';
@@ -84,7 +86,11 @@ export function UserList({
   const [userToChangeRole, setUserToChangeRole] = useState<Profile | null>(
     null
   );
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canDeleteUsers = isSuperAdmin || canAccess('users', 'delete');
 
   const handleDeactivateUser = async () => {
     if (!userToDeactivate) return;
@@ -113,8 +119,85 @@ export function UserList({
   // Handle delete click
   const handleDeleteClick = (user: Profile) => {
     setUserToDelete(user.id);
-    // You would typically show a confirmation dialog here
-    toast.success('Delete feature coming soon');
+  };
+
+  // Handle single user delete
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+
+    try {
+      setIsLoading(true);
+      await UserService.deleteUser(userToDelete);
+
+      toast.success('User deleted successfully');
+      onRefresh(); // Refresh the list after deletion
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete user'
+      );
+    } finally {
+      setIsLoading(false);
+      setUserToDelete(null);
+    }
+  };
+
+  // Handle bulk delete
+  const handleBulkDelete = async () => {
+    if (selectedUsers.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      // Process deletions sequentially but silently (without individual toasts)
+      for (const id of selectedUsers) {
+        try {
+          const response = await fetch(`/api/users/${id}`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to delete user');
+          }
+        } catch (error) {
+          console.error(`Error deleting user ${id}:`, error);
+          // Continue with other deletions even if one fails
+        }
+      }
+
+      // Show only one toast at the end
+      toast.success(`${selectedUsers.length} users deleted successfully`);
+      setSelectedUsers([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting users:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete users'
+      );
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedUsers.length === users.length) {
+      setSelectedUsers([]);
+    } else {
+      setSelectedUsers(users.map((user) => user.id));
+    }
+  };
+
+  const toggleSelectUser = (id: string) => {
+    if (selectedUsers.includes(id)) {
+      setSelectedUsers(selectedUsers.filter((userId) => userId !== id));
+    } else {
+      setSelectedUsers([...selectedUsers, id]);
+    }
   };
 
   const getInitials = (user: Profile) => {
@@ -133,10 +216,45 @@ export function UserList({
 
   return (
     <div className='space-y-4'>
+      <div className='flex justify-between items-center mb-4'>
+        {selectedUsers.length > 0 && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setShowBulkDeleteDialog(true)}
+            disabled={!canDeleteUsers || isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedUsers.length})
+          </Button>
+        )}
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={onRefresh}
+          className='ml-auto'
+        >
+          <RefreshCw className='mr-2 h-4 w-4' />
+          Refresh
+        </Button>
+      </div>
+
       <div className='rounded-md border'>
         <Table>
           <TableHeader>
             <TableRow>
+              {canDeleteUsers && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedUsers.length === users.length &&
+                    users.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead className='w-16'>S.No</TableHead>
               <TableHead>User</TableHead>
               <TableHead>Mobile Number</TableHead>
@@ -149,7 +267,7 @@ export function UserList({
             {users.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={canDeleteUsers ? 8 : 7}
                   className='text-center text-muted-foreground'
                 >
                   No users found
@@ -157,7 +275,26 @@ export function UserList({
               </TableRow>
             ) : (
               users.map((user, index) => (
-                <TableRow key={user.id}>
+                <TableRow
+                  key={user.id}
+                  className={
+                    selectedUsers.includes(user.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  {canDeleteUsers && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectUser(user.id)}
+                      >
+                        {selectedUsers.includes(user.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className='font-medium'>
                     {(metadata.page - 1) * metadata.limit + index + 1}
                   </TableCell>
@@ -402,6 +539,60 @@ export function UserList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deactivating...' : 'Deactivate User'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog && canDeleteUsers}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Users</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedUsers.length} users? This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedUsers.length} Users`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Single User Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!userToDelete && canDeleteUsers}
+        onOpenChange={(open) => !open && setUserToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this user? This action cannot be
+              undone and will remove the user from all associated systems.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteUser}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading ? 'Deleting...' : 'Delete User'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

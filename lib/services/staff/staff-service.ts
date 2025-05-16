@@ -219,6 +219,51 @@ export class StaffService {
 
   static async deleteStaff(id: string): Promise<void> {
     try {
+      // First, get the staff member to find out if they have an institution_email
+      const { data: staff, error: fetchError } = await this.supabase
+        .from('staff')
+        .select('institution_email')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // If there is an institution_email, try to delete the associated profile
+      if (staff?.institution_email) {
+        try {
+          // Find the profile associated with the institution_email
+          const { data: profile, error: profileError } = await this.supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', staff.institution_email)
+            .single();
+
+          if (!profileError && profile) {
+            // Delete the profile using the API endpoint (which handles auth table deletion too)
+            const response = await fetch(`/api/users/${profile.id}`, {
+              method: 'DELETE',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (!response.ok) {
+              console.warn(
+                `Failed to delete user profile for staff ${id}:`,
+                await response.text()
+              );
+            }
+          }
+        } catch (profileError) {
+          console.warn(
+            'Error finding or deleting staff user profile:',
+            profileError
+          );
+          // Continue with staff deletion even if profile deletion fails
+        }
+      }
+
+      // Delete the staff record
       const { error } = await this.supabase.from('staff').delete().eq('id', id);
 
       if (error) throw error;
@@ -226,6 +271,30 @@ export class StaffService {
       console.error('Error deleting staff:', error);
       throw error;
     }
+  }
+
+  static async bulkDeleteStaff(ids: string[]): Promise<{
+    success: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const success: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    // Process deletions sequentially
+    for (const id of ids) {
+      try {
+        await this.deleteStaff(id);
+        success.push(id);
+      } catch (error) {
+        console.error(`Error deleting staff ${id}:`, error);
+        failed.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    return { success, failed };
   }
 
   static async getStaff(

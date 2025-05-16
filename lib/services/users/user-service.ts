@@ -309,4 +309,29 @@ export class UserService {
       throw error;
     }
   }
+
+  static async deleteUser(userId: string): Promise<void> {
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete user');
+      }
+
+      toast.success('User deleted successfully');
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      const message =
+        error instanceof Error ? error.message : 'Failed to delete user';
+      toast.error(message);
+      throw error;
+    }
+  }
 }

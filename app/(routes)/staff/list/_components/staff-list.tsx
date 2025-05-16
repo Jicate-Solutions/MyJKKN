@@ -12,7 +12,9 @@ import {
   FileText,
   RefreshCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Staff } from '@/types/staff';
@@ -70,6 +72,8 @@ export function StaffList({
 }: StaffListProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [staffToDelete, setStaffToDelete] = useState<Staff | null>(null);
+  const [selectedStaff, setSelectedStaff] = useState<string[]>([]);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
@@ -95,18 +99,79 @@ export function StaffList({
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedStaff.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      const result = await StaffService.bulkDeleteStaff(selectedStaff);
+
+      if (result.success.length > 0) {
+        toast.success(
+          `Successfully deleted ${result.success.length} staff members`
+        );
+      }
+
+      if (result.failed.length > 0) {
+        toast.error(`Failed to delete ${result.failed.length} staff members`);
+        console.error('Failed deletions:', result.failed);
+      }
+
+      setSelectedStaff([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error performing bulk delete:', error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to delete staff members'
+      );
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedStaff.length === staff.length) {
+      setSelectedStaff([]);
+    } else {
+      setSelectedStaff(staff.map((s) => s.id));
+    }
+  };
+
+  const toggleSelectStaff = (id: string) => {
+    if (selectedStaff.includes(id)) {
+      setSelectedStaff(selectedStaff.filter((staffId) => staffId !== id));
+    } else {
+      setSelectedStaff([...selectedStaff, id]);
+    }
+  };
+
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
   };
 
   return (
     <div className='space-y-4'>
-      <div className='flex justify-end'>
+      <div className='flex justify-between'>
+        {selectedStaff.length > 0 && (
+          <Button
+            variant='destructive'
+            size='sm'
+            onClick={() => setShowBulkDeleteDialog(true)}
+            disabled={!canDeleteStaff || isLoading}
+          >
+            <Trash2 className='mr-2 h-4 w-4' />
+            Delete Selected ({selectedStaff.length})
+          </Button>
+        )}
         <Button
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className='ml-auto'
+          className={selectedStaff.length > 0 ? 'ml-auto' : 'ml-auto'}
           disabled={!canViewStaff}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
@@ -118,6 +183,18 @@ export function StaffList({
         <Table>
           <TableHeader>
             <TableRow>
+              {canDeleteStaff && (
+                <TableHead className='w-12'>
+                  <div className='flex items-center' onClick={toggleSelectAll}>
+                    {selectedStaff.length === staff.length &&
+                    staff.length > 0 ? (
+                      <CheckSquare className='h-4 w-4 cursor-pointer' />
+                    ) : (
+                      <Square className='h-4 w-4 cursor-pointer' />
+                    )}
+                  </div>
+                </TableHead>
+              )}
               <TableHead>Staff</TableHead>
               <TableHead>Staff ID</TableHead>
               <TableHead>Category</TableHead>
@@ -132,7 +209,7 @@ export function StaffList({
             {staff.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={canDeleteStaff ? 9 : 8}
                   className='text-center text-muted-foreground h-24'
                 >
                   No staff members found
@@ -140,7 +217,26 @@ export function StaffList({
               </TableRow>
             ) : (
               staff.map((member) => (
-                <TableRow key={member.id}>
+                <TableRow
+                  key={member.id}
+                  className={
+                    selectedStaff.includes(member.id) ? 'bg-muted/50' : ''
+                  }
+                >
+                  {canDeleteStaff && (
+                    <TableCell>
+                      <div
+                        className='flex items-center'
+                        onClick={() => toggleSelectStaff(member.id)}
+                      >
+                        {selectedStaff.includes(member.id) ? (
+                          <CheckSquare className='h-4 w-4 cursor-pointer' />
+                        ) : (
+                          <Square className='h-4 w-4 cursor-pointer' />
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell>
                     <div className='flex items-center gap-3'>
                       <Avatar>
@@ -280,7 +376,7 @@ export function StaffList({
         </div>
       )}
 
-      {/* Delete Staff Dialog */}
+      {/* Single Staff Delete Dialog */}
       <AlertDialog
         open={!!staffToDelete && canDeleteStaff}
         onOpenChange={() => setStaffToDelete(null)}
@@ -291,7 +387,8 @@ export function StaffList({
             <AlertDialogDescription>
               This will permanently delete the staff member{' '}
               {staffToDelete?.first_name} {staffToDelete?.last_name}. This
-              action cannot be undone.
+              action cannot be undone and will also delete any associated user
+              account.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -305,6 +402,35 @@ export function StaffList({
               className='bg-destructive hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog && canDeleteStaff}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Multiple Staff Members</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedStaff.length} staff
+              members? This action cannot be undone and will also delete any
+              associated user accounts.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading
+                ? 'Deleting...'
+                : `Delete ${selectedStaff.length} Staff Members`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
