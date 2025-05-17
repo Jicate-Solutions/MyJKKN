@@ -292,7 +292,9 @@ export class StudentService {
           institution:institutions!institution_id(id, name),
           degree:degrees!degree_id(id, degree_name),
           department:departments!department_id(id, department_name),
-          program:programs!program_id(id, program_name)
+          program:programs!program_id(id, program_name),
+          semester:semesters!semester_id(id, semester_name, semester_code),
+          section:sections!section_id(id, section_name)
         `,
         { count: 'exact' }
       );
@@ -318,6 +320,18 @@ export class StudentService {
 
       if (filters.department) {
         query = query.eq('department_id', filters.department);
+      }
+
+      if (filters.semester) {
+        query = query.eq('semester_id', filters.semester);
+      }
+
+      if (filters.section) {
+        query = query.eq('section_id', filters.section);
+      }
+
+      if (filters.status) {
+        query = query.eq('status', filters.status);
       }
 
       if (filters.is_profile_complete !== undefined) {
