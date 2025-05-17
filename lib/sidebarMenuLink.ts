@@ -105,7 +105,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   //student management
   '/students': 'students.view',
   '/students/new': 'students.create',
-  '/students/promotion': 'students.promotion.view',
+  '/students/onboarding': 'students.onboarding.view',
 
   // Staff Management
   '/staff/category': 'staff.categories.view',
@@ -274,6 +274,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/organizations/sections',
+          label: 'Sections',
+          active: pathname.startsWith('/organizations/sections'),
+          icon: BookOpen,
+          submenus: []
+        },
+        {
           href: '/organizations/courses',
           label: 'Courses',
           active: pathname === '',
@@ -290,14 +297,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/organizations/courses/mappings'
             }
           ]
-        },
-
-        {
-          href: '/organizations/sections',
-          label: 'Sections',
-          active: pathname.startsWith('/organizations/sections'),
-          icon: BookOpen,
-          submenus: []
         }
       ]
     },
@@ -307,13 +306,13 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/students',
           label: 'All Learners',
-          active: pathname === '/students',
+          active: pathname === '',
           icon: Users,
           submenus: [
             {
-              href: '/students/promotion',
-              label: 'Learners Promotion',
-              active: pathname === '/students/promotion'
+              href: '/students/onboarding',
+              label: 'Learners Onboarding',
+              active: pathname === '/students/onboarding'
             },
             {
               href: '/students ',

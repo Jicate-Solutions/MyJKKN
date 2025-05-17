@@ -109,7 +109,10 @@ export class AcademicYearService {
     try {
       let query = this.supabase
         .from('academic_years')
-        .select('*', { count: 'exact' });
+        .select(
+          `          *,          institution:institutions (            id,            name,            counselling_code          )          `,
+          { count: 'exact' }
+        );
 
       if (filters.isActive !== undefined) {
         query = query.eq('is_active', filters.isActive);
@@ -163,7 +166,16 @@ export class AcademicYearService {
     try {
       const { data: academicYears, error } = await this.supabase
         .from('academic_years')
-        .select('*')
+        .select(
+          `
+          *,
+          institution:institutions (
+            id,
+            name,
+            counselling_code
+          )
+        `
+        )
         .eq('institution_id', institutionId)
         .eq('is_active', true)
         .order('start_date', { ascending: false });

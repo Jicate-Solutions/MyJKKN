@@ -15,18 +15,13 @@ export class SectionService {
     try {
       const { data: section, error } = await this.supabase
         .from('sections')
-        .insert([
-          {
-            ...data,
-            section_code: data.section_code.toUpperCase()
-          }
-        ])
+        .insert([data])
         .select()
         .single();
 
       if (error) {
         if (error.code === '23505') {
-          throw new Error(`Section code "${data.section_code}" already exists`);
+          throw new Error(`Section name "${data.section_name}" already exists`);
         }
         throw error;
       }
@@ -48,7 +43,6 @@ export class SectionService {
         .from('sections')
         .update({
           ...data,
-          section_code: data.section_code?.toUpperCase(),
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -83,67 +77,13 @@ export class SectionService {
     filters: SectionFilters = {}
   ): Promise<SectionListResponse> {
     try {
-      let query = this.supabase.from('sections').select(
-        `
-        *,
-        institution:institutions (
-          id,
-          name,
-          counselling_code
-        ),
-        degree:degrees (
-          id,
-          degree_name
-        ),
-        department:departments (
-          id,
-          department_name
-        ),
-        program:programs (
-          id,
-          program_name
-        ),
-        course:courses (
-          id,
-          course_name
-        ),
-        semester:semesters (
-          id,
-          semester_name
-        )
-      `,
-        { count: 'exact' }
-      );
+      let query = this.supabase
+        .from('sections')
+        .select('*', { count: 'exact' });
 
       // Apply filters
       if (filters.search) {
-        query = query.or(
-          `section_code.ilike.%${filters.search}%,section_name.ilike.%${filters.search}%`
-        );
-      }
-
-      if (filters.institution_id) {
-        query = query.eq('institution_id', filters.institution_id);
-      }
-
-      if (filters.degree_id) {
-        query = query.eq('degree_id', filters.degree_id);
-      }
-
-      if (filters.department_id) {
-        query = query.eq('department_id', filters.department_id);
-      }
-
-      if (filters.program_id) {
-        query = query.eq('program_id', filters.program_id);
-      }
-
-      if (filters.course_id) {
-        query = query.eq('course_id', filters.course_id);
-      }
-
-      if (filters.semester_id) {
-        query = query.eq('semester_id', filters.semester_id);
+        query = query.ilike('section_name', `%${filters.search}%`);
       }
 
       if (filters.isActive !== undefined) {
@@ -181,36 +121,7 @@ export class SectionService {
     try {
       const { data: section, error } = await this.supabase
         .from('sections')
-        .select(
-          `
-          *,
-          institution:institutions (
-            id,
-            name,
-            counselling_code
-          ),
-          degree:degrees (
-            id,
-            degree_name
-          ),
-          department:departments (
-            id,
-            department_name
-          ),
-          program:programs (
-            id,
-            program_name
-          ),
-          course:courses (
-            id,
-            course_name
-          ),
-          semester:semesters (
-            id,
-            semester_name
-          )
-        `
-        )
+        .select('*')
         .eq('id', id)
         .single();
 
@@ -228,7 +139,6 @@ export class SectionService {
       const { data: sections, error } = await this.supabase
         .from('sections')
         .select('*')
-        .eq('semester_id', semesterId)
         .eq('is_active', true)
         .order('section_name');
 

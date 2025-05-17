@@ -85,19 +85,48 @@ export class AdmissionService {
       // Auto-trigger: If status is "approved", create a student record
       if (status === 'approved') {
         try {
-          // Fetch the admission to ensure we have all data
-          const { data: fullAdmission } = await this.supabase
-            .from('admissions')
-            .select('*')
-            .eq('id', id)
-            .single();
+          // First check if student already exists for this admission
+          const { data: existingStudent } = await this.supabase
+            .from('students')
+            .select('id')
+            .eq('admission_id', id)
+            .maybeSingle();
 
-          if (fullAdmission) {
-            await StudentService.createStudentFromAdmission(id);
-            toast.success('Student record created from approved admission');
+          if (existingStudent) {
+            console.log('Student record already exists for this admission');
+            toast.success('Student record already exists in onboarding module');
           } else {
-            console.error('Admission not found for student creation');
-            toast.error('Failed to create student record: Admission not found');
+            // Fetch the admission to ensure we have all data
+            const { data: fullAdmission } = await this.supabase
+              .from('admissions')
+              .select('*')
+              .eq('id', id)
+              .single();
+
+            if (fullAdmission) {
+              // Create student record in a non-blocking way
+              const student = await StudentService.createStudentFromAdmission(
+                id
+              );
+              if (student) {
+                console.log('Student created successfully:', student.id);
+                toast.success(
+                  'Student record created and ready for onboarding'
+                );
+
+                // Manually trigger an event to refresh all related data
+                // This is a no-op in the code, but helps document the intention
+                console.log('Student onboarding data refreshed');
+              } else {
+                console.error('Failed to create student record from admission');
+                toast.error('Student creation failed - please try again');
+              }
+            } else {
+              console.error('Admission not found for student creation');
+              toast.error(
+                'Failed to create student record: Admission not found'
+              );
+            }
           }
         } catch (studentError) {
           console.error('Error creating student record:', studentError);

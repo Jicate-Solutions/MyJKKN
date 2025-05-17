@@ -322,18 +322,11 @@ create policy "Enable delete access for authenticated users" on public.semesters
 
   create table public.sections (
     id uuid default gen_random_uuid() primary key,
-    institution_id uuid references public.institutions(id) on delete cascade not null,
-    degree_id uuid references public.degrees(id) on delete cascade not null,
-    department_id uuid references public.departments(id) on delete cascade not null,
-    program_id uuid references public.programs(id) on delete cascade not null,
-    course_id uuid references public.courses(id) on delete cascade not null,
-    semester_id uuid references public.semesters(id) on delete cascade not null,
-    section_code text not null,
     section_name text not null,
     is_active boolean default true,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null,
     updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
-    unique(institution_id, degree_id, department_id, program_id, course_id, semester_id, section_code)
+    unique(section_name)
 );
 
 -- Add RLS policies

@@ -48,6 +48,9 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { Section } from '@/types/organizations';
+import { useQueryClient } from '@tanstack/react-query';
+import { studentKeys } from '@/hooks/student/use-students';
 
 // Form schema for student edit (focusing on additional required fields)
 const editStudentSchema = z.object({
@@ -156,9 +159,7 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
   const [semesters, setSemesters] = useState<
     Array<{ id: string; semester_name: string; semester_code: string }>
   >([]);
-  const [sections, setSections] = useState<
-    Array<{ id: string; section_name: string; section_code: string }>
-  >([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [isLoadingSemesters, setIsLoadingSemesters] = useState(false);
   const [isLoadingSections, setIsLoadingSections] = useState(false);
 
@@ -172,17 +173,19 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
       try {
         setIsLoadingSections(true);
         const data = await SectionService.getSectionsBySemester(semesterId);
+        console.log('Loaded sections:', data);
+        console.log('Student section_id:', student?.section_id);
+
         setSections(data);
-        // If student's section_id matches a loaded section for the current semester_id, set it in the form
-        if (
-          student?.semester_id === semesterId &&
-          student?.section_id &&
-          data.some((s) => s.id === student.section_id)
-        ) {
-          form.setValue('section_id', student.section_id);
-        } else if (data.length > 0 && student?.semester_id !== semesterId) {
-          // If sections loaded for a NEW semester (not initial), don't auto-select student's old section_id
-          // form.setValue('section_id', ''); // Or handled by semester change effect
+
+        // If student has a section_id, set it in the form
+        if (student?.section_id) {
+          // Check if the section exists in the loaded sections
+          const sectionExists = data.some((s) => s.id === student.section_id);
+          if (sectionExists) {
+            console.log('Setting section_id in form:', student.section_id);
+            form.setValue('section_id', student.section_id);
+          }
         } else if (data.length === 0) {
           form.setValue('section_id', ''); // No sections available, clear form value
         }
@@ -194,8 +197,8 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
         setIsLoadingSections(false);
       }
     },
-    [student?.semester_id, student?.section_id, form]
-  ); // Added form to dependencies
+    [student?.section_id, form]
+  );
 
   const loadSemesters = useCallback(async () => {
     if (!student?.program_id) {
@@ -278,6 +281,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
   const router = useRouter();
   const { data: student, isLoading: isLoadingStudent } = useStudent(id);
   const updateStudent = useUpdateStudent(id);
+  const queryClient = useQueryClient();
 
   // State for entity names
   const [institutionName, setInstitutionName] = useState<string>('');
@@ -392,6 +396,11 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
   // Effect to reset form when student data changes (initial load)
   useEffect(() => {
     if (student) {
+      console.log('Student data loaded:', {
+        semester_id: student.semester_id,
+        section_id: student.section_id
+      });
+
       const normalizedGender = student.gender
         ? student.gender.toLowerCase()
         : '';
@@ -410,76 +419,90 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
           ? JSON.parse(twelfthMarks)
           : twelfthMarks;
 
-      form.reset({
-        student_name: student.student_name || '',
-        father_name: student.father_name || '',
-        father_occupation: student.father_occupation || '',
-        father_mobile: student.father_mobile || '',
-        mother_name: student.mother_name || '',
-        mother_occupation: student.mother_occupation || '',
-        mother_mobile: student.mother_mobile || '',
-        date_of_birth: student.date_of_birth || '',
-        gender: normalizedGender,
-        roll_number: student.roll_number || '',
-        college_email: student.college_email || '',
-        student_email: student.student_email || '',
-        student_mobile: student.student_mobile || '',
-        student_photo_url: student.student_photo_url || '',
-        religion: student.religion || '',
-        community: student.community || '',
-        caste: student.caste || '',
-        annual_income: student.annual_income || '',
-        last_school: student.last_school || '',
-        board_of_study: student.board_of_study || '',
-        institution_id: student.institution_id || '',
-        degree_id: student.degree_id || '',
-        department_id: student.department_id || '',
-        program_id: student.program_id || '',
-        semester_id: student.semester_id || '',
-        section_id: student.section_id || '',
-        entry_type: student.entry_type || '',
-        permanent_address_street: student.permanent_address_street || '',
-        permanent_address_taluk: student.permanent_address_taluk || '',
-        permanent_address_district: student.permanent_address_district || '',
-        permanent_address_pin_code: student.permanent_address_pin_code || '',
-        permanent_address_state: student.permanent_address_state || '',
-        accommodation_type: normalizeAccommodationType(
-          student.accommodation_type
-        ),
-        hostel_type: student.hostel_type || '',
-        bus_required: student.bus_required || false,
-        bus_route: student.bus_route || '',
-        bus_pickup_location: student.bus_pickup_location || '',
-        status: student.status || 'active',
-        reference_type: student.reference_type || '',
-        reference_name: student.reference_name || '',
-        reference_contact: student.reference_contact || '',
-        tenth_marks: {
-          max_marks: processedTenthMarks.max_marks || '',
-          obtained_marks: processedTenthMarks.obtained_marks || '',
-          percentage: processedTenthMarks.percentage || ''
+      form.reset(
+        {
+          student_name: student.student_name || '',
+          father_name: student.father_name || '',
+          father_occupation: student.father_occupation || '',
+          father_mobile: student.father_mobile || '',
+          mother_name: student.mother_name || '',
+          mother_occupation: student.mother_occupation || '',
+          mother_mobile: student.mother_mobile || '',
+          date_of_birth: student.date_of_birth || '',
+          gender: normalizedGender,
+          roll_number: student.roll_number || '',
+          college_email: student.college_email || '',
+          student_email: student.student_email || '',
+          student_mobile: student.student_mobile || '',
+          student_photo_url: student.student_photo_url || '',
+          religion: student.religion || '',
+          community: student.community || '',
+          caste: student.caste || '',
+          annual_income: student.annual_income || '',
+          last_school: student.last_school || '',
+          board_of_study: student.board_of_study || '',
+          institution_id: student.institution_id || '',
+          degree_id: student.degree_id || '',
+          department_id: student.department_id || '',
+          program_id: student.program_id || '',
+          semester_id: student.semester_id || '',
+          section_id: student.section_id || '',
+          entry_type: student.entry_type || '',
+          permanent_address_street: student.permanent_address_street || '',
+          permanent_address_taluk: student.permanent_address_taluk || '',
+          permanent_address_district: student.permanent_address_district || '',
+          permanent_address_pin_code: student.permanent_address_pin_code || '',
+          permanent_address_state: student.permanent_address_state || '',
+          accommodation_type: normalizeAccommodationType(
+            student.accommodation_type
+          ),
+          hostel_type: student.hostel_type || '',
+          bus_required: student.bus_required || false,
+          bus_route: student.bus_route || '',
+          bus_pickup_location: student.bus_pickup_location || '',
+          status: student.status || 'active',
+          reference_type: student.reference_type || '',
+          reference_name: student.reference_name || '',
+          reference_contact: student.reference_contact || '',
+          tenth_marks: {
+            max_marks: processedTenthMarks.max_marks || '',
+            obtained_marks: processedTenthMarks.obtained_marks || '',
+            percentage: processedTenthMarks.percentage || ''
+          },
+          twelfth_marks: {
+            group: processedTwelfthMarks.group || '',
+            max_marks: processedTwelfthMarks.max_marks || '',
+            obtained_marks: processedTwelfthMarks.obtained_marks || '',
+            percentage: processedTwelfthMarks.percentage || '',
+            subjects: processedTwelfthMarks.subjects || {}
+          },
+          medical_cutoff_marks: student.medical_cutoff_marks || '',
+          engineering_cutoff_marks: student.engineering_cutoff_marks || '',
+          neet_roll_number: student.neet_roll_number || '',
+          counseling_applied: student.counseling_applied || false,
+          counseling_number: student.counseling_number || '',
+          first_graduate: student.first_graduate || false,
+          quota: student.quota || '',
+          category: student.category || ''
         },
-        twelfth_marks: {
-          group: processedTwelfthMarks.group || '',
-          max_marks: processedTwelfthMarks.max_marks || '',
-          obtained_marks: processedTwelfthMarks.obtained_marks || '',
-          percentage: processedTwelfthMarks.percentage || '',
-          subjects: processedTwelfthMarks.subjects || {}
-        },
-        medical_cutoff_marks: student.medical_cutoff_marks || '',
-        engineering_cutoff_marks: student.engineering_cutoff_marks || '',
-        neet_roll_number: student.neet_roll_number || '',
-        counseling_applied: student.counseling_applied || false,
-        counseling_number: student.counseling_number || '',
-        first_graduate: student.first_graduate || false,
-        quota: student.quota || '',
-        category: student.category || ''
-      });
+        { keepDefaultValues: false }
+      );
 
-      // Explicitly set gender value after form reset
+      // Explicitly set important values after reset to ensure they take effect
       setTimeout(() => {
         form.setValue('gender', normalizedGender);
-        console.log('Gender explicitly set to:', normalizedGender);
+
+        if (student.semester_id) {
+          form.setValue('semester_id', student.semester_id);
+        }
+        if (student.section_id) {
+          form.setValue('section_id', student.section_id);
+        }
+        console.log('Form values after reset:', {
+          gender: form.getValues('gender'),
+          semester_id: form.getValues('semester_id'),
+          section_id: form.getValues('section_id')
+        });
       }, 0);
     }
   }, [student, form]);
@@ -799,11 +822,15 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
       // If all required fields are filled, also set status to active
       const updatePayload = {
         ...transformedData,
+        is_profile_complete: isComplete,
         status: isComplete ? ('active' as const) : undefined
       };
 
       // Submit the data payload
       await updateStudent.mutateAsync(updatePayload);
+
+      // Invalidate all student queries to force data refresh across the app
+      queryClient.invalidateQueries({ queryKey: studentKeys.all });
 
       toast.success('Student record updated');
 
@@ -1536,7 +1563,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                               <FormLabel>Semester*</FormLabel>
                               <Select
                                 onValueChange={field.onChange}
-                                value={field.value || ''}
+                                defaultValue={student?.semester_id || ''}
                                 disabled={isLoadingSemesters}
                               >
                                 <FormControl>
@@ -1583,7 +1610,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                               <FormLabel>Section*</FormLabel>
                               <Select
                                 onValueChange={field.onChange}
-                                value={field.value || ''}
+                                defaultValue={student?.section_id || ''}
                                 disabled={
                                   !form.watch('semester_id') ||
                                   isLoadingSections
@@ -1614,8 +1641,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                                         key={section.id}
                                         value={section.id}
                                       >
-                                        {section.section_name} (
-                                        {section.section_code})
+                                        {section.section_name}
                                       </SelectItem>
                                     ))
                                   )}

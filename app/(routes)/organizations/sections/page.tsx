@@ -5,9 +5,7 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { useSections } from '@/hooks/organization/use-sections';
 import { Card, CardContent } from '@/components/ui/card';
-import { usePermissions } from '@/hooks/use-permissions';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -16,12 +14,13 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { BeatLoader } from 'react-spinners';
+import { useSections } from '@/hooks/organization/use-sections';
+import Loading from '@/components/Loading/Loading';
+import { usePermissions } from '@/hooks/use-permissions';
+import { PaginationWithControls } from '@/components/ui/pagination';
 import { SectionFilters } from './_components/section-filters';
+import { SectionEmptyState } from './_components/section-empty-state';
 import { SectionList } from './_components/section-list';
-import DownloadSectionTemplateButton from './_components/download-section-template';
-import BulkUploadSections from './_components/bulk-upload-sections';
-import { ExportSections } from './_components/export-sections';
 
 export default function SectionsPage() {
   const {
@@ -33,25 +32,27 @@ export default function SectionsPage() {
     updateFilters,
     changePage,
     fetchSections
-  } = useSections();
+  } = useSections({ limit: 10 });
 
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewSections =
-    isSuperAdmin || canAccess('organizations.sections', 'view');
+    isSuperAdmin || canAccess('organization.sections', 'view');
   const canCreateSections =
-    isSuperAdmin || canAccess('organizations.sections', 'create');
+    isSuperAdmin || canAccess('organization.sections', 'create');
   const canEditSections =
-    isSuperAdmin || canAccess('organizations.sections', 'edit');
+    isSuperAdmin || canAccess('organization.sections', 'edit');
   const canDeleteSections =
-    isSuperAdmin || canAccess('organizations.sections', 'delete');
+    isSuperAdmin || canAccess('organization.sections', 'delete');
 
   useEffect(() => {
-    // Only fetch sections if user has permission
-    if (canViewSections) {
-      fetchSections();
-    }
-  }, [fetchSections, canViewSections]);
+    fetchSections();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!canViewSections) {
+    return <Loading title='Loading sections...' />;
+  }
 
   if (error) {
     return (
@@ -62,7 +63,6 @@ export default function SectionsPage() {
             variant='outline'
             onClick={() => fetchSections()}
             className='mt-4'
-            disabled={!canViewSections}
           >
             Try Again
           </Button>
@@ -98,50 +98,53 @@ export default function SectionsPage() {
           <div>
             <h1 className='text-2xl font-bold py-1'>Sections</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage class sections
+              Manage sections in your organization
             </p>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            {isSuperAdmin && <DownloadSectionTemplateButton />}
-            {isSuperAdmin && <ExportSections />}
-            {isSuperAdmin && <BulkUploadSections />}
-            {canCreateSections ? (
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/organizations/sections/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Add Section
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
+          {canCreateSections ? (
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/organizations/sections/new'>
                 <Plus className='mr-2 h-4 w-4' />
-                Add Section
-              </Button>
-            )}
-          </div>
+                Create Section
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              className='w-full sm:w-auto opacity-50'
+              disabled
+              variant='outline'
+            >
+              <Plus className='mr-2 h-4 w-4' />
+              Create Section
+            </Button>
+          )}
         </div>
 
         <Card>
           <CardContent className='p-6'>
             <SectionFilters filters={filters} onFilterChange={updateFilters} />
 
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <SectionList
-                sections={sections}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchSections}
-                canEdit={canEditSections}
-                canDelete={canDeleteSections}
-              />
+            {loading && <Loading title='Loading sections...' />}
+
+            {!loading && !error && sections.length === 0 && (
+              <SectionEmptyState canCreate={canCreateSections} />
+            )}
+
+            {!loading && !error && sections.length > 0 && (
+              <>
+                <SectionList
+                  sections={sections}
+                  canView={canViewSections}
+                  canEdit={canEditSections}
+                  canDelete={canDeleteSections}
+                  onRefresh={fetchSections}
+                />
+                <PaginationWithControls
+                  currentPage={metadata.page}
+                  totalPages={metadata.totalPages}
+                  onPageChange={changePage}
+                />
+              </>
             )}
           </CardContent>
         </Card>

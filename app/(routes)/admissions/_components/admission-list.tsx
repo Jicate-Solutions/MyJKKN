@@ -51,6 +51,8 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
+import { studentKeys } from '@/hooks/student/use-students';
 
 type PaginationMetadata = {
   currentPage: number;
@@ -107,6 +109,7 @@ export function AdmissionList({
   const [statusUpdateInfo, setStatusUpdateInfo] =
     useState<StatusUpdateInfo | null>(null);
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
+  const queryClient = useQueryClient();
 
   const handleUpdateStatus = (id: string, status: string) => {
     if (!canEdit) return;
@@ -121,9 +124,26 @@ export function AdmissionList({
     try {
       setUpdatingId(id);
       await updateStatus.mutateAsync({ id, status });
+
       toast.success(
         `Status updated to ${status.charAt(0).toUpperCase() + status.slice(1)}`
       );
+
+      // If approved, invalidate student data to trigger real-time updates
+      if (status === 'approved') {
+        // Invalidate all student-related queries to ensure fresh data
+        await queryClient.invalidateQueries({ queryKey: studentKeys.all });
+
+        // Force navigation to onboarding page and back to refresh UI
+        // This ensures the student onboarding data is refreshed in real-time
+        router.refresh();
+
+        // Additional toast to inform about student creation
+        toast.success(
+          'Student record created and available in onboarding module'
+        );
+      }
+
       onRefresh();
     } catch (error) {
       console.error('Error updating status:', error);
@@ -139,6 +159,9 @@ export function AdmissionList({
     setIsRefreshing(true);
     try {
       await onRefresh();
+
+      // Also refresh student data when manually refreshing
+      await queryClient.invalidateQueries({ queryKey: studentKeys.all });
     } finally {
       setTimeout(() => {
         setIsRefreshing(false);

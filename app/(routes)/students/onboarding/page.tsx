@@ -72,10 +72,11 @@ import {
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
-import StudentPromotionTable from './_components/student-promotion-table';
 import { BulkStudentUpdate } from './_components/bulk-student-update';
 import { DownloadStudentTemplateButton } from './_components/download-student-template-button';
 import { usePermissions } from '@/hooks/use-permissions';
+import { Section } from '@/types/organizations';
+import StudentonboardingTable from './_components/student-onboarding-table';
 
 // Define the DateRange type
 type DateRange = {
@@ -83,7 +84,7 @@ type DateRange = {
   to?: Date | undefined;
 };
 
-export default function StudentPromotionPage() {
+export default function StudentonboardingPage() {
   const router = useRouter();
   const [filters, setFilters] = useState<StudentFilters>({
     search: '',
@@ -97,10 +98,10 @@ export default function StudentPromotionPage() {
 
   const { canAccess, isSuperAdmin } = usePermissions();
 
-  const canViewPromotion =
-    isSuperAdmin || canAccess('students.promotion', 'view');
-  const canEditPromotion =
-    isSuperAdmin || canAccess('students.promotion', 'edit');
+  const canViewonboarding =
+    isSuperAdmin || canAccess('students.onboarding', 'view');
+  const canEditonboarding =
+    isSuperAdmin || canAccess('students.onboarding', 'edit');
 
   // State for institution/program/semester/section filters
   const [institutions, setInstitutions] = useState<
@@ -115,9 +116,7 @@ export default function StudentPromotionPage() {
   const [semesters, setSemesters] = useState<
     Array<{ id: string; semester_name: string; semester_code: string }>
   >([]);
-  const [sections, setSections] = useState<
-    Array<{ id: string; section_name: string; section_code: string }>
-  >([]);
+  const [sections, setSections] = useState<Section[]>([]);
 
   // New states for advanced filters
   const [dateRange, setDateRange] = useState<DateRange>({
@@ -608,20 +607,20 @@ export default function StudentPromotionPage() {
   };
 
   return (
-    <ContentLayout title='Student Promotion'>
+    <ContentLayout title='Student onboarding'>
       <div className='space-y-6'>
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
             { label: 'Students', href: '/students' },
-            { label: 'Student Promotion' }
+            { label: 'Student onboarding' }
           ]}
         />
 
         <div className='flex flex-col sm:flex-row justify-between items-start gap-4'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>
-              Student Promotion
+              Student onboarding
             </h1>
             <p className='text-muted-foreground'>
               Complete student profiles to promote them to the main student list
@@ -630,12 +629,12 @@ export default function StudentPromotionPage() {
           <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
             {isSuperAdmin && <DownloadStudentTemplateButton />}
             {isSuperAdmin && <BulkStudentUpdate />}
-            {canViewPromotion && (
+            {canViewonboarding && (
               <Button
                 variant='default'
                 onClick={() => router.push('/students')}
                 className='w-full sm:w-auto'
-                disabled={!canViewPromotion}
+                disabled={!canViewonboarding}
               >
                 View All Students
               </Button>
@@ -654,7 +653,7 @@ export default function StudentPromotionPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Students Pending Promotion</CardTitle>
+            <CardTitle>Students Pending onboarding</CardTitle>
             <CardDescription>
               Students with incomplete profile information
             </CardDescription>
@@ -1000,161 +999,11 @@ export default function StudentPromotionPage() {
               </div>
             ) : (
               <>
-                <div className='border rounded-md'>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>S.No</TableHead>
-                        <TableHead>Student Name</TableHead>
-                        <TableHead>Program</TableHead>
-                        <TableHead>Missing Information</TableHead>
-                        <TableHead className='text-right'>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {studentsData?.data && studentsData.data.length > 0 ? (
-                        studentsData.data.map((student, index) => {
-                          // Calculate missing fields
-                          const missingFields = [];
-                          if (!student.roll_number)
-                            missingFields.push('Roll Number');
-                          if (!student.college_email)
-                            missingFields.push('College Email');
-                          if (!student.student_photo_url)
-                            missingFields.push('Photo');
-                          if (!student.semester_id)
-                            missingFields.push('Semester');
-                          if (!student.section_id)
-                            missingFields.push('Section');
-
-                          return (
-                            <TableRow key={student.id}>
-                              <TableCell className='font-medium'>
-                                {(currentPage - 1) * filters.limit! + index + 1}
-                              </TableCell>
-                              <TableCell className='font-medium'>
-                                {student.student_name}
-                              </TableCell>
-                              <TableCell>
-                                {student.program?.program_name || 'N/A'}
-                              </TableCell>
-                              <TableCell>
-                                <div className='flex flex-wrap gap-1'>
-                                  {missingFields.map((field) => (
-                                    <Badge
-                                      key={field}
-                                      variant='outline'
-                                      className='bg-yellow-100 text-yellow-800'
-                                    >
-                                      {field}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </TableCell>
-                              <TableCell className='text-right'>
-                                <div className='flex justify-end gap-2'>
-                                  {(isSuperAdmin ||
-                                    canAccess('students', 'view')) && (
-                                    <Button
-                                      variant='outline'
-                                      size='icon'
-                                      asChild
-                                    >
-                                      <Link
-                                        href={`/students/${student.id}`}
-                                        aria-disabled={
-                                          !isSuperAdmin &&
-                                          !canAccess('students', 'view')
-                                        }
-                                        tabIndex={
-                                          isSuperAdmin ||
-                                          canAccess('students', 'view')
-                                            ? 0
-                                            : -1
-                                        }
-                                        style={{
-                                          opacity:
-                                            isSuperAdmin ||
-                                            canAccess('students', 'view')
-                                              ? 1
-                                              : 0.5,
-                                          pointerEvents:
-                                            isSuperAdmin ||
-                                            canAccess('students', 'view')
-                                              ? 'auto'
-                                              : 'none'
-                                        }}
-                                      >
-                                        <EyeIcon className='h-4 w-4' />
-                                        <span className='sr-only'>View</span>
-                                      </Link>
-                                    </Button>
-                                  )}
-                                  {(isSuperAdmin ||
-                                    canAccess('students', 'edit')) && (
-                                    <Button
-                                      variant='default'
-                                      size='icon'
-                                      asChild
-                                    >
-                                      <Link
-                                        href={`/students/${student.id}/edit-promotion`}
-                                        aria-disabled={
-                                          !isSuperAdmin &&
-                                          !canAccess('students', 'edit')
-                                        }
-                                        tabIndex={
-                                          isSuperAdmin ||
-                                          canAccess('students', 'edit')
-                                            ? 0
-                                            : -1
-                                        }
-                                        style={{
-                                          opacity:
-                                            isSuperAdmin ||
-                                            canAccess('students', 'edit')
-                                              ? 1
-                                              : 0.5,
-                                          pointerEvents:
-                                            isSuperAdmin ||
-                                            canAccess('students', 'edit')
-                                              ? 'auto'
-                                              : 'none'
-                                        }}
-                                      >
-                                        <FileEdit className='h-4 w-4' />
-                                        <span className='sr-only'>Edit</span>
-                                      </Link>
-                                    </Button>
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={5} className='text-center py-10'>
-                            <div className='flex flex-col items-center justify-center'>
-                              <Check className='h-8 w-8 text-green-500 mb-2' />
-                              <p className='text-muted-foreground'>
-                                All student profiles are complete!
-                              </p>
-                              <Button
-                                variant='outline'
-                                size='sm'
-                                className='mt-4'
-                                onClick={() => router.push('/students')}
-                              >
-                                View All Students
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
+                <StudentonboardingTable
+                  students={studentsData?.data || []}
+                  isLoading={isLoading}
+                  onRefresh={refetch}
+                />
                 {renderPagination()}
               </>
             )}

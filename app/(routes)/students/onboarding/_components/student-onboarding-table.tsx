@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { EyeIcon, FileEdit, Check } from 'lucide-react';
+import { EyeIcon, FileEdit, Check, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -15,17 +15,52 @@ import {
 import { Student } from '@/types/student';
 import { Badge } from '@/components/ui/badge';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useQueryClient } from '@tanstack/react-query';
+import { studentKeys } from '@/hooks/student/use-students';
 
-interface StudentPromotionTableProps {
+interface StudentonboardingTableProps {
   students: Student[];
   isLoading: boolean;
+  onRefresh?: () => void;
 }
 
-export default function StudentPromotionTable({
+export default function StudentonboardingTable({
   students,
-  isLoading
-}: StudentPromotionTableProps) {
+  isLoading,
+  onRefresh
+}: StudentonboardingTableProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Set up an interval to poll for new data
+  useEffect(() => {
+    // Check for student data changes every 5 seconds
+    const intervalId = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: studentKeys.lists() });
+      if (onRefresh) {
+        onRefresh();
+      }
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [queryClient, onRefresh]);
+
+  const handleManualRefresh = async () => {
+    if (isRefreshing) return;
+
+    setIsRefreshing(true);
+    try {
+      await queryClient.invalidateQueries({ queryKey: studentKeys.lists() });
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } finally {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 500);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -52,10 +87,24 @@ export default function StudentPromotionTable({
 
   return (
     <div className='overflow-auto'>
+      <div className='flex justify-end mb-2'>
+        <Button
+          size='sm'
+          variant='outline'
+          onClick={handleManualRefresh}
+          disabled={isRefreshing}
+        >
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`}
+          />
+          {isRefreshing ? 'Refreshing...' : 'Refresh'}
+        </Button>
+      </div>
+
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className='w-[100px]'>ID</TableHead>
+            <TableHead>S.No</TableHead>
             <TableHead>Name</TableHead>
             <TableHead>Mobile</TableHead>
             <TableHead>Program</TableHead>
@@ -65,7 +114,7 @@ export default function StudentPromotionTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {students.map((student) => {
+          {students.map((student, index) => {
             // Calculate what information is missing
             const missingFields = [];
             if (!student.roll_number) missingFields.push('Roll Number');
@@ -76,9 +125,7 @@ export default function StudentPromotionTable({
 
             return (
               <TableRow key={student.id}>
-                <TableCell className='font-medium'>
-                  {student.admission_id || 'N/A'}
-                </TableCell>
+                <TableCell className='font-medium'>{index + 1}</TableCell>
                 <TableCell>{student.student_name}</TableCell>
                 <TableCell>{student.student_mobile}</TableCell>
                 <TableCell>
@@ -140,7 +187,7 @@ export default function StudentPromotionTable({
                     {(isSuperAdmin || canAccess('students', 'edit')) && (
                       <Button size='icon' variant='ghost' asChild>
                         <Link
-                          href={`/students/${student.id}/edit-promotion?returnTo=/students/promotion`}
+                          href={`/students/${student.id}/onboarding/edit?returnTo=/students/onboarding`}
                           aria-disabled={
                             !isSuperAdmin && !canAccess('students', 'edit')
                           }
