@@ -308,7 +308,7 @@ export function BulkStudentUpdate() {
       </DialogTrigger>
       <DialogContent className='max-w-3xl max-h-[80vh] flex flex-col'>
         <DialogHeader>
-          <DialogTitle>Bulk Student Promotion Update</DialogTitle>
+          <DialogTitle>Bulk Student onboarding Update</DialogTitle>
         </DialogHeader>
         <div className='flex-1 overflow-y-auto pr-2 space-y-4'>
           {!file && (

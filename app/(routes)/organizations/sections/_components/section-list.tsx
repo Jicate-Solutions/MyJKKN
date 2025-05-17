@@ -2,23 +2,15 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { format } from 'date-fns';
 import {
-  MoreVertical,
   Edit,
-  Trash2,
-  FileText,
+  MoreHorizontal,
+  Trash,
   RefreshCw,
-  ChevronLeft,
-  ChevronRight,
   CheckSquare,
-  Square
+  Square,
+  Eye
 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
-import { Section } from '@/types/organizations';
-import { SectionService } from '@/lib/services/organization/section-service';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
@@ -31,10 +23,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { SectionService } from '@/lib/services/organization/section-service';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,50 +38,72 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
+import type { Section } from '@/types/organizations';
+import { toast } from 'react-hot-toast';
 
 interface SectionListProps {
   sections: Section[];
-  metadata: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
-  onPageChange: (page: number) => void;
-  onRefresh: () => void;
-  canEdit?: boolean;
-  canDelete?: boolean;
+  canView: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  onRefresh?: () => void;
 }
 
 export function SectionList({
   sections,
-  metadata,
-  onPageChange,
-  onRefresh,
-  canEdit = false,
-  canDelete = false
+  canView,
+  canEdit,
+  canDelete,
+  onRefresh
 }: SectionListProps) {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [sectionToDelete, setSectionToDelete] = useState<Section | null>(null);
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleDelete = async () => {
+  const handleDeleteClick = (section: Section) => {
+    setSectionToDelete(section);
+    setIsDeleting(true);
+  };
+
+  const confirmDelete = async () => {
     if (!sectionToDelete) return;
 
     try {
       setIsLoading(true);
       await SectionService.deleteSection(sectionToDelete.id);
-      onRefresh();
       toast.success('Section deleted successfully');
+      if (onRefresh) onRefresh();
+      else window.location.reload();
     } catch (error) {
       console.error('Error deleting section:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to delete section'
-      );
+      toast.error('Failed to delete section');
     } finally {
       setIsLoading(false);
+      setIsDeleting(false);
       setSectionToDelete(null);
+    }
+  };
+
+  const cancelDelete = () => {
+    setIsDeleting(false);
+    setSectionToDelete(null);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedSections.length === sections.length) {
+      setSelectedSections([]);
+    } else {
+      setSelectedSections(sections.map((section) => section.id));
+    }
+  };
+
+  const toggleSelectSection = (id: string) => {
+    if (selectedSections.includes(id)) {
+      setSelectedSections(selectedSections.filter((secId) => secId !== id));
+    } else {
+      setSelectedSections([...selectedSections, id]);
     }
   };
 
@@ -105,62 +120,42 @@ export function SectionList({
 
       toast.success(`${selectedSections.length} sections deleted successfully`);
       setSelectedSections([]);
-      onRefresh();
+
+      if (onRefresh) onRefresh();
+      else window.location.reload();
     } catch (error) {
       console.error('Error deleting sections:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to delete sections'
-      );
+      toast.error('Failed to delete sections');
     } finally {
       setIsLoading(false);
       setShowBulkDeleteDialog(false);
     }
   };
 
-  const toggleSelectAll = () => {
-    if (selectedSections.length === sections.length) {
-      setSelectedSections([]);
-    } else {
-      setSelectedSections(sections.map((section) => section.id));
-    }
-  };
-
-  const toggleSelectSection = (id: string) => {
-    if (selectedSections.includes(id)) {
-      setSelectedSections(selectedSections.filter((itemId) => itemId !== id));
-    } else {
-      setSelectedSections([...selectedSections, id]);
-    }
-  };
-
-  const formatDate = (date: string) => {
-    return format(new Date(date), 'MMM d, yyyy');
-  };
-
   return (
-    <div className='space-y-4'>
-      <div className='flex justify-between items-center'>
-        {selectedSections.length > 0 && canDelete && (
+    <>
+      {canDelete && selectedSections.length > 0 && (
+        <div className='flex justify-between mb-4'>
           <Button
             variant='destructive'
             size='sm'
             onClick={() => setShowBulkDeleteDialog(true)}
             disabled={isLoading}
           >
-            <Trash2 className='mr-2 h-4 w-4' />
+            <Trash className='mr-2 h-4 w-4' />
             Delete Selected ({selectedSections.length})
           </Button>
-        )}
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={onRefresh}
-          className={selectedSections.length > 0 ? 'ml-auto' : 'ml-auto'}
-        >
-          <RefreshCw className='mr-2 h-4 w-4' />
-          Refresh
-        </Button>
-      </div>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={onRefresh}
+            disabled={isLoading}
+          >
+            <RefreshCw className='mr-2 h-4 w-4' />
+            Refresh
+          </Button>
+        </div>
+      )}
 
       <div className='rounded-md border'>
         <Table>
@@ -168,7 +163,10 @@ export function SectionList({
             <TableRow>
               {canDelete && (
                 <TableHead className='w-12'>
-                  <div className='flex items-center' onClick={toggleSelectAll}>
+                  <div
+                    className='flex items-center justify-center'
+                    onClick={toggleSelectAll}
+                  >
                     {selectedSections.length === sections.length &&
                     sections.length > 0 ? (
                       <CheckSquare className='h-4 w-4 cursor-pointer' />
@@ -178,186 +176,108 @@ export function SectionList({
                   </div>
                 </TableHead>
               )}
-              <TableHead>Code</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Course</TableHead>
-              <TableHead>Semester</TableHead>
-              <TableHead>Program</TableHead>
+              <TableHead>Section Name</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
               <TableHead className='text-right'>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sections.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={canDelete ? 9 : 8}
-                  className='text-center text-muted-foreground h-24'
-                >
-                  No sections found
-                </TableCell>
-              </TableRow>
-            ) : (
-              sections.map((section) => (
-                <TableRow
-                  key={section.id}
-                  className={
-                    selectedSections.includes(section.id) ? 'bg-muted/50' : ''
-                  }
-                >
-                  {canDelete && (
-                    <TableCell>
-                      <div
-                        className='flex items-center'
-                        onClick={() => toggleSelectSection(section.id)}
-                      >
-                        {selectedSections.includes(section.id) ? (
-                          <CheckSquare className='h-4 w-4 cursor-pointer' />
-                        ) : (
-                          <Square className='h-4 w-4 cursor-pointer' />
-                        )}
-                      </div>
-                    </TableCell>
-                  )}
-                  <TableCell className='font-medium'>
-                    <Link
-                      href={`/organizations/sections/${section.id}`}
-                      className='hover:text-primary'
-                    >
-                      {section.section_code}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{section.section_name}</TableCell>
-                  <TableCell>{section.course?.course_name}</TableCell>
-                  <TableCell>{section.semester?.semester_name}</TableCell>
-                  <TableCell>{section.program?.program_name}</TableCell>
+            {sections.map((section) => (
+              <TableRow
+                key={section.id}
+                className={
+                  selectedSections.includes(section.id) ? 'bg-muted/50' : ''
+                }
+              >
+                {canDelete && (
                   <TableCell>
-                    <Badge
-                      variant={section.is_active ? 'default' : 'secondary'}
+                    <div
+                      className='flex items-center justify-center'
+                      onClick={() => toggleSelectSection(section.id)}
                     >
-                      {section.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
+                      {selectedSections.includes(section.id) ? (
+                        <CheckSquare className='h-4 w-4 cursor-pointer' />
+                      ) : (
+                        <Square className='h-4 w-4 cursor-pointer' />
+                      )}
+                    </div>
                   </TableCell>
-                  <TableCell>{formatDate(section.created_at)}</TableCell>
-                  <TableCell className='text-right'>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant='ghost' className='h-8 w-8 p-0'>
-                          <span className='sr-only'>Open menu</span>
-                          <MoreVertical className='h-4 w-4' />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                )}
+                <TableCell className='font-medium'>
+                  {section.section_name}
+                </TableCell>
+                <TableCell>
+                  {section.is_active ? (
+                    <Badge variant='success'>Active</Badge>
+                  ) : (
+                    <Badge variant='secondary'>Inactive</Badge>
+                  )}
+                </TableCell>
+                <TableCell className='text-right'>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant='ghost' className='h-8 w-8 p-0'>
+                        <span className='sr-only'>Open menu</span>
+                        <MoreHorizontal className='h-4 w-4' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align='end'>
+                      {canView && (
                         <DropdownMenuItem asChild>
-                          <Link
-                            href={`/organizations/sections/${section.id}`}
-                            className='cursor-pointer'
-                          >
-                            <FileText className='mr-2 h-4 w-4' />
+                          <Link href={`/organizations/sections/${section.id}`}>
+                            <Eye className='mr-2 h-4 w-4' />
                             View
                           </Link>
                         </DropdownMenuItem>
-
-                        {canEdit ? (
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href={`/organizations/sections/${section.id}/edit`}
-                              className='cursor-pointer'
-                            >
-                              <Edit className='mr-2 h-4 w-4' />
-                              Edit
-                            </Link>
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem disabled className='opacity-50'>
+                      )}
+                      {canEdit && (
+                        <DropdownMenuItem asChild>
+                          <Link
+                            href={`/organizations/sections/${section.id}/edit`}
+                          >
                             <Edit className='mr-2 h-4 w-4' />
                             Edit
-                          </DropdownMenuItem>
-                        )}
-
-                        <DropdownMenuSeparator />
-
-                        {canDelete ? (
-                          <DropdownMenuItem
-                            onClick={() => setSectionToDelete(section)}
-                            className='text-destructive focus:text-destructive cursor-pointer'
-                          >
-                            <Trash2 className='mr-2 h-4 w-4' />
-                            Delete
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem
-                            disabled
-                            className='text-destructive opacity-50'
-                          >
-                            <Trash2 className='mr-2 h-4 w-4' />
-                            Delete Section
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
+                      {canDelete && (
+                        <DropdownMenuItem
+                          onClick={() => handleDeleteClick(section)}
+                          className='text-destructive focus:text-destructive'
+                        >
+                          <Trash className='mr-2 h-4 w-4' />
+                          Delete
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       </div>
 
-      {metadata.totalPages > 1 && (
-        <div className='flex items-center justify-between px-2'>
-          <div className='text-sm text-muted-foreground'>
-            Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
-            {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
-            {metadata.total} entries
-          </div>
-
-          <div className='flex items-center space-x-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => onPageChange(metadata.page - 1)}
-              disabled={metadata.page <= 1}
-            >
-              <ChevronLeft className='h-4 w-4' />
-              Previous
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => onPageChange(metadata.page + 1)}
-              disabled={metadata.page >= metadata.totalPages}
-            >
-              Next
-              <ChevronRight className='h-4 w-4' />
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Single Delete Dialog */}
-      <AlertDialog
-        open={!!sectionToDelete}
-        onOpenChange={(open) => !open && setSectionToDelete(null)}
-      >
+      <AlertDialog open={isDeleting} onOpenChange={setIsDeleting}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Section</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {sectionToDelete?.section_name}?
-              This action cannot be undone.
+              This action cannot be undone. This will permanently delete the
+              section &quot;{sectionToDelete?.section_name}&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={cancelDelete} disabled={isLoading}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={confirmDelete}
               disabled={isLoading}
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
-              {isLoading ? 'Deleting...' : 'Delete Section'}
+              {isLoading ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -390,6 +310,6 @@ export function SectionList({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }

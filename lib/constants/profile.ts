@@ -224,8 +224,8 @@ export const PERMISSION_CATEGORIES = [
     permissions: [
       { key: 'students.view', label: 'View Students' },
       { key: 'students.edit', label: 'Edit Students' },
-      { key: 'students.promotion.view', label: 'View Promotion' },
-      { key: 'students.promotion.edit', label: 'Edit Promotion' }
+      { key: 'students.onboarding.view', label: 'View onboarding' },
+      { key: 'students.onboarding.edit', label: 'Edit onboarding' }
     ]
   },
   {

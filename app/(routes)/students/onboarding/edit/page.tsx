@@ -41,9 +41,12 @@ import { PhotoUpload } from '../../_components/photo-upload';
 import toast from 'react-hot-toast';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
+import { Section } from '@/types/organizations';
+import { useQueryClient } from '@tanstack/react-query';
+import { studentKeys } from '@/hooks/student/use-students';
 
-// Form schema for student promotion edit (focusing only on the required fields for promotion)
-const promotionEditSchema = z.object({
+// Form schema for student onboarding edit (focusing only on the required fields for onboarding)
+const onboardingEditSchema = z.object({
   roll_number: z.string().min(1, 'Roll number is required'),
   college_email: z.string().email('Invalid college email format'),
   student_photo_url: z.string().optional(),
@@ -51,9 +54,9 @@ const promotionEditSchema = z.object({
   section_id: z.string().min(1, 'Section is required')
 });
 
-type PromotionEditFormValues = z.infer<typeof promotionEditSchema>;
+type onboardingEditFormValues = z.infer<typeof onboardingEditSchema>;
 
-interface EditPromotionPageProps {
+interface EditonboardingPageProps {
   params: Promise<{
     id: string;
   }>;
@@ -64,9 +67,7 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
   const [semesters, setSemesters] = useState<
     Array<{ id: string; semester_name: string; semester_code: string }>
   >([]);
-  const [sections, setSections] = useState<
-    Array<{ id: string; section_name: string; section_code: string }>
-  >([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [isLoadingSemesters, setIsLoadingSemesters] = useState(false);
   const [isLoadingSections, setIsLoadingSections] = useState(false);
 
@@ -80,17 +81,19 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
       try {
         setIsLoadingSections(true);
         const data = await SectionService.getSectionsBySemester(semesterId);
+        console.log('Loaded sections:', data);
+        console.log('Student section_id:', student?.section_id);
+
         setSections(data);
-        // If student's section_id matches a loaded section for the current semester_id, set it in the form
-        if (
-          student?.semester_id === semesterId &&
-          student?.section_id &&
-          data.some((s) => s.id === student.section_id)
-        ) {
-          form.setValue('section_id', student.section_id);
-        } else if (data.length > 0 && student?.semester_id !== semesterId) {
-          // If sections loaded for a NEW semester (not initial), don't auto-select student's old section_id
-          // form.setValue('section_id', ''); // Or handled by semester change effect
+
+        // If student has a section_id, set it in the form
+        if (student?.section_id) {
+          // Check if the section exists in the loaded sections
+          const sectionExists = data.some((s) => s.id === student.section_id);
+          if (sectionExists) {
+            console.log('Setting section_id in form:', student.section_id);
+            form.setValue('section_id', student.section_id);
+          }
         } else if (data.length === 0) {
           form.setValue('section_id', ''); // No sections available, clear form value
         }
@@ -102,7 +105,7 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
         setIsLoadingSections(false);
       }
     },
-    [student?.semester_id, student?.section_id, form]
+    [student?.section_id, form]
   );
 
   const loadSemesters = useCallback(async () => {
@@ -119,15 +122,35 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
         student.program_id
       );
       setSemesters(data);
-      // If student has a semester_id and it's in the loaded list, set it and load sections
-      if (
-        student.semester_id &&
-        data.some((s) => s.id === student.semester_id)
-      ) {
-        form.setValue('semester_id', student.semester_id);
-        await loadSections(student.semester_id); // Await here to ensure sections are loaded based on this
+
+      console.log(
+        'Loaded semesters:',
+        data.map((s) => ({ id: s.id, name: s.semester_name }))
+      );
+      console.log('Looking for semester_id:', student.semester_id);
+
+      // Always set the student's semester_id explicitly if it exists
+      if (student.semester_id) {
+        console.log('Setting semester_id to:', student.semester_id);
+        form.setValue('semester_id', student.semester_id, {
+          shouldDirty: true,
+          shouldTouch: true
+        });
+
+        // Always load sections for this semester
+        await loadSections(student.semester_id);
+
+        // Try to set section_id if it exists
+        if (student.section_id) {
+          console.log('Attempting to set section_id to:', student.section_id);
+          form.setValue('section_id', student.section_id, {
+            shouldDirty: true,
+            shouldTouch: true
+          });
+        }
       } else {
-        // No pre-existing semester_id or it's not in the list, clear sections
+        console.log('No semester_id found in student data');
+        // No pre-existing semester_id, clear sections
         await loadSections(undefined);
       }
     } catch (error) {
@@ -139,7 +162,13 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
     } finally {
       setIsLoadingSemesters(false);
     }
-  }, [student?.program_id, student?.semester_id, loadSections, form]);
+  }, [
+    student?.program_id,
+    student?.semester_id,
+    student?.section_id,
+    loadSections,
+    form
+  ]);
 
   useEffect(() => {
     if (student) {
@@ -156,21 +185,25 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
   };
 };
 
-export default function EditPromotionPage({ params }: EditPromotionPageProps) {
+export default function EditonboardingPage({
+  params
+}: EditonboardingPageProps) {
   // Unwrap params using React.use()
   const resolvedParams = React.use(params);
   const { id } = resolvedParams;
+  const [renderCount, setRenderCount] = useState(0);
+  const queryClient = useQueryClient();
 
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnTo = searchParams.get('returnTo') || '/students/promotion';
+  const returnTo = searchParams.get('returnTo') || '/students/onboarding';
 
   const { data: student, isLoading: isLoadingStudent } = useStudent(id);
   const updateStudent = useUpdateStudent(id);
 
   // Initialize form with default values
-  const form = useForm<PromotionEditFormValues>({
-    resolver: zodResolver(promotionEditSchema),
+  const form = useForm<onboardingEditFormValues>({
+    resolver: zodResolver(onboardingEditSchema),
     defaultValues: {
       roll_number: '',
       college_email: '',
@@ -192,13 +225,24 @@ export default function EditPromotionPage({ params }: EditPromotionPageProps) {
   // Effect to reset form when student data changes (initial load)
   useEffect(() => {
     if (student) {
-      form.reset({
+      console.log('Student data loaded:', {
+        roll_number: student.roll_number,
+        college_email: student.college_email,
+        semester_id: student.semester_id,
+        section_id: student.section_id
+      });
+
+      // Replace form.reset with form.register to properly set default values
+      const defaultValues = {
         roll_number: student.roll_number || '',
         college_email: student.college_email || '',
         student_photo_url: student.student_photo_url || '',
         semester_id: student.semester_id || '',
         section_id: student.section_id || ''
-      });
+      };
+
+      // Reset the form with the default values
+      form.reset(defaultValues);
     }
   }, [student, form]);
 
@@ -217,8 +261,33 @@ export default function EditPromotionPage({ params }: EditPromotionPageProps) {
     return () => subscription.unsubscribe();
   }, [form, loadSections, student?.semester_id]);
 
+  // Force a re-render after student loads
+  useEffect(() => {
+    if (student) {
+      // Force a re-render to make sure the form values are displayed
+      setTimeout(() => {
+        setRenderCount((prev) => prev + 1);
+        console.log(
+          'Forced re-render, semester:',
+          form.getValues('semester_id'),
+          'section:',
+          form.getValues('section_id')
+        );
+      }, 100);
+    }
+  }, [student]);
+
+  // Debug current form values
+  useEffect(() => {
+    console.log('Current form values on render:', {
+      semester_id: form.getValues('semester_id'),
+      section_id: form.getValues('section_id'),
+      renderCount
+    });
+  }, [renderCount, form]);
+
   // Handle form submission
-  const onSubmit = async (data: PromotionEditFormValues) => {
+  const onSubmit = async (data: onboardingEditFormValues) => {
     try {
       // Check if all required fields are filled
       const isComplete =
@@ -230,15 +299,24 @@ export default function EditPromotionPage({ params }: EditPromotionPageProps) {
       // If all required fields are filled, also set status to active
       const updatePayload = {
         ...data,
-        status: isComplete ? ('active' as const) : undefined
+        status: isComplete ? ('active' as const) : undefined,
+        is_profile_complete: isComplete
       };
 
       // Submit the data payload
       await updateStudent.mutateAsync(updatePayload);
 
-      toast.success('Student profile updated for promotion');
+      // Invalidate all student queries to force data refresh across the app
+      queryClient.invalidateQueries({ queryKey: studentKeys.all });
 
-      router.push(returnTo);
+      toast.success('Student profile updated for onboarding');
+
+      // If profile is complete, navigate to the main students page
+      if (isComplete) {
+        router.push('/students');
+      } else {
+        router.push(returnTo);
+      }
     } catch (error) {
       console.error('Error updating student:', error);
       toast.error('Failed to update student');
@@ -266,9 +344,9 @@ export default function EditPromotionPage({ params }: EditPromotionPageProps) {
           <Button
             variant='outline'
             className='mt-4'
-            onClick={() => router.push('/students/promotion')}
+            onClick={() => router.push('/students/onboarding')}
           >
-            Go Back to Promotion
+            Go Back to onboarding
           </Button>
         </div>
       </ContentLayout>
@@ -288,7 +366,7 @@ export default function EditPromotionPage({ params }: EditPromotionPageProps) {
           items={[
             { label: 'Home', href: '/' },
             { label: 'Students', href: '/students' },
-            { label: 'Promotion', href: '/students/promotion' },
+            { label: 'onboarding', href: '/students/onboarding' },
             { label: student.student_name, href: `/students/${id}` },
             { label: 'Complete Profile' }
           ]}
@@ -432,7 +510,7 @@ export default function EditPromotionPage({ params }: EditPromotionPageProps) {
                           <FormLabel>Semester*</FormLabel>
                           <Select
                             onValueChange={field.onChange}
-                            value={field.value || ''}
+                            defaultValue={student?.semester_id || ''}
                             disabled={isLoadingSemesters}
                           >
                             <FormControl>
@@ -479,7 +557,7 @@ export default function EditPromotionPage({ params }: EditPromotionPageProps) {
                           <FormLabel>Section*</FormLabel>
                           <Select
                             onValueChange={field.onChange}
-                            value={field.value || ''}
+                            defaultValue={student?.section_id || ''}
                             disabled={
                               !form.watch('semester_id') || isLoadingSections
                             }
@@ -509,8 +587,7 @@ export default function EditPromotionPage({ params }: EditPromotionPageProps) {
                                     key={section.id}
                                     value={section.id}
                                   >
-                                    {section.section_name} (
-                                    {section.section_code})
+                                    {section.section_name}
                                   </SelectItem>
                                 ))
                               )}

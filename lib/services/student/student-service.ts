@@ -63,7 +63,7 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name, section_code)
+          section:sections!section_id(id, section_name)
         `
         )
         .eq('id', id)
@@ -108,7 +108,7 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name, section_code)
+          section:sections!section_id(id, section_name)
         `
         )
         .single();
@@ -144,6 +144,20 @@ export class StudentService {
       // Calculate if profile is complete
       const is_profile_complete = this.calculateProfileCompleteness(mergedData);
 
+      console.log('Profile completeness check:', {
+        studentId: id,
+        is_profile_complete,
+        requiredFields: {
+          roll_number: !!mergedData.roll_number,
+          college_email: !!mergedData.college_email,
+          student_photo_url: !!mergedData.student_photo_url,
+          semester_id: !!mergedData.semester_id,
+          section_id: !!mergedData.section_id
+        }
+      });
+
+      // Use the calculated value even if updateData already includes is_profile_complete
+      // This ensures proper calculation regardless of client-side settings
       const { data: student, error } = await this.supabase
         .from('students')
         .update({
@@ -161,7 +175,7 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name, section_code)
+          section:sections!section_id(id, section_name)
         `
         )
         .single();
@@ -350,7 +364,7 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name, section_code)
+          section:sections!section_id(id, section_name)
         `
         )
         .eq('id', id)

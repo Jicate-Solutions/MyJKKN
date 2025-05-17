@@ -64,7 +64,7 @@ const HEADERS = [
   'reference_name',
   'reference_contact',
 
-  // Fields often filled during promotion (optional here, but can be included)
+  // Fields often filled during onboarding (optional here, but can be included)
   'roll_number', // Optional: If provided, is_profile_complete might be true
   'college_email' // Optional: If provided, user creation might happen
   // 'student_photo_url', // Hard to provide in bulk upload, usually done later

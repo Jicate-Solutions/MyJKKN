@@ -106,7 +106,7 @@ export function StudentDetailActions({ student }: StudentDetailActionsProps) {
                 {isProfileIncomplete && (
                   <DropdownMenuItem
                     onClick={() =>
-                      router.push(`/students/${student.id}/edit-promotion`)
+                      router.push(`/students/${student.id}/onboarding/edit`)
                     }
                   >
                     <UserCheck className='mr-2 h-4 w-4' />

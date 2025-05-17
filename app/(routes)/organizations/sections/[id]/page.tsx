@@ -19,6 +19,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
+import { format } from 'date-fns';
 
 interface SectionDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -64,6 +65,10 @@ export default function SectionDetailsPage({
 
     fetchSection();
   }, [id, canViewSections]);
+
+  const formatDate = (date: string) => {
+    return format(new Date(date), 'PPpp');
+  };
 
   if (loading) {
     return (
@@ -143,14 +148,14 @@ export default function SectionDetailsPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Basic Information</CardTitle>
+            <CardTitle>Section Information</CardTitle>
           </CardHeader>
           <CardContent className='grid gap-6'>
             <div className='grid gap-4 md:grid-cols-2'>
               <div>
-                <p className='font-medium'>Section Code</p>
+                <p className='font-medium'>Section Name</p>
                 <p className='text-base text-muted-foreground'>
-                  {section.section_code}
+                  {section.section_name}
                 </p>
               </div>
               <div>
@@ -159,52 +164,18 @@ export default function SectionDetailsPage({
                   {section.is_active ? 'Active' : 'Inactive'}
                 </Badge>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Course Information</CardTitle>
-          </CardHeader>
-          <CardContent className='grid gap-4 md:grid-cols-2'>
-            <div>
-              <p className='font-medium'>Institution</p>
-              <p className='text-base text-muted-foreground'>
-                {section.institution?.name}
-                {section.institution?.counselling_code &&
-                  ` (${section.institution.counselling_code})`}
-              </p>
-            </div>
-            <div>
-              <p className='font-medium'>Degree</p>
-              <p className='text-base text-muted-foreground'>
-                {section.degree?.degree_name || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className='font-medium'>Department</p>
-              <p className='text-base text-muted-foreground'>
-                {section.department?.department_name || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className='font-medium'>Program</p>
-              <p className='text-base text-muted-foreground'>
-                {section.program?.program_name || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className='font-medium'>Course</p>
-              <p className='text-base text-muted-foreground'>
-                {section.course?.course_name || 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className='font-medium'>Semester</p>
-              <p className='text-base text-muted-foreground'>
-                {section.semester?.semester_name || 'N/A'}
-              </p>
+              <div>
+                <p className='font-medium'>Created At</p>
+                <p className='text-base text-muted-foreground'>
+                  {formatDate(section.created_at)}
+                </p>
+              </div>
+              <div>
+                <p className='font-medium'>Updated At</p>
+                <p className='text-base text-muted-foreground'>
+                  {formatDate(section.updated_at)}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

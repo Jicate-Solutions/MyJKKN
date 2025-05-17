@@ -39,6 +39,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { BeatLoader } from 'react-spinners';
 import { SectionService } from '@/lib/services/organization/section-service';
+import { Section } from '@/types/organizations';
 
 const staffPlanSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -46,7 +47,7 @@ const staffPlanSchema = z.object({
   department_id: z.string().min(1, 'Department is required'),
   program_id: z.string().min(1, 'Program is required'),
   semester_id: z.string().min(1, 'Semester is required'),
-  section: z.string().min(1, 'Section is required'),
+  section_id: z.string().min(1, 'Section is required'),
   academic_year_id: z.string().min(1, 'Academic year is required'),
   start_date: z.date({
     required_error: 'Start date is required'
@@ -95,9 +96,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const [semesters, setSemesters] = useState<
     Array<{ id: string; semester_name: string }>
   >([]);
-  const [sections, setSections] = useState<
-    Array<{ id: string; section_name: string; section_code: string }>
-  >([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [academicYears, setAcademicYears] = useState<
     Array<{ id: string; academic_year_name: string }>
   >([]);
@@ -116,7 +115,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       department_id: '',
       program_id: '',
       semester_id: '',
-      section: '',
+      section_id: '',
       academic_year_id: '',
       start_date: new Date(),
       end_date: new Date(),
@@ -214,7 +213,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             department_id: staffPlan.department_id,
             program_id: staffPlan.program_id,
             semester_id: staffPlan.semester_id,
-            section: staffPlan.section,
+            section_id: staffPlan.section,
             academic_year_id: staffPlan.academic_year_id,
             start_date: new Date(staffPlan.start_date),
             end_date: new Date(staffPlan.end_date),
@@ -271,7 +270,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           form.setValue('department_id', '');
           form.setValue('program_id', '');
           form.setValue('semester_id', '');
-          form.setValue('section', '');
+          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading degrees:', error);
         }
@@ -291,7 +290,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           form.setValue('department_id', '');
           form.setValue('program_id', '');
           form.setValue('semester_id', '');
-          form.setValue('section', '');
+          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading departments:', error);
         }
@@ -310,7 +309,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           setPrograms(data);
           form.setValue('program_id', '');
           form.setValue('semester_id', '');
-          form.setValue('section', '');
+          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading programs:', error);
         }
@@ -341,7 +340,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           );
 
           form.setValue('semester_id', '');
-          form.setValue('section', '');
+          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading program data:', error);
           toast.error('Failed to load courses. Please check your selections.');
@@ -375,7 +374,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             }))
           );
 
-          form.setValue('section', '');
+          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading semester data:', error);
           toast.error(
@@ -392,7 +391,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             watchedSemesterId
           );
           setSections(data);
-          form.setValue('section', '');
+          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading sections:', error);
         }
@@ -407,12 +406,16 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
       const formattedValues = {
         ...values,
+        // Map section_id to section for API compatibility
+        section: values.section_id,
         start_date: values.start_date.toISOString(),
         end_date: values.end_date.toISOString()
       };
 
+      const { section_id, ...apiPayload } = formattedValues;
+
       if (isEditing && staffPlan) {
-        await StaffPlanService.updateStaffPlan(staffPlan.id, formattedValues);
+        await StaffPlanService.updateStaffPlan(staffPlan.id, apiPayload);
         toast.success('Staff plan updated successfully');
       } else {
         await StaffPlanService.createStaffPlan(formattedValues);
@@ -611,7 +614,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
               <FormField
                 control={form.control}
-                name='section'
+                name='section_id'
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Section</FormLabel>
@@ -627,11 +630,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
                         {sections.map((section) => (
-                          <SelectItem
-                            key={section.id}
-                            value={section.section_code}
-                          >
-                            {section.section_name} ({section.section_code})
+                          <SelectItem key={section.id} value={section.id}>
+                            {section.section_name}
                           </SelectItem>
                         ))}
                       </SelectContent>

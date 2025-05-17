@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { SectionService } from '@/lib/services/organization/section-service';
+import { Section } from '@/types/organizations';
 
 interface StaffPlanListProps {
   staffPlans: StaffPlan[];
@@ -59,12 +60,6 @@ interface StaffPlanListProps {
   onRefresh: () => void;
   canEdit?: boolean;
   canDelete?: boolean;
-}
-
-interface Section {
-  id: string;
-  section_code: string;
-  section_name: string;
 }
 
 // Map to cache sections by semester ID
@@ -109,9 +104,9 @@ export function StaffPlanList({
                 semesterId
               );
 
-              // Create a map of section_code -> section for this semester
+              // Create a map of section_id -> section for this semester
               newSectionMap[semesterId] = sections.reduce((acc, section) => {
-                acc[section.section_code] = section;
+                acc[section.id] = section;
                 return acc;
               }, {} as Record<string, Section>);
             } catch (error) {
@@ -139,6 +134,7 @@ export function StaffPlanList({
     const sections = sectionMap[plan.semester_id];
     if (!sections) return plan.section;
 
+    // Look up section by id
     const section = sections[plan.section];
     return section ? section.section_name : plan.section;
   };

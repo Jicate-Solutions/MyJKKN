@@ -134,7 +134,7 @@ const newStudentSchema = z
     reference_name: z.string().optional().nullable(),
     reference_contact: z.string().optional().nullable(),
 
-    // Optional fields (for potential immediate promotion/user creation)
+    // Optional fields (for potential immediate onboarding/user creation)
     roll_number: z.string().optional().nullable(),
     college_email: z
       .string()
