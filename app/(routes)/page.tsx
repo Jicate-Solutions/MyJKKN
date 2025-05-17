@@ -429,118 +429,103 @@ export default function DashboardPage() {
   return (
     <ContentLayout title='Dashboard'>
       <div className='mt-4 space-y-6 max-w-[1600px] mx-auto'>
-        {/* Enhanced Header with controls */}
-        <div className='flex flex-col gap-6 sm:flex-row justify-between sm:items-start'>
+        {/* Enhanced Header with gradient background */}
+        <div className='bg-white rounded-xl p-6 shadow-md'>
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: 'easeOut' }}
-            className='flex flex-col gap-2'
+            className='flex flex-col gap-4 md:flex-row md:justify-between md:items-center'
           >
-            <motion.h1
-              className='text-3xl font-bold bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent'
-              animate={{ scale: [1, 1.03, 1] }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                repeatType: 'reverse'
-              }}
-            >
-              {greeting} {currentUser || 'User'}!
-            </motion.h1>
+            <div className='space-y-3'>
+              <motion.h1 className='text-3xl font-bold bg-gradient-to-r from-green-600 to-yellow-600 bg-clip-text text-transparent'>
+                {greeting} {currentUser || 'User'}!
+              </motion.h1>
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3, duration: 0.4 }}
+                className='flex flex-wrap items-center gap-2'
+              >
+                <div className='flex items-center gap-2 bg-white/80 backdrop-blur-sm p-2 rounded-md text-blue-700 border border-blue-100 shadow-sm'>
+                  <Calendar className='h-4 w-4' />
+                  <span className='text-sm font-medium'>
+                    {formatDate(currentDate)}
+                  </span>
+                </div>
+                <div className='flex items-center gap-2 bg-white/80 backdrop-blur-sm p-2 rounded-md text-purple-700 border border-purple-100 shadow-sm'>
+                  <Clock className='h-4 w-4' />
+                  <span className='text-sm font-medium'>
+                    {formatTime(currentDate)}
+                  </span>
+                </div>
+              </motion.div>
+            </div>
+
             <motion.div
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.3, duration: 0.4 }}
-              className='flex items-center gap-2'
+              className='flex flex-wrap gap-2 items-center'
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5, duration: 0.4 }}
             >
-              <div className='flex items-center gap-2 bg-primary p-2 rounded-md text-white'>
-                <Calendar className='h-4 w-4' />
-                <span>{formatDate(currentDate)}</span>
-              </div>
-              <div className='flex items-center gap-2 bg-secondary p-2 rounded-md text-black'>
-                <Clock className='h-4 w-4' />
-                <span>{formatTime(currentDate)}</span>
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant='outline'
+                    className='flex items-center gap-2 bg-white/80 border-blue-100'
+                  >
+                    <Filter className='h-4 w-4 text-blue-600' />
+                    {dateRange.charAt(0).toUpperCase() + dateRange.slice(1)}
+                    <ChevronDown className='h-3 w-3 opacity-50' />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='end'>
+                  <DropdownMenuLabel>Time Range</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuRadioGroup
+                    value={dateRange}
+                    onValueChange={(v) => handleDateRangeChange(v as any)}
+                  >
+                    <DropdownMenuRadioItem value='today'>
+                      Today
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value='week'>
+                      This Week
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value='month'>
+                      This Month
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value='year'>
+                      This Year
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Button
+                variant='outline'
+                size='icon'
+                onClick={handleRefreshData}
+                disabled={isRefreshing}
+                className={`bg-white/80 border-purple-100 ${
+                  isRefreshing ? 'animate-spin' : ''
+                }`}
+              >
+                <RefreshCw className='h-4 w-4 text-purple-600' />
+              </Button>
             </motion.div>
-          </motion.div>
-
-          <motion.div
-            className='flex flex-wrap gap-2 items-center'
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5, duration: 0.4 }}
-          >
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant='outline' className='flex items-center gap-2'>
-                  <Filter className='h-4 w-4' />
-                  {dateRange.charAt(0).toUpperCase() + dateRange.slice(1)}
-                  <ChevronDown className='h-3 w-3 opacity-50' />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align='end'>
-                <DropdownMenuLabel>Time Range</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuRadioGroup
-                  value={dateRange}
-                  onValueChange={(v) => handleDateRangeChange(v as any)}
-                >
-                  <DropdownMenuRadioItem value='today'>
-                    Today
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value='week'>
-                    This Week
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value='month'>
-                    This Month
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value='year'>
-                    This Year
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Tabs
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className='w-auto'
-            >
-              <TabsList className='grid grid-cols-3 w-auto'>
-                <TabsTrigger value='overview' className='text-xs'>
-                  Overview
-                </TabsTrigger>
-                <TabsTrigger value='analytics' className='text-xs'>
-                  Analytics
-                </TabsTrigger>
-                <TabsTrigger value='users' className='text-xs'>
-                  Users
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            <Button
-              variant='outline'
-              size='icon'
-              onClick={handleRefreshData}
-              disabled={isRefreshing}
-              className={isRefreshing ? 'animate-spin' : ''}
-            >
-              <RefreshCw className='h-4 w-4' />
-            </Button>
           </motion.div>
         </div>
 
         {isRefreshing && !loading && (
-          <div className='w-full bg-primary/5 py-1 px-4 text-center text-xs text-primary rounded-md'>
+          <div className='w-full bg-blue-50 py-1 px-4 text-center text-xs text-blue-600 rounded-md border border-blue-100'>
             Refreshing dashboard data...
           </div>
         )}
 
         {loading ? (
           <div className='flex justify-center items-center min-h-[500px]'>
-            <BeatLoader color='hsl(var(--primary))' />
+            <BeatLoader color='#6366f1' />
           </div>
         ) : (
           <div className='space-y-6'>
@@ -557,16 +542,16 @@ export default function DashboardPage() {
                 transition={{ duration: 0.5 }}
                 whileHover={{ scale: 1.02 }}
               >
-                <Card className='bg-gradient-to-br from-sky-50 to-blue-100 border-none shadow-sm hover:shadow-md transition-all'>
+                <Card className='bg-gradient-to-br from-blue-50 to-blue-100 border-none shadow-md rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300'>
                   <CardContent className='pt-6'>
                     <div className='flex justify-between items-start'>
-                      <div className='p-3 rounded-lg bg-blue-600 flex items-center justify-center text-white'>
+                      <div className='p-3 rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 flex items-center justify-center text-white shadow-md'>
                         <Users className='h-5 w-5' aria-hidden='true' />
                       </div>
                       {metrics && metrics.totalUsers > 0 && (
                         <Badge
                           variant='outline'
-                          className='bg-blue-100 text-blue-700 border-blue-200'
+                          className='bg-white/80 text-blue-700 border-blue-200'
                         >
                           <ArrowUpRight className='h-3 w-3 mr-1' />
                           <span>{Math.floor(Math.random() * 10) + 5}%</span>
@@ -574,7 +559,7 @@ export default function DashboardPage() {
                       )}
                     </div>
                     <div className='mt-6'>
-                      <h2 className='text-3xl font-bold text-gray-800'>
+                      <h2 className='text-3xl font-bold text-blue-900'>
                         {metrics?.totalUsers || 0}
                       </h2>
                       <p className='text-sm text-blue-700 font-medium mt-1'>
@@ -591,16 +576,16 @@ export default function DashboardPage() {
                 transition={{ duration: 0.5, delay: 0.1 }}
                 whileHover={{ scale: 1.02 }}
               >
-                <Card className='bg-gradient-to-br from-pink-50 to-rose-100 border-none shadow-sm hover:shadow-md transition-all'>
+                <Card className='bg-gradient-to-br from-indigo-50 to-indigo-100 border-none shadow-md rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300'>
                   <CardContent className='pt-6'>
                     <div className='flex justify-between items-start'>
-                      <div className='p-3 rounded-lg bg-pink-600 flex items-center justify-center text-white'>
+                      <div className='p-3 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-700 flex items-center justify-center text-white shadow-md'>
                         <Building2 className='h-5 w-5' aria-hidden='true' />
                       </div>
                       {metrics && metrics.totalInstitutions > 0 && (
                         <Badge
                           variant='outline'
-                          className='bg-pink-100 text-pink-700 border-pink-200'
+                          className='bg-white/80 text-indigo-700 border-indigo-200'
                         >
                           <ArrowUpRight className='h-3 w-3 mr-1' />
                           <span>{Math.floor(Math.random() * 10) + 5}%</span>
@@ -608,10 +593,10 @@ export default function DashboardPage() {
                       )}
                     </div>
                     <div className='mt-6'>
-                      <h2 className='text-3xl font-bold text-gray-800'>
+                      <h2 className='text-3xl font-bold text-indigo-900'>
                         {metrics?.totalInstitutions || 0}
                       </h2>
-                      <p className='text-sm text-pink-700 font-medium mt-1'>
+                      <p className='text-sm text-indigo-700 font-medium mt-1'>
                         Institutions
                       </p>
                     </div>
@@ -625,16 +610,16 @@ export default function DashboardPage() {
                 transition={{ duration: 0.5, delay: 0.2 }}
                 whileHover={{ scale: 1.02 }}
               >
-                <Card className='bg-gradient-to-br from-amber-50 to-amber-100 border-none shadow-sm hover:shadow-md transition-all'>
+                <Card className='bg-gradient-to-br from-purple-50 to-purple-100 border-none shadow-md rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300'>
                   <CardContent className='pt-6'>
                     <div className='flex justify-between items-start'>
-                      <div className='p-3 rounded-lg bg-amber-600 flex items-center justify-center text-white'>
+                      <div className='p-3 rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 flex items-center justify-center text-white shadow-md'>
                         <LibrarySquare className='h-5 w-5' aria-hidden='true' />
                       </div>
                       {metrics && metrics.totalStudents > 0 && (
                         <Badge
                           variant='outline'
-                          className='bg-amber-100 text-amber-700 border-amber-200'
+                          className='bg-white/80 text-purple-700 border-purple-200'
                         >
                           <ArrowUpRight className='h-3 w-3 mr-1' />
                           <span>{Math.floor(Math.random() * 10) + 5}%</span>
@@ -642,10 +627,10 @@ export default function DashboardPage() {
                       )}
                     </div>
                     <div className='mt-6'>
-                      <h2 className='text-3xl font-bold text-gray-800'>
+                      <h2 className='text-3xl font-bold text-purple-900'>
                         {metrics?.totalStudents || 0}
                       </h2>
-                      <p className='text-sm text-amber-700 font-medium mt-1'>
+                      <p className='text-sm text-purple-700 font-medium mt-1'>
                         Students
                       </p>
                     </div>
@@ -659,10 +644,10 @@ export default function DashboardPage() {
                 transition={{ duration: 0.5, delay: 0.3 }}
                 whileHover={{ scale: 1.02 }}
               >
-                <Card className='bg-gradient-to-br from-emerald-50 to-emerald-100 border-none shadow-sm hover:shadow-md transition-all'>
+                <Card className='bg-gradient-to-br from-violet-50 to-violet-100 border-none shadow-md rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300'>
                   <CardContent className='pt-6'>
                     <div className='flex justify-between items-start'>
-                      <div className='p-3 rounded-lg bg-emerald-600 flex items-center justify-center text-white'>
+                      <div className='p-3 rounded-lg bg-gradient-to-r from-violet-600 to-violet-700 flex items-center justify-center text-white shadow-md'>
                         <Activity className='h-5 w-5' aria-hidden='true' />
                       </div>
                       {metrics &&
@@ -671,7 +656,7 @@ export default function DashboardPage() {
                         ) && (
                           <Badge
                             variant='outline'
-                            className='bg-emerald-100 text-emerald-700 border-emerald-200'
+                            className='bg-white/80 text-violet-700 border-violet-200'
                           >
                             <ArrowUpRight className='h-3 w-3 mr-1' />
                             <span>{Math.floor(Math.random() * 10) + 5}%</span>
@@ -679,11 +664,11 @@ export default function DashboardPage() {
                         )}
                     </div>
                     <div className='mt-6'>
-                      <h2 className='text-3xl font-bold text-gray-800'>
+                      <h2 className='text-3xl font-bold text-violet-900'>
                         {metrics?.usersByStatus.find((s) => s.name === 'Active')
                           ?.value || 0}
                       </h2>
-                      <p className='text-sm text-emerald-700 font-medium mt-1'>
+                      <p className='text-sm text-violet-700 font-medium mt-1'>
                         Active Users
                       </p>
                     </div>
@@ -695,19 +680,19 @@ export default function DashboardPage() {
             {/* Enhanced Charts Section */}
             <div className='grid grid-cols-1 lg:grid-cols-12 gap-6'>
               {/* User Role Distribution Chart */}
-              <Card className='lg:col-span-7 overflow-hidden'>
-                <CardHeader className='pb-2 flex flex-row items-center justify-between'>
+              <Card className='lg:col-span-7 overflow-hidden rounded-xl shadow-md border-none bg-white'>
+                <CardHeader className='pb-2 flex flex-row items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50'>
                   <div>
-                    <CardTitle className='text-lg font-bold'>
+                    <CardTitle className='text-lg font-bold text-blue-800'>
                       User Role Distribution
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription className='text-blue-600'>
                       Breakdown of users by role
                     </CardDescription>
                   </div>
-                  <BarChart3 className='h-4 w-4 text-muted-foreground' />
+                  <BarChart3 className='h-5 w-5 text-blue-600' />
                 </CardHeader>
-                <CardContent>
+                <CardContent className='p-6'>
                   <div className='h-[350px]'>
                     <ResponsiveContainer width='100%' height='100%'>
                       <BarChart
@@ -751,14 +736,15 @@ export default function DashboardPage() {
                         <Bar
                           dataKey='count'
                           name='Users'
-                          fill='#4F46E5'
                           radius={[4, 4, 0, 0]}
                           barSize={40}
                         >
                           {metrics?.usersByRole.map((entry, index) => (
                             <Cell
                               key={`cell-${index}`}
-                              fill={`hsl(${210 + index * 25}, 80%, 60%)`}
+                              fill={`hsl(${230 + index * 15}, 70%, ${
+                                60 - index * 5
+                              }%)`}
                             />
                           ))}
                         </Bar>
@@ -766,8 +752,10 @@ export default function DashboardPage() {
                     </ResponsiveContainer>
                   </div>
                   <div className='mt-6 bg-blue-50 p-4 rounded-lg'>
-                    <div className='font-medium mb-1'>Insight</div>
-                    <p className='text-sm text-blue-800'>
+                    <div className='font-medium mb-1 text-blue-800'>
+                      Insight
+                    </div>
+                    <p className='text-sm text-blue-700'>
                       {metrics && metrics.usersByRole.length > 0 ? (
                         <>
                           The most common role is{' '}
@@ -797,17 +785,19 @@ export default function DashboardPage() {
               </Card>
 
               {/* User Status Card */}
-              <Card className='lg:col-span-5 overflow-hidden'>
-                <CardHeader className='pb-2 flex flex-row items-center justify-between'>
+              <Card className='lg:col-span-5 overflow-hidden rounded-xl shadow-md border-none bg-white'>
+                <CardHeader className='pb-2 flex flex-row items-center justify-between bg-gradient-to-r from-purple-50 to-violet-50'>
                   <div>
-                    <CardTitle className='text-lg font-bold'>
+                    <CardTitle className='text-lg font-bold text-purple-800'>
                       User Status
                     </CardTitle>
-                    <CardDescription>Active vs Inactive users</CardDescription>
+                    <CardDescription className='text-purple-600'>
+                      Active vs Inactive users
+                    </CardDescription>
                   </div>
-                  <PieChartIcon className='h-4 w-4 text-muted-foreground' />
+                  <PieChartIcon className='h-5 w-5 text-purple-600' />
                 </CardHeader>
-                <CardContent>
+                <CardContent className='p-6'>
                   <div className='h-[250px]'>
                     <ResponsiveContainer width='100%' height='100%'>
                       <PieChart>
@@ -826,15 +816,20 @@ export default function DashboardPage() {
                           outerRadius={80}
                           fill='#8884d8'
                           dataKey='value'
-                        ></Pie>
+                        >
+                          <Cell fill='#6366f1' />
+                          <Cell fill='#a78bfa' />
+                        </Pie>
                         <Tooltip
                           formatter={(value: any, name: any) => [
                             `${value} users`,
                             `${name}`
                           ]}
                           contentStyle={{
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            borderRadius: '4px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.15)',
+                            border: '1px solid #e5e7eb',
                             padding: '8px'
                           }}
                         />
@@ -857,7 +852,10 @@ export default function DashboardPage() {
                         <div className='flex items-center'>
                           <div
                             className='w-3 h-3 rounded-full mr-2'
-                            style={{ backgroundColor: item.fill }}
+                            style={{
+                              backgroundColor:
+                                index === 0 ? '#6366f1' : '#a78bfa'
+                            }}
                           ></div>
                           <span className='text-sm'>{item.name}</span>
                         </div>
@@ -875,13 +873,15 @@ export default function DashboardPage() {
                     ))}
                   </div>
 
-                  <div className='mt-4 bg-emerald-50 p-4 rounded-lg'>
-                    <div className='font-medium mb-1'>Health Score</div>
+                  <div className='mt-4 bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-lg'>
+                    <div className='font-medium mb-1 text-purple-800'>
+                      Health Score
+                    </div>
                     <div className='flex items-center justify-between'>
-                      <p className='text-sm text-emerald-800'>
+                      <p className='text-sm text-purple-700'>
                         User activity rate:
                       </p>
-                      <span className='font-semibold text-emerald-700'>
+                      <span className='font-semibold text-purple-700'>
                         {metrics && metrics.totalUsers > 0
                           ? `${(
                               ((metrics.usersByStatus.find(
@@ -898,62 +898,60 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* Row 4: Bottom Stats - 12-column grid */}
+            {/* Bottom Stats Cards with Updated Styling */}
             <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
-              <Card className='flex flex-col'>
-                <CardHeader className='pb-2'>
-                  <CardTitle>Sales</CardTitle>
+              <Card className='bg-gradient-to-br from-blue-50 to-blue-100 border-none shadow-md rounded-xl overflow-hidden'>
+                <CardHeader className='pb-2 bg-gradient-to-r from-blue-100 to-blue-200'>
+                  <CardTitle className='text-blue-800'>
+                    Course Enrollments
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className='flex-1 flex flex-col'>
+                <CardContent className='p-6'>
                   <div className='mb-2'>
-                    <h3 className='text-2xl font-bold'>$183k</h3>
-                    <p className='text-xs text-muted-foreground'>
-                      Earnings of Month
-                    </p>
+                    <h3 className='text-2xl font-bold text-blue-800'>183+</h3>
+                    <p className='text-xs text-blue-700'>Active Courses</p>
                   </div>
-                  <div className='flex-1 flex items-center'>
-                    <div className='w-full h-12'>
-                      <ResponsiveContainer width='100%' height='100%'>
-                        <BarChart
-                          data={[
-                            { name: 'J', value: 28 },
-                            { name: 'F', value: 35 },
-                            { name: 'M', value: 20 },
-                            { name: 'A', value: 32 },
-                            { name: 'M', value: 25 },
-                            { name: 'J', value: 38 }
-                          ]}
-                        >
-                          <Bar
-                            dataKey='value'
-                            fill='#4F46E5'
-                            radius={[2, 2, 0, 0]}
-                            barSize={6}
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
+                  <div className='w-full h-12 mt-4'>
+                    <ResponsiveContainer width='100%' height='100%'>
+                      <BarChart
+                        data={[
+                          { name: 'J', value: 28 },
+                          { name: 'F', value: 35 },
+                          { name: 'M', value: 20 },
+                          { name: 'A', value: 32 },
+                          { name: 'M', value: 25 },
+                          { name: 'J', value: 38 }
+                        ]}
+                      >
+                        <Bar
+                          dataKey='value'
+                          fill='#6366f1'
+                          radius={[2, 2, 0, 0]}
+                          barSize={6}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className='flex flex-col'>
-                <CardHeader className='pb-2'>
-                  <CardTitle>Support</CardTitle>
+              <Card className='bg-gradient-to-br from-indigo-50 to-indigo-100 border-none shadow-md rounded-xl overflow-hidden'>
+                <CardHeader className='pb-2 bg-gradient-to-r from-indigo-100 to-indigo-200'>
+                  <CardTitle className='text-indigo-800'>
+                    Student Support
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className='flex-1 flex flex-col'>
+                <CardContent className='p-6'>
                   <div className='mb-2'>
-                    <h3 className='text-2xl font-bold'>593</h3>
-                    <p className='text-xs text-muted-foreground'>
-                      Tickets Resolved
-                    </p>
+                    <h3 className='text-2xl font-bold text-indigo-800'>95%</h3>
+                    <p className='text-xs text-indigo-700'>Satisfaction Rate</p>
                   </div>
-                  <div className='flex-1 flex items-center justify-center'>
+                  <div className='flex justify-center mt-4'>
                     <div className='w-16 h-16'>
                       <ResponsiveContainer width='100%' height='100%'>
                         <PieChart>
                           <Pie
-                            data={[{ value: 75 }, { value: 25 }]}
+                            data={[{ value: 95 }, { value: 5 }]}
                             cx='50%'
                             cy='50%'
                             startAngle={180}
@@ -963,8 +961,8 @@ export default function DashboardPage() {
                             paddingAngle={0}
                             dataKey='value'
                           >
-                            <Cell fill='#10B981' />
-                            <Cell fill='#F3F4F6' />
+                            <Cell fill='#6366f1' />
+                            <Cell fill='#e0e0fc' />
                           </Pie>
                         </PieChart>
                       </ResponsiveContainer>
@@ -973,38 +971,38 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card className='flex flex-col'>
-                <CardHeader className='pb-2'>
-                  <CardTitle>Orders</CardTitle>
+              <Card className='bg-gradient-to-br from-purple-50 to-purple-100 border-none shadow-md rounded-xl overflow-hidden'>
+                <CardHeader className='pb-2 bg-gradient-to-r from-purple-100 to-purple-200'>
+                  <CardTitle className='text-purple-800'>
+                    Upcoming Events
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className='flex-1 flex flex-col'>
+                <CardContent className='p-6'>
                   <div className='mb-2'>
-                    <h3 className='text-2xl font-bold'>67k</h3>
-                    <p className='text-xs text-muted-foreground'>Monthly</p>
+                    <h3 className='text-2xl font-bold text-purple-800'>12</h3>
+                    <p className='text-xs text-purple-700'>This Month</p>
                   </div>
-                  <div className='flex-1 flex items-center'>
-                    <div className='w-full h-12'>
-                      <ResponsiveContainer width='100%' height='100%'>
-                        <LineChart
-                          data={[
-                            { name: 'J', value: 10 },
-                            { name: 'F', value: 25 },
-                            { name: 'M', value: 15 },
-                            { name: 'A', value: 30 },
-                            { name: 'M', value: 18 },
-                            { name: 'J', value: 35 }
-                          ]}
-                        >
-                          <Line
-                            type='monotone'
-                            dataKey='value'
-                            stroke='#10B981'
-                            strokeWidth={2}
-                            dot={false}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
+                  <div className='w-full h-12 mt-4'>
+                    <ResponsiveContainer width='100%' height='100%'>
+                      <LineChart
+                        data={[
+                          { name: 'J', value: 10 },
+                          { name: 'F', value: 25 },
+                          { name: 'M', value: 15 },
+                          { name: 'A', value: 30 },
+                          { name: 'M', value: 18 },
+                          { name: 'J', value: 22 }
+                        ]}
+                      >
+                        <Line
+                          type='monotone'
+                          dataKey='value'
+                          stroke='#8b5cf6'
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
                 </CardContent>
               </Card>
