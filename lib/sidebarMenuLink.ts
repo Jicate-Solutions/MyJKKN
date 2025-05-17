@@ -106,6 +106,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/students': 'students.view',
   '/students/new': 'students.create',
   '/students/onboarding': 'students.onboarding.view',
+  '/students/promotion': 'students.view',
 
   // Staff Management
   '/staff/category': 'staff.categories.view',
@@ -320,6 +321,13 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/students'
             }
           ]
+        },
+        {
+          href: '/students/promotion',
+          label: 'Learners Promotion',
+          active: pathname === '/students/promotion',
+          icon: GraduationCap,
+          submenus: []
         }
       ]
     },
