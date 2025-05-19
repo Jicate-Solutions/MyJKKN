@@ -187,7 +187,7 @@ export default function StudentonboardingTable({
                     {(isSuperAdmin || canAccess('students', 'edit')) && (
                       <Button size='icon' variant='ghost' asChild>
                         <Link
-                          href={`/students/${student.id}/onboarding/edit?returnTo=/students/onboarding`}
+                          href={`/students/onboarding/edit?id=${student.id}&returnTo=/students/onboarding`}
                           aria-disabled={
                             !isSuperAdmin && !canAccess('students', 'edit')
                           }

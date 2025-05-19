@@ -7,7 +7,7 @@ import * as XLSX from 'xlsx';
 import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Table,
@@ -37,6 +37,14 @@ import {
   XCircle
 } from 'lucide-react';
 import { useRouter } from 'next/navigation'; // Import useRouter
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger
+} from '@/components/ui/accordion';
+import { Badge } from '@/components/ui/badge';
+import { StudentService } from '@/lib/services/student/student-service';
 
 // Define the Zod schema for validating a NEW student row
 // This needs to align with your CreateStudentDto and database requirements
@@ -168,6 +176,14 @@ export function BulkCreateStudents() {
     message: string;
     created?: number;
     failed?: number;
+    usersCreated?: number;
+    userCreationResults?: Array<{
+      student_id: string;
+      student_name: string;
+      email: string;
+      success: boolean;
+      message?: string;
+    }>;
   } | null>(null);
 
   const resetState = useCallback((keepOpen = false) => {
@@ -353,15 +369,18 @@ export function BulkCreateStudents() {
         setValidRows(valid);
 
         if (errors.length > 0) {
-          toast.warning(
-            `Validation finished with ${errors.length} error(s). Please fix them before uploading.`
+          toast(
+            `Validation finished with ${errors.length} error(s). Please fix them before uploading.`,
+            { icon: '⚠️' }
           );
         } else if (valid.length > 0) {
           toast.success(
             `Validation successful. ${valid.length} rows ready for upload.`
           );
         } else {
-          toast.info('No valid rows found to upload after validation.');
+          toast('No valid rows found to upload after validation.', {
+            icon: 'ℹ️'
+          });
         }
       } catch (error) {
         console.error('Error processing file:', error);
@@ -400,47 +419,162 @@ export function BulkCreateStudents() {
     setUploadResult(null);
 
     try {
-      // --- Make the actual API call to bulk-create endpoint ---
-      const response = await fetch('/api/students/bulk-create', {
-        // Target the new API endpoint
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(validRows)
+      // Process rows in batches similar to the staff module
+      const batchSize = 50;
+      const batches = [];
+      for (let i = 0; i < validRows.length; i += batchSize) {
+        batches.push(validRows.slice(i, i + batchSize));
+      }
+
+      let createdCount = 0;
+      let failedCount = 0;
+      let usersCreatedCount = 0;
+      const errorDetails: string[] = [];
+      const userCreationResults: {
+        student_id: string;
+        student_name: string;
+        email: string;
+        success: boolean;
+        message?: string;
+      }[] = [];
+
+      // Process each batch
+      for (const batch of batches) {
+        // Setting progress for batches
+        setUploadProgress(Math.floor((createdCount / validRows.length) * 100));
+
+        // Create a promise for each student in the batch
+        const promises = batch.map(async (row) => {
+          try {
+            // Parse JSON strings if needed
+            const tenthMarks =
+              typeof row.tenth_marks_json === 'string'
+                ? JSON.parse(row.tenth_marks_json)
+                : row.tenth_marks_json;
+
+            const twelfthMarks =
+              typeof row.twelfth_marks_json === 'string'
+                ? JSON.parse(row.twelfth_marks_json)
+                : row.twelfth_marks_json;
+
+            // Create a new object without the _json fields
+            const { tenth_marks_json, twelfth_marks_json, ...restData } = row;
+
+            // Add in the special fields handling and include defaults for required fields
+            // Handle as type any to bypass complex strict type checking
+            // We've already validated this data with Zod earlier
+            const processedData = {
+              ...restData,
+              tenth_marks: tenthMarks,
+              twelfth_marks: twelfthMarks,
+              status: 'active',
+              admission_id: null, // Use null instead of empty string for UUID field
+              is_profile_complete: false,
+              counseling_applied:
+                typeof restData.counseling_applied === 'string'
+                  ? String(restData.counseling_applied).toLowerCase() === 'true'
+                  : Boolean(restData.counseling_applied),
+              first_graduate:
+                typeof restData.first_graduate === 'string'
+                  ? String(restData.first_graduate).toLowerCase() === 'true'
+                  : Boolean(restData.first_graduate),
+              bus_required:
+                typeof restData.bus_required === 'string'
+                  ? String(restData.bus_required).toLowerCase() === 'true'
+                  : Boolean(restData.bus_required)
+            };
+
+            // Create student using the enhanced service method with type assertion
+            console.log(`Creating student: ${processedData.student_name}`);
+            const result = await StudentService.createStudentWithUserResult(
+              processedData as any
+            );
+
+            if (result.student) {
+              createdCount++;
+
+              // Check if user was created based on the result
+              if (result.student.college_email) {
+                // Record the result for tracking
+                userCreationResults.push({
+                  student_id: result.student.id,
+                  student_name: result.student.student_name,
+                  email: result.student.college_email,
+                  success: result.userCreated,
+                  message: result.userError
+                });
+
+                if (result.userCreated) {
+                  usersCreatedCount++;
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`Error creating student:`, error);
+            failedCount++;
+            const errorMessage =
+              error instanceof Error ? error.message : 'Unknown error';
+            errorDetails.push(`Row ${batch.indexOf(row) + 1}: ${errorMessage}`);
+
+            if (row.college_email) {
+              userCreationResults.push({
+                student_id: 'failed',
+                student_name: row.student_name,
+                email: row.college_email,
+                success: false,
+                message: errorMessage
+              });
+            }
+          }
+        });
+
+        // Wait for all promises in the batch to complete
+        await Promise.all(promises);
+      }
+
+      // Complete progress
+      setUploadProgress(100);
+
+      // Prepare result message
+      const successMessage = `Created ${createdCount} students successfully.`;
+      const failureMessage = failedCount > 0 ? ` Failed: ${failedCount}.` : '';
+      const userMessage = ` ${usersCreatedCount} user accounts created.`;
+
+      // Set the upload result
+      setUploadResult({
+        success: createdCount > 0,
+        message: successMessage + failureMessage + userMessage,
+        created: createdCount,
+        failed: failedCount,
+        usersCreated: usersCreatedCount,
+        userCreationResults
       });
 
-      const resultData = await response.json();
+      // Show a single consolidated success/error toast
+      if (createdCount > 0) {
+        toast.success(successMessage + userMessage);
+      }
 
-      if (!response.ok) {
-        // Display specific errors from the backend if available
-        const errorDetail =
-          resultData.error ||
-          resultData.message ||
-          'Bulk creation failed with unknown error';
-        const failedCount = resultData.failed ?? validRows.length; // Estimate failed count if not provided
-        setUploadResult({
-          success: false,
-          message: `Upload failed. ${errorDetail} (${failedCount} records failed).`,
-          created: resultData.created,
-          failed: failedCount
-        });
-        toast.error(`Bulk creation failed: ${errorDetail}`);
-      } else {
-        // Success
-        const message =
-          resultData.message ||
-          `${resultData.created} students created successfully. ${resultData.failed} failed.`;
-        setUploadResult({
-          success: true,
-          message: message,
-          created: resultData.created,
-          failed: resultData.failed
-        });
-        toast.success(message);
-        // Reset after successful upload
+      if (failedCount > 0) {
+        // Only show detailed errors for a reasonable number of failures
+        if (errorDetails.length <= 3) {
+          toast.error(
+            `Failed to create ${failedCount} students: ${errorDetails.join(
+              '; '
+            )}`
+          );
+        } else {
+          toast.error(
+            `Failed to create ${failedCount} students. See console for details.`
+          );
+          console.error('Student creation errors:', errorDetails);
+        }
+      }
+
+      // Reset and refresh if completely successful
+      if (failedCount === 0) {
         resetState();
-        router.refresh(); // Refresh the student list page
+        router.refresh();
       }
     } catch (error) {
       console.error('Error during bulk upload:', error);
@@ -448,7 +582,12 @@ export function BulkCreateStudents() {
         error instanceof Error
           ? error.message
           : 'An unknown error occurred during upload.';
-      setUploadResult({ success: false, message });
+      setUploadResult({
+        success: false,
+        message,
+        created: 0,
+        failed: validRows.length
+      });
       toast.error(`Upload failed: ${message}`);
     } finally {
       setIsUploading(false);
@@ -472,6 +611,98 @@ export function BulkCreateStudents() {
     if (!open) {
       resetState();
     }
+  };
+
+  // Helper function to group user creation results
+  const getUserCreationSummary = () => {
+    if (
+      !uploadResult?.userCreationResults ||
+      uploadResult.userCreationResults.length === 0
+    ) {
+      return null;
+    }
+
+    const successful = uploadResult.userCreationResults.filter(
+      (r) => r.success
+    );
+    const failed = uploadResult.userCreationResults.filter((r) => !r.success);
+
+    return (
+      <div className='mt-4 space-y-4'>
+        <h4 className='font-medium'>User Account Creation Summary</h4>
+
+        <div className='flex items-center gap-2 text-sm'>
+          <Badge
+            variant='outline'
+            className='bg-green-50 text-green-700 border-green-200'
+          >
+            Success: {successful.length}
+          </Badge>
+          <Badge
+            variant='outline'
+            className='bg-red-50 text-red-700 border-red-200'
+          >
+            Failed: {failed.length}
+          </Badge>
+        </div>
+
+        {(successful.length > 0 || failed.length > 0) && (
+          <Accordion type='single' collapsible className='w-full'>
+            {successful.length > 0 && (
+              <AccordionItem value='successful-users'>
+                <AccordionTrigger className='text-sm'>
+                  <span className='flex items-center'>
+                    <CheckCircle className='h-4 w-4 mr-2 text-green-600' />
+                    Created User Accounts ({successful.length})
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className='text-xs space-y-1 max-h-[150px] overflow-y-auto'>
+                    {successful.map((result, idx) => (
+                      <div
+                        key={`success-${idx}`}
+                        className='py-1 border-b border-gray-100'
+                      >
+                        {result.student_name} ({result.email})
+                      </div>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            )}
+
+            {failed.length > 0 && (
+              <AccordionItem value='failed-users'>
+                <AccordionTrigger className='text-sm'>
+                  <span className='flex items-center'>
+                    <XCircle className='h-4 w-4 mr-2 text-red-600' />
+                    Failed User Accounts ({failed.length})
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className='text-xs space-y-1 max-h-[150px] overflow-y-auto'>
+                    {failed.map((result, idx) => (
+                      <div
+                        key={`failed-${idx}`}
+                        className='py-1 border-b border-gray-100'
+                      >
+                        <span className='font-medium'>
+                          {result.student_name}
+                        </span>
+                        <span className='mx-1'>({result.email})</span>
+                        <span className='text-red-600'>
+                          - {result.message || 'Unknown error'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            )}
+          </Accordion>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -558,9 +789,17 @@ export function BulkCreateStudents() {
                           (Failed: {uploadResult.failed})
                         </span>
                       )}
+                    {uploadResult.usersCreated !== undefined && (
+                      <span className='ml-2 text-xs'>
+                        (User Accounts: {uploadResult.usersCreated})
+                      </span>
+                    )}
                   </AlertDescription>
                 </Alert>
               )}
+
+              {/* Add user creation details */}
+              {getUserCreationSummary()}
             </div>
           )}
 

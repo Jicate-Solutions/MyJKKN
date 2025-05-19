@@ -7,7 +7,7 @@ import {
   UpdateAdmissionDto
 } from '@/types/admission';
 import { StudentService } from '@/lib/services/student/student-service';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 export class AdmissionService {
   private static supabase = createClientSupabaseClient();

@@ -40,7 +40,7 @@ const HEADERS = [
   'institution_id', // Required (UUID)
   'degree_id', // Required (UUID)
   'department_id', // Required (UUID)
-  'program_id', // Required (UUID)
+  'section_id', // Required (UUID)
   'entry_type', // Required (e.g., FIRST YEAR, LATERAL ENTRY)
 
   // Contact Info

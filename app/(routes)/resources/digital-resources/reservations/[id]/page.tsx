@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { format, isValid, parseISO } from 'date-fns';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,

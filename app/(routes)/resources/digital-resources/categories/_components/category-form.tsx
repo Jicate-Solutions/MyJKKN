@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { X } from 'lucide-react';
 import { useDigitalResourceCategories } from '@/hooks/resource/digital/use-digital-resource-categories';
 import { DigitalResourceCategory } from '@/types/digital-resources';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 const formSchema = z.object({
   category_name: z.string().min(1, 'Category name is required'),

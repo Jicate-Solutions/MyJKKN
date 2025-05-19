@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { DigitalResourceForm } from '../_components/digital-resource-form';
 import { DigitalResourceService } from '@/lib/services/resource/digital/digital-resource-service';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { usePermissions } from '@/hooks/use-permissions';
 

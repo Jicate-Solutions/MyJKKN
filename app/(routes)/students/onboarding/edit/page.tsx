@@ -56,150 +56,26 @@ const onboardingEditSchema = z.object({
 
 type onboardingEditFormValues = z.infer<typeof onboardingEditSchema>;
 
-interface EditonboardingPageProps {
-  params: Promise<{
-    id: string;
-  }>;
-}
-
-// Custom hook to handle semester and section loading
-const useStudentSemesterAndSection = (student: any, form: any) => {
-  const [semesters, setSemesters] = useState<
-    Array<{ id: string; semester_name: string; semester_code: string }>
-  >([]);
-  const [sections, setSections] = useState<Section[]>([]);
-  const [isLoadingSemesters, setIsLoadingSemesters] = useState(false);
-  const [isLoadingSections, setIsLoadingSections] = useState(false);
-
-  const loadSections = useCallback(
-    async (semesterId: string | undefined) => {
-      if (!semesterId) {
-        setSections([]);
-        form.setValue('section_id', ''); // Clear section in form if no semesterId
-        return;
-      }
-      try {
-        setIsLoadingSections(true);
-        const data = await SectionService.getSectionsBySemester(semesterId);
-        console.log('Loaded sections:', data);
-        console.log('Student section_id:', student?.section_id);
-
-        setSections(data);
-
-        // If student has a section_id, set it in the form
-        if (student?.section_id) {
-          // Check if the section exists in the loaded sections
-          const sectionExists = data.some((s) => s.id === student.section_id);
-          if (sectionExists) {
-            console.log('Setting section_id in form:', student.section_id);
-            form.setValue('section_id', student.section_id);
-          }
-        } else if (data.length === 0) {
-          form.setValue('section_id', ''); // No sections available, clear form value
-        }
-      } catch (error) {
-        console.error('Error loading sections:', error);
-        setSections([]);
-        form.setValue('section_id', '');
-      } finally {
-        setIsLoadingSections(false);
-      }
-    },
-    [student?.section_id, form]
-  );
-
-  const loadSemesters = useCallback(async () => {
-    if (!student?.program_id) {
-      setSemesters([]);
-      setSections([]); // Also clear sections if no program
-      form.setValue('semester_id', '');
-      form.setValue('section_id', '');
-      return;
-    }
-    try {
-      setIsLoadingSemesters(true);
-      const data = await SemesterService.getSemestersByProgram(
-        student.program_id
-      );
-      setSemesters(data);
-
-      console.log(
-        'Loaded semesters:',
-        data.map((s) => ({ id: s.id, name: s.semester_name }))
-      );
-      console.log('Looking for semester_id:', student.semester_id);
-
-      // Always set the student's semester_id explicitly if it exists
-      if (student.semester_id) {
-        console.log('Setting semester_id to:', student.semester_id);
-        form.setValue('semester_id', student.semester_id, {
-          shouldDirty: true,
-          shouldTouch: true
-        });
-
-        // Always load sections for this semester
-        await loadSections(student.semester_id);
-
-        // Try to set section_id if it exists
-        if (student.section_id) {
-          console.log('Attempting to set section_id to:', student.section_id);
-          form.setValue('section_id', student.section_id, {
-            shouldDirty: true,
-            shouldTouch: true
-          });
-        }
-      } else {
-        console.log('No semester_id found in student data');
-        // No pre-existing semester_id, clear sections
-        await loadSections(undefined);
-      }
-    } catch (error) {
-      console.error('Error loading semesters:', error);
-      setSemesters([]);
-      setSections([]);
-      form.setValue('semester_id', '');
-      form.setValue('section_id', '');
-    } finally {
-      setIsLoadingSemesters(false);
-    }
-  }, [
-    student?.program_id,
-    student?.semester_id,
-    student?.section_id,
-    loadSections,
-    form
-  ]);
-
-  useEffect(() => {
-    if (student) {
-      loadSemesters(); // This will also trigger loadSections if semester_id is present
-    }
-  }, [student, loadSemesters]);
-
-  return {
-    semesters,
-    sections,
-    isLoadingSemesters,
-    isLoadingSections,
-    loadSections // Expose loadSections to be called on semester change in form
-  };
-};
-
-export default function EditonboardingPage({
-  params
-}: EditonboardingPageProps) {
-  // Unwrap params using React.use()
-  const resolvedParams = React.use(params);
-  const { id } = resolvedParams;
+export default function EditonboardingPage() {
   const [renderCount, setRenderCount] = useState(0);
   const queryClient = useQueryClient();
 
   const router = useRouter();
   const searchParams = useSearchParams();
+  const id = searchParams.get('id');
   const returnTo = searchParams.get('returnTo') || '/students/onboarding';
 
-  const { data: student, isLoading: isLoadingStudent } = useStudent(id);
-  const updateStudent = useUpdateStudent(id);
+  // Redirect if no ID is provided
+  useEffect(() => {
+    if (!id) {
+      router.push('/students/onboarding');
+    }
+  }, [id, router]);
+
+  const { data: student, isLoading: isLoadingStudent } = useStudent(
+    id as string
+  );
+  const updateStudent = useUpdateStudent(id as string);
 
   // Initialize form with default values
   const form = useForm<onboardingEditFormValues>({
@@ -614,7 +490,7 @@ export default function EditonboardingPage({
                               value={field.value}
                               onChange={field.onChange}
                               onRemove={() => field.onChange('')}
-                              studentId={id}
+                              studentId={id as string}
                             />
                           </FormControl>
                           <FormDescription>
@@ -651,3 +527,126 @@ export default function EditonboardingPage({
     </ContentLayout>
   );
 }
+
+// Custom hook to handle semester and section loading
+const useStudentSemesterAndSection = (student: any, form: any) => {
+  const [semesters, setSemesters] = useState<
+    Array<{ id: string; semester_name: string; semester_code: string }>
+  >([]);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [isLoadingSemesters, setIsLoadingSemesters] = useState(false);
+  const [isLoadingSections, setIsLoadingSections] = useState(false);
+
+  const loadSections = useCallback(
+    async (semesterId: string | undefined) => {
+      if (!semesterId) {
+        setSections([]);
+        form.setValue('section_id', ''); // Clear section in form if no semesterId
+        return;
+      }
+      try {
+        setIsLoadingSections(true);
+        const data = await SectionService.getSectionsBySemester(semesterId);
+        console.log('Loaded sections:', data);
+        console.log('Student section_id:', student?.section_id);
+
+        setSections(data);
+
+        // If student has a section_id, set it in the form
+        if (student?.section_id) {
+          // Check if the section exists in the loaded sections
+          const sectionExists = data.some((s) => s.id === student.section_id);
+          if (sectionExists) {
+            console.log('Setting section_id in form:', student.section_id);
+            form.setValue('section_id', student.section_id);
+          }
+        } else if (data.length === 0) {
+          form.setValue('section_id', ''); // No sections available, clear form value
+        }
+      } catch (error) {
+        console.error('Error loading sections:', error);
+        setSections([]);
+        form.setValue('section_id', '');
+      } finally {
+        setIsLoadingSections(false);
+      }
+    },
+    [student?.section_id, form]
+  );
+
+  const loadSemesters = useCallback(async () => {
+    if (!student?.program_id) {
+      setSemesters([]);
+      setSections([]); // Also clear sections if no program
+      form.setValue('semester_id', '');
+      form.setValue('section_id', '');
+      return;
+    }
+    try {
+      setIsLoadingSemesters(true);
+      const data = await SemesterService.getSemestersByProgram(
+        student.program_id
+      );
+      setSemesters(data);
+
+      console.log(
+        'Loaded semesters:',
+        data.map((s) => ({ id: s.id, name: s.semester_name }))
+      );
+      console.log('Looking for semester_id:', student.semester_id);
+
+      // Always set the student's semester_id explicitly if it exists
+      if (student.semester_id) {
+        console.log('Setting semester_id to:', student.semester_id);
+        form.setValue('semester_id', student.semester_id, {
+          shouldDirty: true,
+          shouldTouch: true
+        });
+
+        // Always load sections for this semester
+        await loadSections(student.semester_id);
+
+        // Try to set section_id if it exists
+        if (student.section_id) {
+          console.log('Attempting to set section_id to:', student.section_id);
+          form.setValue('section_id', student.section_id, {
+            shouldDirty: true,
+            shouldTouch: true
+          });
+        }
+      } else {
+        console.log('No semester_id found in student data');
+        // No pre-existing semester_id, clear sections
+        await loadSections(undefined);
+      }
+    } catch (error) {
+      console.error('Error loading semesters:', error);
+      setSemesters([]);
+      setSections([]);
+      form.setValue('semester_id', '');
+      form.setValue('section_id', '');
+    } finally {
+      setIsLoadingSemesters(false);
+    }
+  }, [
+    student?.program_id,
+    student?.semester_id,
+    student?.section_id,
+    loadSections,
+    form
+  ]);
+
+  useEffect(() => {
+    if (student) {
+      loadSemesters(); // This will also trigger loadSections if semester_id is present
+    }
+  }, [student, loadSemesters]);
+
+  return {
+    semesters,
+    sections,
+    isLoadingSemesters,
+    isLoadingSections,
+    loadSections // Expose loadSections to be called on semester change in form
+  };
+};

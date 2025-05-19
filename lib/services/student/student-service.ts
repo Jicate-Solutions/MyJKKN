@@ -7,7 +7,7 @@ import {
   UpdateStudentDto
 } from '@/types/student';
 import { CreateUserRequest } from '@/types/users';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 // Helper function to generate a random password
 function generateTemporaryPassword(length = 12): string {
@@ -114,6 +114,92 @@ export class StudentService {
         .single();
 
       if (error) throw error;
+
+      // Auto-create user if college_email exists (similar to staff service approach)
+      if (student.college_email) {
+        try {
+          console.log(
+            `Creating user account for student ${student.id} with email ${student.college_email}`
+          );
+          const tempPassword = generateTemporaryPassword();
+          const userPayload: CreateUserRequest = {
+            email: student.college_email,
+            full_name: student.student_name,
+            password: tempPassword,
+            role: 'student', // Default role
+            phone_number: student.student_mobile || null
+          };
+
+          console.log('User payload:', JSON.stringify(userPayload, null, 2));
+
+          // Use absolute URL to ensure it works in all environments
+          const apiUrl =
+            typeof window !== 'undefined'
+              ? '/api/users'
+              : `${
+                  process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+                }/api/users`;
+
+          console.log('API URL for user creation:', apiUrl);
+
+          const userResponse = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(userPayload),
+            cache: 'no-store',
+            credentials: 'include'
+          });
+
+          console.log('User creation response status:', userResponse.status);
+          const userData = await userResponse.json();
+          console.log(
+            'User creation response:',
+            JSON.stringify(userData, null, 2)
+          );
+
+          if (!userResponse.ok) {
+            // Check for 409 Conflict (User already exists)
+            if (userResponse.status === 409) {
+              console.warn(
+                `User with email ${userPayload.email} already exists. Skipping automatic creation.`
+              );
+              toast(`User account for ${userPayload.email} already exists`);
+            } else {
+              // Handle other errors
+              console.error(
+                'Failed to automatically create user:',
+                userData.error ||
+                  userData.details ||
+                  userData.message ||
+                  'Unknown API error',
+                'Status:',
+                userResponse.status
+              );
+              toast(
+                `Student created, but failed to create user account: ${
+                  userData.error || userData.details || userData.message
+                }`
+              );
+            }
+          } else {
+            console.log(
+              `Successfully created user for student ${student.id} with email ${student.college_email}`
+            );
+            toast.success(
+              `Student user account created with email ${student.college_email}`
+            );
+          }
+        } catch (apiError) {
+          console.error('Error calling user creation API:', apiError);
+          toast(
+            'Student created, but encountered an error creating user account.'
+          );
+        }
+      } else {
+        console.log('No college_email provided, skipping user creation');
+      }
 
       toast.success('Student record created successfully');
       return student;
@@ -231,7 +317,7 @@ export class StudentService {
                 'Status:',
                 userResponse.status
               );
-              toast.warning(
+              toast(
                 `Student profile updated, but failed to create user account: ${
                   userData.error || userData.details || userData.message
                 }`
@@ -249,7 +335,7 @@ export class StudentService {
           }
         } catch (apiError) {
           console.error('Error calling user creation API:', apiError);
-          toast.warning(
+          toast(
             'Student profile updated, but encountered an error trying to create user account.'
           );
         }
@@ -267,6 +353,55 @@ export class StudentService {
 
   static async deleteStudent(id: string): Promise<void> {
     try {
+      // First, get the student to find out if they have a college_email
+      const { data: student, error: fetchError } = await this.supabase
+        .from('students')
+        .select('college_email')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // If there is a college_email, try to delete the associated profile
+      if (student?.college_email) {
+        try {
+          // Find the profile associated with the college_email
+          const { data: profile, error: profileError } = await this.supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', student.college_email)
+            .single();
+
+          if (!profileError && profile) {
+            // Delete the profile using the API endpoint (which handles auth table deletion too)
+            const response = await fetch(`/api/users/${profile.id}`, {
+              method: 'DELETE',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (!response.ok) {
+              console.warn(
+                `Failed to delete user profile for student ${id}:`,
+                await response.text()
+              );
+            } else {
+              console.log(
+                `Successfully deleted user for student with email ${student.college_email}`
+              );
+            }
+          }
+        } catch (profileError) {
+          console.warn(
+            'Error finding or deleting student user profile:',
+            profileError
+          );
+          // Continue with student deletion even if profile deletion fails
+        }
+      }
+
+      // Delete the student record
       const { error } = await this.supabase
         .from('students')
         .delete()
@@ -602,5 +737,158 @@ export class StudentService {
         student[field as keyof Student] !== undefined &&
         student[field as keyof Student] !== ''
     );
+  }
+
+  static async bulkDeleteStudents(ids: string[]): Promise<{
+    success: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const success: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    // Process deletions sequentially
+    for (const id of ids) {
+      try {
+        await this.deleteStudent(id);
+        success.push(id);
+      } catch (error) {
+        console.error(`Error deleting student ${id}:`, error);
+        failed.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    return { success, failed };
+  }
+
+  static async createStudentWithUserResult(
+    studentData: CreateStudentDto
+  ): Promise<{
+    student: Student | null;
+    userCreated: boolean;
+    userError?: string;
+  }> {
+    try {
+      const now = new Date().toISOString();
+
+      // Calculate if profile is complete
+      const is_profile_complete =
+        this.calculateProfileCompleteness(studentData);
+
+      const { data: student, error } = await this.supabase
+        .from('students')
+        .insert({
+          ...studentData,
+          is_profile_complete,
+          created_at: now,
+          updated_at: now,
+          created_by: (await this.supabase.auth.getUser()).data.user?.id
+        })
+        .select(
+          `
+          *,
+          institution:institutions(id, name),
+          degree:degrees(id, degree_name),
+          department:departments(id, department_name),
+          program:programs(id, program_name),
+          semester:semesters!semester_id(id, semester_name, semester_code),
+          section:sections!section_id(id, section_name)
+        `
+        )
+        .single();
+
+      if (error) throw error;
+
+      // Initialize user creation result
+      let userCreated = false;
+      let userError: string | undefined = undefined;
+
+      // Auto-create user if college_email exists
+      if (student.college_email) {
+        try {
+          console.log(
+            `Creating user account for student ${student.id} with email ${student.college_email}`
+          );
+          const tempPassword = generateTemporaryPassword();
+          const userPayload: CreateUserRequest = {
+            email: student.college_email,
+            full_name: student.student_name,
+            password: tempPassword,
+            role: 'student', // Default role
+            phone_number: student.student_mobile || null
+          };
+
+          console.log('User payload:', JSON.stringify(userPayload, null, 2));
+
+          // Use absolute URL to ensure it works in all environments
+          const apiUrl =
+            typeof window !== 'undefined'
+              ? '/api/users'
+              : `${
+                  process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+                }/api/users`;
+
+          const userResponse = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(userPayload),
+            cache: 'no-store',
+            credentials: 'include'
+          });
+
+          const userData = await userResponse.json();
+
+          if (!userResponse.ok) {
+            // Check for 409 Conflict (User already exists)
+            if (userResponse.status === 409) {
+              console.warn(
+                `User with email ${userPayload.email} already exists. Skipping automatic creation.`
+              );
+              userCreated = true; // Consider existing user as a success for reporting
+              userError = 'User already exists';
+            } else {
+              // Handle other errors
+              const errorMessage =
+                userData.error ||
+                userData.details ||
+                userData.message ||
+                'Unknown API error';
+              console.error(
+                'Failed to automatically create user:',
+                errorMessage
+              );
+              userError = errorMessage;
+            }
+          } else {
+            console.log(
+              `Successfully created user for student ${student.id} with email ${student.college_email}`
+            );
+            userCreated = true;
+          }
+        } catch (apiError) {
+          console.error('Error calling user creation API:', apiError);
+          userError =
+            apiError instanceof Error
+              ? apiError.message
+              : 'Unknown error creating user';
+        }
+      } else {
+        console.log('No college_email provided, skipping user creation');
+      }
+
+      return {
+        student,
+        userCreated,
+        userError
+      };
+    } catch (error) {
+      console.error('Error creating student:', error);
+      toast.error('Failed to create student');
+      throw error;
+    }
   }
 }
