@@ -17,7 +17,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { DigitalReservation } from '@/types/digital-resources';
 import { use } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';

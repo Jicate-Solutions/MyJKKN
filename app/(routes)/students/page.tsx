@@ -16,7 +16,10 @@ import {
   ChevronDown,
   ChevronUp,
   CalendarIcon,
-  MoreHorizontal
+  MoreHorizontal,
+  Trash,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -69,15 +72,31 @@ import {
   PopoverContent,
   PopoverTrigger
 } from '@/components/ui/popover';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { StudentService } from '@/lib/services/student/student-service';
 import { DownloadNewStudentTemplateButton } from './_components/download-new-student-template-button';
 import { BulkCreateStudents } from './_components/bulk-create-students';
 import { ExportStudents } from './_components/export-students';
 import { usePermissions } from '@/hooks/use-permissions';
-import { CanCreate, CanView } from '@/components/auth/permission-guard';
+import {
+  CanCreate,
+  CanView,
+  CanDelete
+} from '@/components/auth/permission-guard';
+import toast from 'react-hot-toast';
 
 // Define the DateRange type
 type DateRange = {
@@ -100,6 +119,11 @@ export default function StudentsPage() {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [deleteStudentId, setDeleteStudentId] = useState<string | null>(null);
+  const [deleteStudentName, setDeleteStudentName] = useState<string>('');
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // State for institution/program filters
   const [institutions, setInstitutions] = useState<
@@ -203,6 +227,47 @@ export default function StudentsPage() {
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
+  };
+
+  // Handle refreshing the student list
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      toast.success('Student data refreshed');
+    } catch (error) {
+      toast.error('Failed to refresh data');
+      console.error('Error refreshing student data:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Handle initiating the delete process
+  const handleDeleteClick = (studentId: string, studentName: string) => {
+    setDeleteStudentId(studentId);
+    setDeleteStudentName(studentName);
+    setShowDeleteDialog(true);
+  };
+
+  // Handle the actual deletion
+  const handleConfirmDelete = async () => {
+    if (!deleteStudentId) return;
+
+    setIsDeleting(true);
+    try {
+      await StudentService.deleteStudent(deleteStudentId);
+      toast.success(`Student ${deleteStudentName} deleted successfully`);
+      refetch(); // Refresh the list after deletion
+    } catch (error) {
+      console.error('Error deleting student:', error);
+      toast.error('Failed to delete student');
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteDialog(false);
+      setDeleteStudentId(null);
+      setDeleteStudentName('');
+    }
   };
 
   // Update the filter state when page changes
@@ -506,6 +571,18 @@ export default function StudentsPage() {
                 ) : (
                   <ChevronDown className='h-4 w-4 ml-2' />
                 )}
+              </Button>
+              <Button
+                variant='outline'
+                className='md:w-auto'
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                title='Refresh student data'
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`}
+                />
+                <span className='sr-only'>Refresh</span>
               </Button>
             </div>
 
@@ -900,6 +977,24 @@ export default function StudentsPage() {
                                   </DropdownMenuItem>
 
                                   {/* Add more actions as needed with permission checks */}
+                                  <DropdownMenuSeparator />
+
+                                  <DropdownMenuItem
+                                    className='text-destructive'
+                                    onClick={() =>
+                                      handleDeleteClick(
+                                        student.id,
+                                        student.student_name
+                                      )
+                                    }
+                                    disabled={
+                                      !isSuperAdmin &&
+                                      !canAccess('students', 'delete')
+                                    }
+                                  >
+                                    <Trash className='mr-2 h-4 w-4' />
+                                    <span>Delete</span>
+                                  </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </TableCell>
@@ -1004,6 +1099,39 @@ export default function StudentsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {deleteStudentName}&apos;s record and
+              all associated data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmDelete();
+              }}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  Deleting...
+                </>
+              ) : (
+                <>Delete</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }

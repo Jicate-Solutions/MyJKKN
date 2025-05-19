@@ -8,7 +8,7 @@ import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Table,
@@ -180,15 +180,18 @@ export function BulkStudentUpdate() {
         setValidRows(valid);
 
         if (errors.length > 0) {
-          toast.warning(
-            `Validation finished with ${errors.length} error(s). Please fix them before uploading.`
+          toast(
+            `Validation finished with ${errors.length} error(s). Please fix them before uploading.`,
+            { icon: '⚠️' }
           );
         } else if (valid.length > 0) {
           toast.success(
             `Validation successful. ${valid.length} rows ready for upload.`
           );
         } else {
-          toast.info('No valid rows found to upload after validation.');
+          toast('No valid rows found to upload after validation.', {
+            icon: 'ℹ️'
+          });
         }
       } catch (error) {
         console.error('Error processing file:', error);

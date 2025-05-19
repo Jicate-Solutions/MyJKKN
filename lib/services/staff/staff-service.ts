@@ -3,7 +3,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { Staff, StaffFilters, StaffListResponse } from '@/types/staff';
 import { CreateUserRequest } from '@/types/users';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 // Helper function to generate a random password
 function generateTemporaryPassword(length = 12): string {
@@ -139,9 +139,7 @@ export class StaffService {
               console.warn(
                 `User with email ${userPayload.email} already exists. Skipping automatic creation.`
               );
-              toast.info(
-                `User account for ${userPayload.email} already exists`
-              );
+              toast(`User account for ${userPayload.email} already exists`);
             } else {
               // Handle other errors
               console.error(

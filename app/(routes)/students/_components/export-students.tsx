@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Download, FileSpreadsheet } from 'lucide-react';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
