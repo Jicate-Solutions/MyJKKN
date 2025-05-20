@@ -138,6 +138,9 @@ export function EntityForm({ onSuccess, defaultValues }: EntityFormProps) {
 - Implement proper form control behavior.
 - Provide clear validation feedback.
 
+### Dropdown Behavior
+- Display a "No data available" or similar message within the dropdown list/panel when there are no options to show. This applies when the data list for the dropdown is empty.
+
 ## Form Performance
 - Optimize form re-renders with proper field registration.
 - Use controlled components only when necessary.

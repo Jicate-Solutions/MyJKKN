@@ -1,7 +1,7 @@
 ---
 description: 
-globs: app/api/**/*.ts, lib/services/**/*.ts, lib/supabase/**/*.ts
-alwaysApply: false
+globs: 
+alwaysApply: true
 ---
 ---
 description: Rules for Supabase and API integration
