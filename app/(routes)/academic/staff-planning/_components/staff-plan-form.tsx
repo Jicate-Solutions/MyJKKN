@@ -472,11 +472,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
+                        {institutions.length === 0 ? (
+                          <div className='p-2 text-center text-sm text-muted-foreground'>
+                            No institutions available
+                          </div>
+                        ) : (
+                          institutions.map((inst) => (
+                            <SelectItem key={inst.id} value={inst.id}>
+                              {inst.name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -506,11 +512,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
-                        {degrees.map((degree) => (
-                          <SelectItem key={degree.id} value={degree.id}>
-                            {degree.degree_name}
-                          </SelectItem>
-                        ))}
+                        {degrees.length === 0 ? (
+                          <div className='p-2 text-center text-sm text-muted-foreground'>
+                            No degrees available
+                          </div>
+                        ) : (
+                          degrees.map((degree) => (
+                            <SelectItem key={degree.id} value={degree.id}>
+                              {degree.degree_name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -539,11 +551,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
-                        {departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.id}>
-                            {dept.department_name}
-                          </SelectItem>
-                        ))}
+                        {departments.length === 0 ? (
+                          <div className='p-2 text-center text-sm text-muted-foreground'>
+                            No departments available
+                          </div>
+                        ) : (
+                          departments.map((dept) => (
+                            <SelectItem key={dept.id} value={dept.id}>
+                              {dept.department_name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -571,11 +589,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
-                        {programs.map((program) => (
-                          <SelectItem key={program.id} value={program.id}>
-                            {program.program_name}
-                          </SelectItem>
-                        ))}
+                        {programs.length === 0 ? (
+                          <div className='p-2 text-center text-sm text-muted-foreground'>
+                            No programs available
+                          </div>
+                        ) : (
+                          programs.map((program) => (
+                            <SelectItem key={program.id} value={program.id}>
+                              {program.program_name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -600,11 +624,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
-                        {semesters.map((semester) => (
-                          <SelectItem key={semester.id} value={semester.id}>
-                            {semester.semester_name}
-                          </SelectItem>
-                        ))}
+                        {semesters.length === 0 ? (
+                          <div className='p-2 text-center text-sm text-muted-foreground'>
+                            No semesters available
+                          </div>
+                        ) : (
+                          semesters.map((semester) => (
+                            <SelectItem key={semester.id} value={semester.id}>
+                              {semester.semester_name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -629,11 +659,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
-                        {sections.map((section) => (
-                          <SelectItem key={section.id} value={section.id}>
-                            {section.section_name}
-                          </SelectItem>
-                        ))}
+                        {sections.length === 0 ? (
+                          <div className='p-2 text-center text-sm text-muted-foreground'>
+                            No sections available
+                          </div>
+                        ) : (
+                          sections.map((section) => (
+                            <SelectItem key={section.id} value={section.id}>
+                              {section.section_name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -654,11 +690,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
-                        {academicYears.map((year) => (
-                          <SelectItem key={year.id} value={year.id}>
-                            {year.academic_year_name}
-                          </SelectItem>
-                        ))}
+                        {academicYears.length === 0 ? (
+                          <div className='p-2 text-center text-sm text-muted-foreground'>
+                            No academic years available
+                          </div>
+                        ) : (
+                          academicYears.map((year) => (
+                            <SelectItem key={year.id} value={year.id}>
+                              {year.academic_year_name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -746,11 +788,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent className='max-h-60 overflow-y-auto'>
-                              {courses.map((course) => (
-                                <SelectItem key={course.id} value={course.id}>
-                                  {course.course_name}
-                                </SelectItem>
-                              ))}
+                              {courses.length === 0 ? (
+                                <div className='p-2 text-center text-sm text-muted-foreground'>
+                                  No courses available
+                                </div>
+                              ) : (
+                                courses.map((course) => (
+                                  <SelectItem key={course.id} value={course.id}>
+                                    {course.course_name}
+                                  </SelectItem>
+                                ))
+                              )}
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -774,11 +822,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent className='max-h-60 overflow-y-auto'>
-                              {staffMembers.map((staff) => (
-                                <SelectItem key={staff.id} value={staff.id}>
-                                  {staff.first_name} {staff.last_name}
-                                </SelectItem>
-                              ))}
+                              {staffMembers.length === 0 ? (
+                                <div className='p-2 text-center text-sm text-muted-foreground'>
+                                  No staff members available
+                                </div>
+                              ) : (
+                                staffMembers.map((staff) => (
+                                  <SelectItem key={staff.id} value={staff.id}>
+                                    {staff.first_name} {staff.last_name}
+                                  </SelectItem>
+                                ))
+                              )}
                             </SelectContent>
                           </Select>
                           <FormMessage />

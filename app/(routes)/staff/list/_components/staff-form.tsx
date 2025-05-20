@@ -176,27 +176,54 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     } catch (error) {
       console.error('Form submission error:', error);
 
-      // Check for duplicate staff ID error
+      // Extract the error message
       const errorMessage =
         error instanceof Error ? error.message : 'Failed to save staff';
 
-      // Check for specific staff_staff_id_key error
+      // Handle specific validation errors
       if (
-        errorMessage === 'staff_staff_id_key' ||
-        errorMessage.includes('staff_staff_id_key')
+        errorMessage.includes('staff_staff_id_key') ||
+        (errorMessage.includes('duplicate key') &&
+          errorMessage.includes('staff_id'))
       ) {
         toast.error('Staff ID already exists. Please use a different ID.');
       }
-      // Other duplicate/constraint errors
+      // Check for other common validation patterns
       else if (
-        errorMessage.toLowerCase().includes('staff_id') &&
-        (errorMessage.toLowerCase().includes('already exists') ||
-          errorMessage.toLowerCase().includes('duplicate') ||
-          errorMessage.toLowerCase().includes('unique constraint'))
+        errorMessage.toLowerCase().includes('unique constraint') ||
+        errorMessage.toLowerCase().includes('duplicate key')
       ) {
-        toast.error('Staff ID already exists. Please use a different ID.');
-      } else {
-        toast.error(errorMessage);
+        // Try to extract the field name from the error
+        const fieldMatch = errorMessage.match(/\((.*?)\)/);
+        if (fieldMatch && fieldMatch[1]) {
+          const field = fieldMatch[1].replace(/_/g, ' ');
+          toast.error(`A record with this ${field} already exists.`);
+        } else {
+          toast.error('A record with this information already exists.');
+        }
+      }
+      // Backend validation errors (non-DB constraint related)
+      else if (errorMessage.toLowerCase().includes('validation')) {
+        toast.error(`Validation error: ${errorMessage}`);
+      }
+      // Generic database errors
+      else if (
+        errorMessage.toLowerCase().includes('database') ||
+        errorMessage.toLowerCase().includes('db error')
+      ) {
+        toast.error('Database error occurred. Please try again later.');
+      }
+      // Other specific errors related to staff
+      else if (
+        errorMessage.toLowerCase().includes('email') &&
+        (errorMessage.toLowerCase().includes('invalid') ||
+          errorMessage.toLowerCase().includes('already exists'))
+      ) {
+        toast.error('Invalid or duplicate email address.');
+      }
+      // Fallback error message
+      else {
+        toast.error(`Failed to save staff: ${errorMessage}`);
       }
     } finally {
       setIsSubmitting(false);
@@ -311,7 +338,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                 <FormItem>
                   <FormLabel>Phone</FormLabel>
                   <FormControl>
-                    <Input placeholder='Enter phone number' {...field} />
+                    <Input
+                      placeholder='Enter phone number'
+                      type='number'
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -367,7 +398,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                 <FormItem>
                   <FormLabel>PIN Code</FormLabel>
                   <FormControl>
-                    <Input placeholder='Enter PIN code' {...field} />
+                    <Input
+                      placeholder='Enter PIN code'
+                      type='number'
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
