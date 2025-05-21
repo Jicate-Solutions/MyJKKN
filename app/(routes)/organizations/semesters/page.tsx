@@ -100,9 +100,9 @@ export default function SemestersPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {isSuperAdmin && <DownloadSemesterTemplateButton />}
+            {canEditSemesters && <DownloadSemesterTemplateButton />}
             {isSuperAdmin && <ExportSemesters />}
-            {isSuperAdmin && <BulkUploadSemesters />}
+            {canEditSemesters && <BulkUploadSemesters />}
             {canCreateSemesters ? (
               <Button className='w-full sm:w-auto' asChild>
                 <Link href='/organizations/semesters/new'>

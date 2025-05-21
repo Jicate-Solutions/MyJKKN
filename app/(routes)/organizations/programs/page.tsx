@@ -101,9 +101,9 @@ export default function ProgramsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {isSuperAdmin && <DownloadProgramTemplateButton />}
+            {canEditPrograms && <DownloadProgramTemplateButton />}
             {isSuperAdmin && <ExportPrograms />}
-            {isSuperAdmin && <BulkUploadPrograms />}
+            {canEditPrograms && <BulkUploadPrograms />}
             {canCreatePrograms ? (
               <Button className='w-full sm:w-auto' asChild>
                 <Link href='/organizations/programs/new'>

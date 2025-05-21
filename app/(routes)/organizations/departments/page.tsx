@@ -99,9 +99,9 @@ export default function DepartmentsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {canViewDepartments && <DownloadDepartmentTemplateButton />}
-            {canViewDepartments && <ExportDepartments />}
-            {canCreateDepartments && <BulkUploadDepartments />}
+            {canEditDepartments && <DownloadDepartmentTemplateButton />}
+            {isSuperAdmin && <ExportDepartments />}
+            {canEditDepartments && <BulkUploadDepartments />}
             {canCreateDepartments ? (
               <Button className='w-full sm:w-auto' asChild>
                 <Link href='/organizations/departments/new'>

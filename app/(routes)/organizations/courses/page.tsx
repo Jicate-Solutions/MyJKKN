@@ -100,9 +100,9 @@ export default function CoursesPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {isSuperAdmin && <DownloadCourseTemplateButton />}
+            {canEditCourses && <DownloadCourseTemplateButton />}
             {isSuperAdmin && <ExportCourses />}
-            {isSuperAdmin && <BulkUploadCourses />}
+            {canEditCourses && <BulkUploadCourses />}
             {canCreateCourses ? (
               <Button className='w-full sm:w-auto' asChild>
                 <Link href='/organizations/courses/new'>
