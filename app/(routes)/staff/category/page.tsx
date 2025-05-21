@@ -151,8 +151,8 @@ export default function CategoriesPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {isSuperAdmin && <DownloadCategoryTemplateButton />}
-            {isSuperAdmin && <BulkUploadCategories />}
+            {canEditCategories && <DownloadCategoryTemplateButton />}
+            {canEditCategories && <BulkUploadCategories />}
             {canCreateCategories ? (
               <Button className='w-full sm:w-auto' asChild>
                 <Link href='/staff/category/new'>

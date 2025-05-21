@@ -129,9 +129,9 @@ export default function StaffPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {isSuperAdmin && <DownloadStaffTemplateButton />}
+            {canEditStaff && <DownloadStaffTemplateButton />}
             {isSuperAdmin && <ExportStaff />}
-            {isSuperAdmin && <BulkUploadStaff />}
+            {canEditStaff && <BulkUploadStaff />}
             {canCreateStaff ? (
               <Button className='w-full sm:w-auto' asChild>
                 <Link href='/staff/list/new'>
