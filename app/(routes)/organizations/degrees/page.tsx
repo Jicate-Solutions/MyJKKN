@@ -99,9 +99,9 @@ export default function DegreesPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {isSuperAdmin && <DownloadDegreeTemplateButton />}
+            {canEditDegrees && <DownloadDegreeTemplateButton />}
             {isSuperAdmin && <ExportDegrees />}
-            {isSuperAdmin && <BulkUploadDegrees />}
+            {canEditDegrees && <BulkUploadDegrees />}
             {canCreateDegrees ? (
               <Button className='w-full sm:w-auto' asChild>
                 <Link href='/organizations/degrees/new'>

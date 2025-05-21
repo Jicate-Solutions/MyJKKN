@@ -98,9 +98,9 @@ export default function InstitutionsPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {isSuperAdmin && <DownloadTemplateButton />}
+            {canEditInstitutions && <DownloadTemplateButton />}
             {isSuperAdmin && <ExportInstitutions />}
-            {isSuperAdmin && <BulkUploadInstitutions />}
+            {canEditInstitutions && <BulkUploadInstitutions />}
             {canCreateInstitutions ? (
               <Button className='w-full sm:w-auto' asChild>
                 <Link href='/organizations/institutions/new'>
