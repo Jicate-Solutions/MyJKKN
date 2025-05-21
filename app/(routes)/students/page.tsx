@@ -507,9 +507,7 @@ export default function StudentsPage() {
             <CanCreate module='students' fallback={null}>
               <DownloadNewStudentTemplateButton />
             </CanCreate>
-            <CanView module='students' fallback={null}>
-              <ExportStudents />
-            </CanView>
+            {isSuperAdmin && <ExportStudents />}
             <CanCreate module='students' fallback={null}>
               <BulkCreateStudents />
             </CanCreate>
