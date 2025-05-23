@@ -16,7 +16,7 @@ import {
   DEPARTMENTS,
   GENDERS,
   ROLE_LABELS
-} from '@/lib/constants/profile';
+} from '@/lib/constants/permissions';
 import { Button } from '@/components/ui/button';
 import { AvatarUpload } from './avatar-upload';
 import {

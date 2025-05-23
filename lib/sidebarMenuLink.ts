@@ -147,7 +147,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/digital-resources': 'digital_resources.view',
 
   // System Management
-  '/system/api-management': 'system.api.view'
+  '/system/api-management': 'system.api.view',
+
+  // Billing Management
+  '/billing/categories': 'billing.categories.view',
+  '/billing/categories/parent-categories': 'billing.parent_categories.view',
+  '/billing/categories/parent-categories/new':
+    'billing.parent_categories.create',
+  '/billing/categories/parent-categories/[id]/edit':
+    'billing.parent_categories.edit',
+  '/billing/categories/sub-categories': 'billing.sub_categories.view',
+  '/billing/categories/sub-categories/new': 'billing.sub_categories.create',
+  '/billing/categories/sub-categories/[id]/edit': 'billing.sub_categories.edit'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -487,6 +498,29 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/resources/digital-resources/reports',
               label: 'Usage Reports',
               active: pathname === '/resources/digital-resources/reports'
+            }
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Billing Management',
+      menus: [
+        {
+          href: '',
+          label: 'Categories',
+          active: pathname === '',
+          icon: FolderTree,
+          submenus: [
+            {
+              href: '/billing/categories/parent-categories',
+              label: 'All Parent Categories',
+              active: pathname === '/billing/categories/parent-categories'
+            },
+            {
+              href: '/billing/categories/sub-categories',
+              label: 'All Sub Categories',
+              active: pathname === '/billing/categories/sub-categories'
             }
           ]
         }

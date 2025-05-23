@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Profile } from '@/types/auth';
 import { Shield, AlertCircle, ChevronRight, ChevronLeft } from 'lucide-react';
-import { ROLE_LABELS } from '@/lib/constants/profile';
+import { ROLE_LABELS } from '@/lib/constants/permissions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Select,

@@ -33,7 +33,7 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
-import { INSTITUTIONS, DEPARTMENTS } from '@/lib/constants/profile';
+import { INSTITUTIONS, DEPARTMENTS } from '@/lib/constants/permissions';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 const completeProfileSchema = z.object({

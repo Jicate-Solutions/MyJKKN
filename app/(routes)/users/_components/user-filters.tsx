@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { INSTITUTIONS, ROLE_LABELS } from '@/lib/constants/profile';
+import { INSTITUTIONS, ROLE_LABELS } from '@/lib/constants/permissions';
 import { UserFilters } from '@/types/users';
 import { useDebounce } from '@/hooks/use-debounce';
 

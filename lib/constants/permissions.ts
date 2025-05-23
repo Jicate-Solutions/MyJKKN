@@ -372,5 +372,31 @@ export const PERMISSION_CATEGORIES = [
       { key: 'system.api.edit', label: 'Edit API' },
       { key: 'system.api.delete', label: 'Delete API' }
     ]
+  },
+  {
+    name: 'Billing Management',
+    key: 'billing',
+    permissions: [
+      {
+        key: 'billing.parent_categories.view',
+        label: 'View Parent Categories'
+      },
+      {
+        key: 'billing.parent_categories.create',
+        label: 'Create Parent Categories'
+      },
+      {
+        key: 'billing.parent_categories.edit',
+        label: 'Edit Parent Categories'
+      },
+      {
+        key: 'billing.parent_categories.delete',
+        label: 'Delete Parent Categories'
+      },
+      { key: 'billing.sub_categories.view', label: 'View Sub Categories' },
+      { key: 'billing.sub_categories.create', label: 'Create Sub Categories' },
+      { key: 'billing.sub_categories.edit', label: 'Edit Sub Categories' },
+      { key: 'billing.sub_categories.delete', label: 'Delete Sub Categories' }
+    ]
   }
 ];

@@ -14,7 +14,7 @@ import {
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ProfileForm } from './_components/profile-form';
 import { useAuth } from '@/providers/auth-provider';
-import { INSTITUTIONS, ROLE_LABELS } from '@/lib/constants/profile';
+import { INSTITUTIONS, ROLE_LABELS } from '@/lib/constants/permissions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';

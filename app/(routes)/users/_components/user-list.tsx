@@ -22,7 +22,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { Profile } from '@/types/auth';
 import { UserService } from '@/lib/services/users/user-service';
-import { ROLE_LABELS, INSTITUTIONS } from '@/lib/constants/profile';
+import { ROLE_LABELS, INSTITUTIONS } from '@/lib/constants/permissions';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

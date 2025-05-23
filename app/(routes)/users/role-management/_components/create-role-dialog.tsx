@@ -28,7 +28,7 @@ import * as z from 'zod';
 import {
   PERMISSION_CATEGORIES,
   DEFAULT_ROLE_PERMISSIONS
-} from '@/lib/constants/profile';
+} from '@/lib/constants/permissions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Accordion,

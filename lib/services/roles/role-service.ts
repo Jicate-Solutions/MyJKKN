@@ -6,7 +6,7 @@ import {
   SYSTEM_ROLES
 } from '@/types/auth';
 import { toast } from 'react-hot-toast';
-import { DEFAULT_ROLE_PERMISSIONS } from '@/lib/constants/profile';
+import { DEFAULT_ROLE_PERMISSIONS } from '@/lib/constants/permissions';
 
 export class RoleService {
   private static supabase = createClientSupabaseClient();

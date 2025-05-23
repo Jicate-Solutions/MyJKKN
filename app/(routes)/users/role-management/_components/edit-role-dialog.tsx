@@ -26,7 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
-import { PERMISSION_CATEGORIES } from '@/lib/constants/profile';
+import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import { toast } from 'react-hot-toast';
