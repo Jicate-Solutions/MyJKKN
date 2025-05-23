@@ -97,3 +97,72 @@ export interface BillingSubCategoryListResponse {
     totalPages: number;
   };
 }
+
+// Billing Item Category Types
+export interface BillingItemCategory {
+  id: string;
+  institution_id: string;
+  parent_category_id: string;
+  sub_category_id: string;
+  item_category_name: string;
+  amount?: number | null;
+  frequency: 'monthly' | 'quarterly' | 'yearly' | 'one-time';
+  effective_from?: string | null;
+  effective_to?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  parent_category?: {
+    id: string;
+    parent_category_name: string;
+  };
+  sub_category?: {
+    id: string;
+    sub_category_name: string;
+  };
+}
+
+export interface CreateBillingItemCategoryDto {
+  institution_id: string;
+  parent_category_id: string;
+  sub_category_id: string;
+  item_category_name: string;
+  amount?: number | null;
+  frequency: 'monthly' | 'quarterly' | 'yearly' | 'one-time';
+  effective_from?: string | null;
+  effective_to?: string | null;
+  is_active?: boolean;
+}
+
+export interface UpdateBillingItemCategoryDto
+  extends Partial<CreateBillingItemCategoryDto> {}
+
+export interface BillingItemCategoryFilters {
+  search?: string;
+  institution_id?: string;
+  parent_category_id?: string;
+  sub_category_id?: string;
+  frequency?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface BillingItemCategoryListResponse {
+  data: BillingItemCategory[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}

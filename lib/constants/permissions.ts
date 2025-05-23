@@ -396,7 +396,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.sub_categories.view', label: 'View Sub Categories' },
       { key: 'billing.sub_categories.create', label: 'Create Sub Categories' },
       { key: 'billing.sub_categories.edit', label: 'Edit Sub Categories' },
-      { key: 'billing.sub_categories.delete', label: 'Delete Sub Categories' }
+      { key: 'billing.sub_categories.delete', label: 'Delete Sub Categories' },
+      { key: 'billing.item_categories.view', label: 'View Item Categories' },
+      {
+        key: 'billing.item_categories.create',
+        label: 'Create Item Categories'
+      },
+      { key: 'billing.item_categories.edit', label: 'Edit Item Categories' },
+      { key: 'billing.item_categories.delete', label: 'Delete Item Categories' }
     ]
   }
 ];

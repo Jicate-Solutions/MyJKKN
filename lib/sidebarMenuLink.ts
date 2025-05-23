@@ -150,7 +150,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/system/api-management': 'system.api.view',
 
   // Billing Management
-  '/billing/categories': 'billing.categories.view',
   '/billing/categories/parent-categories': 'billing.parent_categories.view',
   '/billing/categories/parent-categories/new':
     'billing.parent_categories.create',
@@ -158,7 +157,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
     'billing.parent_categories.edit',
   '/billing/categories/sub-categories': 'billing.sub_categories.view',
   '/billing/categories/sub-categories/new': 'billing.sub_categories.create',
-  '/billing/categories/sub-categories/[id]/edit': 'billing.sub_categories.edit'
+  '/billing/categories/sub-categories/[id]/edit': 'billing.sub_categories.edit',
+  '/billing/categories/item-categories': 'billing.item_categories.view',
+  '/billing/categories/item-categories/new': 'billing.item_categories.create',
+  '/billing/categories/item-categories/[id]/edit':
+    'billing.item_categories.edit'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -507,9 +510,9 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Billing Management',
       menus: [
         {
-          href: '',
+          href: '/billing/categories',
           label: 'Categories',
-          active: pathname === '',
+          active: pathname.startsWith('/billing/categories'),
           icon: FolderTree,
           submenus: [
             {
@@ -521,6 +524,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/billing/categories/sub-categories',
               label: 'All Sub Categories',
               active: pathname === '/billing/categories/sub-categories'
+            },
+            {
+              href: '/billing/categories/item-categories',
+              label: 'All Item Categories',
+              active: pathname === '/billing/categories/item-categories'
             }
           ]
         }
