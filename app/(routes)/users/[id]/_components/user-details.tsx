@@ -2,7 +2,7 @@
 
 import { format } from 'date-fns';
 import { Profile } from '@/types/auth';
-import { ROLE_LABELS, INSTITUTIONS } from '@/lib/constants/profile';
+import { ROLE_LABELS, INSTITUTIONS } from '@/lib/constants/permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';

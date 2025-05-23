@@ -19,7 +19,7 @@ import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import {
   PERMISSION_CATEGORIES,
   DEFAULT_ROLE_PERMISSIONS
-} from '@/lib/constants/profile';
+} from '@/lib/constants/permissions';
 import { ChevronRight, Check, Info, RotateCcw } from 'lucide-react';
 import {
   Tooltip,

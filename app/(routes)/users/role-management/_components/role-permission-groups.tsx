@@ -16,7 +16,7 @@ import {
   CardContent
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { PERMISSION_GROUPS } from '@/lib/constants/profile';
+import { PERMISSION_GROUPS } from '@/lib/constants/permissions';
 import { CheckCircle2, Info } from 'lucide-react';
 import {
   Tooltip,
