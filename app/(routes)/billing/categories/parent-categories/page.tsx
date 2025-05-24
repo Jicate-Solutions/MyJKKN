@@ -25,7 +25,11 @@ export default function BillingParentCategoriesPage() {
     fetchCategories
   } = useBillingParentCategories();
 
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
 
   const canViewCategories =
     isSuperAdmin || canAccess('billing.parent_categories', 'view');
@@ -35,6 +39,29 @@ export default function BillingParentCategoriesPage() {
   useEffect(() => {
     fetchCategories();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Billing Parent Categories'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (!canViewCategories) {
+    return (
+      <ContentLayout title='Billing Parent Categories'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to view billing parent categories.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (error) {
     return (

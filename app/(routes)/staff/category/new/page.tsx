@@ -55,7 +55,6 @@ export default function NewCategoryPage() {
       <ContentLayout title='New Category'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' className='mr-2' />
-          <span>Loading permissions...</span>
         </div>
       </ContentLayout>
     );

@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import toast from 'react-hot-toast';
+import { BeatLoader } from 'react-spinners';
 
 interface PagePermissionToggleProps {
   permissions: Record<string, boolean>;
@@ -416,7 +417,7 @@ export function PagePermissionToggle({
   if (pages.length === 0) {
     return (
       <div className='p-4 text-center text-muted-foreground'>
-        Loading permissions...
+        <BeatLoader color='#00e902' size={10} />
       </div>
     );
   }

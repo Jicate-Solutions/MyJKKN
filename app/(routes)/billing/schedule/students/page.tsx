@@ -10,9 +10,9 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
 import { StudentSearchFilters } from './_components/student-search-filters';
-import { StudentListForBilling } from './_components/student-list-for-billing';
 import { useStudentsForBilling } from '@/hooks/billing/use-student-search';
 import type { StudentSearchFilters as StudentSearchFiltersType } from '@/types/billing-schedule';
+import { StudentListForBilling } from './_components/student-list-for-billing';
 
 export default function BillingStudentsPage() {
   const [filters, setFilters] = useState<StudentSearchFiltersType>({
@@ -27,7 +27,11 @@ export default function BillingStudentsPage() {
     refetch
   } = useStudentsForBilling(filters);
 
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
 
   const canViewStudents = isSuperAdmin || canAccess('billing.schedule', 'view');
 
@@ -49,6 +53,17 @@ export default function BillingStudentsPage() {
     // TODO: Implement export functionality
     console.log('Export students list');
   };
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Student Billing Search'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (!canViewStudents) {
     return (

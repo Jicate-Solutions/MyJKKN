@@ -57,7 +57,6 @@ export default function NewAdmissionPage() {
       <ContentLayout title='Add New Admission'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
-          <span className='ml-2'>Loading permissions...</span>
         </div>
       </ContentLayout>
     );

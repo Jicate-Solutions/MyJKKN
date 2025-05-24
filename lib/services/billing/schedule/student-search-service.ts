@@ -214,7 +214,6 @@ export class StudentSearchService {
               sub_category_name
             )
           ),
-          discounts:billing_discounts(*),
           receipt_items:billing_receipt_items(
             *,
             receipt:billing_receipts(*)
@@ -254,12 +253,7 @@ export class StudentSearchService {
             .select(
               `
             *,
-            bill:billing_student_bills(*),
-            authorizer:staff(
-              id,
-              first_name,
-              last_name
-            )
+            bill:billing_student_bills(*)
           `
             )
             .in('bill_id', billIds)
@@ -278,12 +272,7 @@ export class StudentSearchService {
           .select(
             `
             *,
-            receipt:billing_receipts(*),
-            authorizer:staff(
-              id,
-              first_name,
-              last_name
-            )
+            receipt:billing_receipts(*)
           `
           )
           .in('receipt_id', receiptIds)

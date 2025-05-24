@@ -29,12 +29,14 @@ export default function BillingSchedulePage() {
     error,
     refetch
   } = useStudentBills(filters);
-  const { canAccess, isSuperAdmin } = usePermissions();
-
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
   const canViewBills = isSuperAdmin || canAccess('billing.schedule', 'view');
   const canCreateBills =
     isSuperAdmin || canAccess('billing.schedule', 'create');
-
   const handleFilterChange = (newFilters: Partial<StudentBillFiltersType>) => {
     setFilters((prev) => ({
       ...prev,
@@ -42,22 +44,9 @@ export default function BillingSchedulePage() {
       page: newFilters.page || 1
     }));
   };
-
   const handlePageChange = (page: number) => {
     setFilters((prev) => ({ ...prev, page }));
-  };
-
-  if (!canViewBills) {
-    return (
-      <ContentLayout title='Billing Schedule'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>
-            You don&apos;t have permission to view billing schedules.
-          </p>
-        </div>
-      </ContentLayout>
-    );
-  }
+  }; // Show loading state while permissions are loading  if (permissionsLoading) {    return (      <ContentLayout title='Billing Schedule'>        <div className='flex items-center justify-center min-h-[400px]'>          <BeatLoader color='#00e902' />          <span className='ml-2'>Loading permissions...</span>        </div>      </ContentLayout>    );  }  if (!canViewBills) {    return (      <ContentLayout title='Billing Schedule'>        <div className='text-center py-8'>          <p className='text-destructive'>            You don&apos;t have permission to view billing schedules.          </p>        </div>      </ContentLayout>    );  }
 
   if (error) {
     return (

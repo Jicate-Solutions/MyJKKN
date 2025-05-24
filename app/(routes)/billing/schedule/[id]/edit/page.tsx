@@ -15,9 +15,24 @@ export default function EditStudentBillPage() {
   const billId = params.id as string;
 
   const { data: bill, isLoading, error } = useStudentBill(billId);
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
 
   const canEditBills = isSuperAdmin || canAccess('billing.schedule', 'update');
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Edit Student Bill'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (!canEditBills) {
     return (
