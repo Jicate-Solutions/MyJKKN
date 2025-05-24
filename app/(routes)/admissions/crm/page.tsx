@@ -66,7 +66,6 @@ export default function CrmPage() {
       <ContentLayout title='CRM'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
-          <span className='ml-2'>Loading permissions...</span>
         </div>
       </ContentLayout>
     );

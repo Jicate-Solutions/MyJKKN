@@ -86,11 +86,6 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
       <ContentLayout title='Edit Category'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' className='mr-2' />
-          <span>
-            {permissionsLoading
-              ? 'Loading permissions...'
-              : 'Loading category details...'}
-          </span>
         </div>
       </ContentLayout>
     );
