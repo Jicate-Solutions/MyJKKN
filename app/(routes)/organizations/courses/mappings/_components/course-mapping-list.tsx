@@ -62,13 +62,13 @@ export function CourseMappingList({
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewCourseMappings =
-    isSuperAdmin || canAccess('organizations.course_mappings', 'view');
+    isSuperAdmin || canAccess('organizations.course.mappings', 'view');
   const canViewCourses =
     isSuperAdmin || canAccess('organizations.courses', 'view');
   const canEditCourseMappings =
-    isSuperAdmin || canAccess('organizations.course_mappings', 'edit');
+    isSuperAdmin || canAccess('organizations.course.mappings', 'edit');
   const canDeleteCourseMappings =
-    isSuperAdmin || canAccess('organizations.course_mappings', 'delete');
+    isSuperAdmin || canAccess('organizations.course.mappings', 'delete');
 
   const handleDelete = async () => {
     if (!mappingToDelete) return;

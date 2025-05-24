@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { BillingParentCategoryForm } from '@/components/forms/billing/billing-parent-category-form';
+import { BillingParentCategoryForm } from '@/app/(routes)/billing/categories/parent-categories/_components/billing-parent-category-form';
 import { BillingParentCategoryService } from '@/lib/services/billing/categories/billing-parent-category-service';
 import { BeatLoader } from 'react-spinners';
 import { Button } from '@/components/ui/button';

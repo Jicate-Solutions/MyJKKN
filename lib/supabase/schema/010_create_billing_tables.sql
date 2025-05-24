@@ -168,8 +168,6 @@ CREATE TABLE IF NOT EXISTS public.billing_item_categories (
   item_category_name VARCHAR(150) NOT NULL,
   amount DECIMAL(10,2),
   frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('monthly', 'quarterly', 'yearly', 'one-time')),
-  effective_from DATE,
-  effective_to DATE,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -194,9 +192,7 @@ CREATE TABLE IF NOT EXISTS public.billing_item_categories (
     
   -- Check constraints
   CONSTRAINT chk_billing_item_categories_amount_positive 
-    CHECK (amount IS NULL OR amount > 0),
-  CONSTRAINT chk_billing_item_categories_dates 
-    CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to > effective_from)
+    CHECK (amount IS NULL OR amount > 0)
 );
 
 -- Create indexes for better performance
@@ -215,8 +211,6 @@ CREATE INDEX IF NOT EXISTS idx_billing_item_categories_is_active
 CREATE INDEX IF NOT EXISTS idx_billing_item_categories_frequency 
   ON public.billing_item_categories(frequency);
 
-CREATE INDEX IF NOT EXISTS idx_billing_item_categories_effective_dates 
-  ON public.billing_item_categories(effective_from, effective_to);
 
 -- Create trigger for updated_at timestamp
 CREATE OR REPLACE FUNCTION update_billing_item_categories_updated_at()

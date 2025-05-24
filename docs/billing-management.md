@@ -85,8 +85,6 @@ Define specific billable items with amounts and frequencies for actual fee colle
 
 ### Validations
 
-- Effective From Date cannot be past date
-- Effective To Date must be greater than Effective From Date
 - Amount must be positive number if provided
 
 ---

@@ -207,10 +207,16 @@ export default function StudentsPage() {
 
   // Redirect if no access permission
   useEffect(() => {
-    // Add a guard to prevent redirects while we're testing
+    // Skip permission check while permissions are still loading
+    if (!permissions || Object.keys(permissions).length === 0) {
+      return;
+    }
+
     const shouldRedirect = !isSuperAdmin && !canAccess('students', 'view');
 
     if (shouldRedirect) {
+      console.log('Access denied for students page');
+      router.push('/unauthorized');
     } else {
       console.log('Permission check passed! User can access students page');
     }

@@ -193,19 +193,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'organizations.courses.edit', label: 'Edit Courses' },
       { key: 'organizations.courses.delete', label: 'Delete Courses' },
       {
-        key: 'organizations.course_mappings.view',
+        key: 'organizations.course.mappings.view',
         label: 'View Course Mappings'
       },
       {
-        key: 'organizations.course_mappings.create',
+        key: 'organizations.course.mappings.create',
         label: 'Create Course Mappings'
       },
       {
-        key: 'organizations.course_mappings.edit',
+        key: 'organizations.course.mappings.edit',
         label: 'Edit Course Mappings'
       },
       {
-        key: 'organizations.course_mappings.delete',
+        key: 'organizations.course.mappings.delete',
         label: 'Delete Course Mappings'
       },
       { key: 'organizations.semesters.view', label: 'View Semesters' },
@@ -223,9 +223,13 @@ export const PERMISSION_CATEGORIES = [
     key: 'students',
     permissions: [
       { key: 'students.view', label: 'View Students' },
+      { key: 'students.create', label: 'Create Students' },
       { key: 'students.edit', label: 'Edit Students' },
-      { key: 'students.onboarding.view', label: 'View onboarding' },
-      { key: 'students.onboarding.edit', label: 'Edit onboarding' }
+      { key: 'students.delete', label: 'Delete Students' },
+      { key: 'students.onboarding.view', label: 'View Student Onboarding' },
+      { key: 'students.onboarding.edit', label: 'Edit Student Onboarding' },
+      { key: 'students.promotion.view', label: 'View Student Promotion' },
+      { key: 'students.promotion.edit', label: 'Edit Student Promotion' }
     ]
   },
   {
@@ -403,7 +407,14 @@ export const PERMISSION_CATEGORIES = [
         label: 'Create Item Categories'
       },
       { key: 'billing.item_categories.edit', label: 'Edit Item Categories' },
-      { key: 'billing.item_categories.delete', label: 'Delete Item Categories' }
+      {
+        key: 'billing.item_categories.delete',
+        label: 'Delete Item Categories'
+      },
+      { key: 'billing.schedule.view', label: 'View Schedule' },
+      { key: 'billing.schedule.create', label: 'Create Schedule' },
+      { key: 'billing.schedule.update', label: 'Update Schedule' },
+      { key: 'billing.schedule.delete', label: 'Delete Schedule' }
     ]
   }
 ];

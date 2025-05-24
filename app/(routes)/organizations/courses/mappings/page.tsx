@@ -35,11 +35,11 @@ export default function CourseMappingsPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewCourseMappings =
-    isSuperAdmin || canAccess('organizations.course_mappings', 'view');
+    isSuperAdmin || canAccess('organizations.course.mappings', 'view');
   const canCreateCourseMappings =
-    isSuperAdmin || canAccess('organizations.course_mappings', 'create');
+    isSuperAdmin || canAccess('organizations.course.mappings', 'create');
   const canEditCourseMappings =
-    isSuperAdmin || canAccess('organizations.course_mappings', 'edit');
+    isSuperAdmin || canAccess('organizations.course.mappings', 'edit');
 
   useEffect(() => {
     // Only fetch course mappings if user has permission

@@ -98,15 +98,21 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/courses': 'organizations.courses.view',
   '/organizations/semesters': 'organizations.semesters.view',
   '/organizations/sections': 'organizations.sections.view',
-  '/organizations/course-mappings': 'organizations.course_mappings.view',
   '/organizations/courses/new': 'organizations.courses.create',
-  '/organizations/courses/mappings': 'organizations.course_mappings.view',
+  '/organizations/courses/mappings': 'organizations.course.mappings.view',
+  '/organizations/courses/mappings/new': 'organizations.course.mappings.create',
+  '/organizations/courses/mappings/[id]/edit':
+    'organizations.course.mappings.edit',
 
   //student management
   '/students': 'students.view',
   '/students/new': 'students.create',
+  '/students/[id]': 'students.view',
+  '/students/[id]/edit': 'students.edit',
+  '/students/[id]/edit-promotion': 'students.promotion.edit',
   '/students/onboarding': 'students.onboarding.view',
-  '/students/promotion': 'students.view',
+  '/students/onboarding/edit': 'students.onboarding.edit',
+  '/students/promotion': 'students.promotion.view',
 
   // Staff Management
   '/staff/category': 'staff.categories.view',
@@ -161,7 +167,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/categories/item-categories': 'billing.item_categories.view',
   '/billing/categories/item-categories/new': 'billing.item_categories.create',
   '/billing/categories/item-categories/[id]/edit':
-    'billing.item_categories.edit'
+    'billing.item_categories.edit',
+  '/billing/schedule': 'billing.schedule.view',
+  '/billing/schedule/new': 'billing.schedule.create',
+  '/billing/schedule/bulk-create': 'billing.schedule.create',
+  '/billing/schedule/[id]': 'billing.schedule.view',
+  '/billing/schedule/[id]/edit': 'billing.schedule.update',
+  '/billing/schedule/students': 'billing.schedule.view',
+  '/billing/schedule/students/[id]': 'billing.schedule.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -321,16 +334,16 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/students',
           label: 'All Learners',
-          active: pathname === '',
+          active: pathname.startsWith('/students'),
           icon: Users,
           submenus: [
             {
               href: '/students/onboarding',
               label: 'Learners Onboarding',
-              active: pathname === '/students/onboarding'
+              active: pathname.startsWith('/students/onboarding')
             },
             {
-              href: '/students ',
+              href: '/students',
               label: 'Learners List',
               active: pathname === '/students'
             }
@@ -529,6 +542,24 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/billing/categories/item-categories',
               label: 'All Item Categories',
               active: pathname === '/billing/categories/item-categories'
+            }
+          ]
+        },
+        {
+          href: '/billing/schedule',
+          label: 'Schedule',
+          active: pathname.startsWith('/billing/schedule'),
+          icon: Calendar,
+          submenus: [
+            {
+              href: '/billing/schedule/students',
+              label: 'Student Search',
+              active: pathname.startsWith('/billing/schedule/students')
+            },
+            {
+              href: '/billing/schedule',
+              label: 'All Bills',
+              active: pathname === '/billing/schedule'
             }
           ]
         }

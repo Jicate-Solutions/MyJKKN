@@ -28,8 +28,10 @@ export default function StudentPromotionPage() {
 
   const { canAccess, isSuperAdmin } = usePermissions();
 
-  const canViewStudents = isSuperAdmin || canAccess('students', 'view');
-  const canEditStudents = isSuperAdmin || canAccess('students', 'edit');
+  const canViewStudents =
+    isSuperAdmin || canAccess('students.promotion', 'view');
+  const canEditStudents =
+    isSuperAdmin || canAccess('students.promotion', 'edit');
 
   useEffect(() => {
     fetchStudents();

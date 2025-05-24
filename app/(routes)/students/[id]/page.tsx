@@ -39,22 +39,10 @@ export default function StudentDetailPage({ params }: StudentDetailPageProps) {
       return;
     }
 
-    // Detailed console logging to help debug permission issues
-    console.log('Permission check details:', {
-      isSuperAdmin,
-      hasStudentsViewPermission: canAccess('students', 'view'),
-      permissionsLoaded: !permissionsLoading
-    });
-
-    // Add a guard to prevent redirects with helpful debugging
     const shouldRedirect = !isSuperAdmin && !canAccess('students', 'view');
 
     if (shouldRedirect) {
-      // This will ensure users with students.view permission can still view details
-      console.log('Access check for student details:', {
-        hasPermission: canAccess('students', 'view'),
-        isSuperAdmin
-      });
+      console.log('Access denied for student details page');
       router.push('/unauthorized');
     }
   }, [isSuperAdmin, canAccess, router, permissionsLoading]);

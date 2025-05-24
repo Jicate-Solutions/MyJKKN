@@ -107,8 +107,6 @@ export interface BillingItemCategory {
   item_category_name: string;
   amount?: number | null;
   frequency: 'monthly' | 'quarterly' | 'yearly' | 'one-time';
-  effective_from?: string | null;
-  effective_to?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -138,8 +136,6 @@ export interface CreateBillingItemCategoryDto {
   item_category_name: string;
   amount?: number | null;
   frequency: 'monthly' | 'quarterly' | 'yearly' | 'one-time';
-  effective_from?: string | null;
-  effective_to?: string | null;
   is_active?: boolean;
 }
 
