@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { BillingSubCategoryForm } from '@/components/forms/billing/billing-sub-category-form';
+import { BillingSubCategoryForm } from '@/app/(routes)/billing/categories/sub-categories/_components/billing-sub-category-form';
 import { BillingSubCategoryService } from '@/lib/services/billing/categories/billing-sub-category-service';
 import { BeatLoader } from 'react-spinners';
 import { Button } from '@/components/ui/button';

@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { BillingItemCategoryForm } from '@/components/forms/billing/billing-item-category-form';
+import { BillingItemCategoryForm } from '@/app/(routes)/billing/categories/item-categories/_components/billing-item-category-form';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 
 export default function NewBillingItemCategoryPage() {

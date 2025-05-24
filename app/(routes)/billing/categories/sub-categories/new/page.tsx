@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { BillingSubCategoryForm } from '@/components/forms/billing/billing-sub-category-form';
+import { BillingSubCategoryForm } from '@/app/(routes)/billing/categories/sub-categories/_components/billing-sub-category-form';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 
 export default function NewBillingSubCategoryPage() {

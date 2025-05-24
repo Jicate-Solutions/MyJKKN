@@ -53,26 +53,6 @@ export class BillingItemCategoryService {
         );
       }
 
-      // Validate effective dates
-      if (
-        itemCategoryData.effective_from &&
-        itemCategoryData.effective_to &&
-        new Date(itemCategoryData.effective_from) >=
-          new Date(itemCategoryData.effective_to)
-      ) {
-        throw new Error(
-          'Effective To Date must be greater than Effective From Date'
-        );
-      }
-
-      // Validate effective from date is not in the past
-      if (
-        itemCategoryData.effective_from &&
-        new Date(itemCategoryData.effective_from) < new Date()
-      ) {
-        throw new Error('Effective From Date cannot be a past date');
-      }
-
       const { data, error } = await this.supabase
         .from('billing_item_categories')
         .insert([
@@ -130,18 +110,6 @@ export class BillingItemCategoryService {
             'An item category with this name already exists in the selected sub category'
           );
         }
-      }
-
-      // Validate effective dates
-      if (
-        itemCategoryData.effective_from &&
-        itemCategoryData.effective_to &&
-        new Date(itemCategoryData.effective_from) >=
-          new Date(itemCategoryData.effective_to)
-      ) {
-        throw new Error(
-          'Effective To Date must be greater than Effective From Date'
-        );
       }
 
       const { data, error } = await this.supabase

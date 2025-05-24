@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { BillingParentCategoryForm } from '@/components/forms/billing/billing-parent-category-form';
+import { BillingParentCategoryForm } from '@/app/(routes)/billing/categories/parent-categories/_components/billing-parent-category-form';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 
 export default function NewBillingParentCategoryPage() {

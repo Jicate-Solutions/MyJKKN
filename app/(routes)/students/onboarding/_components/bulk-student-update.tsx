@@ -87,6 +87,125 @@ export function BulkStudentUpdate() {
     }
   }, []);
 
+  const handleFileValidation = useCallback(
+    async (fileToValidate: File) => {
+      setIsValidating(true);
+      setValidationErrors([]);
+      setValidRows([]);
+      setUploadResult(null);
+
+      const reader = new FileReader();
+
+      reader.onload = async (event) => {
+        try {
+          const fileContent = event.target?.result;
+          let parsedData: Record<string, any>[] = [];
+
+          if (fileToValidate.type === 'text/csv') {
+            const result = Papa.parse(fileContent as string, {
+              header: true,
+              skipEmptyLines: true,
+              transformHeader: (header) => header.trim(), // Trim header spaces
+              transform: (value) => value.trim() // Trim cell value spaces
+            });
+            if (result.errors.length > 0) {
+              toast.error(`CSV parsing error: ${result.errors[0].message}`);
+              setIsValidating(false);
+              setFile(null); // Clear invalid file
+              return;
+            }
+            parsedData = result.data as Record<string, any>[];
+          } else {
+            // Excel
+            const workbook = XLSX.read(fileContent, { type: 'binary' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            parsedData = XLSX.utils.sheet_to_json(worksheet, {
+              defval: ''
+            }) as Record<string, any>[];
+            // Trim values for Excel data
+            parsedData = parsedData.map((row) => {
+              const trimmedRow: Record<string, any> = {};
+              for (const key in row) {
+                trimmedRow[key.trim()] =
+                  typeof row[key] === 'string' ? row[key].trim() : row[key];
+              }
+              return trimmedRow;
+            });
+          }
+
+          if (parsedData.length === 0) {
+            toast.error("File is empty or couldn't be parsed correctly.");
+            resetState(true);
+            return;
+          }
+
+          const errors: ValidationError[] = [];
+          const valid: StudentUpdateData[] = [];
+
+          parsedData.forEach((row, index) => {
+            const result = studentUpdateSchema.safeParse(row);
+            if (!result.success) {
+              errors.push({
+                row: index + 2, // Assuming header is row 1, data starts row 2
+                errors: result.error.flatten().fieldErrors,
+                rowData: row
+              });
+            } else {
+              valid.push(result.data);
+            }
+          });
+
+          setValidationErrors(errors);
+          setValidRows(valid);
+
+          if (errors.length > 0) {
+            toast(
+              `Validation finished with ${errors.length} error(s). Please fix them before uploading.`,
+              { icon: '⚠️' }
+            );
+          } else if (valid.length > 0) {
+            toast.success(
+              `Validation successful. ${valid.length} rows ready for upload.`
+            );
+          } else {
+            toast('No valid rows found to upload after validation.', {
+              icon: 'ℹ️'
+            });
+          }
+        } catch (error) {
+          console.error('Error processing file:', error);
+          toast.error(
+            'Failed to process the file. Ensure it is formatted correctly.'
+          );
+          resetState(true);
+        } finally {
+          setIsValidating(false);
+        }
+      };
+
+      reader.onerror = () => {
+        toast.error('Error reading the file.');
+        setIsValidating(false);
+        resetState(true);
+      };
+
+      if (fileToValidate.type === 'text/csv') {
+        reader.readAsText(fileToValidate); // Read CSV as text
+      } else {
+        reader.readAsBinaryString(fileToValidate); // Read Excel as binary string
+      }
+    },
+    [
+      resetState,
+      setFile,
+      setIsValidating,
+      setValidationErrors,
+      setValidRows,
+      setUploadResult
+    ]
+  );
+
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       resetState(true);
@@ -94,9 +213,9 @@ export function BulkStudentUpdate() {
         const selectedFile = acceptedFiles[0];
         if (
           selectedFile.type === 'text/csv' ||
-          selectedFile.type === 'application/vnd.ms-excel' || // Mime type for .xls
+          selectedFile.type === 'application/vnd.ms-excel' ||
           selectedFile.type ===
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' // Mime type for .xlsx
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         ) {
           setFile(selectedFile);
           handleFileValidation(selectedFile);
@@ -105,117 +224,8 @@ export function BulkStudentUpdate() {
         }
       }
     },
-    [resetState]
+    [resetState, handleFileValidation]
   );
-
-  const handleFileValidation = async (fileToValidate: File) => {
-    setIsValidating(true);
-    setValidationErrors([]);
-    setValidRows([]);
-    setUploadResult(null);
-
-    const reader = new FileReader();
-
-    reader.onload = async (event) => {
-      try {
-        const fileContent = event.target?.result;
-        let parsedData: Record<string, any>[] = [];
-
-        if (fileToValidate.type === 'text/csv') {
-          const result = Papa.parse(fileContent as string, {
-            header: true,
-            skipEmptyLines: true,
-            transformHeader: (header) => header.trim(), // Trim header spaces
-            transform: (value) => value.trim() // Trim cell value spaces
-          });
-          if (result.errors.length > 0) {
-            toast.error(`CSV parsing error: ${result.errors[0].message}`);
-            setIsValidating(false);
-            setFile(null); // Clear invalid file
-            return;
-          }
-          parsedData = result.data as Record<string, any>[];
-        } else {
-          // Excel
-          const workbook = XLSX.read(fileContent, { type: 'binary' });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          parsedData = XLSX.utils.sheet_to_json(worksheet, {
-            defval: ''
-          }) as Record<string, any>[];
-          // Trim values for Excel data
-          parsedData = parsedData.map((row) => {
-            const trimmedRow: Record<string, any> = {};
-            for (const key in row) {
-              trimmedRow[key.trim()] =
-                typeof row[key] === 'string' ? row[key].trim() : row[key];
-            }
-            return trimmedRow;
-          });
-        }
-
-        if (parsedData.length === 0) {
-          toast.error("File is empty or couldn't be parsed correctly.");
-          resetState(true);
-          return;
-        }
-
-        const errors: ValidationError[] = [];
-        const valid: StudentUpdateData[] = [];
-
-        parsedData.forEach((row, index) => {
-          const result = studentUpdateSchema.safeParse(row);
-          if (!result.success) {
-            errors.push({
-              row: index + 2, // Assuming header is row 1, data starts row 2
-              errors: result.error.flatten().fieldErrors,
-              rowData: row
-            });
-          } else {
-            valid.push(result.data);
-          }
-        });
-
-        setValidationErrors(errors);
-        setValidRows(valid);
-
-        if (errors.length > 0) {
-          toast(
-            `Validation finished with ${errors.length} error(s). Please fix them before uploading.`,
-            { icon: '⚠️' }
-          );
-        } else if (valid.length > 0) {
-          toast.success(
-            `Validation successful. ${valid.length} rows ready for upload.`
-          );
-        } else {
-          toast('No valid rows found to upload after validation.', {
-            icon: 'ℹ️'
-          });
-        }
-      } catch (error) {
-        console.error('Error processing file:', error);
-        toast.error(
-          'Failed to process the file. Ensure it is formatted correctly.'
-        );
-        resetState(true);
-      } finally {
-        setIsValidating(false);
-      }
-    };
-
-    reader.onerror = () => {
-      toast.error('Error reading the file.');
-      setIsValidating(false);
-      resetState(true);
-    };
-
-    if (fileToValidate.type === 'text/csv') {
-      reader.readAsText(fileToValidate); // Read CSV as text
-    } else {
-      reader.readAsBinaryString(fileToValidate); // Read Excel as binary string
-    }
-  };
 
   const handleUpload = async () => {
     if (validRows.length === 0 || validationErrors.length > 0) {

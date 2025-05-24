@@ -56,7 +56,8 @@ export default function EditStudentPromotionPage({
 
   // Permission checks
   const { canAccess, isSuperAdmin } = usePermissions();
-  const canEditStudents = isSuperAdmin || canAccess('students', 'edit');
+  const canEditStudents =
+    isSuperAdmin || canAccess('students.promotion', 'edit');
 
   // State for semesters and sections
   const [semesters, setSemesters] = useState<

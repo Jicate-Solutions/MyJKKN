@@ -102,8 +102,6 @@ export function BillingItemCategoryForm({
       item_category_name: itemCategory?.item_category_name || '',
       amount: itemCategory?.amount?.toString() || '',
       frequency: itemCategory?.frequency || 'one-time',
-      effective_from: itemCategory?.effective_from || '',
-      effective_to: itemCategory?.effective_to || '',
       is_active: itemCategory?.is_active ?? true
     }
   });
@@ -231,8 +229,6 @@ export function BillingItemCategoryForm({
         item_category_name: data.item_category_name.trim(),
         amount: data.amount ? Number(data.amount) : null,
         frequency: data.frequency,
-        effective_from: data.effective_from || null,
-        effective_to: data.effective_to || null,
         is_active: data.is_active
       };
 
@@ -299,14 +295,21 @@ export function BillingItemCategoryForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {institutions.map((institution) => (
-                          <SelectItem
-                            key={institution.id}
-                            value={institution.id}
-                          >
-                            {institution.name} ({institution.counselling_code})
+                        {institutions.length > 0 ? (
+                          institutions.map((institution) => (
+                            <SelectItem
+                              key={institution.id}
+                              value={institution.id}
+                            >
+                              {institution.name} ({institution.counselling_code}
+                              )
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value='no-institutions' disabled>
+                            No institutions available
                           </SelectItem>
-                        ))}
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -340,11 +343,19 @@ export function BillingItemCategoryForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {parentCategories.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            {category.parent_category_name}
+                        {parentCategories.length > 0 ? (
+                          parentCategories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              {category.parent_category_name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value='no-parent-categories' disabled>
+                            {!watchInstitution
+                              ? 'Select institution first'
+                              : 'No parent categories available'}
                           </SelectItem>
-                        ))}
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -378,11 +389,19 @@ export function BillingItemCategoryForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {subCategories.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            {category.sub_category_name}
+                        {subCategories.length > 0 ? (
+                          subCategories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              {category.sub_category_name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value='no-sub-categories' disabled>
+                            {!watchParentCategory
+                              ? 'Select parent category first'
+                              : 'No sub categories available'}
                           </SelectItem>
-                        ))}
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -455,38 +474,6 @@ export function BillingItemCategoryForm({
                 </FormItem>
               )}
             />
-
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-              {/* Effective From */}
-              <FormField
-                control={form.control}
-                name='effective_from'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Effective From</FormLabel>
-                    <FormControl>
-                      <Input type='date' {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Effective To */}
-              <FormField
-                control={form.control}
-                name='effective_to'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Effective To</FormLabel>
-                    <FormControl>
-                      <Input type='date' {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
 
             {/* Active Status */}
             <FormField

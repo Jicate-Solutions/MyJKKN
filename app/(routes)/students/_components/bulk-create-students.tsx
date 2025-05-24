@@ -199,6 +199,153 @@ export function BulkCreateStudents() {
     }
   }, []);
 
+  const handleFileValidation = useCallback(
+    async (fileToValidate: File) => {
+      setIsValidating(true);
+      setValidationErrors([]);
+      setValidRows([]);
+      setUploadResult(null);
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const fileContent = event.target?.result;
+          let parsedData: Record<string, any>[] = [];
+          if (fileToValidate.type === 'text/csv') {
+            const result = Papa.parse(fileContent as string, {
+              header: true,
+              skipEmptyLines: true,
+              transformHeader: (header) => header.trim(),
+              transform: (value) => value.trim(),
+              dynamicTyping: false
+            });
+            if (result.errors.length > 0) {
+              toast.error(`CSV parsing error: ${result.errors[0].message}`);
+              setIsValidating(false);
+              setFile(null);
+              return;
+            }
+            parsedData = result.data as Record<string, any>[];
+          } else {
+            const workbook = XLSX.read(fileContent, { type: 'binary' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            parsedData = XLSX.utils.sheet_to_json(worksheet, {
+              defval: '',
+              raw: false
+            }) as Record<string, any>[];
+            parsedData = parsedData.map((row) => {
+              const trimmedRow: Record<string, any> = {};
+              for (const key in row) {
+                const trimmedKey = key.trim();
+                const value = row[key];
+                trimmedRow[trimmedKey] =
+                  typeof value === 'string' ? value.trim() : value;
+              }
+              return trimmedRow;
+            });
+          }
+          if (parsedData.length === 0) {
+            toast.error("File is empty or couldn't be parsed correctly.");
+            resetState(true);
+            return;
+          }
+          const errors: ValidationError[] = [];
+          const valid: NewStudentData[] = [];
+          const headers = Object.keys(parsedData[0] || {});
+          const requiredSchemaFields = Object.entries(newStudentSchema.shape)
+            .filter(
+              ([_, schemaType]) =>
+                !(schemaType.isOptional() || schemaType.isNullable())
+            )
+            .map(([key, _]) => key);
+          const actualMissingHeaders = requiredSchemaFields.filter(
+            (h) => !headers.includes(h)
+          );
+          if (actualMissingHeaders.length > 0) {
+            toast.error(
+              `Missing required columns in the file: ${actualMissingHeaders.join(
+                ', '
+              )}`
+            );
+            resetState(true);
+            return;
+          }
+          parsedData.forEach((row, index) => {
+            const processedRow = { ...row };
+            ['counseling_applied', 'first_graduate', 'bus_required'].forEach(
+              (key) => {
+                if (typeof processedRow[key] === 'string') {
+                  processedRow[key] = processedRow[key].trim().toLowerCase();
+                }
+              }
+            );
+            const result = newStudentSchema.safeParse(processedRow);
+            if (!result.success) {
+              errors.push({
+                row: index + 2,
+                errors: result.error.flatten().fieldErrors,
+                rowData: row
+              });
+            } else {
+              const validData = result.data;
+              try {
+                validData.tenth_marks_json = JSON.parse(
+                  validData.tenth_marks_json
+                );
+                validData.twelfth_marks_json = JSON.parse(
+                  validData.twelfth_marks_json
+                );
+                valid.push(validData);
+              } catch (jsonError) {
+                errors.push({
+                  row: index + 2,
+                  errors: {
+                    json_parse: ['Failed to parse marks JSON after validation']
+                  },
+                  rowData: row
+                });
+              }
+            }
+          });
+          setValidationErrors(errors);
+          setValidRows(valid);
+          if (errors.length > 0) {
+            toast(
+              `Validation finished with ${errors.length} error(s). Please fix them before uploading.`,
+              { icon: '⚠️' }
+            );
+          } else if (valid.length > 0) {
+            toast.success(
+              `Validation successful. ${valid.length} rows ready for upload.`
+            );
+          } else {
+            toast('No valid rows found to upload after validation.', {
+              icon: 'ℹ️'
+            });
+          }
+        } catch (error) {
+          console.error('Error processing file:', error);
+          toast.error(
+            'Failed to process the file. Ensure it is formatted correctly.'
+          );
+          resetState(true);
+        } finally {
+          setIsValidating(false);
+        }
+      };
+      reader.onerror = () => {
+        toast.error('Error reading the file.');
+        setIsValidating(false);
+        resetState(true);
+      };
+      if (fileToValidate.type === 'text/csv') {
+        reader.readAsText(fileToValidate);
+      } else {
+        reader.readAsBinaryString(fileToValidate);
+      }
+    },
+    [resetState]
+  );
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       resetState(true);
@@ -217,194 +364,8 @@ export function BulkCreateStudents() {
         }
       }
     },
-    [resetState]
+    [resetState, handleFileValidation]
   );
-
-  const handleFileValidation = async (fileToValidate: File) => {
-    setIsValidating(true);
-    setValidationErrors([]);
-    setValidRows([]);
-    setUploadResult(null);
-
-    const reader = new FileReader();
-
-    reader.onload = async (event) => {
-      try {
-        const fileContent = event.target?.result;
-        let parsedData: Record<string, any>[] = [];
-
-        if (fileToValidate.type === 'text/csv') {
-          const result = Papa.parse(fileContent as string, {
-            header: true,
-            skipEmptyLines: true,
-            transformHeader: (header) => header.trim(),
-            transform: (value) => value.trim(),
-            dynamicTyping: false // Keep everything as string initially for zod preprocess
-          });
-          if (result.errors.length > 0) {
-            toast.error(`CSV parsing error: ${result.errors[0].message}`);
-            setIsValidating(false);
-            setFile(null);
-            return;
-          }
-          parsedData = result.data as Record<string, any>[];
-        } else {
-          // Excel
-          const workbook = XLSX.read(fileContent, { type: 'binary' });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          // Use raw: false to try and get correct types, but Zod preprocess handles strings anyway
-          parsedData = XLSX.utils.sheet_to_json(worksheet, {
-            defval: '',
-            raw: false
-          }) as Record<string, any>[];
-          // Trim keys and string values
-          parsedData = parsedData.map((row) => {
-            const trimmedRow: Record<string, any> = {};
-            for (const key in row) {
-              const trimmedKey = key.trim();
-              const value = row[key];
-              trimmedRow[trimmedKey] =
-                typeof value === 'string' ? value.trim() : value;
-            }
-            return trimmedRow;
-          });
-        }
-
-        if (parsedData.length === 0) {
-          toast.error("File is empty or couldn't be parsed correctly.");
-          resetState(true);
-          return;
-        }
-
-        const errors: ValidationError[] = [];
-        const valid: NewStudentData[] = [];
-
-        // Ensure required headers are present
-        const headers = Object.keys(parsedData[0] || {});
-        const requiredHeaders = Object.keys(newStudentSchema.shape);
-        const missingHeaders = requiredHeaders.filter(
-          (h) =>
-            !headers.includes(h) &&
-            !(
-              newStudentSchema.shape[
-                h as keyof typeof newStudentSchema.shape
-              ] instanceof z.ZodOptional
-            ) &&
-            !(
-              newStudentSchema.shape[
-                h as keyof typeof newStudentSchema.shape
-              ] instanceof z.ZodNullable
-            )
-          // Crude check for optional/nullable - Zod doesn't expose easily
-        );
-
-        // A better check might be needed if complex optional types are used
-        // This check assumes simple optional()/nullable()
-
-        // Refined missing headers check (Check Zod schema definition)
-        const requiredSchemaFields = Object.entries(newStudentSchema.shape)
-          .filter(
-            ([_, schemaType]) =>
-              !(schemaType.isOptional() || schemaType.isNullable())
-          )
-          .map(([key, _]) => key);
-
-        const actualMissingHeaders = requiredSchemaFields.filter(
-          (h) => !headers.includes(h)
-        );
-
-        if (actualMissingHeaders.length > 0) {
-          toast.error(
-            `Missing required columns in the file: ${actualMissingHeaders.join(
-              ', '
-            )}`
-          );
-          resetState(true);
-          return;
-        }
-
-        parsedData.forEach((row, index) => {
-          // Pre-process boolean fields expected as strings 'TRUE'/'FALSE'
-          const processedRow = { ...row };
-          ['counseling_applied', 'first_graduate', 'bus_required'].forEach(
-            (key) => {
-              if (typeof processedRow[key] === 'string') {
-                processedRow[key] = processedRow[key].trim().toLowerCase();
-              }
-            }
-          );
-
-          const result = newStudentSchema.safeParse(processedRow);
-          if (!result.success) {
-            errors.push({
-              row: index + 2, // Row number in the spreadsheet
-              errors: result.error.flatten().fieldErrors,
-              rowData: row // Show original data for reference
-            });
-          } else {
-            // Transform JSON strings back to objects after validation
-            const validData = result.data;
-            try {
-              validData.tenth_marks_json = JSON.parse(
-                validData.tenth_marks_json
-              );
-              validData.twelfth_marks_json = JSON.parse(
-                validData.twelfth_marks_json
-              );
-              valid.push(validData);
-            } catch (jsonError) {
-              errors.push({
-                row: index + 2,
-                errors: {
-                  json_parse: ['Failed to parse marks JSON after validation']
-                },
-                rowData: row
-              });
-            }
-          }
-        });
-
-        setValidationErrors(errors);
-        setValidRows(valid);
-
-        if (errors.length > 0) {
-          toast(
-            `Validation finished with ${errors.length} error(s). Please fix them before uploading.`,
-            { icon: '⚠️' }
-          );
-        } else if (valid.length > 0) {
-          toast.success(
-            `Validation successful. ${valid.length} rows ready for upload.`
-          );
-        } else {
-          toast('No valid rows found to upload after validation.', {
-            icon: 'ℹ️'
-          });
-        }
-      } catch (error) {
-        console.error('Error processing file:', error);
-        toast.error(
-          'Failed to process the file. Ensure it is formatted correctly.'
-        );
-        resetState(true);
-      } finally {
-        setIsValidating(false);
-      }
-    };
-
-    reader.onerror = () => {
-      toast.error('Error reading the file.');
-      setIsValidating(false);
-      resetState(true);
-    };
-
-    if (fileToValidate.type === 'text/csv') {
-      reader.readAsText(fileToValidate);
-    } else {
-      reader.readAsBinaryString(fileToValidate);
-    }
-  };
 
   const handleUpload = async () => {
     if (validRows.length === 0 || validationErrors.length > 0) {

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { BillingItemCategoryForm } from '@/components/forms/billing/billing-item-category-form';
+import { BillingItemCategoryForm } from '@/app/(routes)/billing/categories/item-categories/_components/billing-item-category-form';
 import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
 import { BeatLoader } from 'react-spinners';
 import { Button } from '@/components/ui/button';

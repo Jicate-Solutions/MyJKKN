@@ -151,7 +151,7 @@ export default function EditonboardingPage() {
         );
       }, 100);
     }
-  }, [student]);
+  }, [student, form]);
 
   // Debug current form values
   useEffect(() => {
