@@ -6,19 +6,19 @@ import Link from 'next/link';
 import {
   ArrowLeft,
   Plus,
-  Receipt,
-  Percent,
   RefreshCw,
   FileText,
-  Eye,
   Calendar,
   Phone,
   Mail,
-  MapPin,
   User,
   Building,
   GraduationCap,
-  Filter
+  Filter,
+  TrendingUp,
+  TrendingDown,
+  AlertCircle,
+  DollarSign
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
@@ -88,23 +89,26 @@ export default function StudentBillingDetailPage() {
     const statusConfig = {
       paid: {
         variant: 'default' as const,
-        className: 'bg-green-100 text-green-800 border-green-200'
+        className:
+          'bg-green-100 text-green-800 border-green-200 hover:bg-green-200'
       },
       unpaid: {
         variant: 'secondary' as const,
-        className: 'bg-orange-100 text-orange-800 border-orange-200'
+        className:
+          'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200'
       },
       partially_paid: {
         variant: 'outline' as const,
-        className: 'bg-yellow-100 text-yellow-800 border-yellow-200'
+        className:
+          'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200'
       },
       overdue: {
         variant: 'destructive' as const,
-        className: 'bg-red-100 text-red-800 border-red-200'
+        className: 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200'
       },
       cancelled: {
         variant: 'outline' as const,
-        className: 'bg-gray-100 text-gray-800 border-gray-200'
+        className: 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200'
       }
     };
 
@@ -120,9 +124,11 @@ export default function StudentBillingDetailPage() {
   // Show loading state while permissions are loading
   if (permissionsLoading) {
     return (
-      <ContentLayout title='Student Billing Search'>
-        <div className='flex items-center justify-center min-h-[400px]'>
-          <BeatLoader color='#00e902' />
+      <ContentLayout title='Student Billing Details'>
+        <div className='flex items-center justify-center min-h-[60vh]'>
+          <div className='text-center space-y-4'>
+            <BeatLoader color='#00e902' size={12} />
+          </div>
         </div>
       </ContentLayout>
     );
@@ -131,10 +137,20 @@ export default function StudentBillingDetailPage() {
   if (!canViewBills) {
     return (
       <ContentLayout title='Student Billing Details'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>
-            You don&apos;t have permission to view student billing details.
-          </p>
+        <div className='flex items-center justify-center min-h-[60vh]'>
+          <Card className='w-full max-w-md'>
+            <CardContent className='text-center py-8'>
+              <AlertCircle className='h-12 w-12 text-destructive mx-auto mb-4' />
+              <h3 className='text-lg font-semibold mb-2'>Access Denied</h3>
+              <p className='text-muted-foreground mb-4'>
+                You don&apos;t have permission to view student billing details.
+              </p>
+              <Button variant='outline' onClick={() => router.back()}>
+                <ArrowLeft className='mr-2 h-4 w-4' />
+                Go Back
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </ContentLayout>
     );
@@ -143,18 +159,26 @@ export default function StudentBillingDetailPage() {
   if (studentError || summaryError) {
     return (
       <ContentLayout title='Student Billing Details'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>
-            Error loading student details:{' '}
-            {studentError?.message || summaryError?.message}
-          </p>
-          <Button
-            variant='outline'
-            onClick={() => router.back()}
-            className='mt-4'
-          >
-            Go Back
-          </Button>
+        <div className='flex items-center justify-center min-h-[60vh]'>
+          <Card className='w-full max-w-md'>
+            <CardContent className='text-center py-8'>
+              <AlertCircle className='h-12 w-12 text-destructive mx-auto mb-4' />
+              <h3 className='text-lg font-semibold mb-2'>Error Loading Data</h3>
+              <p className='text-muted-foreground mb-4'>
+                {studentError?.message || summaryError?.message}
+              </p>
+              <div className='space-x-2'>
+                <Button variant='outline' onClick={() => router.back()}>
+                  <ArrowLeft className='mr-2 h-4 w-4' />
+                  Go Back
+                </Button>
+                <Button onClick={() => window.location.reload()}>
+                  <RefreshCw className='mr-2 h-4 w-4' />
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </ContentLayout>
     );
@@ -163,8 +187,13 @@ export default function StudentBillingDetailPage() {
   if (isLoadingStudent || isLoadingSummary) {
     return (
       <ContentLayout title='Student Billing Details'>
-        <div className='flex justify-center items-center min-h-[400px]'>
-          <BeatLoader color='#00e902' />
+        <div className='flex items-center justify-center min-h-[60vh]'>
+          <div className='text-center space-y-4'>
+            <BeatLoader color='#00e902' size={12} />
+            <p className='text-sm text-muted-foreground'>
+              Loading student billing details...
+            </p>
+          </div>
         </div>
       </ContentLayout>
     );
@@ -173,15 +202,20 @@ export default function StudentBillingDetailPage() {
   if (!student || !billingSummary) {
     return (
       <ContentLayout title='Student Billing Details'>
-        <div className='text-center py-8'>
-          <p className='text-muted-foreground'>Student not found.</p>
-          <Button
-            variant='outline'
-            onClick={() => router.back()}
-            className='mt-4'
-          >
-            Go Back
-          </Button>
+        <div className='flex items-center justify-center min-h-[60vh]'>
+          <Card className='w-full max-w-md'>
+            <CardContent className='text-center py-8'>
+              <User className='h-12 w-12 text-muted-foreground mx-auto mb-4' />
+              <h3 className='text-lg font-semibold mb-2'>Student Not Found</h3>
+              <p className='text-muted-foreground mb-4'>
+                The requested student could not be found in the system.
+              </p>
+              <Button variant='outline' onClick={() => router.back()}>
+                <ArrowLeft className='mr-2 h-4 w-4' />
+                Go Back
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </ContentLayout>
     );
@@ -189,160 +223,169 @@ export default function StudentBillingDetailPage() {
 
   return (
     <ContentLayout title='Student Billing Details'>
-      <PageBreadcrumb
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing' },
-          { label: 'Schedule', href: '/billing/schedule' },
-          { label: 'Students', href: '/billing/schedule/students' },
-          {
-            label: student.student_name,
-            href: `/billing/schedule/students/${studentId}`
-          }
-        ]}
-      />
+      <div className='space-y-4 sm:space-y-6'>
+        {/* Breadcrumb */}
+        <PageBreadcrumb
+          items={[
+            { label: 'Home', href: '/' },
+            { label: 'Billing', href: '/billing' },
+            { label: 'Schedule', href: '/billing/schedule' },
+            { label: 'Students', href: '/billing/schedule/students' },
+            {
+              label: student.student_name,
+              href: `/billing/schedule/students/${studentId}`
+            }
+          ]}
+        />
 
-      <div className='space-y-6 mt-4'>
-        {/* Header */}
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div className='flex items-center gap-4'>
-            <Button variant='outline' size='sm' onClick={() => router.back()}>
-              <ArrowLeft className='mr-2 h-4 w-4' />
-              Back
+        {/* Header Section */}
+        <div className='flex flex-col space-y-4 sm:flex-row sm:justify-between sm:items-center sm:space-y-0'>
+          {/* Title and Back Button */}
+          <div className='flex items-center gap-3'>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => router.back()}
+              className='shrink-0'
+            >
+              <ArrowLeft className='h-4 w-4 sm:mr-2' />
+              <span className='hidden sm:inline'>Back</span>
             </Button>
-            <div>
-              <h1 className='text-2xl font-bold py-1'>
-                Student Billing Details
+            <div className='min-w-0 flex-1'>
+              <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100'>
+                {student.student_name}
               </h1>
-              <p className='text-sm sm:text-base text-muted-foreground'>
-                Complete billing information and transaction history
+              <p className='text-sm text-muted-foreground mt-1'>
+                Student billing information and transaction history
               </p>
             </div>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            {/* PRD Required Action Buttons */}
-            <Button variant='outline' size='sm' asChild>
-              <Link href={`/billing/receipts/new?student_id=${studentId}`}>
-                <Receipt className='mr-2 h-4 w-4' />
-                Generate Receipt
+
+          {/* Schedule Bill Button - Only this button in header */}
+          {canCreateBills && (
+            <Button asChild className='shrink-0'>
+              <Link href={`/billing/schedule/new?student_id=${studentId}`}>
+                <Plus className='mr-2 h-4 w-4' />
+                Schedule Bill
               </Link>
             </Button>
-
-            <Button variant='outline' size='sm' asChild>
-              <Link href={`/billing/discounts/new?student_id=${studentId}`}>
-                <Percent className='mr-2 h-4 w-4' />
-                Apply Discount
-              </Link>
-            </Button>
-
-            <Button variant='outline' size='sm' asChild>
-              <Link href={`/billing/refunds/new?student_id=${studentId}`}>
-                <RefreshCw className='mr-2 h-4 w-4' />
-                Process Refund
-              </Link>
-            </Button>
-
-            {canCreateBills && (
-              <Button asChild>
-                <Link href={`/billing/schedule/new?student_id=${studentId}`}>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Schedule Bill
-                </Link>
-              </Button>
-            )}
-          </div>
+          )}
         </div>
 
-        {/* Student Profile Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle className='flex items-center gap-2'>
+        {/* Student Profile Card - Redesigned for Mobile */}
+        <Card className='overflow-hidden'>
+          <CardHeader className='bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950'>
+            <CardTitle className='flex items-center gap-2 text-lg'>
               <User className='h-5 w-5' />
               Student Profile
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
-              {/* Student Photo and Basic Info */}
-              <div className='flex flex-col items-center space-y-4'>
-                <Avatar className='h-24 w-24'>
-                  {' '}
-                  <AvatarFallback className='text-lg'>
-                    {' '}
+          <CardContent className='p-4 sm:p-6'>
+            <div className='flex flex-col lg:flex-row gap-6'>
+              {/* Student Avatar and Basic Info */}
+              <div className='flex flex-col sm:flex-row lg:flex-col items-center lg:items-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-0 lg:space-y-4 lg:w-64 shrink-0'>
+                <Avatar className='h-20 w-20 sm:h-16 sm:w-16 lg:h-24 lg:w-24'>
+                  <AvatarFallback className='text-lg font-semibold bg-gradient-to-br from-blue-400 to-indigo-600 text-white'>
                     {student.student_name
                       .split(' ')
                       .map((n) => n[0])
-                      .join('')}{' '}
-                  </AvatarFallback>{' '}
+                      .join('')}
+                  </AvatarFallback>
                 </Avatar>
-                <div className='text-center'>
-                  <h3 className='text-lg font-semibold'>
+                <div className='text-center sm:text-left lg:text-center'>
+                  <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
                     {student.student_name}
                   </h3>
                   <p className='text-sm text-muted-foreground'>
                     Roll No: {student.roll_number || 'N/A'}
                   </p>
+                  <Badge variant='outline' className='mt-2'>
+                    Student ID: {studentId.slice(-8)}
+                  </Badge>
                 </div>
               </div>
 
-              {/* Contact Information */}
-              <div className='space-y-4'>
-                <h4 className='font-medium text-sm text-muted-foreground uppercase tracking-wide'>
-                  Contact Information
-                </h4>
-                <div className='space-y-3'>
-                  <div className='flex items-center gap-3'>
-                    <Phone className='h-4 w-4 text-muted-foreground' />
-                    <span className='text-sm'>{student.student_mobile}</span>
-                  </div>
-                  <div className='flex items-center gap-3'>
-                    <Mail className='h-4 w-4 text-muted-foreground' />
-                    <span className='text-sm'>{student.student_email}</span>
-                  </div>
-                  <div className='flex items-start gap-3'>
-                    <User className='h-4 w-4 text-muted-foreground mt-0.5' />
-                    <div className='text-sm'>
-                      <div className='font-medium'>Guardian Contact</div>
-                      <div className='text-muted-foreground'>
-                        {student.father_name}
+              {/* Contact and Academic Information */}
+              <div className='flex-1 grid grid-cols-1 md:grid-cols-2 gap-6'>
+                {/* Contact Information */}
+                <div className='space-y-4'>
+                  <h4 className='font-semibold text-sm text-gray-700 dark:text-gray-300 uppercase tracking-wide border-b pb-2'>
+                    Contact Information
+                  </h4>
+                  <div className='space-y-3'>
+                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                      <Phone className='h-4 w-4 text-blue-600 shrink-0' />
+                      <div className='min-w-0 flex-1'>
+                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                          Mobile
+                        </p>
+                        <p className='text-sm text-muted-foreground truncate'>
+                          {student.student_mobile}
+                        </p>
+                      </div>
+                    </div>
+                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                      <Mail className='h-4 w-4 text-green-600 shrink-0' />
+                      <div className='min-w-0 flex-1'>
+                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                          Email
+                        </p>
+                        <p className='text-sm text-muted-foreground truncate'>
+                          {student.student_email}
+                        </p>
+                      </div>
+                    </div>
+                    <div className='flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                      <User className='h-4 w-4 text-purple-600 shrink-0 mt-1' />
+                      <div className='min-w-0 flex-1'>
+                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                          Guardian
+                        </p>
+                        <p className='text-sm text-muted-foreground'>
+                          {student.father_name}
+                        </p>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Academic Information */}
-              <div className='space-y-4'>
-                <h4 className='font-medium text-sm text-muted-foreground uppercase tracking-wide'>
-                  Academic Information
-                </h4>
-                <div className='space-y-3'>
-                  <div className='flex items-center gap-3'>
-                    <Building className='h-4 w-4 text-muted-foreground' />
-                    <div className='text-sm'>
-                      <div className='font-medium'>
-                        {student.institution?.name}
+                {/* Academic Information */}
+                <div className='space-y-4'>
+                  <h4 className='font-semibold text-sm text-gray-700 dark:text-gray-300 uppercase tracking-wide border-b pb-2'>
+                    Academic Information
+                  </h4>
+                  <div className='space-y-3'>
+                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                      <Building className='h-4 w-4 text-indigo-600 shrink-0' />
+                      <div className='min-w-0 flex-1'>
+                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                          Institution
+                        </p>
+                        <p className='text-sm text-muted-foreground truncate'>
+                          {student.institution?.name || 'N/A'}
+                        </p>
                       </div>
-                      <div className='text-muted-foreground'>Institution</div>
                     </div>
-                  </div>
-                  <div className='flex items-center gap-3'>
-                    <GraduationCap className='h-4 w-4 text-muted-foreground' />
-                    <div className='text-sm'>
-                      <div className='font-medium'>
-                        {student.department?.department_name}
+                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                      <GraduationCap className='h-4 w-4 text-orange-600 shrink-0' />
+                      <div className='min-w-0 flex-1'>
+                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                          Department
+                        </p>
+                        <p className='text-sm text-muted-foreground truncate'>
+                          {student.department?.department_name || 'N/A'}
+                        </p>
                       </div>
-                      <div className='text-muted-foreground'>Department</div>
                     </div>
-                  </div>
-                  <div className='flex items-center gap-3'>
-                    <Calendar className='h-4 w-4 text-muted-foreground' />
-                    <div className='text-sm'>
-                      <div className='font-medium'>
-                        {student.semester?.semester_name}
-                      </div>
-                      <div className='text-muted-foreground'>
-                        Current Semester
+                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                      <Calendar className='h-4 w-4 text-teal-600 shrink-0' />
+                      <div className='min-w-0 flex-1'>
+                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                          Current Semester
+                        </p>
+                        <p className='text-sm text-muted-foreground truncate'>
+                          {student.semester?.semester_name || 'N/A'}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -352,54 +395,62 @@ export default function StudentBillingDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Summary Cards */}
-        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
-          <Card>
+        {/* Summary Cards - Responsive Grid */}
+        <div className='grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
+          <Card className='hover:shadow-md transition-shadow'>
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>Total Bills</CardTitle>
-              <FileText className='h-4 w-4 text-muted-foreground' />
+              <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                Total Bills
+              </CardTitle>
+              <FileText className='h-4 w-4 text-blue-600' />
             </CardHeader>
             <CardContent>
-              <div className='text-2xl font-bold'>
+              <div className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100'>
                 {billingSummary.summary.total_bills}
               </div>
               <p className='text-xs text-muted-foreground'>All time bills</p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className='hover:shadow-md transition-shadow'>
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>Paid Amount</CardTitle>
-              <Receipt className='h-4 w-4 text-muted-foreground' />
+              <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                Paid Amount
+              </CardTitle>
+              <TrendingUp className='h-4 w-4 text-green-600' />
             </CardHeader>
             <CardContent>
-              <div className='text-2xl font-bold text-green-600'>
+              <div className='text-lg sm:text-2xl font-bold text-green-600'>
                 {formatCurrency(billingSummary.summary.paid_amount)}
               </div>
               <p className='text-xs text-muted-foreground'>Total payments</p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className='hover:shadow-md transition-shadow'>
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>Outstanding</CardTitle>
-              <FileText className='h-4 w-4 text-muted-foreground' />
+              <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                Outstanding
+              </CardTitle>
+              <DollarSign className='h-4 w-4 text-orange-600' />
             </CardHeader>
             <CardContent>
-              <div className='text-2xl font-bold text-orange-600'>
+              <div className='text-lg sm:text-2xl font-bold text-orange-600'>
                 {formatCurrency(billingSummary.summary.outstanding_amount)}
               </div>
               <p className='text-xs text-muted-foreground'>Pending dues</p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className='hover:shadow-md transition-shadow'>
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>Overdue</CardTitle>
-              <FileText className='h-4 w-4 text-muted-foreground' />
+              <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                Overdue
+              </CardTitle>
+              <TrendingDown className='h-4 w-4 text-red-600' />
             </CardHeader>
             <CardContent>
-              <div className='text-2xl font-bold text-red-600'>
+              <div className='text-lg sm:text-2xl font-bold text-red-600'>
                 {formatCurrency(billingSummary.summary.overdue_amount)}
               </div>
               <p className='text-xs text-muted-foreground'>Past due date</p>
@@ -407,16 +458,24 @@ export default function StudentBillingDetailPage() {
           </Card>
         </div>
 
-        {/* Billing Details Tabs */}
-        <Card>
-          <CardContent className='p-6'>
-            <Tabs defaultValue='bills' className='space-y-4'>
-              <div className='flex items-center justify-between'>
-                <TabsList>
-                  <TabsTrigger value='bills'>Bills</TabsTrigger>
-                  <TabsTrigger value='receipts'>Receipts</TabsTrigger>
-                  <TabsTrigger value='transactions'>
-                    Transaction History
+        {/* Billing Details Tabs - Enhanced for Mobile */}
+        <Card className='overflow-hidden'>
+          <CardContent className='p-0'>
+            <Tabs defaultValue='bills' className='w-full'>
+              {/* Tab Header with Filter */}
+              <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 sm:p-6 bg-gray-50 dark:bg-gray-800 border-b'>
+                <TabsList className='grid w-full sm:w-auto grid-cols-3 mb-4 sm:mb-0'>
+                  <TabsTrigger value='bills' className='text-xs sm:text-sm'>
+                    Bills
+                  </TabsTrigger>
+                  <TabsTrigger value='receipts' className='text-xs sm:text-sm'>
+                    Receipts
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value='transactions'
+                    className='text-xs sm:text-sm'
+                  >
+                    History
                   </TabsTrigger>
                 </TabsList>
 
@@ -426,7 +485,7 @@ export default function StudentBillingDetailPage() {
                     value={billStatusFilter}
                     onValueChange={setBillStatusFilter}
                   >
-                    <SelectTrigger className='w-40'>
+                    <SelectTrigger className='w-32 sm:w-40'>
                       <SelectValue placeholder='Filter by status' />
                     </SelectTrigger>
                     <SelectContent>
@@ -450,27 +509,30 @@ export default function StudentBillingDetailPage() {
                 </div>
               </div>
 
-              <TabsContent value='bills' className='space-y-4'>
-                <StudentBillsTable
-                  bills={billingSummary.bills}
-                  statusFilter={billStatusFilter}
-                  onRefresh={refetchSummary}
-                />
-              </TabsContent>
+              {/* Tab Content */}
+              <div className='p-4 sm:p-6'>
+                <TabsContent value='bills' className='mt-0 space-y-4'>
+                  <StudentBillsTable
+                    bills={billingSummary.bills}
+                    statusFilter={billStatusFilter}
+                    onRefresh={refetchSummary}
+                  />
+                </TabsContent>
 
-              <TabsContent value='receipts' className='space-y-4'>
-                <StudentReceiptsTable
-                  receipts={billingSummary.receipts}
-                  onRefresh={refetchSummary}
-                />
-              </TabsContent>
+                <TabsContent value='receipts' className='mt-0 space-y-4'>
+                  <StudentReceiptsTable
+                    receipts={billingSummary.receipts}
+                    onRefresh={refetchSummary}
+                  />
+                </TabsContent>
 
-              <TabsContent value='transactions' className='space-y-4'>
-                <StudentTransactionHistory
-                  summary={billingSummary}
-                  onRefresh={refetchSummary}
-                />
-              </TabsContent>
+                <TabsContent value='transactions' className='mt-0 space-y-4'>
+                  <StudentTransactionHistory
+                    summary={billingSummary}
+                    onRefresh={refetchSummary}
+                  />
+                </TabsContent>
+              </div>
             </Tabs>
           </CardContent>
         </Card>
