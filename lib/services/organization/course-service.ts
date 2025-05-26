@@ -11,7 +11,10 @@ import type {
 export class CourseService {
   private static supabase = createClientSupabaseClient();
 
-  static async createCourse(data: CreateCourseDto): Promise<Course> {
+  static async createCourse(
+    data: CreateCourseDto,
+    showToast: boolean = true
+  ): Promise<Course> {
     try {
       const courseData = {
         ...data,
@@ -31,10 +34,16 @@ export class CourseService {
         throw error;
       }
 
-      toast.success('Course created successfully');
+      if (showToast) {
+        toast.success('Course created successfully');
+      }
       return course;
     } catch (error) {
       console.error('Error creating course:', error);
+      // In case of bulk upload, we don't want to throw the error here as it will stop the loop
+      // The error will be caught and logged by the calling function
+      if (showToast) throw error;
+      // For bulk upload, just re-throw the error to be caught by the loop
       throw error;
     }
   }

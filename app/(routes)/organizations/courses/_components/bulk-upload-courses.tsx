@@ -45,7 +45,10 @@ const validateRow = async (
   const requiredFields = ['institution_id', 'course_code', 'course_name'];
 
   // Check required fields
-  const missingFields = requiredFields.filter((field) => !row[field]);
+  const missingFields = requiredFields.filter((field) => {
+    const value = row[field];
+    return !value || (typeof value === 'string' && value.trim() === '');
+  });
   if (missingFields.length > 0) {
     errors.push(`Missing required fields: ${missingFields.join(', ')}`);
   }
@@ -64,11 +67,24 @@ const validateRow = async (
     };
   }
 
-  // Validate course code format
-  if (row.course_code && !/^[A-Z0-9_-]+$/.test(row.course_code)) {
-    errors.push(
-      'Course code can only contain uppercase letters, numbers, underscores, and hyphens'
-    );
+  // Validate course code format - convert to string first
+  if (row.course_code) {
+    const courseCodeStr = String(row.course_code).trim().toUpperCase();
+    if (courseCodeStr === '') {
+      errors.push('Course code cannot be empty or whitespace only');
+    } else if (!/^[A-Z0-9_-]+$/.test(courseCodeStr)) {
+      errors.push(
+        'Course code can only contain uppercase letters, numbers, underscores, and hyphens'
+      );
+    }
+  }
+
+  // Validate course name
+  if (row.course_name) {
+    const courseNameStr = String(row.course_name).trim();
+    if (courseNameStr === '') {
+      errors.push('Course name cannot be empty or whitespace only');
+    }
   }
 
   return {
@@ -136,6 +152,14 @@ export default function BulkUploadCourses() {
       // Validate each row
       const validatedData = await Promise.all(
         jsonData.map(async (row: any, index) => {
+          // Log row data types for debugging
+          console.log(`Row ${index + 2}:`, {
+            institution_id: typeof row.institution_id,
+            course_code: typeof row.course_code,
+            course_name: typeof row.course_name,
+            values: row
+          });
+
           const validation = await validateRow(row, institutions);
           return {
             ...row,
@@ -178,12 +202,14 @@ export default function BulkUploadCourses() {
       const promises = validRows.map((row) => {
         const courseData = {
           institution_id: row.institution_id,
-          course_code: row.course_code.toUpperCase(),
-          course_name: row.course_name,
+          course_code: String(row.course_code || '')
+            .trim()
+            .toUpperCase(),
+          course_name: String(row.course_name || '').trim(),
           is_active: true
         };
 
-        return CourseService.createCourse(courseData)
+        return CourseService.createCourse(courseData, false)
           .then(() => {
             successCount++;
           })

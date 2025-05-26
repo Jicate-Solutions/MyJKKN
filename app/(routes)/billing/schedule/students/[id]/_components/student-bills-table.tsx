@@ -12,7 +12,9 @@ import {
   Calendar,
   IndianRupee,
   FileText,
-  AlertCircle
+  AlertCircle,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -57,16 +59,30 @@ export function StudentBillsTable({
 }: StudentBillsTableProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
+  const [selectedBills, setSelectedBills] = useState<string[]>([]);
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
 
   const canEditBills = isSuperAdmin || canAccess('billing.schedule', 'update');
   const canDeleteBills =
     isSuperAdmin || canAccess('billing.schedule', 'delete');
+  const canCreateReceipts =
+    isSuperAdmin || canAccess('billing.receipts', 'create');
 
   // Filter bills based on status
   const filteredBills = useMemo(() => {
     if (statusFilter === 'all') return bills;
     return bills.filter((bill) => bill.status === statusFilter);
   }, [bills, statusFilter]);
+
+  // Get selected unpaid bills for receipt generation
+  const selectedUnpaidBills = filteredBills.filter(
+    (bill) => selectedBills.includes(bill.id) && bill.status === 'unpaid'
+  );
+
+  const totalSelectedAmount = selectedUnpaidBills.reduce(
+    (sum, bill) => sum + bill.final_amount,
+    0
+  );
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -136,6 +152,37 @@ export function StudentBillsTable({
     }
   };
 
+  const handleSelectBill = (billId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedBills([...selectedBills, billId]);
+    } else {
+      setSelectedBills(selectedBills.filter((id) => id !== billId));
+    }
+  };
+
+  const handleSelectAllUnpaid = () => {
+    const unpaidBills = filteredBills.filter(
+      (bill) => bill.status === 'unpaid'
+    );
+    const unpaidBillIds = unpaidBills.map((bill) => bill.id);
+
+    if (selectedBills.length === unpaidBillIds.length) {
+      setSelectedBills([]);
+    } else {
+      setSelectedBills(unpaidBillIds);
+    }
+  };
+
+  const handleGenerateReceipt = () => {
+    if (selectedUnpaidBills.length === 0) return;
+
+    // Create URL with selected bill IDs
+    const billIds = selectedUnpaidBills.map((bill) => bill.id).join(',');
+    const studentId = selectedUnpaidBills[0]?.student_id;
+
+    window.location.href = `/billing/receipts/new?bill_ids=${billIds}&student_id=${studentId}`;
+  };
+
   if (filteredBills.length === 0) {
     return (
       <div className='text-center py-12'>
@@ -160,11 +207,59 @@ export function StudentBillsTable({
 
   return (
     <div className='space-y-4'>
+      {/* Action Bar */}
+      {selectedUnpaidBills.length > 0 && (
+        <div className='flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg'>
+          <div className='flex items-center gap-4'>
+            <span className='text-sm font-medium text-blue-900'>
+              {selectedUnpaidBills.length} bill(s) selected
+            </span>
+            <span className='text-sm text-blue-700'>
+              Total Amount: {formatCurrency(totalSelectedAmount)}
+            </span>
+          </div>
+          <div className='flex items-center gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setSelectedBills([])}
+            >
+              Clear Selection
+            </Button>
+            {canCreateReceipts && (
+              <Button
+                size='sm'
+                onClick={handleGenerateReceipt}
+                className='bg-blue-600 hover:bg-blue-700'
+              >
+                <Receipt className='mr-2 h-4 w-4' />
+                Generate Receipt
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className='rounded-md border'>
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className='w-12'>
+                <div
+                  className='flex items-center'
+                  onClick={handleSelectAllUnpaid}
+                >
+                  {selectedBills.length > 0 &&
+                  selectedBills.length ===
+                    filteredBills.filter((b) => b.status === 'unpaid')
+                      .length ? (
+                    <CheckSquare className='h-4 w-4 cursor-pointer' />
+                  ) : (
+                    <Square className='h-4 w-4 cursor-pointer' />
+                  )}
+                </div>
+              </TableHead>
               <TableHead>Bill Description</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Due Date</TableHead>
@@ -177,6 +272,25 @@ export function StudentBillsTable({
           <TableBody>
             {filteredBills.map((bill) => (
               <TableRow key={bill.id} className='hover:bg-muted/50'>
+                <TableCell>
+                  {bill.status === 'unpaid' && (
+                    <div
+                      className='flex items-center'
+                      onClick={() =>
+                        handleSelectBill(
+                          bill.id,
+                          !selectedBills.includes(bill.id)
+                        )
+                      }
+                    >
+                      {selectedBills.includes(bill.id) ? (
+                        <CheckSquare className='h-4 w-4 cursor-pointer text-blue-600' />
+                      ) : (
+                        <Square className='h-4 w-4 cursor-pointer' />
+                      )}
+                    </div>
+                  )}
+                </TableCell>
                 <TableCell>
                   <div className='space-y-1'>
                     <div className='font-medium'>{bill.bill_description}</div>
