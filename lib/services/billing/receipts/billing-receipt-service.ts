@@ -402,7 +402,7 @@ export class BillingReceiptService {
         `
         )
         .in('id', billIds)
-        .eq('status', 'unpaid'); // Only unpaid bills can have receipts generated
+        .in('status', ['unpaid', 'partially_paid']); // Include both unpaid and partially paid bills for receipt generation
 
       if (error) throw error;
 
