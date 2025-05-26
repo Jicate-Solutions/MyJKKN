@@ -65,7 +65,11 @@ export default function StudentBillingDetailPage() {
     refetch: refetchSummary
   } = useStudentBillingSummary(studentId);
 
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
 
   const canViewBills = isSuperAdmin || canAccess('billing.schedule', 'view');
   const canCreateBills =
@@ -112,6 +116,17 @@ export default function StudentBillingDetailPage() {
       </Badge>
     );
   };
+
+  // Show loading state while permissions are loading
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Student Billing Search'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (!canViewBills) {
     return (
@@ -205,6 +220,28 @@ export default function StudentBillingDetailPage() {
             </div>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
+            {/* PRD Required Action Buttons */}
+            <Button variant='outline' size='sm' asChild>
+              <Link href={`/billing/receipts/new?student_id=${studentId}`}>
+                <Receipt className='mr-2 h-4 w-4' />
+                Generate Receipt
+              </Link>
+            </Button>
+
+            <Button variant='outline' size='sm' asChild>
+              <Link href={`/billing/discounts/new?student_id=${studentId}`}>
+                <Percent className='mr-2 h-4 w-4' />
+                Apply Discount
+              </Link>
+            </Button>
+
+            <Button variant='outline' size='sm' asChild>
+              <Link href={`/billing/refunds/new?student_id=${studentId}`}>
+                <RefreshCw className='mr-2 h-4 w-4' />
+                Process Refund
+              </Link>
+            </Button>
+
             {canCreateBills && (
               <Button asChild>
                 <Link href={`/billing/schedule/new?student_id=${studentId}`}>

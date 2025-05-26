@@ -414,7 +414,29 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.view', label: 'View Schedule' },
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
-      { key: 'billing.schedule.delete', label: 'Delete Schedule' }
+      { key: 'billing.schedule.delete', label: 'Delete Schedule' },
+      { key: 'billing.receipts.view', label: 'View Receipts' },
+      { key: 'billing.receipts.create', label: 'Create Receipts' },
+      { key: 'billing.receipts.edit', label: 'Edit Receipts' },
+      { key: 'billing.receipts.delete', label: 'Delete Receipts' },
+      { key: 'billing.receipts.generate', label: 'Generate Receipts' },
+      { key: 'billing.discounts.view', label: 'View Discounts' },
+      { key: 'billing.discounts.create', label: 'Create Discounts' },
+      { key: 'billing.discounts.edit', label: 'Edit Discounts' },
+      { key: 'billing.discounts.delete', label: 'Delete Discounts' },
+      { key: 'billing.discounts.approve', label: 'Approve Discounts' },
+      { key: 'billing.refunds.view', label: 'View Refunds' },
+      { key: 'billing.refunds.create', label: 'Create Refunds' },
+      { key: 'billing.refunds.edit', label: 'Edit Refunds' },
+      { key: 'billing.refunds.delete', label: 'Delete Refunds' },
+      { key: 'billing.refunds.approve', label: 'Approve Refunds' },
+      { key: 'billing.refunds.process', label: 'Process Refunds' },
+      { key: 'billing.invoices.view', label: 'View Invoices' },
+      { key: 'billing.invoices.create', label: 'Create Invoices' },
+      { key: 'billing.invoices.edit', label: 'Edit Invoices' },
+      { key: 'billing.invoices.delete', label: 'Delete Invoices' },
+      { key: 'billing.invoices.send', label: 'Send Invoices' },
+      { key: 'billing.reports.view', label: 'View Billing Reports' }
     ]
   }
 ];

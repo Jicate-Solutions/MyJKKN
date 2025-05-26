@@ -41,7 +41,8 @@ import {
   Calendar,
   FileBarChart,
   PlusCircle,
-  Clock
+  Clock,
+  RefreshCw
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 
@@ -174,7 +175,27 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule/[id]': 'billing.schedule.view',
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
-  '/billing/schedule/students/[id]': 'billing.schedule.view'
+  '/billing/schedule/students/[id]': 'billing.schedule.view',
+  '/billing/receipts': 'billing.receipts.view',
+  '/billing/receipts/new': 'billing.receipts.create',
+  '/billing/receipts/[id]': 'billing.receipts.view',
+  '/billing/receipts/[id]/edit': 'billing.receipts.edit',
+  '/billing/receipts/generate': 'billing.receipts.generate',
+  '/billing/discounts': 'billing.discounts.view',
+  '/billing/discounts/new': 'billing.discounts.create',
+  '/billing/discounts/[id]': 'billing.discounts.view',
+  '/billing/discounts/[id]/edit': 'billing.discounts.edit',
+  '/billing/refunds': 'billing.refunds.view',
+  '/billing/refunds/new': 'billing.refunds.create',
+  '/billing/refunds/[id]': 'billing.refunds.view',
+  '/billing/refunds/[id]/edit': 'billing.refunds.edit',
+  '/billing/refunds/policies': 'billing.refunds.view',
+  '/billing/refunds/bulk': 'billing.refunds.create',
+  '/billing/invoices': 'billing.invoices.view',
+  '/billing/invoices/new': 'billing.invoices.create',
+  '/billing/invoices/[id]': 'billing.invoices.view',
+  '/billing/invoices/[id]/edit': 'billing.invoices.edit',
+  '/billing/reports': 'billing.reports.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -562,6 +583,63 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/billing/schedule'
             }
           ]
+        },
+        {
+          href: '/billing/receipts',
+          label: 'Receipts',
+          active: pathname.startsWith('/billing/receipts'),
+          icon: FileText,
+          submenus: [
+            {
+              href: '/billing/receipts',
+              label: 'All Receipts',
+              active: pathname === '/billing/receipts'
+            },
+            {
+              href: '/billing/receipts/generate',
+              label: 'Generate Receipts',
+              active: pathname === '/billing/receipts/generate'
+            }
+          ]
+        },
+        {
+          href: '/billing/discounts',
+          label: 'Discounts',
+          active: pathname.startsWith('/billing/discounts'),
+          icon: Tags,
+          submenus: []
+        },
+        {
+          href: '/billing/refunds',
+          label: 'Refunds',
+          active: pathname.startsWith('/billing/refunds'),
+          icon: RefreshCw,
+          submenus: [
+            {
+              href: '/billing/refunds',
+              label: 'All Refunds',
+              active: pathname === '/billing/refunds'
+            },
+            {
+              href: '/billing/refunds/policies',
+              label: 'Refund Policies',
+              active: pathname === '/billing/refunds/policies'
+            }
+          ]
+        },
+        {
+          href: '/billing/invoices',
+          label: 'Invoices',
+          active: pathname.startsWith('/billing/invoices'),
+          icon: FileBarChart,
+          submenus: []
+        },
+        {
+          href: '/billing/reports',
+          label: 'Reports',
+          active: pathname.startsWith('/billing/reports'),
+          icon: BarChart,
+          submenus: []
         }
       ]
     },
