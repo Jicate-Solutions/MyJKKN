@@ -171,8 +171,7 @@ export interface BillingReceipt {
   };
   accountant?: {
     id: string;
-    first_name: string;
-    last_name: string;
+    full_name: string;
   };
   receipt_items?: ReceiptItem[];
   refunds?: BillingRefund[];
@@ -264,8 +263,7 @@ export interface BillingDiscount {
   bill?: StudentBill;
   authorizer?: {
     id: string;
-    first_name: string;
-    last_name: string;
+    full_name: string;
   };
 }
 
@@ -335,8 +333,7 @@ export interface BillingRefund {
   receipt?: BillingReceipt;
   authorizer?: {
     id: string;
-    first_name: string;
-    last_name: string;
+    full_name: string;
   };
 }
 

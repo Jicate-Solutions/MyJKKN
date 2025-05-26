@@ -15,43 +15,33 @@ export class BillingRefundService {
     refundData: CreateRefundDto
   ): Promise<BillingRefund> {
     try {
-      // Calculate net refund amount (refund amount - processing fee)
+      // Calculate net refund amount
       const processingFee = refundData.processing_fee || 0;
       const netRefundAmount = refundData.refund_amount - processingFee;
 
       const { data, error } = await this.supabase
         .from('billing_refunds')
         .insert({
-          receipt_id: refundData.receipt_id,
-          refund_category: refundData.refund_category,
-          refund_amount: refundData.refund_amount,
-          refund_date: refundData.refund_date,
-          refund_method: refundData.refund_method,
-          bank_details: refundData.bank_details,
-          refund_reason: refundData.refund_reason,
-          supporting_documents: refundData.supporting_documents,
-          processing_fee: processingFee,
-          net_refund_amount: netRefundAmount,
-          approval_status: 'pending'
+          ...refundData,
+          net_refund_amount: netRefundAmount
         })
         .select(
           `
           *,
-          receipt:billing_receipts!billing_refunds_receipt_id_fkey (
+          receipt:billing_receipts (
             id,
             receipt_number,
             payment_amount,
-            student:students!billing_receipts_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_refunds_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `
         )
@@ -79,21 +69,20 @@ export class BillingRefundService {
         .select(
           `
           *,
-          receipt:billing_receipts!billing_refunds_receipt_id_fkey (
+          receipt:billing_receipts (
             id,
             receipt_number,
             payment_amount,
-            student:students!billing_receipts_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_refunds_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `
         )
@@ -132,21 +121,20 @@ export class BillingRefundService {
       let query = this.supabase.from('billing_refunds').select(
         `
           *,
-          receipt:billing_receipts!billing_refunds_receipt_id_fkey (
+          receipt:billing_receipts (
             id,
             receipt_number,
             payment_amount,
-            student:students!billing_receipts_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_refunds_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `,
         { count: 'exact' }
@@ -218,21 +206,20 @@ export class BillingRefundService {
         .select(
           `
           *,
-          receipt:billing_receipts!billing_refunds_receipt_id_fkey (
+          receipt:billing_receipts (
             id,
             receipt_number,
             payment_amount,
-            student:students!billing_receipts_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_refunds_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `
         )
@@ -251,36 +238,30 @@ export class BillingRefundService {
 
   static async approveRefund(id: string): Promise<BillingRefund> {
     try {
-      // Get current user - this would come from auth context in real implementation
-      const {
-        data: { user }
-      } = await this.supabase.auth.getUser();
-
       const { data, error } = await this.supabase
         .from('billing_refunds')
         .update({
           approval_status: 'approved',
-          authorizer_id: user?.id
+          approval_date: new Date().toISOString().split('T')[0]
         })
         .eq('id', id)
         .select(
           `
           *,
-          receipt:billing_receipts!billing_refunds_receipt_id_fkey (
+          receipt:billing_receipts (
             id,
             receipt_number,
             payment_amount,
-            student:students!billing_receipts_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_refunds_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `
         )
@@ -296,32 +277,71 @@ export class BillingRefundService {
     }
   }
 
-  static async processRefund(id: string): Promise<BillingRefund> {
+  static async rejectRefund(id: string): Promise<BillingRefund> {
     try {
       const { data, error } = await this.supabase
         .from('billing_refunds')
         .update({
-          approval_status: 'completed'
+          approval_status: 'rejected'
         })
         .eq('id', id)
         .select(
           `
           *,
-          receipt:billing_receipts!billing_refunds_receipt_id_fkey (
+          receipt:billing_receipts (
             id,
             receipt_number,
             payment_amount,
-            student:students!billing_receipts_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_refunds_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
+          )
+        `
+        )
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error rejecting refund:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to reject refund'
+      );
+    }
+  }
+
+  static async processRefund(id: string): Promise<BillingRefund> {
+    try {
+      const { data, error } = await this.supabase
+        .from('billing_refunds')
+        .update({
+          approval_status: 'processed'
+        })
+        .eq('id', id)
+        .select(
+          `
+          *,
+          receipt:billing_receipts (
+            id,
+            receipt_number,
+            payment_amount,
+            student:students (
+              id,
+              student_name,
+              roll_number,
+              student_email
+            )
+          ),
+          authorizer:profiles (
+            id,
+            full_name
           )
         `
         )
@@ -340,23 +360,36 @@ export class BillingRefundService {
   static async bulkProcessRefunds(
     refunds: CreateRefundDto[]
   ): Promise<BulkOperationResult> {
-    const results: BulkOperationResult = {
-      success: [],
-      failed: []
-    };
+    try {
+      const results = [];
+      const errors = [];
 
-    for (const refund of refunds) {
-      try {
-        const created = await this.createBillingRefund(refund);
-        results.success.push(created.id);
-      } catch (error) {
-        results.failed.push({
-          id: refund.receipt_id,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+      for (const refund of refunds) {
+        try {
+          const result = await this.createBillingRefund(refund);
+          results.push(result);
+        } catch (error) {
+          errors.push({
+            refund,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
       }
-    }
 
-    return results;
+      return {
+        success: results.map((r) => r.id),
+        failed: errors.map((e) => ({
+          id: e.refund.receipt_id,
+          error: e.error
+        }))
+      };
+    } catch (error) {
+      console.error('Error processing bulk refunds:', error);
+      throw new Error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to process bulk refunds'
+      );
+    }
   }
 }

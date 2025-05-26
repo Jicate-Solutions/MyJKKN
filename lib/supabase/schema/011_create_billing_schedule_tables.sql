@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS public.billing_receipts (
   
   -- Foreign key constraints
   CONSTRAINT fk_billing_receipts_student FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE,
-  CONSTRAINT fk_billing_receipts_institution FOREIGN KEY (institution_id) REFERENCES public.institutions(id) ON DELETE CASCADE
+  CONSTRAINT fk_billing_receipts_institution FOREIGN KEY (institution_id) REFERENCES public.institutions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_billing_receipts_accountant FOREIGN KEY (accountant_id) REFERENCES public.profiles(id) ON DELETE SET NULL
 );
 
 -- Create billing_receipt_items table (junction table for receipt and bills)
@@ -102,7 +103,8 @@ CREATE TABLE IF NOT EXISTS public.billing_discounts (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   
   -- Foreign key constraints
-  CONSTRAINT fk_billing_discounts_bill FOREIGN KEY (bill_id) REFERENCES public.billing_student_bills(id) ON DELETE CASCADE
+  CONSTRAINT fk_billing_discounts_bill FOREIGN KEY (bill_id) REFERENCES public.billing_student_bills(id) ON DELETE CASCADE,
+  CONSTRAINT fk_billing_discounts_authorizer FOREIGN KEY (authorizer_id) REFERENCES public.profiles(id) ON DELETE SET NULL
 );
 
 -- Create billing_refunds table
@@ -125,7 +127,8 @@ CREATE TABLE IF NOT EXISTS public.billing_refunds (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   
   -- Foreign key constraints
-  CONSTRAINT fk_billing_refunds_receipt FOREIGN KEY (receipt_id) REFERENCES public.billing_receipts(id) ON DELETE CASCADE
+  CONSTRAINT fk_billing_refunds_receipt FOREIGN KEY (receipt_id) REFERENCES public.billing_receipts(id) ON DELETE CASCADE,
+  CONSTRAINT fk_billing_refunds_authorizer FOREIGN KEY (authorizer_id) REFERENCES public.profiles(id) ON DELETE SET NULL
 );
 
 -- Create billing_invoices table
@@ -426,4 +429,26 @@ CREATE INDEX IF NOT EXISTS idx_billing_invoices_invoice_number ON public.billing
 CREATE INDEX IF NOT EXISTS idx_billing_invoices_invoice_date ON public.billing_invoices(invoice_date);
 
 CREATE INDEX IF NOT EXISTS idx_billing_invoice_items_invoice_id ON public.billing_invoice_items(invoice_id);
-CREATE INDEX IF NOT EXISTS idx_billing_invoice_items_receipt_id ON public.billing_invoice_items(receipt_id); 
+CREATE INDEX IF NOT EXISTS idx_billing_invoice_items_receipt_id ON public.billing_invoice_items(receipt_id);
+
+-- Added foreign key constraints
+ALTER TABLE public.billing_discounts 
+ADD CONSTRAINT fk_billing_discounts_authorizer 
+FOREIGN KEY (authorizer_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+ALTER TABLE public.billing_refunds 
+ADD CONSTRAINT fk_billing_refunds_authorizer 
+FOREIGN KEY (authorizer_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+ALTER TABLE public.billing_refunds 
+ADD CONSTRAINT fk_billing_refunds_receipt 
+FOREIGN KEY (receipt_id) REFERENCES public.billing_receipts(id) ON DELETE CASCADE;
+
+ALTER TABLE public.billing_receipts 
+ADD CONSTRAINT fk_billing_receipts_accountant 
+FOREIGN KEY (accountant_id) REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+-- Added performance indexes
+CREATE INDEX idx_billing_discounts_authorizer_id ON public.billing_discounts(authorizer_id);
+CREATE INDEX idx_billing_refunds_authorizer_id ON public.billing_refunds(authorizer_id);
+CREATE INDEX idx_billing_receipts_accountant_id ON public.billing_receipts(accountant_id); 
