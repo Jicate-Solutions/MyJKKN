@@ -594,11 +594,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/billing/receipts',
               label: 'All Receipts',
               active: pathname === '/billing/receipts'
-            },
-            {
-              href: '/billing/receipts/generate',
-              label: 'Generate Receipts',
-              active: pathname === '/billing/receipts/generate'
             }
           ]
         },
@@ -619,11 +614,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/billing/refunds',
               label: 'All Refunds',
               active: pathname === '/billing/refunds'
-            },
-            {
-              href: '/billing/refunds/policies',
-              label: 'Refund Policies',
-              active: pathname === '/billing/refunds/policies'
             }
           ]
         },

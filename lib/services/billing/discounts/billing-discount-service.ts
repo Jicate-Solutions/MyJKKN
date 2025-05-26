@@ -50,21 +50,20 @@ export class BillingDiscountService {
         .select(
           `
           *,
-          bill:billing_student_bills!billing_discounts_bill_id_fkey (
+          bill:billing_student_bills (
             id,
             bill_description,
             total_amount,
-            student:students!billing_student_bills_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_discounts_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `
         )
@@ -92,21 +91,20 @@ export class BillingDiscountService {
         .select(
           `
           *,
-          bill:billing_student_bills!billing_discounts_bill_id_fkey (
+          bill:billing_student_bills (
             id,
             bill_description,
             total_amount,
-            student:students!billing_student_bills_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_discounts_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `
         )
@@ -145,21 +143,20 @@ export class BillingDiscountService {
       let query = this.supabase.from('billing_discounts').select(
         `
           *,
-          bill:billing_student_bills!billing_discounts_bill_id_fkey (
+          bill:billing_student_bills (
             id,
             bill_description,
             total_amount,
-            student:students!billing_student_bills_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_discounts_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `,
         { count: 'exact' }
@@ -231,21 +228,20 @@ export class BillingDiscountService {
         .select(
           `
           *,
-          bill:billing_student_bills!billing_discounts_bill_id_fkey (
+          bill:billing_student_bills (
             id,
             bill_description,
             total_amount,
-            student:students!billing_student_bills_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_discounts_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `
         )
@@ -280,21 +276,20 @@ export class BillingDiscountService {
         .select(
           `
           *,
-          bill:billing_student_bills!billing_discounts_bill_id_fkey (
+          bill:billing_student_bills (
             id,
             bill_description,
             total_amount,
-            student:students!billing_student_bills_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_discounts_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `
         )
@@ -335,21 +330,20 @@ export class BillingDiscountService {
         .select(
           `
           *,
-          bill:billing_student_bills!billing_discounts_bill_id_fkey (
+          bill:billing_student_bills (
             id,
             bill_description,
             total_amount,
-            student:students!billing_student_bills_student_id_fkey (
+            student:students (
               id,
               student_name,
               roll_number,
               student_email
             )
           ),
-          authorizer:users!billing_discounts_authorizer_id_fkey (
+          authorizer:profiles (
             id,
-            first_name,
-            last_name
+            full_name
           )
         `
         )
