@@ -122,7 +122,10 @@ export function useApproveDiscount() {
     mutationFn: (id: string) => BillingDiscountService.approveDiscount(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-      toast.success('Discount approved successfully');
+      queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
+      queryClient.invalidateQueries({ queryKey: ['student-billing-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-schedule'] });
+      toast.success('Discount approved and bill amount updated');
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to approve discount');
@@ -142,6 +145,24 @@ export function useRejectDiscount() {
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to reject discount');
+    }
+  });
+}
+
+export function useReverseDiscount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => BillingDiscountService.reverseDiscount(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
+      queryClient.invalidateQueries({ queryKey: ['student-billing-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-schedule'] });
+      toast.success('Discount reversed and bill amounts restored');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to reverse discount');
     }
   });
 }

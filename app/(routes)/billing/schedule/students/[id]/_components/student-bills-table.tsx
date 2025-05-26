@@ -14,7 +14,10 @@ import {
   FileText,
   AlertCircle,
   CheckSquare,
-  Square
+  Square,
+  ArrowLeft,
+  DollarSign,
+  CreditCard
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +46,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { StudentBill } from '@/types/billing-schedule';
 
@@ -60,13 +71,16 @@ export function StudentBillsTable({
   const { canAccess, isSuperAdmin } = usePermissions();
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
   const [selectedBills, setSelectedBills] = useState<string[]>([]);
-  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
 
   const canEditBills = isSuperAdmin || canAccess('billing.schedule', 'update');
   const canDeleteBills =
     isSuperAdmin || canAccess('billing.schedule', 'delete');
   const canCreateReceipts =
     isSuperAdmin || canAccess('billing.receipts', 'create');
+  const canApplyDiscounts =
+    isSuperAdmin || canAccess('billing.discounts', 'create');
+  const canProcessRefunds =
+    isSuperAdmin || canAccess('billing.refunds', 'create');
 
   // Filter bills based on status
   const filteredBills = useMemo(() => {
@@ -74,13 +88,25 @@ export function StudentBillsTable({
     return bills.filter((bill) => bill.status === statusFilter);
   }, [bills, statusFilter]);
 
-  // Get selected unpaid bills for receipt generation
-  const selectedUnpaidBills = filteredBills.filter(
-    (bill) => selectedBills.includes(bill.id) && bill.status === 'unpaid'
+  // Get bills that can be selected (unpaid and partially_paid)
+  const selectableBills = filteredBills.filter(
+    (bill) => bill.status === 'unpaid' || bill.status === 'partially_paid'
   );
 
-  const totalSelectedAmount = selectedUnpaidBills.reduce(
+  // Get currently selected bills from selectable bills
+  const selectedSelectableBills = selectableBills.filter((bill) =>
+    selectedBills.includes(bill.id)
+  );
+
+  // Calculate totals for selected bills
+  const totalSelectedAmount = selectedSelectableBills.reduce(
     (sum, bill) => sum + bill.final_amount,
+    0
+  );
+
+  const totalSelectedBalance = selectedSelectableBills.reduce(
+    (sum, bill) =>
+      sum + (bill.balance_amount > 0 ? bill.balance_amount : bill.final_amount),
     0
   );
 
@@ -139,6 +165,10 @@ export function StudentBillsTable({
     return new Date(dueDate) < new Date();
   };
 
+  const canSelectBill = (bill: StudentBill) => {
+    return bill.status === 'unpaid' || bill.status === 'partially_paid';
+  };
+
   const handleDeleteBill = async (billId: string) => {
     try {
       setDeletingBillId(billId);
@@ -160,27 +190,41 @@ export function StudentBillsTable({
     }
   };
 
-  const handleSelectAllUnpaid = () => {
-    const unpaidBills = filteredBills.filter(
-      (bill) => bill.status === 'unpaid'
-    );
-    const unpaidBillIds = unpaidBills.map((bill) => bill.id);
+  const handleSelectAllSelectable = () => {
+    const selectableBillIds = selectableBills.map((bill) => bill.id);
 
-    if (selectedBills.length === unpaidBillIds.length) {
+    if (selectedBills.length === selectableBillIds.length) {
       setSelectedBills([]);
     } else {
-      setSelectedBills(unpaidBillIds);
+      setSelectedBills(selectableBillIds);
     }
   };
 
   const handleGenerateReceipt = () => {
-    if (selectedUnpaidBills.length === 0) return;
+    if (selectedSelectableBills.length === 0) return;
 
-    // Create URL with selected bill IDs
-    const billIds = selectedUnpaidBills.map((bill) => bill.id).join(',');
-    const studentId = selectedUnpaidBills[0]?.student_id;
+    const billIds = selectedSelectableBills.map((bill) => bill.id).join(',');
+    const studentId = selectedSelectableBills[0]?.student_id;
 
     window.location.href = `/billing/receipts/new?bill_ids=${billIds}&student_id=${studentId}`;
+  };
+
+  const handleApplyDiscount = () => {
+    if (selectedSelectableBills.length === 0) return;
+
+    const billIds = selectedSelectableBills.map((bill) => bill.id).join(',');
+    const studentId = selectedSelectableBills[0]?.student_id;
+
+    window.location.href = `/billing/discounts/new?bill_ids=${billIds}&student_id=${studentId}`;
+  };
+
+  const handleProcessRefund = () => {
+    if (selectedSelectableBills.length === 0) return;
+
+    const billIds = selectedSelectableBills.map((bill) => bill.id).join(',');
+    const studentId = selectedSelectableBills[0]?.student_id;
+
+    window.location.href = `/billing/refunds/new?bill_ids=${billIds}&student_id=${studentId}`;
   };
 
   if (filteredBills.length === 0) {
@@ -207,18 +251,20 @@ export function StudentBillsTable({
 
   return (
     <div className='space-y-4'>
-      {/* Action Bar */}
-      {selectedUnpaidBills.length > 0 && (
-        <div className='flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg'>
-          <div className='flex items-center gap-4'>
-            <span className='text-sm font-medium text-blue-900'>
-              {selectedUnpaidBills.length} bill(s) selected
-            </span>
-            <span className='text-sm text-blue-700'>
-              Total Amount: {formatCurrency(totalSelectedAmount)}
-            </span>
-          </div>
-          <div className='flex items-center gap-2'>
+      {/* Enhanced Action Bar */}
+      {selectedSelectableBills.length > 0 && (
+        <div className='flex flex-col space-y-4 p-4 bg-blue-50 border border-blue-200 rounded-lg'>
+          {/* Selection Summary */}
+          <div className='flex items-center justify-between'>
+            <div className='flex items-center gap-4'>
+              <span className='text-sm font-medium text-blue-900'>
+                {selectedSelectableBills.length} bill(s) selected
+              </span>
+              <div className='flex items-center gap-4 text-sm text-blue-700'>
+                <span>Total Amount: {formatCurrency(totalSelectedAmount)}</span>
+                <span>Balance Due: {formatCurrency(totalSelectedBalance)}</span>
+              </div>
+            </div>
             <Button
               variant='outline'
               size='sm'
@@ -226,6 +272,10 @@ export function StudentBillsTable({
             >
               Clear Selection
             </Button>
+          </div>
+
+          {/* Action Buttons */}
+          <div className='flex flex-wrap items-center gap-2'>
             {canCreateReceipts && (
               <Button
                 size='sm'
@@ -233,30 +283,61 @@ export function StudentBillsTable({
                 className='bg-blue-600 hover:bg-blue-700'
               >
                 <Receipt className='mr-2 h-4 w-4' />
-                Generate Receipt
+                Generate Receipt ({selectedSelectableBills.length})
               </Button>
             )}
+
+            {canApplyDiscounts && (
+              <Button
+                size='sm'
+                variant='secondary'
+                onClick={handleApplyDiscount}
+                className='bg-green-600 hover:bg-green-700 text-white'
+              >
+                <Percent className='mr-2 h-4 w-4' />
+                Apply Discount ({selectedSelectableBills.length})
+              </Button>
+            )}
+
+            {canProcessRefunds &&
+              selectedSelectableBills.some(
+                (bill) => bill.status === 'partially_paid'
+              ) && (
+                <Button
+                  size='sm'
+                  variant='secondary'
+                  onClick={handleProcessRefund}
+                  className='bg-orange-600 hover:bg-orange-700 text-white'
+                >
+                  <ArrowLeft className='mr-2 h-4 w-4' />
+                  Process Refund (
+                  {
+                    selectedSelectableBills.filter(
+                      (bill) => bill.status === 'partially_paid'
+                    ).length
+                  }
+                  )
+                </Button>
+              )}
           </div>
         </div>
       )}
 
-      {/* Table */}
+      {/* Enhanced Table */}
       <div className='rounded-md border'>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead className='w-12'>
                 <div
-                  className='flex items-center'
-                  onClick={handleSelectAllUnpaid}
+                  className='flex items-center cursor-pointer'
+                  onClick={handleSelectAllSelectable}
                 >
                   {selectedBills.length > 0 &&
-                  selectedBills.length ===
-                    filteredBills.filter((b) => b.status === 'unpaid')
-                      .length ? (
-                    <CheckSquare className='h-4 w-4 cursor-pointer' />
+                  selectedBills.length === selectableBills.length ? (
+                    <CheckSquare className='h-4 w-4 text-blue-600' />
                   ) : (
-                    <Square className='h-4 w-4 cursor-pointer' />
+                    <Square className='h-4 w-4' />
                   )}
                 </div>
               </TableHead>
@@ -264,7 +345,7 @@ export function StudentBillsTable({
               <TableHead>Category</TableHead>
               <TableHead>Due Date</TableHead>
               <TableHead className='text-right'>Amount</TableHead>
-              <TableHead className='text-right'>Final Amount</TableHead>
+              <TableHead className='text-right'>Balance Due</TableHead>
               <TableHead className='text-center'>Status</TableHead>
               <TableHead className='text-center'>Actions</TableHead>
             </TableRow>
@@ -273,9 +354,9 @@ export function StudentBillsTable({
             {filteredBills.map((bill) => (
               <TableRow key={bill.id} className='hover:bg-muted/50'>
                 <TableCell>
-                  {bill.status === 'unpaid' && (
+                  {canSelectBill(bill) && (
                     <div
-                      className='flex items-center'
+                      className='flex items-center cursor-pointer'
                       onClick={() =>
                         handleSelectBill(
                           bill.id,
@@ -284,9 +365,9 @@ export function StudentBillsTable({
                       }
                     >
                       {selectedBills.includes(bill.id) ? (
-                        <CheckSquare className='h-4 w-4 cursor-pointer text-blue-600' />
+                        <CheckSquare className='h-4 w-4 text-blue-600' />
                       ) : (
-                        <Square className='h-4 w-4 cursor-pointer' />
+                        <Square className='h-4 w-4' />
                       )}
                     </div>
                   )}
@@ -338,7 +419,7 @@ export function StudentBillsTable({
                 <TableCell className='text-right'>
                   <div className='space-y-1'>
                     <div className='font-medium'>
-                      {formatCurrency(bill.total_amount)}
+                      {formatCurrency(bill.final_amount)}
                     </div>
                     {bill.tax_amount > 0 && (
                       <div className='text-xs text-muted-foreground'>
@@ -350,11 +431,20 @@ export function StudentBillsTable({
                 <TableCell className='text-right'>
                   <div className='space-y-1'>
                     <div className='font-medium'>
-                      {formatCurrency(bill.final_amount)}
+                      {bill.status === 'paid'
+                        ? formatCurrency(0)
+                        : formatCurrency(
+                            bill.balance_amount > 0
+                              ? bill.balance_amount
+                              : bill.final_amount
+                          )}
                     </div>
-                    {bill.balance_amount > 0 && (
-                      <div className='text-xs text-orange-600'>
-                        Balance: {formatCurrency(bill.balance_amount)}
+                    {bill.status === 'partially_paid' && (
+                      <div className='text-xs text-green-600'>
+                        Paid:{' '}
+                        {formatCurrency(
+                          bill.final_amount - bill.balance_amount
+                        )}
                       </div>
                     )}
                   </div>
@@ -379,41 +469,63 @@ export function StudentBillsTable({
                       </Tooltip>
                     </TooltipProvider>
 
-                    {bill.status === 'unpaid' && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant='ghost' size='sm' asChild>
-                              <Link
-                                href={`/billing/receipts/new?bill_id=${bill.id}`}
-                              >
-                                <Receipt className='h-4 w-4' />
-                              </Link>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Create Receipt</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
+                    {/* Individual Bill Actions */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant='ghost' size='sm'>
+                          <DollarSign className='h-4 w-4' />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align='end'>
+                        <DropdownMenuLabel>Bill Actions</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
 
-                    {canEditBills && bill.status !== 'paid' && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant='ghost' size='sm' asChild>
-                              <Link href={`/billing/schedule/${bill.id}/edit`}>
-                                <Edit className='h-4 w-4' />
+                        {canSelectBill(bill) && canCreateReceipts && (
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/billing/receipts/new?bill_id=${bill.id}&student_id=${bill.student_id}`}
+                            >
+                              <Receipt className='mr-2 h-4 w-4' />
+                              Generate Receipt
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+
+                        {canSelectBill(bill) && canApplyDiscounts && (
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/billing/discounts/new?bill_id=${bill.id}&student_id=${bill.student_id}`}
+                            >
+                              <Percent className='mr-2 h-4 w-4' />
+                              Apply Discount
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+
+                        {bill.status === 'partially_paid' &&
+                          canProcessRefunds && (
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/billing/refunds/new?bill_id=${bill.id}&student_id=${bill.student_id}`}
+                              >
+                                <ArrowLeft className='mr-2 h-4 w-4' />
+                                Process Refund
                               </Link>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Edit Bill</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
+                            </DropdownMenuItem>
+                          )}
+
+                        <DropdownMenuSeparator />
+
+                        {canEditBills && bill.status !== 'paid' && (
+                          <DropdownMenuItem asChild>
+                            <Link href={`/billing/schedule/${bill.id}/edit`}>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit Bill
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
 
                     {canDeleteBills && bill.status !== 'paid' && (
                       <AlertDialog>
@@ -457,25 +569,41 @@ export function StudentBillsTable({
         </Table>
       </div>
 
-      {/* Summary */}
-      <div className='flex items-center justify-between text-sm text-muted-foreground'>
-        <div>
-          Showing {filteredBills.length} of {bills.length} bills
+      {/* Enhanced Summary */}
+      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm'>
+        <div className='text-center p-3 bg-gray-50 rounded-lg'>
+          <div className='text-muted-foreground'>Total Bills</div>
+          <div className='font-semibold text-lg'>{filteredBills.length}</div>
         </div>
-        <div className='flex items-center gap-4'>
-          <div>
-            Total Amount:{' '}
+        <div className='text-center p-3 bg-blue-50 rounded-lg'>
+          <div className='text-muted-foreground'>Total Amount</div>
+          <div className='font-semibold text-lg text-blue-600'>
             {formatCurrency(
               filteredBills.reduce((sum, bill) => sum + bill.final_amount, 0)
             )}
           </div>
-          <div>
-            Outstanding:{' '}
+        </div>
+        <div className='text-center p-3 bg-orange-50 rounded-lg'>
+          <div className='text-muted-foreground'>Outstanding</div>
+          <div className='font-semibold text-lg text-orange-600'>
             {formatCurrency(
               filteredBills
                 .filter((bill) => bill.status !== 'paid')
-                .reduce((sum, bill) => sum + bill.balance_amount, 0)
+                .reduce(
+                  (sum, bill) =>
+                    sum +
+                    (bill.balance_amount > 0
+                      ? bill.balance_amount
+                      : bill.final_amount),
+                  0
+                )
             )}
+          </div>
+        </div>
+        <div className='text-center p-3 bg-green-50 rounded-lg'>
+          <div className='text-muted-foreground'>Selectable Bills</div>
+          <div className='font-semibold text-lg text-green-600'>
+            {selectableBills.length}
           </div>
         </div>
       </div>
