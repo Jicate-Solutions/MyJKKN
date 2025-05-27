@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { format } from 'date-fns';
+import Link from 'next/link';
 import {
   MoreVertical,
   Edit,
@@ -21,7 +22,8 @@ import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-r
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   usePrintReceipt,
-  useEmailReceipt
+  useEmailReceipt,
+  useDownloadReceiptPDF
 } from '@/hooks/billing/use-billing-receipts';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -97,6 +99,7 @@ export function ReceiptList({
   const { canAccess, isSuperAdmin } = usePermissions();
   const printReceiptMutation = usePrintReceipt();
   const emailReceiptMutation = useEmailReceipt();
+  const downloadPDFMutation = useDownloadReceiptPDF();
 
   const canViewReceipts = isSuperAdmin || canAccess('billing.receipts', 'view');
   const canEditReceipts = isSuperAdmin || canAccess('billing.receipts', 'edit');
@@ -142,6 +145,53 @@ export function ReceiptList({
       setEmailAddress('');
     } catch (error) {
       // Error is handled by the mutation
+    }
+  };
+
+  const handleDownload = async (receiptId: string) => {
+    try {
+      await downloadPDFMutation.mutateAsync(receiptId);
+    } catch (error) {
+      // Error is handled by the mutation
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedReceipts.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      // Delete receipts one by one since there's no bulk delete service method
+      const results = await Promise.allSettled(
+        selectedReceipts.map((id) =>
+          BillingReceiptService.deleteBillingReceipt(id)
+        )
+      );
+
+      const successful = results.filter(
+        (result) => result.status === 'fulfilled'
+      ).length;
+      const failed = results.filter(
+        (result) => result.status === 'rejected'
+      ).length;
+
+      if (successful > 0) {
+        toast.success(`${successful} receipts deleted successfully`);
+      }
+
+      if (failed > 0) {
+        toast.error(`Failed to delete ${failed} receipts`);
+      }
+
+      setSelectedReceipts([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting receipts:', error);
+      toast.error('Failed to delete receipts');
+    } finally {
+      setIsLoading(false);
+      setShowBulkDeleteDialog(false);
     }
   };
 
@@ -328,13 +378,11 @@ export function ReceiptList({
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
                         <DropdownMenuSeparator />
 
-                        <DropdownMenuItem
-                          onClick={() =>
-                            console.log('View receipt details:', receipt.id)
-                          }
-                        >
-                          <Eye className='mr-2 h-4 w-4' />
-                          View Details
+                        <DropdownMenuItem asChild>
+                          <Link href={`/billing/receipts/${receipt.id}`}>
+                            <Eye className='mr-2 h-4 w-4' />
+                            View Details
+                          </Link>
                         </DropdownMenuItem>
 
                         <DropdownMenuItem
@@ -357,19 +405,20 @@ export function ReceiptList({
                           Email
                         </DropdownMenuItem>
 
-                        <DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleDownload(receipt.id)}
+                          disabled={downloadPDFMutation.isPending}
+                        >
                           <Download className='mr-2 h-4 w-4' />
                           Download PDF
                         </DropdownMenuItem>
 
                         {canEditReceipts && (
-                          <DropdownMenuItem
-                            onClick={() =>
-                              console.log('Edit receipt:', receipt.id)
-                            }
-                          >
-                            <Edit className='mr-2 h-4 w-4' />
-                            Edit
+                          <DropdownMenuItem asChild>
+                            <Link href={`/billing/receipts/${receipt.id}/edit`}>
+                              <Edit className='mr-2 h-4 w-4' />
+                              Edit
+                            </Link>
                           </DropdownMenuItem>
                         )}
 
@@ -445,6 +494,33 @@ export function ReceiptList({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isLoading ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk delete confirmation dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete{' '}
+              {selectedReceipts.length} selected receipt
+              {selectedReceipts.length === 1 ? '' : 's'}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isLoading ? 'Deleting...' : 'Delete All'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

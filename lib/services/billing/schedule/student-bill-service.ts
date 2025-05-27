@@ -514,6 +514,9 @@ export class StudentBillService {
         updateData.payment_date = new Date().toISOString();
       } else if (status === 'partially_paid' && balanceAmount !== undefined) {
         updateData.balance_amount = balanceAmount;
+      } else if (status === 'unpaid' && balanceAmount !== undefined) {
+        updateData.balance_amount = balanceAmount;
+        updateData.payment_date = null; // Clear payment date if bill becomes unpaid due to refund
       }
 
       const { error } = await this.supabase
@@ -525,6 +528,81 @@ export class StudentBillService {
     } catch (error) {
       console.error('Error updating bill status:', error);
       throw error;
+    }
+  }
+
+  // Method to update bill balance after refund
+  static async updateBillBalanceAfterRefund(
+    billId: string,
+    refundAmount: number
+  ): Promise<void> {
+    try {
+      // First get the current bill details
+      const bill = await this.getStudentBill(billId);
+
+      // Calculate new balance (add refund amount back to balance)
+      const newBalance = bill.balance_amount + refundAmount;
+
+      // Determine new status based on balance
+      let newStatus = bill.status;
+      if (newBalance >= bill.final_amount) {
+        newStatus = 'unpaid';
+      } else if (newBalance > 0) {
+        newStatus = 'partially_paid';
+      } else {
+        newStatus = 'paid';
+      }
+
+      // Update the bill
+      await this.updateBillStatus(billId, newStatus, newBalance);
+    } catch (error) {
+      console.error('Error updating bill balance after refund:', error);
+      throw error;
+    }
+  }
+
+  // Method to get refunds for a specific bill
+  static async getBillRefunds(billId: string): Promise<any[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('billing_refunds')
+        .select(
+          `
+          *,
+          receipt:billing_receipts!inner(
+            id,
+            receipt_number,
+            receipt_items:billing_receipt_items!inner(
+              bill_id
+            )
+          )
+        `
+        )
+        .eq('receipt.receipt_items.bill_id', billId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching bill refunds:', error);
+      throw error;
+    }
+  }
+
+  // Method to calculate total refunded amount for a bill
+  static async getBillTotalRefundAmount(billId: string): Promise<number> {
+    try {
+      const refunds = await this.getBillRefunds(billId);
+      return refunds
+        .filter(
+          (refund) =>
+            refund.approval_status === 'approved' ||
+            refund.approval_status === 'processed'
+        )
+        .reduce((total, refund) => total + refund.refund_amount, 0);
+    } catch (error) {
+      console.error('Error calculating total refund amount:', error);
+      return 0;
     }
   }
 }

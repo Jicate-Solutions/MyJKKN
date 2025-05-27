@@ -139,6 +139,18 @@ export function useEmailReceipt() {
   });
 }
 
+export function useDownloadReceiptPDF() {
+  return useMutation({
+    mutationFn: (id: string) => BillingReceiptService.downloadReceiptPDF(id),
+    onSuccess: () => {
+      toast.success('Receipt PDF download started');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to download receipt PDF');
+    }
+  });
+}
+
 export function useBulkGenerateReceipts() {
   const queryClient = useQueryClient();
 

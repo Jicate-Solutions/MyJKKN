@@ -27,6 +27,9 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
+import { BillingRefundService } from '@/lib/services/billing/refunds/billing-refund-service';
+import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
+import { useCreateBillingRefund } from '@/hooks/billing/use-billing-refunds';
 import type {
   RefundCategory,
   RefundMethod,
@@ -63,6 +66,8 @@ export default function NewRefundPage() {
     isSuperAdmin,
     isLoading: permissionsLoading
   } = usePermissions();
+
+  const createRefundMutation = useCreateBillingRefund();
 
   const canProcessRefunds =
     isSuperAdmin || canAccess('billing.refunds', 'create');
@@ -175,15 +180,37 @@ export default function NewRefundPage() {
       return;
     }
 
+    // Validate net refund amount
+    const totalProcessingFee =
+      (formData.processing_fee || 0) * selectedBills.length;
+    const netRefundAmount = formData.refund_amount! - totalProcessingFee;
+    if (netRefundAmount <= 0) {
+      toast.error(
+        `Net refund amount must be positive. Total processing fee (₹${totalProcessingFee.toLocaleString()}) cannot exceed refund amount (₹${formData.refund_amount!.toLocaleString()}).`
+      );
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
       // Process refund for each selected bill
       const refundPromises = selectedBills.map(async (bill) => {
+        // First, find the receipt for this bill
+        const receipts = await BillingReceiptService.getReceiptsByBillId(
+          bill.id
+        );
+        if (receipts.length === 0) {
+          throw new Error(`No receipt found for bill ${bill.id}`);
+        }
+
+        // Use the first receipt (or you could implement logic to select the appropriate one)
+        const receipt = receipts[0];
+
         const refundData: CreateRefundDto = {
-          receipt_id: bill.receipt_id, // This would come from the bill data
+          receipt_id: receipt.id,
           refund_category: formData.refund_category!,
-          refund_amount: formData.refund_amount!,
+          refund_amount: formData.refund_amount! / selectedBills.length, // Distribute refund amount across bills
           refund_date: formData.refund_date!,
           refund_method: formData.refund_method!,
           refund_reason: formData.refund_reason!,
@@ -191,9 +218,18 @@ export default function NewRefundPage() {
           bank_details: formData.bank_details
         };
 
-        // Here you would call your refund service
-        // await BillingRefundService.createBillingRefund(refundData);
-        console.log('Creating refund for bill:', bill.id, refundData);
+        // Create the refund
+        const createdRefund = await BillingRefundService.createBillingRefund(
+          refundData
+        );
+
+        // Update the bill balance to reflect the refund
+        await StudentBillService.updateBillBalanceAfterRefund(
+          bill.id,
+          refundData.refund_amount
+        );
+
+        return createdRefund;
       });
 
       await Promise.all(refundPromises);
@@ -204,7 +240,9 @@ export default function NewRefundPage() {
       router.push('/billing/refunds');
     } catch (error) {
       console.error('Error processing refund:', error);
-      toast.error('Failed to process refund');
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to process refund'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -251,8 +289,8 @@ export default function NewRefundPage() {
         <div className='flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg'>
           <AlertCircle className='h-4 w-4 text-blue-600' />
           <span className='text-sm text-blue-600'>
-            Refunds can only be processed for bills with partial payments. Only
-            the paid amount can be refunded.
+            Refunds can be processed for bills with partial payments. Enter any
+            refund amount as needed for your business requirements.
           </span>
         </div>
 
@@ -366,7 +404,7 @@ export default function NewRefundPage() {
                   </div>
                   <div>
                     <span className='text-muted-foreground'>
-                      Net Refundable:
+                      Available for Refund:
                     </span>
                     <div className='font-semibold text-blue-600'>
                       {formatCurrency(totalRefundAmount)}
@@ -462,7 +500,6 @@ export default function NewRefundPage() {
                     type='number'
                     step='1'
                     min='0'
-                    max={totalRefundAmount}
                     placeholder='Enter refund amount'
                     value={formData.refund_amount || ''}
                     onChange={(e) =>
@@ -474,7 +511,7 @@ export default function NewRefundPage() {
                     required
                   />
                   <p className='text-xs text-muted-foreground'>
-                    Maximum refundable: {formatCurrency(totalRefundAmount)}
+                    Enter the amount to be refunded
                   </p>
                 </div>
 
@@ -547,14 +584,35 @@ export default function NewRefundPage() {
               </div>
 
               {/* Validation Warning */}
-              {(formData.refund_amount || 0) > totalRefundAmount && (
-                <div className='flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg'>
-                  <AlertCircle className='h-4 w-4 text-red-600' />
-                  <span className='text-sm text-red-600'>
-                    Warning: Refund amount exceeds maximum refundable amount
-                  </span>
-                </div>
-              )}
+              {(formData.refund_amount || 0) <= 0 &&
+                formData.refund_amount !== undefined && (
+                  <div className='flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg'>
+                    <AlertCircle className='h-4 w-4 text-red-600' />
+                    <span className='text-sm text-red-600'>
+                      Warning: Please enter a valid refund amount greater than 0
+                    </span>
+                  </div>
+                )}
+
+              {/* Net Refund Amount Warning */}
+              {formData.refund_amount &&
+                formData.processing_fee &&
+                formData.refund_amount -
+                  (formData.processing_fee || 0) * selectedBills.length <=
+                  0 && (
+                  <div className='flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg'>
+                    <AlertCircle className='h-4 w-4 text-red-600' />
+                    <span className='text-sm text-red-600'>
+                      Warning: Net refund amount must be positive. Total
+                      processing fee (₹
+                      {(
+                        (formData.processing_fee || 0) * selectedBills.length
+                      ).toLocaleString()}
+                      ) cannot exceed refund amount (₹
+                      {formData.refund_amount.toLocaleString()}).
+                    </span>
+                  </div>
+                )}
 
               {/* Submit Button */}
               <div className='flex justify-end gap-4'>
@@ -570,7 +628,15 @@ export default function NewRefundPage() {
                   disabled={
                     isSubmitting ||
                     selectedBills.length === 0 ||
-                    (formData.refund_amount || 0) > totalRefundAmount
+                    (formData.refund_amount || 0) <= 0 ||
+                    Boolean(
+                      formData.refund_amount &&
+                        formData.processing_fee &&
+                        formData.refund_amount -
+                          (formData.processing_fee || 0) *
+                            selectedBills.length <=
+                          0
+                    )
                   }
                   className='min-w-[120px]'
                 >

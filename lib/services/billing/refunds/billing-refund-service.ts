@@ -19,6 +19,13 @@ export class BillingRefundService {
       const processingFee = refundData.processing_fee || 0;
       const netRefundAmount = refundData.refund_amount - processingFee;
 
+      // Validate that net refund amount is positive
+      if (netRefundAmount <= 0) {
+        throw new Error(
+          `Net refund amount must be positive. Refund amount: ₹${refundData.refund_amount}, Processing fee: ₹${processingFee}. Please reduce the processing fee or increase the refund amount.`
+        );
+      }
+
       const { data, error } = await this.supabase
         .from('billing_refunds')
         .insert({

@@ -349,6 +349,226 @@ export class BillingReceiptService {
     }
   }
 
+  static async downloadReceiptPDF(id: string): Promise<void> {
+    try {
+      // Get receipt data
+      const receipt = await this.getBillingReceipt(id);
+
+      // Generate PDF content (this would typically use a PDF library like jsPDF or Puppeteer)
+      // For now, we'll create a simple HTML representation and trigger download
+      const pdfContent = this.generateReceiptHTML(receipt);
+
+      // Create a blob and download it
+      const blob = new Blob([pdfContent], { type: 'text/html' });
+      const url = window.URL.createObjectURL(blob);
+
+      // Create a temporary link and trigger download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `receipt-${receipt.receipt_number}.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up the URL
+      window.URL.revokeObjectURL(url);
+
+      console.log(
+        'Receipt PDF download initiated for:',
+        receipt.receipt_number
+      );
+    } catch (error) {
+      console.error('Error downloading receipt PDF:', error);
+      throw new Error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to download receipt PDF'
+      );
+    }
+  }
+
+  private static generateReceiptHTML(receipt: BillingReceipt): string {
+    const formatCurrency = (amount: number) => {
+      return new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }).format(amount);
+    };
+
+    const formatDate = (date: string) => {
+      return new Date(date).toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+      });
+    };
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Receipt ${receipt.receipt_number}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .receipt-info { margin-bottom: 20px; }
+        .section { margin-bottom: 20px; }
+        .section h3 { border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        .info-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .amount { font-size: 18px; font-weight: bold; color: #2563eb; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f5f5f5; }
+        .total-row { font-weight: bold; background-color: #f9f9f9; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Payment Receipt</h1>
+        <h2>${receipt.institution?.name || 'Institution'}</h2>
+        <p>Receipt #${receipt.receipt_number}</p>
+    </div>
+
+    <div class="section">
+        <h3>Receipt Information</h3>
+        <div class="info-row">
+            <span>Receipt Date:</span>
+            <span>${formatDate(receipt.receipt_date)}</span>
+        </div>
+        <div class="info-row">
+            <span>Payment Date:</span>
+            <span>${formatDate(receipt.payment_paid_date)}</span>
+        </div>
+        <div class="info-row">
+            <span>Payment Mode:</span>
+            <span>${receipt.payment_mode.toUpperCase()}</span>
+        </div>
+        ${
+          receipt.payment_reference_number
+            ? `
+        <div class="info-row">
+            <span>Reference Number:</span>
+            <span>${receipt.payment_reference_number}</span>
+        </div>
+        `
+            : ''
+        }
+        <div class="info-row">
+            <span>Total Amount:</span>
+            <span class="amount">${formatCurrency(
+              receipt.payment_amount
+            )}</span>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Student Information</h3>
+        <div class="info-row">
+            <span>Name:</span>
+            <span>${receipt.student?.student_name || 'N/A'}</span>
+        </div>
+        ${
+          receipt.student?.roll_number
+            ? `
+        <div class="info-row">
+            <span>Roll Number:</span>
+            <span>${receipt.student.roll_number}</span>
+        </div>
+        `
+            : ''
+        }
+        <div class="info-row">
+            <span>Email:</span>
+            <span>${receipt.student?.student_email || 'N/A'}</span>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Payer Information</h3>
+        <div class="info-row">
+            <span>Payer Name:</span>
+            <span>${receipt.payer_name}</span>
+        </div>
+        ${
+          receipt.payer_contact
+            ? `
+        <div class="info-row">
+            <span>Contact:</span>
+            <span>${receipt.payer_contact}</span>
+        </div>
+        `
+            : ''
+        }
+    </div>
+
+    ${
+      receipt.receipt_items && receipt.receipt_items.length > 0
+        ? `
+    <div class="section">
+        <h3>Payment Details</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>Due Date</th>
+                    <th>Bill Amount</th>
+                    <th>Amount Paid</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${receipt.receipt_items
+                  .map(
+                    (item) => `
+                <tr>
+                    <td>${item.bill?.bill_description || 'N/A'}</td>
+                    <td>${
+                      item.bill?.due_date
+                        ? formatDate(item.bill.due_date)
+                        : 'N/A'
+                    }</td>
+                    <td>${
+                      item.bill?.final_amount
+                        ? formatCurrency(item.bill.final_amount)
+                        : 'N/A'
+                    }</td>
+                    <td>${formatCurrency(item.amount_paid)}</td>
+                </tr>
+                `
+                  )
+                  .join('')}
+                <tr class="total-row">
+                    <td colspan="3">Total Paid</td>
+                    <td>${formatCurrency(receipt.payment_amount)}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    `
+        : ''
+    }
+
+    ${
+      receipt.payment_remarks
+        ? `
+    <div class="section">
+        <h3>Remarks</h3>
+        <p>${receipt.payment_remarks}</p>
+    </div>
+    `
+        : ''
+    }
+
+    <div class="section" style="margin-top: 40px; text-align: center; font-size: 12px; color: #666;">
+        <p>This is a computer-generated receipt.</p>
+        <p>Generated on: ${new Date().toLocaleString('en-IN')}</p>
+    </div>
+</body>
+</html>
+    `;
+  }
+
   static async bulkGenerateReceipts(
     receipts: CreateReceiptDto[]
   ): Promise<BulkOperationResult> {
@@ -370,6 +590,43 @@ export class BillingReceiptService {
     }
 
     return results;
+  }
+
+  // Method to get receipts by bill ID
+  static async getReceiptsByBillId(billId: string): Promise<BillingReceipt[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('billing_receipts')
+        .select(
+          `
+          *,
+          student:students(
+            id,
+            student_name,
+            roll_number,
+            student_email
+          ),
+          institution:institutions(
+            id,
+            name,
+            counselling_code
+          ),
+          receipt_items:billing_receipt_items(
+            *,
+            bill:billing_student_bills(*)
+          )
+        `
+        )
+        .eq('receipt_items.bill_id', billId);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching receipts by bill ID:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to fetch receipts'
+      );
+    }
   }
 
   // Method to get multiple bills by their IDs for receipt generation
