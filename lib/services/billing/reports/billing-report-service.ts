@@ -263,7 +263,7 @@ export class BillingReportService {
             roll_number
           ),
           institution:institutions(name),
-          accountant:staff(full_name)
+          accountant:accountant_id(full_name)
         `
         )
         .order('receipt_date', { ascending: false });
@@ -330,7 +330,7 @@ export class BillingReportService {
               institution:institutions(name)
             )
           ),
-          authorizer:staff(full_name)
+          authorizer:authorizer_id(full_name)
         `
         )
         .order('created_at', { ascending: false });
