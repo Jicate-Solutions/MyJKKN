@@ -302,10 +302,22 @@ export class StudentBillService {
               sub_category_name
             )
           ),
-          discounts:billing_discounts(*),
+          discounts:billing_discounts(
+            *,
+            authorizer:profiles(id, full_name)
+          ),
           receipt_items:billing_receipt_items(
             *,
-            receipt:billing_receipts(*)
+            receipt:billing_receipts(
+              *,
+              student:students(id, student_name, student_email),
+              accountant:profiles(id, full_name),
+              refunds:billing_refunds(
+                *,
+                authorizer:profiles!fk_billing_refunds_authorizer(id, full_name),
+                approver:profiles!fk_billing_refunds_approved_by(id, full_name)
+              )
+            )
           )
         `
         )

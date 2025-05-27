@@ -46,7 +46,11 @@ export class BillingRefundService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_refunds_authorizer (
+            id,
+            full_name
+          ),
+          approver:profiles!fk_billing_refunds_approved_by (
             id,
             full_name
           )
@@ -87,7 +91,11 @@ export class BillingRefundService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_refunds_authorizer (
+            id,
+            full_name
+          ),
+          approver:profiles!fk_billing_refunds_approved_by (
             id,
             full_name
           )
@@ -139,7 +147,11 @@ export class BillingRefundService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_refunds_authorizer (
+            id,
+            full_name
+          ),
+          approver:profiles!fk_billing_refunds_approved_by (
             id,
             full_name
           )
@@ -224,7 +236,11 @@ export class BillingRefundService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_refunds_authorizer (
+            id,
+            full_name
+          ),
+          approver:profiles!fk_billing_refunds_approved_by (
             id,
             full_name
           )
@@ -245,11 +261,16 @@ export class BillingRefundService {
 
   static async approveRefund(id: string): Promise<BillingRefund> {
     try {
+      // Get current user
+      const {
+        data: { user }
+      } = await this.supabase.auth.getUser();
+
       const { data, error } = await this.supabase
         .from('billing_refunds')
         .update({
           approval_status: 'approved',
-          approval_date: new Date().toISOString().split('T')[0]
+          approved_by: user?.id
         })
         .eq('id', id)
         .select(
@@ -266,7 +287,11 @@ export class BillingRefundService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_refunds_authorizer (
+            id,
+            full_name
+          ),
+          approver:profiles!fk_billing_refunds_approved_by (
             id,
             full_name
           )
@@ -284,12 +309,16 @@ export class BillingRefundService {
     }
   }
 
-  static async rejectRefund(id: string): Promise<BillingRefund> {
+  static async rejectRefund(
+    id: string,
+    reason?: string
+  ): Promise<BillingRefund> {
     try {
       const { data, error } = await this.supabase
         .from('billing_refunds')
         .update({
-          approval_status: 'rejected'
+          approval_status: 'rejected',
+          rejection_reason: reason || 'No reason provided'
         })
         .eq('id', id)
         .select(
@@ -306,7 +335,11 @@ export class BillingRefundService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_refunds_authorizer (
+            id,
+            full_name
+          ),
+          approver:profiles!fk_billing_refunds_approved_by (
             id,
             full_name
           )
@@ -346,7 +379,11 @@ export class BillingRefundService {
               student_email
             )
           ),
-          authorizer:profiles (
+          authorizer:profiles!fk_billing_refunds_authorizer (
+            id,
+            full_name
+          ),
+          approver:profiles!fk_billing_refunds_approved_by (
             id,
             full_name
           )

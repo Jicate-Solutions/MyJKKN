@@ -187,6 +187,7 @@ export interface ReceiptItem {
 
   // Related data
   bill?: StudentBill;
+  receipt?: BillingReceipt;
 }
 
 // Create and Update DTOs for Receipt
@@ -322,6 +323,7 @@ export interface BillingRefund {
   refund_reason: string;
   supporting_documents?: any;
   authorizer_id?: string;
+  approved_by?: string;
   processing_fee: number;
   net_refund_amount: number;
   approval_status: RefundStatus;
@@ -332,6 +334,10 @@ export interface BillingRefund {
   // Related data
   receipt?: BillingReceipt;
   authorizer?: {
+    id: string;
+    full_name: string;
+  };
+  approver?: {
     id: string;
     full_name: string;
   };
@@ -585,8 +591,122 @@ export interface BillingReportFilters {
   student_id?: string;
   date_from?: string;
   date_to?: string;
-  report_type?: 'summary' | 'detailed' | 'outstanding' | 'collection';
+  report_type?:
+    | 'summary'
+    | 'detailed'
+    | 'outstanding'
+    | 'collection'
+    | 'invoice'
+    | 'discount'
+    | 'refund';
   format?: 'pdf' | 'excel' | 'csv';
+}
+
+// Detailed Report Interfaces
+export interface OutstandingReport {
+  student_id: string;
+  student_name: string;
+  roll_number?: string;
+  institution_name: string;
+  department_name?: string;
+  total_outstanding: number;
+  overdue_amount: number;
+  bills: {
+    id: string;
+    bill_description: string;
+    due_date: string;
+    amount: number;
+    status: BillStatus;
+  }[];
+}
+
+export interface CollectionReport {
+  receipt_id: string;
+  receipt_number: string;
+  receipt_date: string;
+  student_name: string;
+  roll_number?: string;
+  institution_name: string;
+  payment_mode: PaymentMode;
+  payment_amount: number;
+  accountant_name?: string;
+}
+
+export interface DiscountReport {
+  discount_id: string;
+  student_name: string;
+  roll_number?: string;
+  institution_name: string;
+  bill_description: string;
+  discount_category: DiscountCategory;
+  discount_type: DiscountType;
+  discount_value: number;
+  discount_amount: number;
+  approval_status: ApprovalStatus;
+  effective_date: string;
+  authorizer_name?: string;
+}
+
+export interface RefundReport {
+  refund_id: string;
+  receipt_number: string;
+  student_name: string;
+  roll_number?: string;
+  institution_name: string;
+  refund_category: RefundCategory;
+  refund_method: RefundMethod;
+  refund_amount: number;
+  processing_fee: number;
+  net_refund_amount: number;
+  approval_status: RefundStatus;
+  refund_date: string;
+}
+
+export interface InvoiceReport {
+  invoice_id: string;
+  invoice_number: string;
+  invoice_date: string;
+  student_name: string;
+  roll_number?: string;
+  institution_name: string;
+  invoice_type: InvoiceType;
+  grand_total: number;
+  billing_period_from?: string;
+  billing_period_to?: string;
+}
+
+export interface BillingDashboardMetrics {
+  total_students: number;
+  total_bills: number;
+  total_amount_billed: number;
+  total_amount_collected: number;
+  total_outstanding: number;
+  total_overdue: number;
+  collection_rate: number;
+  recent_transactions: {
+    receipts: BillingReceipt[];
+    bills: StudentBill[];
+    refunds: BillingRefund[];
+  };
+  monthly_collection: {
+    month: string;
+    amount: number;
+  }[];
+  institution_wise_summary: {
+    institution_id: string;
+    institution_name: string;
+    total_bills: number;
+    amount_billed: number;
+    amount_collected: number;
+    outstanding: number;
+  }[];
+}
+
+export interface ReportExportOptions {
+  format: 'pdf' | 'excel' | 'csv';
+  include_charts?: boolean;
+  include_summary?: boolean;
+  page_orientation?: 'portrait' | 'landscape';
 }
 
 // Bill Template Interface
