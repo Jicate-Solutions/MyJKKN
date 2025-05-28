@@ -138,8 +138,7 @@ export default function StudentBillDetailPage() {
         <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
           <div className='flex items-center gap-4'>
             <Button variant='outline' size='sm' onClick={() => router.back()}>
-              <ArrowLeft className='mr-2 h-4 w-4' />
-              Back
+              <ArrowLeft className='h-4 w-4' />
             </Button>
             <div>
               <h1 className='text-2xl font-bold py-1'>Student Bill Details</h1>

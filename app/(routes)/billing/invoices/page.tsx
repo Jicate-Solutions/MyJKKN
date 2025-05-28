@@ -9,9 +9,9 @@ import { useBillingInvoices } from '@/hooks/billing/use-billing-invoices';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
-import { InvoiceList } from './_components/invoice-list';
 import { InvoiceFilters } from './_components/invoice-filters';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
+import { InvoiceList } from './_components/invoice-list';
 
 export default function BillingInvoicesPage() {
   const {
