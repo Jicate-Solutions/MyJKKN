@@ -495,6 +495,7 @@ export interface StudentSearchFilters {
   student_name?: string;
   roll_number?: string;
   mobile_number?: string;
+  is_profile_complete?: boolean;
   page?: number;
   limit?: number;
 }

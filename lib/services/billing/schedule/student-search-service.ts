@@ -85,7 +85,8 @@ export class StudentSearchService {
         `,
           { count: 'exact' }
         )
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .eq('is_profile_complete', true);
 
       // Apply filters
       if (filters.institution_id) {
