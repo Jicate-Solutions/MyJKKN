@@ -25,8 +25,8 @@ import { SectionList } from './_components/section-list';
 export default function SectionsPage() {
   const {
     sections,
-    loading,
-    error,
+    loading: sectionsLoading,
+    error: sectionsError,
     metadata,
     filters,
     updateFilters,
@@ -34,31 +34,74 @@ export default function SectionsPage() {
     fetchSections
   } = useSections({ limit: 10 });
 
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const {
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading,
+    error: permissionsError
+  } = usePermissions();
 
   const canViewSections =
-    isSuperAdmin || canAccess('organization.sections', 'view');
+    isSuperAdmin || canAccess('organizations.sections', 'view');
   const canCreateSections =
-    isSuperAdmin || canAccess('organization.sections', 'create');
+    isSuperAdmin || canAccess('organizations.sections', 'create');
   const canEditSections =
-    isSuperAdmin || canAccess('organization.sections', 'edit');
+    isSuperAdmin || canAccess('organizations.sections', 'edit');
   const canDeleteSections =
-    isSuperAdmin || canAccess('organization.sections', 'delete');
+    isSuperAdmin || canAccess('organizations.sections', 'delete');
 
   useEffect(() => {
-    fetchSections();
+    if (!permissionsLoading && canViewSections) {
+      fetchSections();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [permissionsLoading, canViewSections]);
 
-  if (!canViewSections) {
-    return <Loading title='Loading sections...' />;
+  if (permissionsLoading) {
+    return <Loading title='Checking permissions...' />;
   }
 
-  if (error) {
+  if (permissionsError) {
     return (
       <ContentLayout title='Sections'>
         <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
+          <p className='text-destructive'>
+            Error checking permissions: {permissionsError.message}
+          </p>
+          <Button
+            variant='outline'
+            onClick={() => window.location.reload()}
+            className='mt-4'
+          >
+            Try Again
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (!canViewSections) {
+    return (
+      <ContentLayout title='Sections'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You do not have permission to view sections.
+          </p>
+          <Link href='/'>
+            <Button variant='outline' className='mt-4'>
+              Go to Home
+            </Button>
+          </Link>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (sectionsError) {
+    return (
+      <ContentLayout title='Sections'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>{sectionsError}</p>
           <Button
             variant='outline'
             onClick={() => fetchSections()}
@@ -124,13 +167,13 @@ export default function SectionsPage() {
           <CardContent className='p-6'>
             <SectionFilters filters={filters} onFilterChange={updateFilters} />
 
-            {loading && <Loading title='Loading sections...' />}
+            {sectionsLoading && <Loading title='Loading sections...' />}
 
-            {!loading && !error && sections.length === 0 && (
+            {!sectionsLoading && !sectionsError && sections.length === 0 && (
               <SectionEmptyState canCreate={canCreateSections} />
             )}
 
-            {!loading && !error && sections.length > 0 && (
+            {!sectionsLoading && !sectionsError && sections.length > 0 && (
               <>
                 <SectionList
                   sections={sections}
