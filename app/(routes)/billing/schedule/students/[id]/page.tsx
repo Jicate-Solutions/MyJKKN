@@ -248,8 +248,7 @@ export default function StudentBillingDetailPage() {
               onClick={() => router.back()}
               className='shrink-0'
             >
-              <ArrowLeft className='h-4 w-4 sm:mr-2' />
-              <span className='hidden sm:inline'>Back</span>
+              <ArrowLeft className='h-4 w-4' />
             </Button>
             <div className='min-w-0 flex-1'>
               <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100'>

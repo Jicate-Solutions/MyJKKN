@@ -18,7 +18,8 @@ import {
   ArrowLeft,
   DollarSign,
   CreditCard,
-  Filter
+  Filter,
+  EllipsisVertical
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -614,7 +615,7 @@ export function StudentBillsTable({
                     <DropdownMenuTrigger asChild>
                       <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
                         <span className='sr-only'>Open menu</span>
-                        <Eye className='h-4 w-4' />
+                        <EllipsisVertical className='h-4 w-4' />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align='end'>

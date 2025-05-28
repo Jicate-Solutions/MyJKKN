@@ -4,6 +4,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { StudentBillForm } from '../_components/student-bill-form';
 import { usePermissions } from '@/hooks/use-permissions';
+import { BeatLoader } from 'react-spinners';
 
 export default function NewStudentBillPage() {
   const {
@@ -12,7 +13,29 @@ export default function NewStudentBillPage() {
     isLoading: permissionsLoading
   } = usePermissions();
   const canCreateBills =
-    isSuperAdmin || canAccess('billing.schedule', 'create'); // Show loading state while permissions are loading  if (permissionsLoading) {    return (      <ContentLayout title='Create Student Bill'>        <div className='flex items-center justify-center min-h-[400px]'>          <BeatLoader color='#00e902' />          <span className='ml-2'>Loading permissions...</span>        </div>      </ContentLayout>    );  }  if (!canCreateBills) {    return (      <ContentLayout title='Create Student Bill'>        <div className='text-center py-8'>          <p className='text-destructive'>            You don&apos;t have permission to create student bills.          </p>        </div>      </ContentLayout>    );  }
+    isSuperAdmin || canAccess('billing.schedule', 'create');
+
+  if (permissionsLoading) {
+    return (
+      <ContentLayout title='Create Student Bill'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <BeatLoader color='#00e902' />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (!canCreateBills) {
+    return (
+      <ContentLayout title='Create Student Bill'>
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to create student bills.
+          </p>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title='Create Student Bill'>
