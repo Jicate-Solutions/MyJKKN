@@ -42,10 +42,6 @@ const semesterSchema = z.object({
     .string()
     .min(2, 'Semester code must be at least 2 characters')
     .max(20, 'Semester code must be at most 20 characters')
-    .regex(
-      /^[A-Z0-9_-]+$/,
-      'Semester code can only contain uppercase letters, numbers, underscores, and hyphens'
-    )
     .transform((val) => val.toUpperCase()),
   semester_name: z.string().min(2, 'Name must be at least 2 characters'),
   semester_type: z.enum(['even', 'odd']),
