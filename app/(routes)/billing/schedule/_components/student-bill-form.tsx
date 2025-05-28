@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -11,7 +11,12 @@ import {
   User,
   Building,
   DollarSign,
-  RefreshCw
+  RefreshCw,
+  Plus,
+  Trash2,
+  FileText,
+  Calculator,
+  ShoppingCart
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +46,15 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
@@ -54,32 +68,48 @@ import type { Institution } from '@/types/organizations';
 import type { BillingItemCategory } from '@/types/billing';
 import type {
   StudentBill,
-  CreateStudentBillDto
+  CreateStudentBillDto,
+  StudentForBilling
 } from '@/types/billing-schedule';
 
+// Schema for individual billing item
+const billingItemSchema = z.object({
+  item_category_id: z.string().min(1, 'Item category is required'),
+  bill_description: z.string().min(1, 'Description is required'),
+  quantity: z.number().min(1, 'Quantity must be at least 1'),
+  unit_amount: z.number().min(0, 'Unit amount must be positive'),
+  tax_amount: z.number().min(0, 'Tax amount must be positive').default(0),
+  remarks: z.string().optional()
+});
+
+// Main form schema with multiple billing items
 const studentBillSchema = z.object({
   student_id: z.string().min(1, 'Student is required'),
   institution_id: z.string().min(1, 'Institution is required'),
-  item_category_id: z.string().min(1, 'Item category is required'),
-  bill_description: z.string().min(1, 'Bill description is required'),
   due_date: z.date({ required_error: 'Due date is required' }),
-  quantity: z.number().min(1, 'Quantity must be at least 1').default(1),
-  unit_amount: z.number().min(0, 'Unit amount must be positive'),
-  tax_amount: z.number().min(0, 'Tax amount must be positive').default(0),
-  remarks: z.string().optional(),
+  billing_items: z
+    .array(billingItemSchema)
+    .min(1, 'At least one billing item is required'),
+  overall_remarks: z.string().optional(),
   is_recurring: z.boolean().default(false),
   recurrence_pattern: z.enum(['monthly', 'quarterly', 'yearly']).optional(),
   number_of_recurrences: z.number().min(1).max(100).optional()
 });
 
 type StudentBillFormData = z.infer<typeof studentBillSchema>;
+type BillingItem = z.infer<typeof billingItemSchema>;
 
 interface StudentBillFormProps {
   bill?: StudentBill;
+  preSelectedStudent?: StudentForBilling;
   onSuccess?: () => void;
 }
 
-export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
+export function StudentBillForm({
+  bill,
+  preSelectedStudent,
+  onSuccess
+}: StudentBillFormProps) {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [itemCategories, setItemCategories] = useState<BillingItemCategory[]>(
@@ -93,22 +123,79 @@ export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
   const createStudentBill = useCreateStudentBill();
   const updateStudentBill = useUpdateStudentBill();
 
+  // Determine initial values based on pre-selected student or existing bill
+  const getInitialValues = () => {
+    if (bill) {
+      return {
+        student_id: bill.student_id,
+        institution_id: bill.institution_id,
+        due_date: bill.due_date ? new Date(bill.due_date) : undefined,
+        billing_items: [
+          {
+            item_category_id: bill.item_category_id,
+            bill_description: bill.bill_description,
+            quantity: bill.quantity,
+            unit_amount: bill.unit_amount,
+            tax_amount: bill.tax_amount,
+            remarks: bill.remarks || ''
+          }
+        ],
+        overall_remarks: bill.remarks || '',
+        is_recurring: bill.is_recurring,
+        recurrence_pattern: bill.recurrence_pattern,
+        number_of_recurrences: bill.number_of_recurrences
+      };
+    } else if (preSelectedStudent) {
+      return {
+        student_id: preSelectedStudent.id,
+        institution_id: preSelectedStudent.institution_id,
+        due_date: undefined,
+        billing_items: [
+          {
+            item_category_id: '',
+            bill_description: '',
+            quantity: 1,
+            unit_amount: 0,
+            tax_amount: 0,
+            remarks: ''
+          }
+        ],
+        overall_remarks: '',
+        is_recurring: false,
+        recurrence_pattern: undefined,
+        number_of_recurrences: undefined
+      };
+    } else {
+      return {
+        student_id: '',
+        institution_id: '',
+        due_date: undefined,
+        billing_items: [
+          {
+            item_category_id: '',
+            bill_description: '',
+            quantity: 1,
+            unit_amount: 0,
+            tax_amount: 0,
+            remarks: ''
+          }
+        ],
+        overall_remarks: '',
+        is_recurring: false,
+        recurrence_pattern: undefined,
+        number_of_recurrences: undefined
+      };
+    }
+  };
+
   const form = useForm<StudentBillFormData>({
     resolver: zodResolver(studentBillSchema),
-    defaultValues: {
-      student_id: bill?.student_id || '',
-      institution_id: bill?.institution_id || '',
-      item_category_id: bill?.item_category_id || '',
-      bill_description: bill?.bill_description || '',
-      due_date: bill?.due_date ? new Date(bill.due_date) : undefined,
-      quantity: bill?.quantity || 1,
-      unit_amount: bill?.unit_amount || 0,
-      tax_amount: bill?.tax_amount || 0,
-      remarks: bill?.remarks || '',
-      is_recurring: bill?.is_recurring || false,
-      recurrence_pattern: bill?.recurrence_pattern,
-      number_of_recurrences: bill?.number_of_recurrences
-    }
+    defaultValues: getInitialValues()
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: 'billing_items'
   });
 
   const { data: searchResults } = useSearchStudentsByQuery(
@@ -118,9 +205,25 @@ export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
   );
 
   const watchedValues = form.watch();
-  const totalAmount =
-    (watchedValues.quantity || 0) * (watchedValues.unit_amount || 0);
-  const finalAmount = totalAmount + (watchedValues.tax_amount || 0);
+
+  // Calculate totals from all billing items
+  const calculateTotals = () => {
+    const items = watchedValues.billing_items || [];
+    const subtotal = items.reduce((sum, item) => {
+      return sum + item.quantity * item.unit_amount;
+    }, 0);
+    const totalTax = items.reduce((sum, item) => {
+      return sum + (item.tax_amount || 0);
+    }, 0);
+    const finalAmount = subtotal + totalTax;
+
+    return { subtotal, totalTax, finalAmount };
+  };
+
+  const { subtotal, totalTax, finalAmount } = calculateTotals();
+
+  // Check if student is pre-selected (either from bill or preSelectedStudent prop)
+  const isStudentPreSelected = !!(bill?.student || preSelectedStudent);
 
   useEffect(() => {
     loadInstitutions();
@@ -135,13 +238,21 @@ export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
   }, [watchedValues.institution_id]);
 
   useEffect(() => {
+    // Handle existing bill student
     if (bill?.student) {
       setSelectedStudent(bill.student);
       setStudentSearchQuery(
         `${bill.student.student_name} (${bill.student.roll_number})`
       );
     }
-  }, [bill]);
+    // Handle pre-selected student from query parameter
+    else if (preSelectedStudent) {
+      setSelectedStudent(preSelectedStudent);
+      setStudentSearchQuery(
+        `${preSelectedStudent.student_name} (${preSelectedStudent.roll_number})`
+      );
+    }
+  }, [bill, preSelectedStudent]);
 
   const loadInstitutions = async () => {
     try {
@@ -181,11 +292,26 @@ export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
 
   const onSubmit = async (data: StudentBillFormData) => {
     try {
+      // For now, we'll create separate bills for each item
+      // In the future, this could be enhanced to support true multi-item bills
+      const firstItem = data.billing_items[0];
+
       const submitData: CreateStudentBillDto = {
-        ...data,
+        student_id: data.student_id,
+        institution_id: data.institution_id,
+        item_category_id: firstItem.item_category_id,
+        bill_description: firstItem.bill_description,
         due_date: format(data.due_date, 'yyyy-MM-dd'),
-        total_amount: totalAmount,
-        final_amount: finalAmount
+        quantity: firstItem.quantity,
+        unit_amount: firstItem.unit_amount,
+        tax_amount: firstItem.tax_amount,
+        total_amount: firstItem.quantity * firstItem.unit_amount,
+        final_amount:
+          firstItem.quantity * firstItem.unit_amount + firstItem.tax_amount,
+        remarks: firstItem.remarks || data.overall_remarks,
+        is_recurring: data.is_recurring,
+        recurrence_pattern: data.recurrence_pattern,
+        number_of_recurrences: data.number_of_recurrences
       };
 
       if (bill) {
@@ -207,20 +333,133 @@ export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
     }
   };
 
+  const addBillingItem = () => {
+    append({
+      item_category_id: '',
+      bill_description: '',
+      quantity: 1,
+      unit_amount: 0,
+      tax_amount: 0,
+      remarks: ''
+    });
+  };
+
+  const removeBillingItem = (index: number) => {
+    if (fields.length > 1) {
+      remove(index);
+    }
+  };
+
   const isLoading = createStudentBill.isPending || updateStudentBill.isPending;
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
-        <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
-          {/* Left Column */}
-          <div className='space-y-6'>
-            {/* Student Selection */}
+    <div className='space-y-8'>
+      {/* Student Information Header */}
+      {selectedStudent && (
+        <Card className='border-2 border-blue-200 dark:border-blue-800'>
+          <CardHeader className='bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950'>
+            <CardTitle className='flex items-center gap-3 text-xl'>
+              <div className='p-2 bg-blue-100 dark:bg-blue-900 rounded-full'>
+                <User className='h-6 w-6 text-blue-600 dark:text-blue-400' />
+              </div>
+              Student Information
+              {isStudentPreSelected && (
+                <Badge
+                  variant='outline'
+                  className='text-blue-700 border-blue-300 bg-blue-50'
+                >
+                  Pre-selected
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className='p-6'>
+            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
+              <div className='space-y-3'>
+                <div>
+                  <label className='text-sm font-medium text-muted-foreground'>
+                    Student Name
+                  </label>
+                  <p className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+                    {selectedStudent.student_name}
+                  </p>
+                </div>
+                <div>
+                  <label className='text-sm font-medium text-muted-foreground'>
+                    Roll Number
+                  </label>
+                  <p className='font-medium'>{selectedStudent.roll_number}</p>
+                </div>
+              </div>
+
+              <div className='space-y-3'>
+                <div>
+                  <label className='text-sm font-medium text-muted-foreground'>
+                    Email
+                  </label>
+                  <p className='font-medium text-sm break-all'>
+                    {selectedStudent.student_email}
+                  </p>
+                </div>
+                <div>
+                  <label className='text-sm font-medium text-muted-foreground'>
+                    Mobile
+                  </label>
+                  <p className='font-medium'>
+                    {selectedStudent.student_mobile}
+                  </p>
+                </div>
+              </div>
+
+              <div className='space-y-3'>
+                <div>
+                  <label className='text-sm font-medium text-muted-foreground'>
+                    Institution
+                  </label>
+                  <p className='font-medium'>
+                    {selectedStudent.institution?.name}
+                  </p>
+                </div>
+                <div>
+                  <label className='text-sm font-medium text-muted-foreground'>
+                    Department
+                  </label>
+                  <p className='font-medium'>
+                    {selectedStudent.department?.department_name}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <Separator className='my-4' />
+
+            <div className='flex items-center justify-between'>
+              <div className='flex items-center gap-4'>
+                <Badge
+                  variant='outline'
+                  className='text-orange-600 border-orange-300'
+                >
+                  Outstanding: ₹
+                  {selectedStudent.outstanding_amount?.toLocaleString() || '0'}
+                </Badge>
+                <Badge variant='outline'>
+                  Program: {selectedStudent.program?.program_name || 'N/A'}
+                </Badge>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-8'>
+          {/* Student Selection (only when not pre-selected) */}
+          {!isStudentPreSelected && (
             <Card>
               <CardHeader>
                 <CardTitle className='flex items-center gap-2'>
-                  <User className='h-5 w-5' />
-                  Student Information
+                  <Search className='h-5 w-5' />
+                  Select Student
                 </CardTitle>
               </CardHeader>
               <CardContent className='space-y-4'>
@@ -236,7 +475,6 @@ export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
                           setSelectedStudent(null);
                           setStudentSearchQuery('');
                           form.setValue('student_id', '');
-                          form.setValue('item_category_id', '');
                         }}
                         value={field.value}
                         disabled={isLoadingInstitutions}
@@ -298,238 +536,338 @@ export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
                       </div>
                     )}
                 </div>
+              </CardContent>
+            </Card>
+          )}
 
-                {selectedStudent && (
-                  <div className='p-3 bg-muted rounded-md'>
-                    <div className='flex items-center justify-between'>
-                      <div>
-                        <div className='font-medium'>
-                          {selectedStudent.student_name}
-                        </div>
-                        <div className='text-sm text-muted-foreground'>
-                          {selectedStudent.roll_number}
+          {/* Hidden form fields for pre-selected student */}
+          {isStudentPreSelected && (
+            <>
+              <FormField
+                control={form.control}
+                name='institution_id'
+                render={({ field }) => (
+                  <FormItem className='hidden'>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='student_id'
+                render={({ field }) => (
+                  <FormItem className='hidden'>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </>
+          )}
+
+          {/* Bill Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <FileText className='h-5 w-5' />
+                Bill Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <FormField
+                control={form.control}
+                name='due_date'
+                render={({ field }) => (
+                  <FormItem className='flex flex-col'>
+                    <FormLabel>Due Date *</FormLabel>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant='outline'
+                            className={cn(
+                              'w-full max-w-sm pl-3 text-left font-normal',
+                              !field.value && 'text-muted-foreground'
+                            )}
+                          >
+                            {field.value ? (
+                              format(field.value, 'PPP')
+                            ) : (
+                              <span>Pick a due date</span>
+                            )}
+                            <CalendarIcon className='ml-auto h-4 w-4 opacity-50' />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className='w-auto p-0' align='start'>
+                        <Calendar
+                          mode='single'
+                          selected={field.value}
+                          onSelect={field.onChange}
+                          disabled={(date) =>
+                            date < new Date(new Date().setHours(0, 0, 0, 0))
+                          }
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Billing Items Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center justify-between'>
+                <div className='flex items-center gap-2'>
+                  <ShoppingCart className='h-5 w-5' />
+                  Billing Items
+                </div>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={addBillingItem}
+                  className='flex items-center gap-2'
+                >
+                  <Plus className='h-4 w-4' />
+                  Add Item
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className='space-y-6'>
+                {fields.map((field, index) => (
+                  <Card key={field.id} className='border-l-4 border-l-blue-500'>
+                    <CardHeader className='pb-3'>
+                      <CardTitle className='flex items-center justify-between text-base'>
+                        <span>Item #{index + 1}</span>
+                        {fields.length > 1 && (
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            onClick={() => removeBillingItem(index)}
+                            className='text-red-600 hover:text-red-700 hover:bg-red-50'
+                          >
+                            <Trash2 className='h-4 w-4' />
+                          </Button>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className='space-y-4'>
+                      <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                        <FormField
+                          control={form.control}
+                          name={`billing_items.${index}.item_category_id`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Item Category *</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value}
+                                disabled={
+                                  !watchedValues.institution_id ||
+                                  isLoadingItemCategories
+                                }
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select category' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {itemCategories.map((category) => (
+                                    <SelectItem
+                                      key={category.id}
+                                      value={category.id}
+                                    >
+                                      {category.item_category_name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name={`billing_items.${index}.bill_description`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Description *</FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder='Enter item description'
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+                        <FormField
+                          control={form.control}
+                          name={`billing_items.${index}.quantity`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Quantity *</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min='1'
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      parseInt(e.target.value) || 1
+                                    )
+                                  }
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name={`billing_items.${index}.unit_amount`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Unit Amount (₹) *</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min='0'
+                                  step='0.01'
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      parseFloat(e.target.value) || 0
+                                    )
+                                  }
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name={`billing_items.${index}.tax_amount`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Tax Amount (₹)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min='0'
+                                  step='0.01'
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      parseFloat(e.target.value) || 0
+                                    )
+                                  }
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name={`billing_items.${index}.remarks`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Item Remarks</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder='Any specific notes for this item'
+                                rows={2}
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* Item Total Display */}
+                      <div className='p-3 bg-gray-50 dark:bg-gray-800 rounded-lg'>
+                        <div className='flex justify-between items-center text-sm'>
+                          <span>Item Total:</span>
+                          <span className='font-medium'>
+                            ₹
+                            {(
+                              (watchedValues.billing_items?.[index]?.quantity ||
+                                0) *
+                                (watchedValues.billing_items?.[index]
+                                  ?.unit_amount || 0) +
+                              (watchedValues.billing_items?.[index]
+                                ?.tax_amount || 0)
+                            ).toFixed(2)}
+                          </span>
                         </div>
                       </div>
-                      <Badge variant='outline'>
-                        Outstanding: ₹{selectedStudent.outstanding_amount || 0}
-                      </Badge>
+                    </CardContent>
+                  </Card>
+                ))}
+
+                {/* Grand Total Summary */}
+                <Card className='bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-950 dark:to-blue-950 border-2 border-green-200 dark:border-green-800'>
+                  <CardHeader>
+                    <CardTitle className='flex items-center gap-2 text-green-800 dark:text-green-200'>
+                      <Calculator className='h-5 w-5' />
+                      Bill Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className='space-y-3'>
+                      <div className='flex justify-between text-sm'>
+                        <span>Subtotal:</span>
+                        <span className='font-medium'>
+                          ₹{subtotal.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className='flex justify-between text-sm'>
+                        <span>Total Tax:</span>
+                        <span className='font-medium'>
+                          ₹{totalTax.toFixed(2)}
+                        </span>
+                      </div>
+                      <Separator />
+                      <div className='flex justify-between text-lg font-bold text-green-700 dark:text-green-300'>
+                        <span>Final Amount:</span>
+                        <span>₹{finalAmount.toFixed(2)}</span>
+                      </div>
+                      <div className='text-xs text-muted-foreground text-center'>
+                        Total for {fields.length} item
+                        {fields.length > 1 ? 's' : ''}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  </CardContent>
+                </Card>
+              </div>
+            </CardContent>
+          </Card>
 
-                <FormField
-                  control={form.control}
-                  name='student_id'
-                  render={({ field }) => (
-                    <FormItem className='hidden'>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </CardContent>
-            </Card>
-
-            {/* Bill Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  <Building className='h-5 w-5' />
-                  Bill Details
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                <FormField
-                  control={form.control}
-                  name='item_category_id'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Item Category</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                        disabled={
-                          !watchedValues.institution_id ||
-                          isLoadingItemCategories
-                        }
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder='Select item category' />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {itemCategories.map((category) => (
-                            <SelectItem key={category.id} value={category.id}>
-                              {category.item_category_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='bill_description'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Bill Description</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder='Enter bill description'
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name='due_date'
-                  render={({ field }) => (
-                    <FormItem className='flex flex-col'>
-                      <FormLabel>Due Date</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant='outline'
-                              className={cn(
-                                'w-full pl-3 text-left font-normal',
-                                !field.value && 'text-muted-foreground'
-                              )}
-                            >
-                              {field.value ? (
-                                format(field.value, 'PPP')
-                              ) : (
-                                <span>Pick a date</span>
-                              )}
-                              <CalendarIcon className='ml-auto h-4 w-4 opacity-50' />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className='w-auto p-0' align='start'>
-                          <Calendar
-                            mode='single'
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            disabled={(date) =>
-                              date < new Date(new Date().setHours(0, 0, 0, 0))
-                            }
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Right Column */}
-          <div className='space-y-6'>
-            {/* Amount Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  <DollarSign className='h-5 w-5' />
-                  Amount Details
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                <div className='grid grid-cols-2 gap-4'>
-                  <FormField
-                    control={form.control}
-                    name='quantity'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Quantity</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            min='1'
-                            {...field}
-                            onChange={(e) =>
-                              field.onChange(parseInt(e.target.value) || 1)
-                            }
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name='unit_amount'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Unit Amount (₹)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            min='0'
-                            step='0.01'
-                            {...field}
-                            onChange={(e) =>
-                              field.onChange(parseFloat(e.target.value) || 0)
-                            }
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name='tax_amount'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tax Amount (₹)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='number'
-                          min='0'
-                          step='0.01'
-                          {...field}
-                          onChange={(e) =>
-                            field.onChange(parseFloat(e.target.value) || 0)
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className='space-y-2 p-4 bg-muted rounded-md'>
-                  <div className='flex justify-between text-sm'>
-                    <span>Total Amount:</span>
-                    <span>₹{totalAmount.toFixed(2)}</span>
-                  </div>
-                  <div className='flex justify-between text-sm'>
-                    <span>Tax Amount:</span>
-                    <span>₹{(watchedValues.tax_amount || 0).toFixed(2)}</span>
-                  </div>
-                  <div className='flex justify-between font-medium border-t pt-2'>
-                    <span>Final Amount:</span>
-                    <span>₹{finalAmount.toFixed(2)}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
+          {/* Additional Settings */}
+          <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
             {/* Recurring Settings */}
             <Card>
               <CardHeader>
@@ -623,24 +961,31 @@ export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
               </CardContent>
             </Card>
 
-            {/* Additional Information */}
+            {/* Overall Remarks */}
             <Card>
               <CardHeader>
-                <CardTitle>Additional Information</CardTitle>
+                <CardTitle className='flex items-center gap-2'>
+                  <FileText className='h-5 w-5' />
+                  Additional Information
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <FormField
                   control={form.control}
-                  name='remarks'
+                  name='overall_remarks'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Remarks</FormLabel>
+                      <FormLabel>Overall Remarks</FormLabel>
                       <FormControl>
                         <Textarea
-                          placeholder='Any additional notes or remarks'
+                          placeholder='Any additional notes or remarks for the entire bill'
+                          rows={4}
                           {...field}
                         />
                       </FormControl>
+                      <FormDescription>
+                        These remarks will apply to the entire bill
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -648,23 +993,44 @@ export function StudentBillForm({ bill, onSuccess }: StudentBillFormProps) {
               </CardContent>
             </Card>
           </div>
-        </div>
 
-        {/* Form Actions */}
-        <div className='flex justify-end gap-4'>
-          <Button
-            type='button'
-            variant='outline'
-            onClick={() => router.back()}
-            disabled={isLoading}
-          >
-            Cancel
-          </Button>
-          <Button type='submit' disabled={isLoading}>
-            {isLoading ? 'Saving...' : bill ? 'Update Bill' : 'Create Bill'}
-          </Button>
-        </div>
-      </form>
-    </Form>
+          {/* Form Actions */}
+          <Card className='border-t-4 border-t-blue-500'>
+            <CardContent className='pt-6'>
+              <div className='flex flex-col sm:flex-row justify-end gap-4'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={() => router.back()}
+                  disabled={isLoading}
+                  className='w-full sm:w-auto'
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type='submit'
+                  disabled={isLoading || fields.length === 0}
+                  className='w-full sm:w-auto min-w-[200px]'
+                >
+                  {isLoading ? (
+                    <div className='flex items-center gap-2'>
+                      <RefreshCw className='h-4 w-4 animate-spin' />
+                      {bill ? 'Updating Bill...' : 'Creating Bill...'}
+                    </div>
+                  ) : (
+                    <div className='flex items-center gap-2'>
+                      <DollarSign className='h-4 w-4' />
+                      {bill
+                        ? 'Update Bill'
+                        : `Create Bill (₹${finalAmount.toFixed(2)})`}
+                    </div>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </form>
+      </Form>
+    </div>
   );
 }
