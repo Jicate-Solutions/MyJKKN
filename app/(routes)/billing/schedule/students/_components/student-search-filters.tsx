@@ -316,17 +316,6 @@ export function StudentSearchFilters({
           </Button>
         </div>
       )}
-
-      {/* Search Tips */}
-      <div className='text-xs text-muted-foreground bg-muted/50 p-3 rounded-md'>
-        <p className='font-medium mb-1'>Search Tips:</p>
-        <ul className='space-y-1'>
-          <li>• Use multiple filters to narrow down results</li>
-          <li>• Search fields support partial matching</li>
-          <li>• Results update automatically as you type</li>
-          <li>• Click on any student to view detailed billing information</li>
-        </ul>
-      </div>
     </div>
   );
 }
