@@ -213,7 +213,7 @@ export default function NewDiscountPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing' },
+          { label: 'Billing', href: '/billing/schedule' },
           { label: 'Discounts', href: '/billing/discounts' },
           { label: 'Apply Discount', href: '/billing/discounts/new' }
         ]}

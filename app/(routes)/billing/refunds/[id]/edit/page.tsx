@@ -257,7 +257,7 @@ export default function RefundEditPage({ params }: RefundEditPageProps) {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing' },
+          { label: 'Billing', href: '/billing/schedule' },
           { label: 'Refunds', href: '/billing/refunds' },
           { label: 'Details', href: `/billing/refunds/${id}` },
           { label: 'Edit', href: `/billing/refunds/${id}/edit` }

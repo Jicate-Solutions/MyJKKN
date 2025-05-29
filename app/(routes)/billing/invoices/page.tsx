@@ -85,7 +85,7 @@ export default function BillingInvoicesPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing' },
+          { label: 'Billing', href: '/billing/schedule' },
           { label: 'Invoices', href: '/billing/invoices' }
         ]}
       />

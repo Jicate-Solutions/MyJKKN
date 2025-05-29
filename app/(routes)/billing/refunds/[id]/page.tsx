@@ -282,7 +282,7 @@ export default function RefundDetailsPage({ params }: RefundDetailsPageProps) {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing' },
+          { label: 'Billing', href: '/billing/schedule' },
           { label: 'Refunds', href: '/billing/refunds' },
           { label: 'Details', href: `/billing/refunds/${id}` }
         ]}
