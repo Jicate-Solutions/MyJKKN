@@ -2,7 +2,7 @@
 
 import { SheetMenu } from './sheet-menu';
 import { Button } from '../ui/button';
-import { UserCircle } from 'lucide-react';
+import { LogOut, UserCircle } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { AuthService } from '@/lib/auth/auth-service';
 import { UserNav } from './user-nav';
@@ -45,7 +45,7 @@ export function Navbar({ title }: NavbarProps) {
               onClick={handleLogout}
               className='text-sm'
             >
-              Sign out
+              <LogOut className='w-4 h-4' />
             </Button>
           </div>
         </div>
