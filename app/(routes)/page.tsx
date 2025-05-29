@@ -90,6 +90,7 @@ import {
 import { DigitalClock } from '@/components/ui/digital-clock';
 import AnalogClock3D from '@/components/ui/analog-digital-3d-clock';
 import WeatherCard from '@/components/ui/weather-card';
+import AIChip from '@/components/ui/ai-chip';
 
 // Interface for the dashboard metrics
 interface DashboardMetrics {
@@ -171,7 +172,6 @@ function BentoGridSecondDemo({
               : item.header
           }
           className={item.className}
-          icon={item.icon}
         />
       ))}
     </BentoGrid>
@@ -317,7 +317,8 @@ const items = [
         </motion.div>
       </motion.div>
     ),
-    className: 'md:col-span-2'
+    className: 'md:col-span-2',
+    icon: <Sparkles className='h-4 w-4 text-neutral-500' />
   },
   {
     header: (
@@ -326,12 +327,17 @@ const items = [
       </div>
     ),
     className: 'md:col-span-1 md:row-span-1 flex items-center justify-center',
-    title: '' // Empty title to ensure proper spacing
+    title: '', // Empty title to ensure proper spacing
+    icon: <Clock className='h-4 w-4 text-neutral-500' />
   },
   {
-    title: 'The Art of Design',
-    description: 'Discover the beauty of thoughtful and functional design.',
-    header: <BentoSkeleton />,
+    title: 'AI Intelligence',
+    description: "India's first AI Empowered college management system",
+    header: (
+      <div className='w-full h-full flex items-center justify-center rounded-xl overflow-hidden'>
+        <AIChip embedded={true} />
+      </div>
+    ),
     className: 'md:col-span-1',
     icon: <IconSignature className='h-4 w-4 text-neutral-500' />
   },
@@ -341,7 +347,8 @@ const items = [
         <WeatherCard embedded={true} />
       </div>
     ),
-    className: 'md:col-span-2'
+    className: 'md:col-span-2',
+    icon: <Activity className='h-4 w-4 text-neutral-500' />
   }
 ];
 
