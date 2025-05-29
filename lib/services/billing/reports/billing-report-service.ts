@@ -262,8 +262,7 @@ export class BillingReportService {
             student_name,
             roll_number
           ),
-          institution:institutions(name),
-          accountant:accountant_id(full_name)
+          institution:institutions(name)
         `
         )
         .order('receipt_date', { ascending: false });
@@ -297,7 +296,7 @@ export class BillingReportService {
           institution_name: receipt.institution?.name || '',
           payment_mode: receipt.payment_mode,
           payment_amount: receipt.payment_amount,
-          accountant_name: receipt.accountant?.full_name
+          accountant_name: undefined // Will need to be fetched separately if needed
         })) || []
       );
     } catch (error) {
@@ -329,8 +328,7 @@ export class BillingReportService {
               roll_number,
               institution:institutions(name)
             )
-          ),
-          authorizer:authorizer_id(full_name)
+          )
         `
         )
         .order('created_at', { ascending: false });
@@ -363,7 +361,7 @@ export class BillingReportService {
           discount_amount: discount.discount_amount,
           approval_status: discount.approval_status,
           effective_date: discount.effective_date,
-          authorizer_name: discount.authorizer?.full_name
+          authorizer_name: undefined // Will need to be fetched separately if needed
         })) || []
       );
     } catch (error) {

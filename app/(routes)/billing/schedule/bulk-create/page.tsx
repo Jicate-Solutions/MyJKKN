@@ -205,8 +205,7 @@ export default function BulkCreateBillsPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing' },
-          { label: 'Schedule', href: '/billing/schedule' },
+          { label: 'Billing', href: '/billing/schedule' },
           { label: 'Bulk Create', href: '/billing/schedule/bulk-create' }
         ]}
       />

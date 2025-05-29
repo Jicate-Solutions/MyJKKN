@@ -127,8 +127,7 @@ export default function StudentBillDetailPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing' },
-          { label: 'Schedule', href: '/billing/schedule' },
+          { label: 'Billing', href: '/billing/schedule' },
           { label: 'Bill Details', href: `/billing/schedule/${billId}` }
         ]}
       />

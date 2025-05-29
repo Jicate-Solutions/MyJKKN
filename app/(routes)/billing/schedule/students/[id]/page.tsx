@@ -190,9 +190,6 @@ export default function StudentBillingDetailPage() {
         <div className='flex items-center justify-center min-h-[60vh]'>
           <div className='text-center space-y-4'>
             <BeatLoader color='#00e902' size={12} />
-            <p className='text-sm text-muted-foreground'>
-              Loading student billing details...
-            </p>
           </div>
         </div>
       </ContentLayout>
@@ -228,8 +225,7 @@ export default function StudentBillingDetailPage() {
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
-            { label: 'Billing', href: '/billing' },
-            { label: 'Schedule', href: '/billing/schedule' },
+            { label: 'Billing', href: '/billing/schedule' },
             { label: 'Students', href: '/billing/schedule/students' },
             {
               label: student.student_name,
@@ -501,7 +497,11 @@ export default function StudentBillingDetailPage() {
                   <Button
                     variant='outline'
                     size='sm'
-                    onClick={() => refetchSummary()}
+                    onClick={() => {
+                      console.log('Manual refresh triggered');
+                      refetchSummary();
+                    }}
+                    title='Refresh billing data'
                   >
                     <RefreshCw className='h-4 w-4' />
                   </Button>

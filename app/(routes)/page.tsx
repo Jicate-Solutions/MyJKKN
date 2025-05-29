@@ -79,6 +79,17 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { UserService } from '@/lib/services/users/user-service';
 import { Profile, UserRole } from '@/types/auth';
 import { UserFilters, UserStats } from '@/types/users';
+import { cn } from '@/lib/utils';
+import { BentoGrid, BentoGridItem } from '@/components/ui/bento-grid';
+import {
+  IconClipboardCopy,
+  IconFileBroken,
+  IconSignature,
+  IconTableColumn
+} from '@tabler/icons-react';
+import { DigitalClock } from '@/components/ui/digital-clock';
+import AnalogClock3D from '@/components/ui/analog-digital-3d-clock';
+import WeatherCard from '@/components/ui/weather-card';
 
 // Interface for the dashboard metrics
 interface DashboardMetrics {
@@ -136,6 +147,203 @@ const statusColors = {
   inactive: '#6B7280', // gray
   new: '#3B82F6' // blue
 };
+
+// BentoGrid Demo Component
+function BentoGridSecondDemo({
+  currentUser,
+  currentDate,
+  greeting
+}: {
+  currentUser: string | null;
+  currentDate: Date;
+  greeting: string;
+}) {
+  return (
+    <BentoGrid className='max-w-4xl mx-auto md:auto-rows-[20rem]'>
+      {items.map((item, i) => (
+        <BentoGridItem
+          key={i}
+          title={item.title}
+          description={item.description}
+          header={
+            typeof item.header === 'function'
+              ? item.header({ currentUser, currentDate, greeting })
+              : item.header
+          }
+          className={item.className}
+          icon={item.icon}
+        />
+      ))}
+    </BentoGrid>
+  );
+}
+
+const BentoSkeleton = () => (
+  <div className='flex flex-1 w-full h-full min-h-[6rem] rounded-xl dark:bg-dot-white/[0.2] bg-dot-black/[0.2] [mask-image:radial-gradient(ellipse_at_center,white,transparent)] border border-transparent dark:border-white/[0.2] bg-neutral-100 dark:bg-black'></div>
+);
+
+const items = [
+  {
+    header: ({
+      currentUser,
+      currentDate,
+      greeting
+    }: {
+      currentUser: string | null;
+      currentDate: Date;
+      greeting: string;
+    }) => (
+      <motion.div
+        className='w-full h-full flex flex-col justify-center p-6 bg-gradient-to-br from-yellow-50 to-yellow-50 rounded-xl relative overflow-hidden'
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+      >
+        {/* Enhanced background animations - confetti effect */}
+        {Array.from({ length: 12 }).map((_, i) => (
+          <motion.div
+            key={i}
+            className={`absolute rounded-full opacity-${
+              Math.random() > 0.5 ? '30' : '20'
+            } blur-sm`}
+            style={{
+              width: `${Math.random() * 20 + 10}px`,
+              height: `${Math.random() * 20 + 10}px`,
+              top: `${Math.random() * 100}%`,
+              left: `${Math.random() * 100}%`,
+              backgroundColor: [
+                '#6366f1',
+                '#8b5cf6',
+                '#ec4899',
+                '#3b82f6',
+                '#10b981',
+                '#f59e0b',
+                '#f43f5e'
+              ][Math.floor(Math.random() * 7)]
+            }}
+            animate={{
+              y: [0, Math.random() * -100 - 50],
+              x: [0, (Math.random() - 0.5) * 100],
+              opacity: [0.7, 0],
+              scale: [0, 1, 0.5]
+            }}
+            transition={{
+              duration: Math.random() * 10 + 10,
+              repeat: Infinity,
+              ease: 'easeInOut',
+              repeatDelay: Math.random() * 5
+            }}
+          />
+        ))}
+
+        <motion.div
+          className='absolute top-0 right-0 w-32 h-32 bg-blue-300 rounded-full opacity-20 blur-3xl'
+          animate={{
+            scale: [1, 1.2, 1],
+            x: [0, 10, 0],
+            y: [0, -10, 0]
+          }}
+          transition={{
+            duration: 8,
+            repeat: Infinity,
+            repeatType: 'reverse'
+          }}
+        />
+        <motion.div
+          className='absolute bottom-10 left-10 w-24 h-24 bg-indigo-400 rounded-full opacity-20 blur-3xl'
+          animate={{
+            scale: [1, 1.3, 1],
+            x: [0, -15, 0],
+            y: [0, 15, 0]
+          }}
+          transition={{
+            duration: 10,
+            repeat: Infinity,
+            repeatType: 'reverse'
+          }}
+        />
+
+        <motion.div
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.3, duration: 0.8 }}
+        >
+          <motion.h1
+            className='text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-green-500 mb-2'
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{
+              delay: 0.4,
+              duration: 0.8,
+              type: 'spring',
+              stiffness: 100
+            }}
+          >
+            {greeting}, {currentUser || 'User'}!
+          </motion.h1>
+
+          {/* Animated color underline effect */}
+          <motion.div
+            className='h-1 bg-gradient-to-r from-green-500 via-green-500 to-green-500 rounded-full'
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: '40%', opacity: 1 }}
+            transition={{ delay: 0.8, duration: 0.6 }}
+          />
+        </motion.div>
+
+        <motion.p
+          className='mt-4 text-sm text-gray-600 max-w-md'
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.9, duration: 0.5 }}
+        >
+          Explore the birth of groundbreaking ideas and innovations in your
+          dashboard today.
+        </motion.p>
+
+        <motion.div
+          className='mt-4'
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.1, duration: 0.5 }}
+        >
+          <Button
+            size='sm'
+            className='bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 shadow-md hover:shadow-lg transition-all'
+          >
+            <Sparkles className='mr-2 h-4 w-4' />
+            Explore Dashboard
+          </Button>
+        </motion.div>
+      </motion.div>
+    ),
+    className: 'md:col-span-2'
+  },
+  {
+    header: (
+      <div className='w-full h-full flex items-center justify-center bg-white rounded-xl overflow-hidden'>
+        <AnalogClock3D embedded={true} />
+      </div>
+    ),
+    className: 'md:col-span-1 md:row-span-1 flex items-center justify-center',
+    title: '' // Empty title to ensure proper spacing
+  },
+  {
+    title: 'The Art of Design',
+    description: 'Discover the beauty of thoughtful and functional design.',
+    header: <BentoSkeleton />,
+    className: 'md:col-span-1',
+    icon: <IconSignature className='h-4 w-4 text-neutral-500' />
+  },
+  {
+    header: (
+      <div className='w-full h-full flex items-center justify-center rounded-xl overflow-hidden'>
+        <WeatherCard embedded={true} />
+      </div>
+    ),
+    className: 'md:col-span-2'
+  }
+];
 
 export default function DashboardPage() {
   // State for metrics and UI
@@ -429,99 +637,23 @@ export default function DashboardPage() {
   return (
     <ContentLayout title='Dashboard'>
       <div className='mt-4 space-y-6 max-w-[1600px] mx-auto'>
-        {/* Enhanced Header with gradient background */}
-        <div className='bg-white rounded-xl p-6 shadow-md'>
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: 'easeOut' }}
-            className='flex flex-col gap-4 md:flex-row md:justify-between md:items-center'
-          >
-            <div className='space-y-3'>
-              <motion.h1 className='text-3xl font-bold bg-gradient-to-r from-green-600 to-yellow-600 bg-clip-text text-transparent'>
-                {greeting} {currentUser || 'User'}!
-              </motion.h1>
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.3, duration: 0.4 }}
-                className='flex flex-wrap items-center gap-2'
-              >
-                <div className='flex items-center gap-2 bg-white/80 backdrop-blur-sm p-2 rounded-md text-blue-700 border border-blue-100 shadow-sm'>
-                  <Calendar className='h-4 w-4' />
-                  <span className='text-sm font-medium'>
-                    {formatDate(currentDate)}
-                  </span>
-                </div>
-                <div className='flex items-center gap-2 bg-white/80 backdrop-blur-sm p-2 rounded-md text-purple-700 border border-purple-100 shadow-sm'>
-                  <Clock className='h-4 w-4' />
-                  <span className='text-sm font-medium'>
-                    {formatTime(currentDate)}
-                  </span>
-                </div>
-              </motion.div>
-            </div>
-
-            <motion.div
-              className='flex flex-wrap gap-2 items-center'
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 0.4 }}
-            >
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant='outline'
-                    className='flex items-center gap-2 bg-white/80 border-blue-100'
-                  >
-                    <Filter className='h-4 w-4 text-blue-600' />
-                    {dateRange.charAt(0).toUpperCase() + dateRange.slice(1)}
-                    <ChevronDown className='h-3 w-3 opacity-50' />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align='end'>
-                  <DropdownMenuLabel>Time Range</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuRadioGroup
-                    value={dateRange}
-                    onValueChange={(v) => handleDateRangeChange(v as any)}
-                  >
-                    <DropdownMenuRadioItem value='today'>
-                      Today
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value='week'>
-                      This Week
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value='month'>
-                      This Month
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value='year'>
-                      This Year
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <Button
-                variant='outline'
-                size='icon'
-                onClick={handleRefreshData}
-                disabled={isRefreshing}
-                className={`bg-white/80 border-purple-100 ${
-                  isRefreshing ? 'animate-spin' : ''
-                }`}
-              >
-                <RefreshCw className='h-4 w-4 text-purple-600' />
-              </Button>
-            </motion.div>
-          </motion.div>
-        </div>
-
         {isRefreshing && !loading && (
           <div className='w-full bg-blue-50 py-1 px-4 text-center text-xs text-blue-600 rounded-md border border-blue-100'>
             Refreshing dashboard data...
           </div>
         )}
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.3 }}
+        >
+          <BentoGridSecondDemo
+            currentUser={currentUser}
+            currentDate={currentDate}
+            greeting={greeting}
+          />
+        </motion.div>
 
         {loading ? (
           <div className='flex justify-center items-center min-h-[500px]'>
@@ -529,7 +661,6 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className='space-y-6'>
-            {/* Row 1: Main KPI Cards - 12-column grid */}
             <motion.div
               className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4'
               initial={{ opacity: 0 }}
@@ -677,9 +808,7 @@ export default function DashboardPage() {
               </motion.div>
             </motion.div>
 
-            {/* Enhanced Charts Section */}
             <div className='grid grid-cols-1 lg:grid-cols-12 gap-6'>
-              {/* User Role Distribution Chart */}
               <Card className='lg:col-span-7 overflow-hidden rounded-xl shadow-md border-none bg-white'>
                 <CardHeader className='pb-2 flex flex-row items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50'>
                   <div>
@@ -784,7 +913,6 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              {/* User Status Card */}
               <Card className='lg:col-span-5 overflow-hidden rounded-xl shadow-md border-none bg-white'>
                 <CardHeader className='pb-2 flex flex-row items-center justify-between bg-gradient-to-r from-purple-50 to-violet-50'>
                   <div>
@@ -898,7 +1026,6 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* Bottom Stats Cards with Updated Styling */}
             <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
               <Card className='bg-gradient-to-br from-blue-50 to-blue-100 border-none shadow-md rounded-xl overflow-hidden'>
                 <CardHeader className='pb-2 bg-gradient-to-r from-blue-100 to-blue-200'>

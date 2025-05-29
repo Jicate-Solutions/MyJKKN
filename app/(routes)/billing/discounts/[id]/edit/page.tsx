@@ -229,7 +229,7 @@ export default function EditDiscountPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing' },
+          { label: 'Billing', href: '/billing/schedule' },
           { label: 'Discounts', href: '/billing/discounts' },
           { label: 'Details', href: `/billing/discounts/${discountId}` },
           { label: 'Edit', href: `/billing/discounts/${discountId}/edit` }

@@ -124,6 +124,14 @@ export class BillingReceiptService {
         console.log(
           'Bill statuses will be updated automatically by database trigger'
         );
+
+        // Manual validation and update as fallback in case trigger fails
+        for (const item of receiptData.receipt_items) {
+          await this.validateAndUpdateBillStatus(item.bill_id);
+
+          // Check if bill is now fully paid and generate invoice if needed
+          await this.checkAndGenerateInvoice(item.bill_id);
+        }
       }
 
       return receipt;
@@ -669,6 +677,235 @@ export class BillingReceiptService {
       throw new Error(
         error instanceof Error ? error.message : 'Failed to fetch bills'
       );
+    }
+  }
+
+  // Helper method to validate and update bill status manually
+  private static async validateAndUpdateBillStatus(
+    billId: string
+  ): Promise<void> {
+    try {
+      // Get current bill details
+      const { data: bill, error: billError } = await this.supabase
+        .from('billing_student_bills')
+        .select('id, final_amount, status, balance_amount')
+        .eq('id', billId)
+        .single();
+
+      if (billError || !bill) {
+        console.error('Error fetching bill for validation:', billError);
+        return;
+      }
+
+      // Calculate total payments for this bill
+      const { data: receiptItems, error: itemsError } = await this.supabase
+        .from('billing_receipt_items')
+        .select('amount_paid')
+        .eq('bill_id', billId);
+
+      if (itemsError) {
+        console.error(
+          'Error fetching receipt items for validation:',
+          itemsError
+        );
+        return;
+      }
+
+      const totalPaid =
+        receiptItems?.reduce((sum, item) => sum + item.amount_paid, 0) || 0;
+      const billAmount = bill.final_amount;
+
+      // Determine correct status
+      let newStatus = bill.status;
+      let newBalance = bill.balance_amount;
+      let paymentDate = null;
+
+      if (totalPaid >= billAmount) {
+        newStatus = 'paid';
+        newBalance = 0;
+        paymentDate = new Date().toISOString();
+      } else if (totalPaid > 0) {
+        newStatus = 'partially_paid';
+        newBalance = billAmount - totalPaid;
+      } else {
+        newStatus = 'unpaid';
+        newBalance = billAmount;
+      }
+
+      // Update bill if status or balance doesn't match
+      if (newStatus !== bill.status || newBalance !== bill.balance_amount) {
+        console.log(
+          `Manual bill status update: ${bill.id} -> ${newStatus}, Balance: ${newBalance}`
+        );
+
+        const updateData: any = {
+          status: newStatus,
+          balance_amount: newBalance
+        };
+
+        if (paymentDate) {
+          updateData.payment_date = paymentDate;
+        }
+
+        const { error: updateError } = await this.supabase
+          .from('billing_student_bills')
+          .update(updateData)
+          .eq('id', billId);
+
+        if (updateError) {
+          console.error('Error updating bill status manually:', updateError);
+        }
+      }
+    } catch (error) {
+      console.error('Error in validateAndUpdateBillStatus:', error);
+    }
+  }
+
+  // Method to check if a bill is now fully paid and generate an invoice if needed
+  private static async checkAndGenerateInvoice(billId: string): Promise<void> {
+    try {
+      // Get current bill details with related data
+      const { data: bill, error: billError } = await this.supabase
+        .from('billing_student_bills')
+        .select(
+          `
+          id, 
+          final_amount, 
+          status, 
+          balance_amount,
+          student_id,
+          institution_id,
+          bill_description,
+          payment_date
+        `
+        )
+        .eq('id', billId)
+        .single();
+
+      if (billError || !bill) {
+        console.error('Error fetching bill for invoice generation:', billError);
+        return;
+      }
+
+      // Check if bill is now fully paid
+      if (bill.status === 'paid' && bill.balance_amount === 0) {
+        console.log(
+          `Bill ${bill.id} is now fully paid. Checking for invoice generation.`
+        );
+
+        // Check if invoice already exists for this bill
+        const { data: existingInvoices, error: invoiceError } =
+          await this.supabase
+            .from('billing_invoices')
+            .select(
+              `
+            id,
+            invoice_items:billing_invoice_items(
+              receipt_id,
+              receipt:billing_receipts(
+                receipt_items:billing_receipt_items(bill_id)
+              )
+            )
+          `
+            )
+            .eq('student_id', bill.student_id);
+
+        if (invoiceError) {
+          console.error('Error checking existing invoices:', invoiceError);
+          return;
+        }
+
+        // Check if any existing invoice contains this bill
+        const billAlreadyInvoiced = existingInvoices?.some((invoice) =>
+          invoice.invoice_items?.some((item) =>
+            (item.receipt as any)?.receipt_items?.some(
+              (ri: any) => ri.bill_id === billId
+            )
+          )
+        );
+
+        if (billAlreadyInvoiced) {
+          console.log(
+            `Bill ${billId} already has an invoice. Skipping auto-generation.`
+          );
+          return;
+        }
+
+        // Get all receipts that paid for this bill
+        const { data: receiptItems, error: receiptError } = await this.supabase
+          .from('billing_receipt_items')
+          .select(
+            `
+            amount_paid,
+            receipt_id,
+            receipt:billing_receipts(
+              id,
+              receipt_number,
+              payment_amount,
+              payment_paid_date
+            )
+          `
+          )
+          .eq('bill_id', billId);
+
+        if (receiptError || !receiptItems || receiptItems.length === 0) {
+          console.error(
+            'Error fetching receipt items for invoice:',
+            receiptError
+          );
+          return;
+        }
+
+        // Calculate total amount and create invoice items
+        const totalAmount = receiptItems.reduce(
+          (sum, item) => sum + item.amount_paid,
+          0
+        );
+        const invoiceItems = receiptItems.map((item) => ({
+          receipt_id: item.receipt_id,
+          amount: item.amount_paid
+        }));
+
+        // Use database function to generate invoice (preferred method)
+        try {
+          await this.supabase.rpc('generate_auto_invoice_for_bill', {
+            p_bill_id: billId
+          });
+          console.log(
+            `Auto-generated invoice for bill ${billId} using database function`
+          );
+        } catch (dbError) {
+          console.warn(
+            'Database auto-invoice function failed, falling back to service:',
+            dbError
+          );
+
+          // Fallback: Create invoice using service
+          const { BillingInvoiceService } = await import(
+            '../invoices/billing-invoice-service'
+          );
+
+          const invoiceData = {
+            invoice_type: 'individual' as const,
+            student_id: bill.student_id,
+            institution_id: bill.institution_id,
+            invoice_description: `Payment Invoice for: ${bill.bill_description}`,
+            payment_terms: 'Payment completed',
+            due_date: new Date().toISOString().split('T')[0],
+            additional_charges: 0,
+            discount_applied: 0,
+            invoice_items: invoiceItems
+          };
+
+          await BillingInvoiceService.createBillingInvoice(invoiceData);
+          console.log(
+            `Auto-generated invoice for bill ${billId} using service fallback`
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error in checkAndGenerateInvoice:', error);
+      // Don't throw error to avoid breaking the main payment flow
     }
   }
 }

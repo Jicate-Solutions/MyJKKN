@@ -122,7 +122,10 @@ export function StudentBillList({
   const getStatusBadge = (status: string) => {
     const statusConfig = {
       paid: { label: 'Paid', className: 'bg-green-100 text-green-800' },
-      unpaid: { label: 'Unpaid', className: 'bg-orange-100 text-orange-800' },
+      unpaid: {
+        label: 'Unpaid',
+        className: 'bg-orange-100 text-orange-800 hover:text-white'
+      },
       partially_paid: {
         label: 'Partially Paid',
         className: 'bg-blue-100 text-blue-800'

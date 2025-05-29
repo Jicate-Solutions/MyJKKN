@@ -72,12 +72,36 @@ export function useCreateBillingReceipt() {
   return useMutation({
     mutationFn: (data: CreateReceiptDto) =>
       BillingReceiptService.createBillingReceipt(data),
-    onSuccess: () => {
+    onSuccess: (receipt) => {
+      // Invalidate receipt queries
       queryClient.invalidateQueries({ queryKey: ['billing-receipts'] });
-      toast.success('Receipt generated successfully');
+
+      // Invalidate student bill queries - critical for status updates
+      queryClient.invalidateQueries({ queryKey: ['student-bills'] });
+      queryClient.invalidateQueries({ queryKey: ['student-bill'] });
+      queryClient.invalidateQueries({ queryKey: ['student-billing-summary'] });
+
+      // Invalidate invoice queries since auto-invoices might be generated
+      queryClient.invalidateQueries({ queryKey: ['billing-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-invoice'] });
+
+      // Invalidate specific student's data if available
+      if (receipt.student_id) {
+        queryClient.invalidateQueries({
+          queryKey: ['student-bills', 'by-student', receipt.student_id]
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['student-billing-summary', receipt.student_id]
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['student-invoices', receipt.student_id]
+        });
+      }
+
+      toast.success('Receipt created successfully');
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to generate receipt');
+      toast.error(error.message || 'Failed to create receipt');
     }
   });
 }
@@ -88,9 +112,33 @@ export function useUpdateBillingReceipt() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateReceiptDto }) =>
       BillingReceiptService.updateBillingReceipt(id, data),
-    onSuccess: () => {
+    onSuccess: (receipt) => {
+      // Invalidate receipt queries
       queryClient.invalidateQueries({ queryKey: ['billing-receipts'] });
       queryClient.invalidateQueries({ queryKey: ['billing-receipt'] });
+
+      // Invalidate student bill queries - critical for status updates
+      queryClient.invalidateQueries({ queryKey: ['student-bills'] });
+      queryClient.invalidateQueries({ queryKey: ['student-bill'] });
+      queryClient.invalidateQueries({ queryKey: ['student-billing-summary'] });
+
+      // Invalidate invoice queries since auto-invoices might be generated
+      queryClient.invalidateQueries({ queryKey: ['billing-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-invoice'] });
+
+      // Invalidate specific student's data if available
+      if (receipt.student_id) {
+        queryClient.invalidateQueries({
+          queryKey: ['student-bills', 'by-student', receipt.student_id]
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['student-billing-summary', receipt.student_id]
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['student-invoices', receipt.student_id]
+        });
+      }
+
       toast.success('Receipt updated successfully');
     },
     onError: (error: Error) => {
