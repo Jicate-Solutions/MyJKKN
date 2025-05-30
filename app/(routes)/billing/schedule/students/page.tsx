@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Download, Users, FileText, Info } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -13,11 +14,62 @@ import { useStudentsForBilling } from '@/hooks/billing/use-student-search';
 import type { StudentSearchFilters as StudentSearchFiltersType } from '@/types/billing-schedule';
 import { StudentListForBilling } from './_components/student-list-for-billing';
 
-export default function BillingStudentsPage() {
-  const [filters, setFilters] = useState<StudentSearchFiltersType>({
-    page: 1,
-    limit: 20
+function BillingStudentsContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Initialize filters from URL search parameters
+  const [filters, setFilters] = useState<StudentSearchFiltersType>(() => {
+    const urlFilters: StudentSearchFiltersType = {
+      page: parseInt(searchParams.get('page') || '1'),
+      limit: parseInt(searchParams.get('limit') || '20')
+    };
+
+    // Add search parameters if they exist
+    if (searchParams.get('student_name')) {
+      urlFilters.student_name = searchParams.get('student_name') || undefined;
+    }
+    if (searchParams.get('roll_number')) {
+      urlFilters.roll_number = searchParams.get('roll_number') || undefined;
+    }
+    if (searchParams.get('mobile_number')) {
+      urlFilters.mobile_number = searchParams.get('mobile_number') || undefined;
+    }
+    if (searchParams.get('institution_id')) {
+      urlFilters.institution_id =
+        searchParams.get('institution_id') || undefined;
+    }
+    if (searchParams.get('academic_year_id')) {
+      urlFilters.academic_year_id =
+        searchParams.get('academic_year_id') || undefined;
+    }
+    if (searchParams.get('semester_id')) {
+      urlFilters.semester_id = searchParams.get('semester_id') || undefined;
+    }
+    if (searchParams.get('department_id')) {
+      urlFilters.department_id = searchParams.get('department_id') || undefined;
+    }
+
+    return urlFilters;
   });
+
+  // Update URL when filters change
+  useEffect(() => {
+    const params = new URLSearchParams();
+
+    // Add filter parameters to URL
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.set(key, value.toString());
+      }
+    });
+
+    // Update URL without triggering navigation
+    const newUrl = params.toString() ? `?${params.toString()}` : '';
+    if (window.location.search !== newUrl) {
+      router.replace(`/billing/schedule/students${newUrl}`, { scroll: false });
+    }
+  }, [filters, router]);
 
   const {
     data: studentsData,
@@ -47,6 +99,10 @@ export default function BillingStudentsPage() {
 
   const handlePageChange = (page: number) => {
     setFilters((prev) => ({ ...prev, page }));
+  };
+
+  const handleClearFilters = () => {
+    setFilters({ page: 1, limit: 20 });
   };
 
   const handleExport = () => {
@@ -252,7 +308,7 @@ export default function BillingStudentsPage() {
                 {hasPerformedSearch && (
                   <Button
                     variant='outline'
-                    onClick={() => setFilters({ page: 1, limit: 20 })}
+                    onClick={handleClearFilters}
                     className='mt-4'
                   >
                     Clear Filters & Start Over
@@ -264,5 +320,21 @@ export default function BillingStudentsPage() {
         </Card>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function BillingStudentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <ContentLayout title='Student Billing Search'>
+          <div className='flex items-center justify-center min-h-[400px]'>
+            <BeatLoader color='#00e902' />
+          </div>
+        </ContentLayout>
+      }
+    >
+      <BillingStudentsContent />
+    </Suspense>
   );
 }

@@ -44,6 +44,19 @@ export function StudentSearchFilters({
     loadInstitutions();
   }, []);
 
+  // Sync local input states with filter props when they change
+  useEffect(() => {
+    setSearchInput(filters.student_name || '');
+  }, [filters.student_name]);
+
+  useEffect(() => {
+    setRollNumberInput(filters.roll_number || '');
+  }, [filters.roll_number]);
+
+  useEffect(() => {
+    setMobileInput(filters.mobile_number || '');
+  }, [filters.mobile_number]);
+
   useEffect(() => {
     if (filters.institution_id) {
       loadDepartments(filters.institution_id);
