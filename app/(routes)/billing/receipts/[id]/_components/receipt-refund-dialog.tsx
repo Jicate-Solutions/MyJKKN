@@ -184,7 +184,8 @@ export function ReceiptRefundDialog({
           </DialogTitle>
           <DialogDescription>
             Create a refund request based on this receipt payment. The refund
-            will be processed according to your institution's refund policy.
+            will be processed according to your institution&apos;s refund
+            policy.
           </DialogDescription>
         </DialogHeader>
 

@@ -21,14 +21,18 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type RefundCategory =
   | 'course_change'
   | 'withdrawal'
+  | 'overpayment'
   | 'duplicate_payment'
+  | 'administrative_error'
   | 'service_not_provided'
-  | 'system_error';
+  | 'system_error'
+  | 'other';
 export type RefundMethod =
   | 'cash'
   | 'bank_transfer'
   | 'adjust_future_bills'
-  | 'cheque';
+  | 'cheque'
+  | 'online_transfer';
 export type RefundStatus = 'pending' | 'approved' | 'rejected' | 'processed';
 export type InvoiceType = 'individual' | 'consolidated';
 
