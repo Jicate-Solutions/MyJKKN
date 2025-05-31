@@ -8,6 +8,7 @@ import type {
   UpdateReceiptDto
 } from '@/types/billing-schedule';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
+import { studentSearchKeys } from './use-student-search';
 import { toast } from 'react-hot-toast';
 
 export function useBillingReceipts(initialFilters: ReceiptFilters = {}) {
@@ -79,7 +80,6 @@ export function useCreateBillingReceipt() {
       // Invalidate student bill queries - critical for status updates
       queryClient.invalidateQueries({ queryKey: ['student-bills'] });
       queryClient.invalidateQueries({ queryKey: ['student-bill'] });
-      queryClient.invalidateQueries({ queryKey: ['student-billing-summary'] });
 
       // Invalidate invoice queries since auto-invoices might be generated
       queryClient.invalidateQueries({ queryKey: ['billing-invoices'] });
@@ -91,10 +91,15 @@ export function useCreateBillingReceipt() {
           queryKey: ['student-bills', 'by-student', receipt.student_id]
         });
         queryClient.invalidateQueries({
-          queryKey: ['student-billing-summary', receipt.student_id]
+          queryKey: ['student-invoices', receipt.student_id]
+        });
+
+        // Use proper studentSearchKeys for billing summary and student detail
+        queryClient.invalidateQueries({
+          queryKey: studentSearchKeys.summary(receipt.student_id)
         });
         queryClient.invalidateQueries({
-          queryKey: ['student-invoices', receipt.student_id]
+          queryKey: studentSearchKeys.detail(receipt.student_id)
         });
       }
 
@@ -120,7 +125,6 @@ export function useUpdateBillingReceipt() {
       // Invalidate student bill queries - critical for status updates
       queryClient.invalidateQueries({ queryKey: ['student-bills'] });
       queryClient.invalidateQueries({ queryKey: ['student-bill'] });
-      queryClient.invalidateQueries({ queryKey: ['student-billing-summary'] });
 
       // Invalidate invoice queries since auto-invoices might be generated
       queryClient.invalidateQueries({ queryKey: ['billing-invoices'] });
@@ -132,10 +136,15 @@ export function useUpdateBillingReceipt() {
           queryKey: ['student-bills', 'by-student', receipt.student_id]
         });
         queryClient.invalidateQueries({
-          queryKey: ['student-billing-summary', receipt.student_id]
+          queryKey: ['student-invoices', receipt.student_id]
+        });
+
+        // Use proper studentSearchKeys for billing summary and student detail
+        queryClient.invalidateQueries({
+          queryKey: studentSearchKeys.summary(receipt.student_id)
         });
         queryClient.invalidateQueries({
-          queryKey: ['student-invoices', receipt.student_id]
+          queryKey: studentSearchKeys.detail(receipt.student_id)
         });
       }
 

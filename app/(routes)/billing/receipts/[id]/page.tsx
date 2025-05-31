@@ -15,7 +15,8 @@ import {
   User,
   Building2,
   FileText,
-  RefreshCw
+  RefreshCw,
+  Undo
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,7 @@ import {
   useEmailReceipt,
   useDownloadReceiptPDF
 } from '@/hooks/billing/use-billing-receipts';
+import { ReceiptRefundDialog } from './_components/receipt-refund-dialog';
 import type { BillingReceipt } from '@/types/billing-schedule';
 
 export default function ReceiptDetailsPage() {
@@ -78,6 +80,8 @@ export default function ReceiptDetailsPage() {
 
   const canViewReceipts = isSuperAdmin || canAccess('billing.receipts', 'view');
   const canEditReceipts = isSuperAdmin || canAccess('billing.receipts', 'edit');
+  const canCreateRefunds =
+    isSuperAdmin || canAccess('billing.refunds', 'create');
 
   useEffect(() => {
     if (receipt?.student?.student_email) {
@@ -281,6 +285,17 @@ export default function ReceiptDetailsPage() {
               Download PDF
             </Button>
 
+            {/* Receipt Refund Dialog */}
+            {canCreateRefunds && (
+              <ReceiptRefundDialog
+                receipt={receipt}
+                onRefundCreated={() => {
+                  toast.success('Refund request submitted successfully');
+                  // Optionally refresh the receipt data or redirect
+                }}
+              />
+            )}
+
             {canEditReceipts && (
               <Button asChild>
                 <Link href={`/billing/receipts/${receiptId}/edit`}>
@@ -451,6 +466,125 @@ export default function ReceiptDetailsPage() {
                         ))}
                       </TableBody>
                     </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Refund History */}
+            {receipt.refunds && receipt.refunds.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className='flex items-center gap-2'>
+                    <Undo className='h-5 w-5' />
+                    Refund History ({receipt.refunds.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className='rounded-md border'>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Refund Category</TableHead>
+                          <TableHead>Refund Amount</TableHead>
+                          <TableHead>Refund Date</TableHead>
+                          <TableHead>Method</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {receipt.refunds.map((refund) => (
+                          <TableRow key={refund.id}>
+                            <TableCell>
+                              <div>
+                                <p className='font-medium'>
+                                  {refund.refund_category
+                                    .replace('_', ' ')
+                                    .toUpperCase()}
+                                </p>
+                                <p className='text-sm text-muted-foreground'>
+                                  {refund.refund_reason}
+                                </p>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <p className='font-semibold text-red-600'>
+                                  {formatCurrency(refund.refund_amount)}
+                                </p>
+                                {refund.processing_fee > 0 && (
+                                  <p className='text-xs text-muted-foreground'>
+                                    Fee: {formatCurrency(refund.processing_fee)}
+                                  </p>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {formatDate(refund.refund_date)}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant='outline'>
+                                {refund.refund_method
+                                  .replace('_', ' ')
+                                  .toUpperCase()}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  refund.approval_status === 'approved'
+                                    ? 'default'
+                                    : refund.approval_status === 'rejected'
+                                    ? 'destructive'
+                                    : 'secondary'
+                                }
+                              >
+                                {refund.approval_status.toUpperCase()}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Button variant='outline' size='sm' asChild>
+                                <Link href={`/billing/refunds/${refund.id}`}>
+                                  View Details
+                                </Link>
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Refund Summary */}
+                  <div className='mt-4 p-3 bg-red-50 border border-red-200 rounded-lg'>
+                    <div className='text-sm'>
+                      <div className='flex justify-between items-center'>
+                        <span className='text-red-700 font-medium'>
+                          Total Refunded:
+                        </span>
+                        <span className='font-bold text-red-800'>
+                          {formatCurrency(
+                            receipt.refunds
+                              .filter((r) => r.approval_status === 'approved')
+                              .reduce((sum, r) => sum + r.refund_amount, 0)
+                          )}
+                        </span>
+                      </div>
+                      <div className='flex justify-between items-center mt-1'>
+                        <span className='text-red-700'>
+                          Net Amount After Refunds:
+                        </span>
+                        <span className='font-bold text-green-700'>
+                          {formatCurrency(
+                            receipt.payment_amount -
+                              receipt.refunds
+                                .filter((r) => r.approval_status === 'approved')
+                                .reduce((sum, r) => sum + r.refund_amount, 0)
+                          )}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
