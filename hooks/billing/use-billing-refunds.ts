@@ -8,6 +8,7 @@ import type {
   UpdateRefundDto
 } from '@/types/billing-schedule';
 import { BillingRefundService } from '@/lib/services/billing/refunds/billing-refund-service';
+import { studentSearchKeys } from './use-student-search';
 import { toast } from 'react-hot-toast';
 
 export function useBillingRefunds(initialFilters: RefundFilters = {}) {
@@ -72,8 +73,27 @@ export function useCreateBillingRefund() {
   return useMutation({
     mutationFn: (data: CreateRefundDto) =>
       BillingRefundService.createBillingRefund(data),
-    onSuccess: () => {
+    onSuccess: (refund) => {
+      // Invalidate refund queries
       queryClient.invalidateQueries({ queryKey: ['billing-refunds'] });
+
+      // Invalidate receipt queries since refunds are linked to receipts
+      queryClient.invalidateQueries({ queryKey: ['billing-receipts'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-receipt'] });
+
+      // If we can determine the student ID from the refund data, invalidate student-specific queries
+      if (refund.receipt?.student_id) {
+        const studentId = refund.receipt.student_id;
+
+        // Invalidate student billing summary and detail queries for real-time updates
+        queryClient.invalidateQueries({
+          queryKey: studentSearchKeys.summary(studentId)
+        });
+        queryClient.invalidateQueries({
+          queryKey: studentSearchKeys.detail(studentId)
+        });
+      }
+
       toast.success('Refund request created successfully');
     },
     onError: (error: Error) => {

@@ -131,7 +131,9 @@ export function useStudentBillingSummary(studentId: string | null) {
       return StudentSearchService.getStudentBillingSummary(studentId);
     },
     enabled: !!studentId,
-    staleTime: 2 * 60 * 1000
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true
   });
 }
 

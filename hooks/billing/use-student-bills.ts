@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
+import { studentSearchKeys } from './use-student-search';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -95,6 +96,14 @@ export function useCreateStudentBill() {
         queryKey: studentBillKeys.outstanding(data.student_id)
       });
 
+      // Invalidate student billing summary and detail queries for real-time updates
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.summary(data.student_id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.detail(data.student_id)
+      });
+
       toast.success('Student bill created successfully');
     },
     onError: (error: any) => {
@@ -132,6 +141,14 @@ export function useUpdateStudentBill() {
         queryKey: studentBillKeys.outstanding(data.student_id)
       });
 
+      // Invalidate student billing summary and detail queries for real-time updates
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.summary(data.student_id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.detail(data.student_id)
+      });
+
       toast.success('Student bill updated successfully');
     },
     onError: (error: any) => {
@@ -163,6 +180,14 @@ export function useDeleteStudentBill() {
       });
       queryClient.invalidateQueries({
         queryKey: [...studentBillKeys.all, 'outstanding']
+      });
+
+      // Invalidate all student summaries and details for real-time updates
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.summaries()
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.details()
       });
 
       toast.success('Student bill deleted successfully');
@@ -240,6 +265,14 @@ export function useBulkCreateStudentBills() {
         });
         queryClient.invalidateQueries({
           queryKey: studentBillKeys.outstanding(studentId)
+        });
+        
+        // Invalidate student billing summary and detail queries for real-time updates
+        queryClient.invalidateQueries({
+          queryKey: studentSearchKeys.summary(studentId)
+        });
+        queryClient.invalidateQueries({
+          queryKey: studentSearchKeys.detail(studentId)
         });
       });
 

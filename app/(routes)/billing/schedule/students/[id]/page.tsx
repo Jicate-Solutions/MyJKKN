@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -45,6 +45,7 @@ import {
 import { StudentBillsTable } from './_components/student-bills-table';
 import { StudentTransactionHistory } from './_components/student-transaction-history';
 import { StudentReceiptsTable } from './_components/student-receipts-table';
+import { toast } from 'react-hot-toast';
 
 export default function StudentBillingDetailPage() {
   const params = useParams();
@@ -52,6 +53,7 @@ export default function StudentBillingDetailPage() {
   const studentId = params.id as string;
 
   const [billStatusFilter, setBillStatusFilter] = useState<string>('all');
+  const previousBillCountRef = useRef<number | null>(null);
 
   const {
     data: student,
@@ -63,7 +65,8 @@ export default function StudentBillingDetailPage() {
     data: billingSummary,
     isLoading: isLoadingSummary,
     error: summaryError,
-    refetch: refetchSummary
+    refetch: refetchSummary,
+    isRefetching: isRefetchingSummary
   } = useStudentBillingSummary(studentId);
 
   const {
@@ -120,6 +123,30 @@ export default function StudentBillingDetailPage() {
       </Badge>
     );
   };
+
+  // Track bill count changes and show notifications for real-time updates
+  useEffect(() => {
+    if (billingSummary?.summary?.total_bills !== undefined) {
+      const currentBillCount = billingSummary.summary.total_bills;
+
+      if (
+        previousBillCountRef.current !== null &&
+        currentBillCount > previousBillCountRef.current
+      ) {
+        const newBillsCount = currentBillCount - previousBillCountRef.current;
+        toast.success(
+          `${newBillsCount} new bill${newBillsCount > 1 ? 's' : ''} added!`,
+          {
+            duration: 3000,
+            position: 'top-right',
+            icon: '✅'
+          }
+        );
+      }
+
+      previousBillCountRef.current = currentBillCount;
+    }
+  }, [billingSummary?.summary?.total_bills]);
 
   // Show loading state while permissions are loading
   if (permissionsLoading) {
@@ -501,9 +528,23 @@ export default function StudentBillingDetailPage() {
                       console.log('Manual refresh triggered');
                       refetchSummary();
                     }}
-                    title='Refresh billing data'
+                    disabled={isRefetchingSummary}
+                    title={
+                      isRefetchingSummary
+                        ? 'Refreshing...'
+                        : 'Refresh billing data'
+                    }
                   >
-                    <RefreshCw className='h-4 w-4' />
+                    <RefreshCw
+                      className={`h-4 w-4 ${
+                        isRefetchingSummary ? 'animate-spin' : ''
+                      }`}
+                    />
+                    {isRefetchingSummary && (
+                      <span className='ml-1 hidden sm:inline'>
+                        Refreshing...
+                      </span>
+                    )}
                   </Button>
                 </div>
               </div>

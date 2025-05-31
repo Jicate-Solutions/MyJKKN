@@ -326,7 +326,12 @@ export function StudentBillForm({
       if (onSuccess) {
         onSuccess();
       } else {
-        router.push('/billing/schedule');
+        // If bill was created from student details page, redirect back to that student's page
+        if (preSelectedStudent) {
+          router.push(`/billing/schedule/students/${preSelectedStudent.id}`);
+        } else {
+          router.push('/billing/schedule');
+        }
       }
     } catch (error) {
       console.error('Error saving bill:', error);

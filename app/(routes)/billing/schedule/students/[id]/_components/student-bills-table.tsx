@@ -19,7 +19,9 @@ import {
   DollarSign,
   CreditCard,
   Filter,
-  EllipsisVertical
+  EllipsisVertical,
+  MoreHorizontal,
+  Undo
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -398,6 +400,18 @@ export function StudentBillsTable({
                           </Link>
                         </DropdownMenuItem>
                       )}
+                      {canSelectBill(bill) &&
+                        bill.status === 'partially_paid' &&
+                        canProcessRefunds && (
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/billing/refunds/new?bill_id=${bill.id}`}
+                            >
+                              <Undo className='mr-2 h-4 w-4' />
+                              Process Refund
+                            </Link>
+                          </DropdownMenuItem>
+                        )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -662,7 +676,7 @@ export function StudentBillsTable({
                             <Link
                               href={`/billing/refunds/new?bill_id=${bill.id}`}
                             >
-                              <RefreshCw className='mr-2 h-4 w-4' />
+                              <Undo className='mr-2 h-4 w-4' />
                               Process Refund
                             </Link>
                           </DropdownMenuItem>
