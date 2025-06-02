@@ -350,7 +350,45 @@ export function ReceiptList({
                     </div>
                   </TableCell>
                   <TableCell>
-                    {formatCurrency(receipt.payment_amount)}
+                    {(() => {
+                      // Calculate refund totals
+                      const processedRefunds =
+                        receipt.refunds?.filter(
+                          (r) => r.approval_status === 'processed'
+                        ) || [];
+                      const totalProcessedRefunds = processedRefunds.reduce(
+                        (sum, r) => sum + r.refund_amount,
+                        0
+                      );
+                      const hasProcessedRefunds = processedRefunds.length > 0;
+                      const netAmount =
+                        receipt.payment_amount - totalProcessedRefunds;
+
+                      return (
+                        <div className='space-y-1'>
+                          <p
+                            className={`font-semibold ${
+                              hasProcessedRefunds
+                                ? 'text-red-600 line-through text-sm'
+                                : 'text-green-600'
+                            }`}
+                          >
+                            {formatCurrency(receipt.payment_amount)}
+                          </p>
+                          {hasProcessedRefunds && (
+                            <>
+                              <p className='text-xs text-red-600'>
+                                Refunded: -
+                                {formatCurrency(totalProcessedRefunds)}
+                              </p>
+                              <p className='text-sm font-semibold text-green-600'>
+                                Net: {formatCurrency(netAmount)}
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     {getPaymentModeBadge(receipt.payment_mode)}

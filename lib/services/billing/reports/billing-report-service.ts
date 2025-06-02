@@ -262,7 +262,12 @@ export class BillingReportService {
             student_name,
             roll_number
           ),
-          institution:institutions(name)
+          institution:institutions(name),
+          refunds:billing_refunds(
+            id,
+            refund_amount,
+            approval_status
+          )
         `
         )
         .order('receipt_date', { ascending: false });
@@ -287,17 +292,34 @@ export class BillingReportService {
       }
 
       return (
-        data?.map((receipt: any) => ({
-          receipt_id: receipt.id,
-          receipt_number: receipt.receipt_number,
-          receipt_date: receipt.receipt_date,
-          student_name: receipt.student?.student_name || '',
-          roll_number: receipt.student?.roll_number,
-          institution_name: receipt.institution?.name || '',
-          payment_mode: receipt.payment_mode,
-          payment_amount: receipt.payment_amount,
-          accountant_name: undefined // Will need to be fetched separately if needed
-        })) || []
+        data?.map((receipt: any) => {
+          // Calculate refund totals
+          const processedRefunds =
+            receipt.refunds?.filter(
+              (r: any) => r.approval_status === 'processed'
+            ) || [];
+          const totalRefunds = processedRefunds.reduce(
+            (sum: number, r: any) => sum + r.refund_amount,
+            0
+          );
+          const hasRefunds = processedRefunds.length > 0;
+          const netAmount = Math.max(0, receipt.payment_amount - totalRefunds);
+
+          return {
+            receipt_id: receipt.id,
+            receipt_number: receipt.receipt_number,
+            receipt_date: receipt.receipt_date,
+            student_name: receipt.student?.student_name || '',
+            roll_number: receipt.student?.roll_number,
+            institution_name: receipt.institution?.name || '',
+            payment_mode: receipt.payment_mode,
+            payment_amount: receipt.payment_amount,
+            total_refunds: totalRefunds,
+            net_amount: netAmount,
+            has_refunds: hasRefunds,
+            accountant_name: undefined // Will need to be fetched separately if needed
+          };
+        }) || []
       );
     } catch (error) {
       console.error('Error in getCollectionReport:', error);
@@ -643,25 +665,59 @@ export class BillingReportService {
     dateFrom?: string,
     dateTo?: string
   ): Promise<number> {
-    let query = this.supabase.from('billing_receipts').select('payment_amount');
+    // Get total receipt amounts
+    let receiptQuery = this.supabase
+      .from('billing_receipts')
+      .select('payment_amount');
 
     if (institutionId) {
-      query = query.eq('institution_id', institutionId);
+      receiptQuery = receiptQuery.eq('institution_id', institutionId);
     }
 
     if (dateFrom) {
-      query = query.gte('receipt_date', dateFrom);
+      receiptQuery = receiptQuery.gte('receipt_date', dateFrom);
     }
 
     if (dateTo) {
-      query = query.lte('receipt_date', dateTo);
+      receiptQuery = receiptQuery.lte('receipt_date', dateTo);
     }
 
-    const { data } = await query;
-    return (
-      data?.reduce((sum, receipt) => sum + (receipt.payment_amount || 0), 0) ||
-      0
-    );
+    const { data: receiptData } = await receiptQuery;
+    const totalReceiptAmount =
+      receiptData?.reduce(
+        (sum, receipt) => sum + (receipt.payment_amount || 0),
+        0
+      ) || 0;
+
+    // Get total processed refunds in the same date range
+    let refundQuery = this.supabase
+      .from('billing_refunds')
+      .select(
+        'refund_amount, receipt:billing_receipts!inner(institution_id, receipt_date)'
+      )
+      .eq('approval_status', 'processed');
+
+    if (institutionId) {
+      refundQuery = refundQuery.eq('receipt.institution_id', institutionId);
+    }
+
+    if (dateFrom) {
+      refundQuery = refundQuery.gte('receipt.receipt_date', dateFrom);
+    }
+
+    if (dateTo) {
+      refundQuery = refundQuery.lte('receipt.receipt_date', dateTo);
+    }
+
+    const { data: refundData } = await refundQuery;
+    const totalProcessedRefunds =
+      refundData?.reduce(
+        (sum, refund) => sum + (refund.refund_amount || 0),
+        0
+      ) || 0;
+
+    // Return net amount collected (receipts - refunds)
+    return Math.max(0, totalReceiptAmount - totalProcessedRefunds);
   }
 
   private static async getTotalOutstanding(
@@ -737,21 +793,26 @@ export class BillingReportService {
   ): Promise<number> {
     let query = this.supabase
       .from('billing_refunds')
-      .select('net_refund_amount')
+      .select(
+        'refund_amount, receipt:billing_receipts!inner(institution_id, receipt_date)'
+      )
       .eq('approval_status', 'processed');
 
+    if (institutionId) {
+      query = query.eq('receipt.institution_id', institutionId);
+    }
+
     if (dateFrom) {
-      query = query.gte('refund_date', dateFrom);
+      query = query.gte('receipt.receipt_date', dateFrom);
     }
 
     if (dateTo) {
-      query = query.lte('refund_date', dateTo);
+      query = query.lte('receipt.receipt_date', dateTo);
     }
 
     const { data } = await query;
     return (
-      data?.reduce((sum, refund) => sum + (refund.net_refund_amount || 0), 0) ||
-      0
+      data?.reduce((sum, refund) => sum + (refund.refund_amount || 0), 0) || 0
     );
   }
 
@@ -844,16 +905,148 @@ export class BillingReportService {
     dateFrom?: string,
     dateTo?: string
   ): Promise<any[]> {
-    // Implementation for monthly collection data
-    // This would typically involve grouping by month and summing amounts
-    return [];
+    try {
+      // Get monthly receipts
+      let receiptQuery = this.supabase
+        .from('billing_receipts')
+        .select('payment_amount, receipt_date');
+
+      if (institutionId) {
+        receiptQuery = receiptQuery.eq('institution_id', institutionId);
+      }
+
+      if (dateFrom) {
+        receiptQuery = receiptQuery.gte('receipt_date', dateFrom);
+      }
+
+      if (dateTo) {
+        receiptQuery = receiptQuery.lte('receipt_date', dateTo);
+      }
+
+      const { data: receipts } = await receiptQuery;
+
+      // Get monthly refunds
+      let refundQuery = this.supabase
+        .from('billing_refunds')
+        .select(
+          'refund_amount, refund_date, receipt:billing_receipts!inner(institution_id)'
+        )
+        .eq('approval_status', 'processed');
+
+      if (institutionId) {
+        refundQuery = refundQuery.eq('receipt.institution_id', institutionId);
+      }
+
+      const { data: refunds } = await refundQuery;
+
+      // Group by month and calculate net collection
+      const monthlyData = new Map<string, number>();
+
+      // Add receipts
+      receipts?.forEach((receipt) => {
+        const month = new Date(receipt.receipt_date).toISOString().slice(0, 7); // YYYY-MM
+        monthlyData.set(
+          month,
+          (monthlyData.get(month) || 0) + receipt.payment_amount
+        );
+      });
+
+      // Subtract refunds
+      refunds?.forEach((refund) => {
+        const month = new Date(refund.refund_date).toISOString().slice(0, 7); // YYYY-MM
+        monthlyData.set(
+          month,
+          (monthlyData.get(month) || 0) - refund.refund_amount
+        );
+      });
+
+      // Convert to array and sort by month
+      return Array.from(monthlyData.entries())
+        .map(([month, amount]) => ({ month, amount: Math.max(0, amount) }))
+        .sort((a, b) => a.month.localeCompare(b.month));
+    } catch (error) {
+      console.error('Error in getMonthlyCollection:', error);
+      return [];
+    }
   }
 
   private static async getInstitutionWiseSummary(
     institutionId?: string
   ): Promise<any[]> {
-    // Implementation for institution-wise summary
-    return [];
+    try {
+      // Get institution data
+      let institutionQuery = this.supabase
+        .from('institutions')
+        .select('id, name');
+
+      if (institutionId) {
+        institutionQuery = institutionQuery.eq('id', institutionId);
+      }
+
+      const { data: institutions } = await institutionQuery;
+
+      if (!institutions) return [];
+
+      const summaries = await Promise.all(
+        institutions.map(async (institution) => {
+          // Get bills count and amount billed
+          const { data: bills } = await this.supabase
+            .from('billing_student_bills')
+            .select('final_amount')
+            .eq('institution_id', institution.id);
+
+          const totalBills = bills?.length || 0;
+          const amountBilled =
+            bills?.reduce((sum, bill) => sum + bill.final_amount, 0) || 0;
+
+          // Get receipts amount
+          const { data: receipts } = await this.supabase
+            .from('billing_receipts')
+            .select('payment_amount')
+            .eq('institution_id', institution.id);
+
+          const totalReceiptAmount =
+            receipts?.reduce(
+              (sum, receipt) => sum + receipt.payment_amount,
+              0
+            ) || 0;
+
+          // Get processed refunds for this institution
+          const { data: refunds } = await this.supabase
+            .from('billing_refunds')
+            .select(
+              'refund_amount, receipt:billing_receipts!inner(institution_id)'
+            )
+            .eq('receipt.institution_id', institution.id)
+            .eq('approval_status', 'processed');
+
+          const totalRefunds =
+            refunds?.reduce((sum, refund) => sum + refund.refund_amount, 0) ||
+            0;
+
+          // Calculate net collection and outstanding
+          const netAmountCollected = Math.max(
+            0,
+            totalReceiptAmount - totalRefunds
+          );
+          const outstanding = Math.max(0, amountBilled - netAmountCollected);
+
+          return {
+            institution_id: institution.id,
+            institution_name: institution.name,
+            total_bills: totalBills,
+            amount_billed: amountBilled,
+            amount_collected: netAmountCollected,
+            outstanding: outstanding
+          };
+        })
+      );
+
+      return summaries.filter((summary) => summary.total_bills > 0);
+    } catch (error) {
+      console.error('Error in getInstitutionWiseSummary:', error);
+      return [];
+    }
   }
 
   // Export helper methods (to be implemented)

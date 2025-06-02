@@ -635,6 +635,9 @@ export interface CollectionReport {
   institution_name: string;
   payment_mode: PaymentMode;
   payment_amount: number;
+  total_refunds: number;
+  net_amount: number;
+  has_refunds: boolean;
   accountant_name?: string;
 }
 

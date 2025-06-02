@@ -295,18 +295,34 @@ export default function ReceiptDetailsPage() {
             </Button>
 
             {/* Receipt Refund Dialog */}
-            {canCreateRefunds && (
-              <ReceiptRefundDialog
-                receipt={receipt}
-                onRefundCreated={() => {
-                  // Force refresh the receipt data to show the new refund immediately
-                  // Add a small delay to ensure backend processing is complete
-                  setTimeout(() => {
-                    refetch();
-                  }, 500);
-                }}
-              />
-            )}
+            {canCreateRefunds &&
+              (!receipt.refunds || receipt.refunds.length === 0) && (
+                <ReceiptRefundDialog
+                  receipt={receipt}
+                  onRefundCreated={() => {
+                    // Force refresh the receipt data to show the new refund immediately
+                    // Add a small delay to ensure backend processing is complete
+                    setTimeout(() => {
+                      refetch();
+                    }, 500);
+                  }}
+                />
+              )}
+
+            {/* Show disabled button when refunds already exist */}
+            {canCreateRefunds &&
+              receipt.refunds &&
+              receipt.refunds.length > 0 && (
+                <Button
+                  variant='outline'
+                  disabled
+                  className='gap-2'
+                  title='Refund already exists for this receipt'
+                >
+                  <Undo className='h-4 w-4' />
+                  Refund Generated
+                </Button>
+              )}
 
             {canEditReceipts && (
               <Button asChild>

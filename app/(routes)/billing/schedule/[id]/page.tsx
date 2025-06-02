@@ -38,6 +38,7 @@ import {
 } from '@/hooks/billing/use-student-bills';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
+import type { StudentBill } from '@/types/billing-schedule';
 
 export default function StudentBillDetailPage() {
   const params = useParams();
@@ -95,9 +96,21 @@ export default function StudentBillDetailPage() {
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-IN', {
       day: '2-digit',
-      month: 'long',
+      month: 'short',
       year: 'numeric'
     });
+  };
+
+  // Helper function to check if bill has any existing refunds
+  const hasExistingRefunds = (bill: StudentBill): boolean => {
+    if (!bill.receipt_items || bill.receipt_items.length === 0) {
+      return false;
+    }
+
+    // Check if any receipt associated with this bill has refunds
+    return bill.receipt_items.some(
+      (item) => item.receipt?.refunds && item.receipt.refunds.length > 0
+    );
   };
 
   if (isLoading) {
@@ -163,12 +176,25 @@ export default function StudentBillDetailPage() {
               </Button>
             )}
             {canCreateRefunds &&
-              (bill.status === 'paid' || bill.status === 'partially_paid') && (
+              (bill.status === 'paid' || bill.status === 'partially_paid') &&
+              !hasExistingRefunds(bill) && (
                 <Button variant='outline' asChild>
                   <Link href={`/billing/refunds/new?bill_id=${billId}`}>
                     <Undo className='mr-2 h-4 w-4' />
                     Generate Refund
                   </Link>
+                </Button>
+              )}
+            {canCreateRefunds &&
+              (bill.status === 'paid' || bill.status === 'partially_paid') &&
+              hasExistingRefunds(bill) && (
+                <Button
+                  variant='outline'
+                  disabled
+                  title='Refund already exists for this bill'
+                >
+                  <Undo className='mr-2 h-4 w-4' />
+                  Refund Generated
                 </Button>
               )}
             {canDeleteBills && (

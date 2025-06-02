@@ -213,6 +213,11 @@ export class BillingReceiptService {
             id,
             name,
             counselling_code
+          ),
+          refunds:billing_refunds(
+            id,
+            refund_amount,
+            approval_status
           )
         `,
         { count: 'exact' }
@@ -432,6 +437,16 @@ export class BillingReceiptService {
       });
     };
 
+    // Calculate refund totals
+    const processedRefunds =
+      receipt.refunds?.filter((r) => r.approval_status === 'processed') || [];
+    const totalProcessedRefunds = processedRefunds.reduce(
+      (sum, r) => sum + r.refund_amount,
+      0
+    );
+    const hasProcessedRefunds = processedRefunds.length > 0;
+    const netReceiptAmount = receipt.payment_amount - totalProcessedRefunds;
+
     return `
 <!DOCTYPE html>
 <html>
@@ -445,10 +460,16 @@ export class BillingReceiptService {
         .section h3 { border-bottom: 1px solid #ccc; padding-bottom: 5px; }
         .info-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
         .amount { font-size: 18px; font-weight: bold; color: #2563eb; }
+        .refunded-amount { color: #dc2626; text-decoration: line-through; }
+        .net-amount { color: #16a34a; font-weight: bold; }
+        .refund-summary { background-color: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 5px; margin: 15px 0; }
+        .refund-positive { background-color: #f0fdf4; border-color: #bbf7d0; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f5f5f5; }
         .total-row { font-weight: bold; background-color: #f9f9f9; }
+        .refund-row { background-color: #fef2f2; color: #dc2626; }
+        .net-row { background-color: #f0fdf4; color: #16a34a; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -483,11 +504,27 @@ export class BillingReceiptService {
             : ''
         }
         <div class="info-row">
-            <span>Total Amount:</span>
-            <span class="amount">${formatCurrency(
-              receipt.payment_amount
+            <span>Original Amount:</span>
+            <span class="amount ${
+              hasProcessedRefunds ? 'refunded-amount' : ''
+            }">${formatCurrency(receipt.payment_amount)}</span>
+        </div>
+        ${
+          hasProcessedRefunds
+            ? `
+        <div class="info-row">
+            <span>Total Refunded:</span>
+            <span style="color: #dc2626;">-${formatCurrency(
+              totalProcessedRefunds
             )}</span>
         </div>
+        <div class="info-row">
+            <span>Net Amount:</span>
+            <span class="net-amount">${formatCurrency(netReceiptAmount)}</span>
+        </div>
+        `
+            : ''
+        }
     </div>
 
     <div class="section">
@@ -549,7 +586,11 @@ export class BillingReceiptService {
                   .map(
                     (item) => `
                 <tr>
-                    <td>${item.bill?.bill_description || 'N/A'}</td>
+                    <td>${
+                      item.bill?.bill_description ||
+                      item.bill?.item_category?.item_category_name ||
+                      'N/A'
+                    }</td>
                     <td>${
                       item.bill?.due_date
                         ? formatDate(item.bill.due_date)
@@ -569,8 +610,73 @@ export class BillingReceiptService {
                     <td colspan="3">Total Paid</td>
                     <td>${formatCurrency(receipt.payment_amount)}</td>
                 </tr>
+                ${
+                  hasProcessedRefunds
+                    ? `
+                <tr class="refund-row">
+                    <td colspan="3">Total Refunded</td>
+                    <td>-${formatCurrency(totalProcessedRefunds)}</td>
+                </tr>
+                <tr class="net-row">
+                    <td colspan="3">Net Amount</td>
+                    <td>${formatCurrency(netReceiptAmount)}</td>
+                </tr>
+                `
+                    : ''
+                }
             </tbody>
         </table>
+    </div>
+    `
+        : ''
+    }
+
+    ${
+      hasProcessedRefunds && receipt.refunds
+        ? `
+    <div class="section">
+        <h3>Refund Details</h3>
+        <div class="refund-summary">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Refund Date</th>
+                        <th>Category</th>
+                        <th>Method</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${receipt.refunds
+                      .filter((r) => r.approval_status === 'processed')
+                      .map(
+                        (refund) => `
+                    <tr>
+                        <td>${formatDate(refund.refund_date)}</td>
+                        <td>${refund.refund_category
+                          .replace('_', ' ')
+                          .toUpperCase()}</td>
+                        <td>${refund.refund_method
+                          .replace('_', ' ')
+                          .toUpperCase()}</td>
+                        <td>₹${refund.refund_amount.toLocaleString()}</td>
+                        <td>PROCESSED</td>
+                    </tr>
+                    `
+                      )
+                      .join('')}
+                </tbody>
+            </table>
+            <div style="margin-top: 10px; text-align: center;">
+                <p><strong>Total Refunded: ${formatCurrency(
+                  totalProcessedRefunds
+                )}</strong></p>
+                <p style="color: #16a34a;"><strong>Net Receipt Amount: ${formatCurrency(
+                  netReceiptAmount
+                )}</strong></p>
+            </div>
+        </div>
     </div>
     `
         : ''
@@ -590,6 +696,11 @@ export class BillingReceiptService {
     <div class="section" style="margin-top: 40px; text-align: center; font-size: 12px; color: #666;">
         <p>This is a computer-generated receipt.</p>
         <p>Generated on: ${new Date().toLocaleString('en-IN')}</p>
+        ${
+          hasProcessedRefunds
+            ? '<p style="color: #dc2626; font-weight: bold;">Note: This receipt has been partially or fully refunded.</p>'
+            : ''
+        }
     </div>
 </body>
 </html>
