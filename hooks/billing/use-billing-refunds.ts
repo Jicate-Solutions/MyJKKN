@@ -77,9 +77,20 @@ export function useCreateBillingRefund() {
       // Invalidate refund queries
       queryClient.invalidateQueries({ queryKey: ['billing-refunds'] });
 
-      // Invalidate receipt queries since refunds are linked to receipts
+      // Invalidate receipt queries - both list and specific receipt
       queryClient.invalidateQueries({ queryKey: ['billing-receipts'] });
       queryClient.invalidateQueries({ queryKey: ['billing-receipt'] });
+
+      // Specifically invalidate the receipt that this refund is for
+      if (refund.receipt_id) {
+        queryClient.invalidateQueries({
+          queryKey: ['billing-receipt', refund.receipt_id]
+        });
+      }
+
+      // Invalidate student bill queries since refunds affect outstanding amounts
+      queryClient.invalidateQueries({ queryKey: ['student-bills'] });
+      queryClient.invalidateQueries({ queryKey: ['student-bill'] });
 
       // If we can determine the student ID from the refund data, invalidate student-specific queries
       if (refund.receipt?.student_id) {
@@ -91,6 +102,11 @@ export function useCreateBillingRefund() {
         });
         queryClient.invalidateQueries({
           queryKey: studentSearchKeys.detail(studentId)
+        });
+
+        // Invalidate student-specific bill queries
+        queryClient.invalidateQueries({
+          queryKey: ['student-bills', 'by-student', studentId]
         });
       }
 
@@ -139,8 +155,22 @@ export function useApproveRefund() {
 
   return useMutation({
     mutationFn: (id: string) => BillingRefundService.approveRefund(id),
-    onSuccess: () => {
+    onSuccess: (approvedRefund) => {
+      // Invalidate refund queries
       queryClient.invalidateQueries({ queryKey: ['billing-refunds'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-refund'] });
+
+      // Invalidate receipt queries since approval affects receipt display
+      queryClient.invalidateQueries({ queryKey: ['billing-receipts'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-receipt'] });
+
+      // Specifically invalidate the receipt that this refund is for
+      if (approvedRefund.receipt_id) {
+        queryClient.invalidateQueries({
+          queryKey: ['billing-receipt', approvedRefund.receipt_id]
+        });
+      }
+
       toast.success('Refund approved successfully');
     },
     onError: (error: Error) => {
@@ -154,8 +184,42 @@ export function useProcessRefund() {
 
   return useMutation({
     mutationFn: (id: string) => BillingRefundService.processRefund(id),
-    onSuccess: () => {
+    onSuccess: (processedRefund) => {
+      // Invalidate refund queries
       queryClient.invalidateQueries({ queryKey: ['billing-refunds'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-refund'] });
+
+      // Invalidate receipt queries since processing affects receipt display
+      queryClient.invalidateQueries({ queryKey: ['billing-receipts'] });
+      queryClient.invalidateQueries({ queryKey: ['billing-receipt'] });
+
+      // Specifically invalidate the receipt that this refund is for
+      if (processedRefund.receipt_id) {
+        queryClient.invalidateQueries({
+          queryKey: ['billing-receipt', processedRefund.receipt_id]
+        });
+      }
+
+      // Invalidate student bill queries since processing affects outstanding amounts
+      queryClient.invalidateQueries({ queryKey: ['student-bills'] });
+      queryClient.invalidateQueries({ queryKey: ['student-bill'] });
+
+      // If we can determine the student ID, invalidate student-specific queries
+      if (processedRefund.receipt?.student_id) {
+        const studentId = processedRefund.receipt.student_id;
+
+        queryClient.invalidateQueries({
+          queryKey: studentSearchKeys.summary(studentId)
+        });
+        queryClient.invalidateQueries({
+          queryKey: studentSearchKeys.detail(studentId)
+        });
+
+        queryClient.invalidateQueries({
+          queryKey: ['student-bills', 'by-student', studentId]
+        });
+      }
+
       toast.success('Refund processed successfully');
     },
     onError: (error: Error) => {

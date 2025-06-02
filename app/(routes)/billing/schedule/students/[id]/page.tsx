@@ -18,7 +18,8 @@ import {
   TrendingUp,
   TrendingDown,
   AlertCircle,
-  DollarSign
+  DollarSign,
+  CreditCard
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -112,6 +113,11 @@ export default function StudentBillingDetailPage() {
       cancelled: {
         variant: 'outline' as const,
         className: 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200'
+      },
+      refunded: {
+        variant: 'outline' as const,
+        className:
+          'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200'
       }
     };
 
@@ -417,35 +423,109 @@ export default function StudentBillingDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Summary Cards - Responsive Grid */}
-        <div className='grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
-          <Card className='hover:shadow-md transition-shadow'>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                Total Bills
-              </CardTitle>
-              <FileText className='h-4 w-4 text-blue-600' />
-            </CardHeader>
-            <CardContent>
-              <div className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100'>
-                {billingSummary.summary.total_bills}
+        {/* Student Summary Cards */}
+        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+          <Card>
+            <CardContent className='p-4'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <p className='text-sm text-muted-foreground'>Total Bills</p>
+                  <p className='text-2xl font-bold'>
+                    {billingSummary.summary.total_bills}
+                  </p>
+                </div>
+                <FileText className='h-8 w-8 text-blue-600' />
               </div>
-              <p className='text-xs text-muted-foreground'>All time bills</p>
             </CardContent>
           </Card>
 
-          <Card className='hover:shadow-md transition-shadow'>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                Paid Amount
-              </CardTitle>
-              <TrendingUp className='h-4 w-4 text-green-600' />
-            </CardHeader>
-            <CardContent>
-              <div className='text-lg sm:text-2xl font-bold text-green-600'>
-                {formatCurrency(billingSummary.summary.paid_amount)}
+          <Card>
+            <CardContent className='p-4'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <p className='text-sm text-muted-foreground'>
+                    Net Paid Amount
+                  </p>
+                  {(() => {
+                    const totalReceiptAmount =
+                      billingSummary.receipts?.reduce(
+                        (sum, receipt) => sum + receipt.payment_amount,
+                        0
+                      ) || 0;
+
+                    const totalProcessedRefunds =
+                      billingSummary.refunds
+                        ?.filter((r) => r.approval_status === 'processed')
+                        .reduce((sum, r) => sum + r.refund_amount, 0) || 0;
+
+                    const netPaidAmount = billingSummary.summary.paid_amount;
+                    const isFullyRefunded =
+                      totalProcessedRefunds > 0 && netPaidAmount <= 0;
+                    const hasRefunds = totalProcessedRefunds > 0;
+
+                    if (isFullyRefunded) {
+                      return (
+                        <div className='space-y-1'>
+                          <p className='text-2xl font-bold text-gray-500'>
+                            {formatCurrency(0)}
+                          </p>
+                          <div className='text-xs space-y-1'>
+                            <div className='text-gray-600'>
+                              <span className='line-through'>
+                                Originally Paid:{' '}
+                                {formatCurrency(totalReceiptAmount)}
+                              </span>
+                            </div>
+                            <div className='text-red-600 font-medium'>
+                              Fully Refunded: -
+                              {formatCurrency(totalProcessedRefunds)}
+                            </div>
+                            <div className='text-orange-600 font-medium text-sm'>
+                              ✓ Payment Fully Refunded
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    } else if (hasRefunds) {
+                      return (
+                        <div className='space-y-1'>
+                          <p className='text-2xl font-bold text-green-600'>
+                            {formatCurrency(netPaidAmount)}
+                          </p>
+                          <div className='text-xs text-muted-foreground space-y-1'>
+                            <div>
+                              <span>Original Payment: </span>
+                              <span className='text-blue-600 font-medium'>
+                                {formatCurrency(totalReceiptAmount)}
+                              </span>
+                            </div>
+                            <div>
+                              <span>Refunded: </span>
+                              <span className='text-red-600 font-medium'>
+                                -{formatCurrency(totalProcessedRefunds)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <p className='text-2xl font-bold text-green-600'>
+                          {formatCurrency(netPaidAmount)}
+                        </p>
+                      );
+                    }
+                  })()}
+                </div>
+                <CreditCard
+                  className={`h-8 w-8 ${
+                    billingSummary.summary.paid_amount <= 0 &&
+                    billingSummary.summary.refund_amount > 0
+                      ? 'text-gray-500'
+                      : 'text-green-600'
+                  }`}
+                />
               </div>
-              <p className='text-xs text-muted-foreground'>Total payments</p>
             </CardContent>
           </Card>
 

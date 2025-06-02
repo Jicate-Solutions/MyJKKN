@@ -153,6 +153,10 @@ export function StudentBillsTable({
       cancelled: {
         variant: 'outline' as const,
         className: 'bg-gray-100 text-gray-800 border-gray-200'
+      },
+      refunded: {
+        variant: 'outline' as const,
+        className: 'bg-purple-100 text-purple-800 border-purple-200'
       }
     };
 
@@ -496,7 +500,6 @@ export function StudentBillsTable({
                   )}
                 </div>
               </TableHead>
-              <TableHead className='font-semibold'>Bill Description</TableHead>
               <TableHead className='font-semibold'>Category</TableHead>
               <TableHead className='font-semibold'>Due Date</TableHead>
               <TableHead className='text-right font-semibold'>Amount</TableHead>
@@ -540,24 +543,7 @@ export function StudentBillsTable({
                     </div>
                   )}
                 </TableCell>
-                <TableCell className='max-w-xs'>
-                  <div className='space-y-1'>
-                    <div className='font-medium text-gray-900 dark:text-gray-100 truncate'>
-                      {bill.bill_description}
-                    </div>
-                    {bill.remarks && (
-                      <div className='text-xs text-muted-foreground truncate'>
-                        {bill.remarks}
-                      </div>
-                    )}
-                    {bill.quantity > 1 && (
-                      <div className='text-xs text-muted-foreground'>
-                        Qty: {bill.quantity} ×{' '}
-                        {formatCurrency(bill.unit_amount)}
-                      </div>
-                    )}
-                  </div>
-                </TableCell>
+
                 <TableCell className='max-w-xs'>
                   <div className='space-y-1'>
                     <div className='text-sm font-medium text-gray-900 dark:text-gray-100'>

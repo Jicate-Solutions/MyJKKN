@@ -65,6 +65,27 @@ export function StudentReceiptsTable({
     });
   };
 
+  // Calculate refund information for a receipt
+  const getReceiptRefundInfo = (receipt: BillingReceipt) => {
+    const refunds = receipt.refunds || [];
+    const processedRefunds = refunds.filter(
+      (r) => r.approval_status === 'processed'
+    );
+    const totalProcessedRefunds = processedRefunds.reduce(
+      (sum, r) => sum + r.refund_amount,
+      0
+    );
+    const hasProcessedRefunds = processedRefunds.length > 0;
+    const netAmount = receipt.payment_amount - totalProcessedRefunds;
+
+    return {
+      hasProcessedRefunds,
+      totalProcessedRefunds,
+      netAmount,
+      processedRefunds
+    };
+  };
+
   const getPaymentModeBadge = (mode: string) => {
     const modeConfig = {
       cash: {
@@ -193,9 +214,38 @@ export function StudentReceiptsTable({
                   </div>
                 </TableCell>
                 <TableCell className='text-right'>
-                  <div className='font-medium text-green-600'>
-                    {formatCurrency(receipt.payment_amount)}
-                  </div>
+                  {(() => {
+                    const refundInfo = getReceiptRefundInfo(receipt);
+                    return (
+                      <div className='space-y-1'>
+                        <div
+                          className={`font-semibold ${
+                            refundInfo.hasProcessedRefunds
+                              ? 'text-red-600 line-through'
+                              : 'text-green-600'
+                          }`}
+                        >
+                          {formatCurrency(receipt.payment_amount)}
+                          {refundInfo.hasProcessedRefunds && (
+                            <span className='ml-1 text-xs font-normal text-muted-foreground'>
+                              (Refunded)
+                            </span>
+                          )}
+                        </div>
+                        {refundInfo.hasProcessedRefunds && (
+                          <div className='space-y-1'>
+                            <div className='text-xs text-red-600'>
+                              Refunded: -
+                              {formatCurrency(refundInfo.totalProcessedRefunds)}
+                            </div>
+                            <div className='text-sm font-semibold text-green-600'>
+                              Net: {formatCurrency(refundInfo.netAmount)}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </TableCell>
                 <TableCell>
                   <div className='space-y-1'>

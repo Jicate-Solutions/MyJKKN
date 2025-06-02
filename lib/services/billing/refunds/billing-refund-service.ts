@@ -359,6 +359,10 @@ export class BillingRefundService {
 
   static async processRefund(id: string): Promise<BillingRefund> {
     try {
+      // First get the refund details to access receipt information
+      const refund = await this.getBillingRefund(id);
+
+      // Update refund status to processed
       const { data, error } = await this.supabase
         .from('billing_refunds')
         .update({
@@ -392,6 +396,32 @@ export class BillingRefundService {
         .single();
 
       if (error) throw error;
+
+      // The database trigger will automatically handle bill status updates
+      // But we'll also manually trigger a recalculation to ensure consistency
+      try {
+        // Get all bills related to this receipt and recalculate their status
+        const { data: receiptItems } = await this.supabase
+          .from('billing_receipt_items')
+          .select('bill_id')
+          .eq('receipt_id', refund.receipt_id);
+
+        if (receiptItems) {
+          for (const item of receiptItems) {
+            // Call the database function to recalculate bill status
+            await this.supabase.rpc('recalculate_bill_status_with_refunds', {
+              p_bill_id: item.bill_id
+            });
+          }
+        }
+      } catch (updateError) {
+        console.warn(
+          'Error updating bill statuses after refund processing:',
+          updateError
+        );
+        // Don't throw here as the main refund update was successful
+      }
+
       return data;
     } catch (error) {
       console.error('Error processing refund:', error);

@@ -61,12 +61,16 @@ export function StudentTransactionHistory({
 
     // Add bills
     summary.bills.forEach((bill) => {
+      const description = bill.bill_description
+        ? `Bill created: ${bill.bill_description}`
+        : 'Bill created';
+
       transactions.push({
         id: `bill-${bill.id}`,
         type: 'bill_created',
         date: bill.created_at,
         amount: bill.final_amount,
-        description: bill.bill_description,
+        description: description,
         status: bill.status,
         details: bill
       });

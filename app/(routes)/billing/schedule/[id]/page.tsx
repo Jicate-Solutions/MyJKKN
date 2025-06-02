@@ -12,7 +12,8 @@ import {
   Building,
   RefreshCw,
   ArrowLeft,
-  FileText
+  FileText,
+  Undo
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -50,6 +51,8 @@ export default function StudentBillDetailPage() {
   const canEditBills = isSuperAdmin || canAccess('billing.schedule', 'update');
   const canDeleteBills =
     isSuperAdmin || canAccess('billing.schedule', 'delete');
+  const canCreateRefunds =
+    isSuperAdmin || canAccess('billing.refunds', 'create');
 
   const handleDeleteBill = async () => {
     try {
@@ -69,7 +72,11 @@ export default function StudentBillDetailPage() {
         className: 'bg-blue-100 text-blue-800'
       },
       overdue: { label: 'Overdue', className: 'bg-red-100 text-red-800' },
-      cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-800' }
+      cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-800' },
+      refunded: {
+        label: 'Refunded',
+        className: 'bg-purple-100 text-purple-800'
+      }
     };
 
     const config =
@@ -155,6 +162,15 @@ export default function StudentBillDetailPage() {
                 </Link>
               </Button>
             )}
+            {canCreateRefunds &&
+              (bill.status === 'paid' || bill.status === 'partially_paid') && (
+                <Button variant='outline' asChild>
+                  <Link href={`/billing/refunds/new?bill_id=${billId}`}>
+                    <Undo className='mr-2 h-4 w-4' />
+                    Generate Refund
+                  </Link>
+                </Button>
+              )}
             {canDeleteBills && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
