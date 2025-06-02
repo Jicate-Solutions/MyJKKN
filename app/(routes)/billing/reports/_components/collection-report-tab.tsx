@@ -80,7 +80,11 @@ export function CollectionReportTab({
   };
 
   const totalCollected = report.reduce(
-    (sum, collection) => sum + collection.payment_amount,
+    (sum, collection) => sum + collection.net_amount,
+    0
+  );
+  const totalRefunds = report.reduce(
+    (sum, collection) => sum + collection.total_refunds,
     0
   );
   const totalTransactions = report.length;
@@ -113,7 +117,7 @@ export function CollectionReportTab({
   return (
     <div className='space-y-6'>
       {/* Summary Cards */}
-      <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+      <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
             <CardTitle className='text-sm font-medium'>
@@ -128,14 +132,24 @@ export function CollectionReportTab({
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>
-              Total Collected
-            </CardTitle>
+            <CardTitle className='text-sm font-medium'>Net Collected</CardTitle>
             <TrendingUp className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-bold text-green-600'>
               {formatCurrency(totalCollected)}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+            <CardTitle className='text-sm font-medium'>Total Refunds</CardTitle>
+            <AlertCircle className='h-4 w-4 text-muted-foreground' />
+          </CardHeader>
+          <CardContent>
+            <div className='text-2xl font-bold text-red-600'>
+              {formatCurrency(totalRefunds)}
             </div>
           </CardContent>
         </Card>
@@ -200,7 +214,9 @@ export function CollectionReportTab({
                     <TableHead>Student</TableHead>
                     <TableHead>Institution</TableHead>
                     <TableHead>Payment Mode</TableHead>
-                    <TableHead className='text-right'>Amount</TableHead>
+                    <TableHead className='text-right'>Receipt Amount</TableHead>
+                    <TableHead className='text-right'>Refunds</TableHead>
+                    <TableHead className='text-right'>Net Amount</TableHead>
                     <TableHead>Accountant</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -229,8 +245,36 @@ export function CollectionReportTab({
                       <TableCell>
                         {getPaymentModeBadge(collection.payment_mode)}
                       </TableCell>
-                      <TableCell className='text-right font-semibold text-green-600'>
-                        {formatCurrency(collection.payment_amount)}
+                      <TableCell className='text-right'>
+                        <span
+                          className={`font-semibold ${
+                            collection.has_refunds
+                              ? 'text-muted-foreground line-through'
+                              : 'text-blue-600'
+                          }`}
+                        >
+                          {formatCurrency(collection.payment_amount)}
+                        </span>
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        {collection.has_refunds ? (
+                          <span className='font-semibold text-red-600'>
+                            -{formatCurrency(collection.total_refunds)}
+                          </span>
+                        ) : (
+                          <span className='text-muted-foreground'>-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        <span
+                          className={`font-semibold ${
+                            collection.has_refunds
+                              ? 'text-green-600'
+                              : 'text-blue-600'
+                          }`}
+                        >
+                          {formatCurrency(collection.net_amount)}
+                        </span>
                       </TableCell>
                       <TableCell>
                         {collection.accountant_name || 'N/A'}
