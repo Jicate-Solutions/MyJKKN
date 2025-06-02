@@ -302,22 +302,34 @@ export class StudentSearchService {
 
       // Calculate summary
       const totalBills = bills?.length || 0;
-      const paidAmount =
+
+      // Calculate total paid amount from receipts
+      const totalReceiptAmount =
         receipts?.reduce((sum, receipt) => sum + receipt.payment_amount, 0) ||
         0;
+
+      // Calculate total processed refunds amount
+      const totalProcessedRefunds =
+        refunds
+          ?.filter((refund) => refund.approval_status === 'processed')
+          .reduce((sum, refund) => sum + refund.refund_amount, 0) || 0;
+
+      // Net paid amount = total receipts - processed refunds
+      const paidAmount = totalReceiptAmount - totalProcessedRefunds;
+
       const outstandingAmount = student.outstanding_amount;
       const overdueAmount =
         bills
           ?.filter((bill) => bill.status === 'overdue')
           .reduce((sum, bill) => sum + bill.balance_amount, 0) || 0;
       const discountAmount =
-        discounts?.reduce(
-          (sum, discount) => sum + discount.discount_amount,
-          0
-        ) || 0;
+        discounts
+          ?.filter((discount) => discount.approval_status === 'approved')
+          .reduce((sum, discount) => sum + discount.discount_amount, 0) || 0;
+
+      // Total refund amount (for reporting purposes) - includes all refunds regardless of status
       const refundAmount =
-        refunds?.reduce((sum, refund) => sum + refund.net_refund_amount, 0) ||
-        0;
+        refunds?.reduce((sum, refund) => sum + refund.refund_amount, 0) || 0;
 
       return {
         student,

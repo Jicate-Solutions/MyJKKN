@@ -182,6 +182,16 @@ export default function ReceiptDetailsPage() {
     });
   };
 
+  // Calculate refund totals
+  const processedRefunds =
+    receipt.refunds?.filter((r) => r.approval_status === 'processed') || [];
+  const totalProcessedRefunds = processedRefunds.reduce(
+    (sum, r) => sum + r.refund_amount,
+    0
+  );
+  const hasProcessedRefunds = processedRefunds.length > 0;
+  const netReceiptAmount = receipt.payment_amount - totalProcessedRefunds;
+
   const getPaymentModeBadge = (mode: string) => {
     const modeConfig = {
       cash: { variant: 'default' as const, label: 'Cash' },
@@ -212,11 +222,10 @@ export default function ReceiptDetailsPage() {
 
       <div className='space-y-6 mt-6'>
         {/* Header Actions */}
-        <div className='flex flex-col sm:flex-row gap-4 sm:justify-between sm:items-start'>
+        <div className='flex flex-col  gap-4 sm:justify-between sm:items-start'>
           <div className='flex items-center gap-4'>
             <Button variant='outline' onClick={() => router.back()}>
               <ArrowLeft className='mr-2 h-4 w-4' />
-              Back
             </Button>
             <div>
               <h1 className='text-2xl font-bold'>Receipt Details</h1>
@@ -290,8 +299,11 @@ export default function ReceiptDetailsPage() {
               <ReceiptRefundDialog
                 receipt={receipt}
                 onRefundCreated={() => {
-                  toast.success('Refund request submitted successfully');
-                  // Optionally refresh the receipt data or redirect
+                  // Force refresh the receipt data to show the new refund immediately
+                  // Add a small delay to ensure backend processing is complete
+                  setTimeout(() => {
+                    refetch();
+                  }, 500);
                 }}
               />
             )}
@@ -341,9 +353,32 @@ export default function ReceiptDetailsPage() {
                     <Label className='text-sm font-medium text-muted-foreground'>
                       Payment Amount
                     </Label>
-                    <p className='text-2xl font-bold text-green-600'>
-                      {formatCurrency(receipt.payment_amount)}
-                    </p>
+                    <div className='space-y-1'>
+                      <p
+                        className={`text-2xl font-bold ${
+                          hasProcessedRefunds
+                            ? 'text-red-600 line-through'
+                            : 'text-green-600'
+                        }`}
+                      >
+                        {formatCurrency(receipt.payment_amount)}
+                        {hasProcessedRefunds && (
+                          <span className='ml-2 text-sm font-normal text-muted-foreground'>
+                            (Refunded)
+                          </span>
+                        )}
+                      </p>
+                      {hasProcessedRefunds && (
+                        <div className='space-y-1'>
+                          <p className='text-sm text-red-600'>
+                            Refunded: -{formatCurrency(totalProcessedRefunds)}
+                          </p>
+                          <p className='text-lg font-bold text-green-600'>
+                            Net Amount: {formatCurrency(netReceiptAmount)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <Label className='text-sm font-medium text-muted-foreground'>
@@ -428,7 +463,7 @@ export default function ReceiptDetailsPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Bill Description</TableHead>
+                          <TableHead>Bill Item</TableHead>
                           <TableHead>Due Date</TableHead>
                           <TableHead className='text-right'>
                             Bill Amount
@@ -444,11 +479,22 @@ export default function ReceiptDetailsPage() {
                             <TableCell>
                               <div>
                                 <p className='font-medium'>
-                                  {item.bill?.bill_description}
+                                  {item.bill?.bill_description &&
+                                  item.bill.bill_description.trim() !== ''
+                                    ? item.bill.bill_description
+                                    : item.bill?.item_category
+                                        ?.item_category_name ||
+                                      'No description'}
                                 </p>
-                                <p className='text-sm text-muted-foreground'>
-                                  {item.bill?.item_category?.item_category_name}
-                                </p>
+                                {item.bill?.bill_description &&
+                                  item.bill.bill_description.trim() !== '' && (
+                                    <p className='text-sm text-muted-foreground'>
+                                      {
+                                        item.bill?.item_category
+                                          ?.item_category_name
+                                      }
+                                    </p>
+                                  )}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -510,12 +556,26 @@ export default function ReceiptDetailsPage() {
                             </TableCell>
                             <TableCell>
                               <div>
-                                <p className='font-semibold text-red-600'>
+                                <p
+                                  className={`font-semibold ${
+                                    refund.approval_status === 'processed'
+                                      ? 'text-red-600'
+                                      : 'text-orange-600'
+                                  }`}
+                                >
+                                  {refund.approval_status === 'processed'
+                                    ? '-'
+                                    : ''}
                                   {formatCurrency(refund.refund_amount)}
                                 </p>
                                 {refund.processing_fee > 0 && (
                                   <p className='text-xs text-muted-foreground'>
                                     Fee: {formatCurrency(refund.processing_fee)}
+                                  </p>
+                                )}
+                                {refund.approval_status === 'processed' && (
+                                  <p className='text-xs text-red-600 font-medium'>
+                                    ✓ Refunded
                                   </p>
                                 )}
                               </div>
@@ -557,33 +617,57 @@ export default function ReceiptDetailsPage() {
                   </div>
 
                   {/* Refund Summary */}
-                  <div className='mt-4 p-3 bg-red-50 border border-red-200 rounded-lg'>
+                  <div
+                    className={`mt-4 p-3 border rounded-lg ${
+                      hasProcessedRefunds
+                        ? 'bg-red-50 border-red-200'
+                        : 'bg-orange-50 border-orange-200'
+                    }`}
+                  >
                     <div className='text-sm'>
                       <div className='flex justify-between items-center'>
-                        <span className='text-red-700 font-medium'>
-                          Total Refunded:
+                        <span
+                          className={
+                            hasProcessedRefunds
+                              ? 'text-red-700 font-medium'
+                              : 'text-orange-700 font-medium'
+                          }
+                        >
+                          Total Refunded (Processed):
                         </span>
                         <span className='font-bold text-red-800'>
-                          {formatCurrency(
-                            receipt.refunds
-                              .filter((r) => r.approval_status === 'approved')
-                              .reduce((sum, r) => sum + r.refund_amount, 0)
-                          )}
+                          {formatCurrency(totalProcessedRefunds)}
                         </span>
                       </div>
-                      <div className='flex justify-between items-center mt-1'>
-                        <span className='text-red-700'>
-                          Net Amount After Refunds:
-                        </span>
-                        <span className='font-bold text-green-700'>
-                          {formatCurrency(
-                            receipt.payment_amount -
-                              receipt.refunds
-                                .filter((r) => r.approval_status === 'approved')
-                                .reduce((sum, r) => sum + r.refund_amount, 0)
-                          )}
-                        </span>
-                      </div>
+                      {totalProcessedRefunds > 0 && (
+                        <div className='flex justify-between items-center mt-1'>
+                          <span className='text-green-700'>
+                            Net Receipt Amount:
+                          </span>
+                          <span className='font-bold text-green-700'>
+                            {formatCurrency(netReceiptAmount)}
+                          </span>
+                        </div>
+                      )}
+                      {receipt.refunds &&
+                        receipt.refunds.some(
+                          (r) => r.approval_status !== 'processed'
+                        ) && (
+                          <div className='flex justify-between items-center mt-1'>
+                            <span className='text-orange-700'>
+                              Pending/Other Refunds:
+                            </span>
+                            <span className='font-bold text-orange-800'>
+                              {formatCurrency(
+                                receipt.refunds
+                                  .filter(
+                                    (r) => r.approval_status !== 'processed'
+                                  )
+                                  .reduce((sum, r) => sum + r.refund_amount, 0)
+                              )}
+                            </span>
+                          </div>
+                        )}
                     </div>
                   </div>
                 </CardContent>

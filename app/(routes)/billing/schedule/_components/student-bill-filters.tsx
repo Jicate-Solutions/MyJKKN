@@ -118,6 +118,11 @@ export function StudentBillFilters({
       value: 'cancelled',
       label: 'Cancelled',
       color: 'bg-gray-100 text-gray-800'
+    },
+    {
+      value: 'refunded',
+      label: 'Refunded',
+      color: 'bg-purple-100 text-purple-800'
     }
   ];
 

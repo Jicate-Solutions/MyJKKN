@@ -59,7 +59,10 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
-import { useSearchStudentsByQuery } from '@/hooks/billing/use-student-search';
+import {
+  useSearchStudentsByQuery,
+  useStudentForBilling
+} from '@/hooks/billing/use-student-search';
 import {
   useCreateStudentBill,
   useUpdateStudentBill
@@ -75,7 +78,7 @@ import type {
 // Schema for individual billing item
 const billingItemSchema = z.object({
   item_category_id: z.string().min(1, 'Item category is required'),
-  bill_description: z.string().min(1, 'Description is required'),
+  bill_description: z.string().optional(),
   quantity: z.number().min(1, 'Quantity must be at least 1'),
   unit_amount: z.number().min(0, 'Unit amount must be positive'),
   tax_amount: z.number().min(0, 'Tax amount must be positive').default(0),
@@ -123,33 +126,38 @@ export function StudentBillForm({
   const createStudentBill = useCreateStudentBill();
   const updateStudentBill = useUpdateStudentBill();
 
+  // Fetch complete student data when editing a bill
+  const { data: completeStudentData } = useStudentForBilling(
+    bill?.student_id || null
+  );
+
   // Determine initial values based on pre-selected student or existing bill
-  const getInitialValues = () => {
+  const getInitialValues = (): StudentBillFormData => {
     if (bill) {
       return {
         student_id: bill.student_id,
         institution_id: bill.institution_id,
-        due_date: bill.due_date ? new Date(bill.due_date) : undefined,
+        due_date: bill.due_date ? new Date(bill.due_date) : new Date(),
         billing_items: [
           {
-            item_category_id: bill.item_category_id,
-            bill_description: bill.bill_description,
-            quantity: bill.quantity,
-            unit_amount: bill.unit_amount,
-            tax_amount: bill.tax_amount,
+            item_category_id: bill.item_category_id || '',
+            bill_description: bill.bill_description || '',
+            quantity: bill.quantity || 1,
+            unit_amount: bill.unit_amount || 0,
+            tax_amount: bill.tax_amount || 0,
             remarks: bill.remarks || ''
           }
         ],
         overall_remarks: bill.remarks || '',
-        is_recurring: bill.is_recurring,
-        recurrence_pattern: bill.recurrence_pattern,
-        number_of_recurrences: bill.number_of_recurrences
+        is_recurring: bill.is_recurring || false,
+        recurrence_pattern: bill.recurrence_pattern || undefined,
+        number_of_recurrences: bill.number_of_recurrences || undefined
       };
     } else if (preSelectedStudent) {
       return {
         student_id: preSelectedStudent.id,
         institution_id: preSelectedStudent.institution_id,
-        due_date: undefined,
+        due_date: new Date(),
         billing_items: [
           {
             item_category_id: '',
@@ -169,7 +177,7 @@ export function StudentBillForm({
       return {
         student_id: '',
         institution_id: '',
-        due_date: undefined,
+        due_date: new Date(),
         billing_items: [
           {
             item_category_id: '',
@@ -223,7 +231,11 @@ export function StudentBillForm({
   const { subtotal, totalTax, finalAmount } = calculateTotals();
 
   // Check if student is pre-selected (either from bill or preSelectedStudent prop)
-  const isStudentPreSelected = !!(bill?.student || preSelectedStudent);
+  const isStudentPreSelected = !!(
+    bill?.student ||
+    preSelectedStudent ||
+    completeStudentData
+  );
 
   useEffect(() => {
     loadInstitutions();
@@ -237,22 +249,76 @@ export function StudentBillForm({
     }
   }, [watchedValues.institution_id]);
 
+  // Reset form when bill changes (for edit mode)
   useEffect(() => {
-    // Handle existing bill student
-    if (bill?.student) {
-      setSelectedStudent(bill.student);
-      setStudentSearchQuery(
-        `${bill.student.student_name} (${bill.student.roll_number})`
-      );
-    }
-    // Handle pre-selected student from query parameter
-    else if (preSelectedStudent) {
+    if (bill) {
+      const formValues = {
+        student_id: bill.student_id,
+        institution_id: bill.institution_id,
+        due_date: bill.due_date ? new Date(bill.due_date) : new Date(),
+        billing_items: [
+          {
+            item_category_id: bill.item_category_id || '',
+            bill_description: bill.bill_description || '',
+            quantity: bill.quantity || 1,
+            unit_amount: bill.unit_amount || 0,
+            tax_amount: bill.tax_amount || 0,
+            remarks: bill.remarks || ''
+          }
+        ],
+        overall_remarks: bill.remarks || '',
+        is_recurring: bill.is_recurring || false,
+        recurrence_pattern: bill.recurrence_pattern || undefined,
+        number_of_recurrences: bill.number_of_recurrences || undefined
+      };
+
+      // Reset form with bill data
+      form.reset(formValues);
+
+      // Load item categories for the bill's institution
+      if (bill.institution_id) {
+        loadItemCategories(bill.institution_id);
+      }
+
+      // Use complete student data if available, otherwise fallback to bill.student
+      const studentToUse = completeStudentData || bill.student;
+      if (studentToUse) {
+        setSelectedStudent(studentToUse);
+        setStudentSearchQuery(
+          `${studentToUse.student_name} (${studentToUse.roll_number || 'N/A'})`
+        );
+      }
+    } else if (preSelectedStudent) {
+      // Handle pre-selected student from query parameter
+      const formValues = {
+        student_id: preSelectedStudent.id,
+        institution_id: preSelectedStudent.institution_id,
+        due_date: undefined,
+        billing_items: [
+          {
+            item_category_id: '',
+            bill_description: '',
+            quantity: 1,
+            unit_amount: 0,
+            tax_amount: 0,
+            remarks: ''
+          }
+        ],
+        overall_remarks: '',
+        is_recurring: false,
+        recurrence_pattern: undefined,
+        number_of_recurrences: undefined
+      };
+
+      form.reset(formValues);
       setSelectedStudent(preSelectedStudent);
       setStudentSearchQuery(
-        `${preSelectedStudent.student_name} (${preSelectedStudent.roll_number})`
+        `${preSelectedStudent.student_name} (${
+          preSelectedStudent.roll_number || 'N/A'
+        })`
       );
     }
-  }, [bill, preSelectedStudent]);
+  }, [bill, preSelectedStudent, form, completeStudentData]);
 
   const loadInstitutions = async () => {
     try {
@@ -315,26 +381,40 @@ export function StudentBillForm({
       };
 
       if (bill) {
-        await updateStudentBill.mutateAsync({
+        const result = await updateStudentBill.mutateAsync({
           id: bill.id,
           billData: submitData
         });
-      } else {
-        await createStudentBill.mutateAsync(submitData);
-      }
 
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        // If bill was created from student details page, redirect back to that student's page
-        if (preSelectedStudent) {
-          router.push(`/billing/schedule/students/${preSelectedStudent.id}`);
+        if (onSuccess) {
+          onSuccess();
         } else {
-          router.push('/billing/schedule');
+          // Redirect to the updated bill details page
+          router.push(`/billing/schedule/students/${bill.student_id}`);
+        }
+      } else {
+        const result = await createStudentBill.mutateAsync(submitData);
+
+        if (onSuccess) {
+          onSuccess();
+        } else {
+          // If bill was created from student details page, redirect back to that student's page
+          if (preSelectedStudent) {
+            router.push(`/billing/schedule/students/${preSelectedStudent.id}`);
+          } else {
+            router.push('/billing/schedule');
+          }
         }
       }
     } catch (error) {
       console.error('Error saving bill:', error);
+
+      // Show user-friendly error message
+      alert(
+        `Failed to ${bill ? 'update' : 'create'} bill: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
     }
   };
 
@@ -708,7 +788,7 @@ export function StudentBillForm({
                           name={`billing_items.${index}.bill_description`}
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Description *</FormLabel>
+                              <FormLabel>Description</FormLabel>
                               <FormControl>
                                 <Input
                                   placeholder='Enter item description'
@@ -756,7 +836,9 @@ export function StudentBillForm({
                                   type='number'
                                   min='0'
                                   step='0.01'
+                                  placeholder='0.00'
                                   {...field}
+                                  value={field.value?.toString() || ''}
                                   onChange={(e) =>
                                     field.onChange(
                                       parseFloat(e.target.value) || 0
@@ -780,7 +862,9 @@ export function StudentBillForm({
                                   type='number'
                                   min='0'
                                   step='0.01'
+                                  placeholder='0.00'
                                   {...field}
+                                  value={field.value?.toString() || ''}
                                   onChange={(e) =>
                                     field.onChange(
                                       parseFloat(e.target.value) || 0

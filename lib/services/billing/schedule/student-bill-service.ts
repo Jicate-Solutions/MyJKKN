@@ -84,9 +84,87 @@ export class StudentBillService {
     billData: UpdateStudentBillDto
   ): Promise<StudentBill> {
     try {
+      // First get the current bill to calculate proper balance_amount
+      const currentBill = await this.getStudentBill(id);
+
+      // Calculate final amount if any amount fields are being updated
+      let finalAmount = billData.final_amount;
+      if (
+        !finalAmount &&
+        (billData.total_amount !== undefined ||
+          billData.tax_amount !== undefined)
+      ) {
+        const totalAmount = billData.total_amount ?? currentBill.total_amount;
+        const taxAmount = billData.tax_amount ?? currentBill.tax_amount;
+        finalAmount = totalAmount + taxAmount;
+      }
+
+      // Calculate the proper balance_amount based on payments made
+      let balanceAmount = billData.balance_amount;
+      if (finalAmount !== undefined) {
+        // Get total payments for this bill
+        const { data: receiptItems } = await this.supabase
+          .from('billing_receipt_items')
+          .select('amount_paid')
+          .eq('bill_id', id);
+
+        const totalPaid =
+          receiptItems?.reduce((sum, item) => sum + item.amount_paid, 0) || 0;
+
+        // Get total processed refunds for this bill
+        let totalRefunded = 0;
+        if (receiptItems && receiptItems.length > 0) {
+          const { data: receiptIdData } = await this.supabase
+            .from('billing_receipt_items')
+            .select('receipt_id')
+            .eq('bill_id', id);
+
+          const receiptIdList =
+            receiptIdData?.map((item) => item.receipt_id) || [];
+
+          if (receiptIdList.length > 0) {
+            const { data: refundData } = await this.supabase
+              .from('billing_refunds')
+              .select('refund_amount')
+              .in('receipt_id', receiptIdList)
+              .eq('approval_status', 'processed');
+
+            totalRefunded =
+              refundData?.reduce(
+                (sum, refund) => sum + refund.refund_amount,
+                0
+              ) || 0;
+          }
+        }
+
+        // Calculate net paid amount
+        const netPaid = totalPaid - totalRefunded;
+
+        // Calculate new balance
+        balanceAmount = Math.max(0, finalAmount - netPaid);
+
+        // Update status if needed
+        if (!billData.status) {
+          if (netPaid >= finalAmount) {
+            billData.status = 'paid';
+          } else if (netPaid > 0) {
+            billData.status = 'partially_paid';
+          } else {
+            billData.status = 'unpaid';
+          }
+        }
+      }
+
+      // Prepare update data
+      const updateData = {
+        ...billData,
+        ...(finalAmount !== undefined && { final_amount: finalAmount }),
+        ...(balanceAmount !== undefined && { balance_amount: balanceAmount })
+      };
+
       const { data, error } = await this.supabase
         .from('billing_student_bills')
-        .update(billData)
+        .update(updateData)
         .eq('id', id)
         .select(
           `

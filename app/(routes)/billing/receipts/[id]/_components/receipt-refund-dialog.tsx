@@ -130,14 +130,19 @@ export function ReceiptRefundDialog({
         bank_details: formData.bank_details
       };
 
-      await createRefundMutation.mutateAsync(refundData);
+      const createdRefund = await createRefundMutation.mutateAsync(refundData);
 
       toast.success('Refund request created successfully');
       setOpen(false);
+
+      // Call the callback first to refresh the receipt data
       onRefundCreated?.();
 
-      // Optionally navigate to the refund details
-      // router.push('/billing/refunds');
+      // Add a brief delay before redirecting to ensure data refresh completes
+      setTimeout(() => {
+        // Navigate to the refund details page
+        router.push(`/billing/refunds/${createdRefund.id}`);
+      }, 1000);
     } catch (error) {
       console.error('Error creating refund:', error);
       toast.error(

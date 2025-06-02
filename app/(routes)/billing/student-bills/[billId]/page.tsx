@@ -130,6 +130,12 @@ export default function StudentBillDetailPage() {
             Overdue
           </Badge>
         );
+      case 'refunded':
+        return (
+          <Badge variant='outline' className='bg-purple-500 text-white'>
+            Refunded
+          </Badge>
+        );
       default:
         return <Badge variant='outline'>{status}</Badge>;
     }

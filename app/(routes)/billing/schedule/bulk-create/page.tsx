@@ -60,7 +60,7 @@ const bulkBillSchema = z.object({
   department_id: z.string().optional(),
   semester_id: z.string().optional(),
   item_category_id: z.string().min(1, 'Item category is required'),
-  bill_description: z.string().min(1, 'Bill description is required'),
+  bill_description: z.string().optional(),
   due_date: z.date({ required_error: 'Due date is required' }),
   quantity: z.number().min(1, 'Quantity must be at least 1').default(1),
   unit_amount: z.number().min(0, 'Unit amount must be positive'),
@@ -410,7 +410,9 @@ export default function BulkCreateBillsPage() {
                                 type='number'
                                 min='0'
                                 step='0.01'
+                                placeholder='0.00'
                                 {...field}
+                                value={field.value?.toString() || ''}
                                 onChange={(e) =>
                                   field.onChange(
                                     parseFloat(e.target.value) || 0
@@ -435,7 +437,9 @@ export default function BulkCreateBillsPage() {
                               type='number'
                               min='0'
                               step='0.01'
+                              placeholder='0.00'
                               {...field}
+                              value={field.value?.toString() || ''}
                               onChange={(e) =>
                                 field.onChange(parseFloat(e.target.value) || 0)
                               }

@@ -131,7 +131,8 @@ export function StudentBillList({
         className: 'bg-blue-100 text-blue-800'
       },
       overdue: { label: 'Overdue', className: 'bg-red-100 text-red-800' },
-      cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-800' }
+      cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-800' },
+      refunded: { label: 'Refunded', className: 'bg-purple-100 text-purple-800' }
     };
 
     const config =

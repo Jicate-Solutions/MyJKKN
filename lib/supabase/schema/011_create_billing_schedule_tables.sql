@@ -332,18 +332,42 @@ CREATE OR REPLACE FUNCTION calculate_student_outstanding(student_uuid UUID)
 RETURNS DECIMAL(10,2) AS $$
 DECLARE
   outstanding_amount DECIMAL(10,2);
+  bill_record RECORD;
+  total_paid DECIMAL(10,2);
+  total_refunded DECIMAL(10,2);
+  net_paid DECIMAL(10,2);
 BEGIN
-  SELECT COALESCE(SUM(
-    CASE 
-      WHEN status = 'paid' THEN 0
-      WHEN status = 'partially_paid' THEN balance_amount
-      ELSE final_amount
-    END
-  ), 0)
-  INTO outstanding_amount
-  FROM public.billing_student_bills
-  WHERE student_id = student_uuid
-    AND status IN ('unpaid', 'partially_paid', 'overdue');
+  outstanding_amount := 0;
+  
+  -- Loop through all unpaid, partially paid, and overdue bills for the student
+  FOR bill_record IN
+    SELECT id, final_amount
+    FROM public.billing_student_bills
+    WHERE student_id = student_uuid
+      AND status IN ('unpaid', 'partially_paid', 'overdue')
+  LOOP
+    -- Calculate total amount paid for this bill
+    SELECT COALESCE(SUM(bri.amount_paid), 0)
+    INTO total_paid
+    FROM public.billing_receipt_items bri
+    WHERE bri.bill_id = bill_record.id;
+    
+    -- Calculate total processed refunds for this bill
+    SELECT COALESCE(SUM(br.refund_amount), 0)
+    INTO total_refunded
+    FROM public.billing_refunds br
+    JOIN public.billing_receipt_items bri ON br.receipt_id = bri.receipt_id
+    WHERE bri.bill_id = bill_record.id 
+      AND br.approval_status = 'processed';
+    
+    -- Calculate net paid amount (paid - refunded)
+    net_paid := total_paid - total_refunded;
+    
+    -- Add to outstanding if there's still a balance
+    IF net_paid < bill_record.final_amount THEN
+      outstanding_amount := outstanding_amount + (bill_record.final_amount - net_paid);
+    END IF;
+  END LOOP;
   
   RETURN outstanding_amount;
 END;
@@ -623,4 +647,146 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trigger_update_bill_status_on_delete
   AFTER DELETE ON public.billing_receipt_items
   FOR EACH ROW
-  EXECUTE FUNCTION update_bill_status_on_delete(); 
+  EXECUTE FUNCTION update_bill_status_on_delete();
+
+-- Create function to handle refund status updates
+CREATE OR REPLACE FUNCTION update_bill_on_refund_status_change()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_receipt_record RECORD;
+  v_bill_id UUID;
+  v_refund_amount DECIMAL(10,2);
+BEGIN
+  -- Only process when status changes to 'processed' or from 'processed'
+  IF (NEW.approval_status = 'processed' AND OLD.approval_status != 'processed') OR
+     (OLD.approval_status = 'processed' AND NEW.approval_status != 'processed') THEN
+    
+    -- Get receipt information
+    SELECT * INTO v_receipt_record
+    FROM public.billing_receipts
+    WHERE id = NEW.receipt_id;
+    
+    IF FOUND THEN
+      v_refund_amount := NEW.refund_amount;
+      
+      -- Get all bills affected by this receipt
+      FOR v_bill_id IN
+        SELECT DISTINCT bill_id
+        FROM public.billing_receipt_items
+        WHERE receipt_id = NEW.receipt_id
+      LOOP
+        -- Recalculate bill status based on all payments and refunds
+        PERFORM recalculate_bill_status_with_refunds(v_bill_id);
+      END LOOP;
+      
+      -- Log the refund status change
+      IF NEW.approval_status = 'processed' THEN
+        RAISE NOTICE 'Refund % processed for receipt % - Amount: %', 
+          NEW.id, NEW.receipt_id, v_refund_amount;
+      ELSE
+        RAISE NOTICE 'Refund % status changed from processed to % for receipt %', 
+          NEW.id, NEW.approval_status, NEW.receipt_id;
+      END IF;
+    END IF;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create function to recalculate bill status considering refunds
+CREATE OR REPLACE FUNCTION recalculate_bill_status_with_refunds(p_bill_id UUID)
+RETURNS VOID AS $$
+DECLARE
+  total_paid DECIMAL(10,2);
+  total_refunded DECIMAL(10,2);
+  net_paid DECIMAL(10,2);
+  bill_amount DECIMAL(10,2);
+BEGIN
+  -- Calculate total amount paid for this bill
+  SELECT COALESCE(SUM(bri.amount_paid), 0)
+  INTO total_paid
+  FROM public.billing_receipt_items bri
+  WHERE bri.bill_id = p_bill_id;
+  
+  -- Calculate total processed refunds for this bill
+  SELECT COALESCE(SUM(br.refund_amount), 0)
+  INTO total_refunded
+  FROM public.billing_refunds br
+  JOIN public.billing_receipt_items bri ON br.receipt_id = bri.receipt_id
+  WHERE bri.bill_id = p_bill_id 
+    AND br.approval_status = 'processed';
+  
+  -- Calculate net paid amount (paid - refunded)
+  net_paid := total_paid - total_refunded;
+  
+  -- Get the bill's final amount
+  SELECT final_amount
+  INTO bill_amount
+  FROM public.billing_student_bills
+  WHERE id = p_bill_id;
+  
+  -- Enhanced status logic that handles full refunds
+  IF total_refunded >= total_paid AND total_paid > 0 THEN
+    -- Fully refunded case
+    UPDATE public.billing_student_bills
+    SET status = 'refunded',
+        balance_amount = bill_amount,
+        payment_date = NULL
+    WHERE id = p_bill_id;
+  ELSIF net_paid >= bill_amount THEN
+    -- Fully paid (after refunds)
+    UPDATE public.billing_student_bills
+    SET status = 'paid',
+        balance_amount = 0,
+        payment_date = NOW()
+    WHERE id = p_bill_id;
+  ELSIF net_paid > 0 THEN
+    -- Partially paid (after refunds)
+    UPDATE public.billing_student_bills
+    SET status = 'partially_paid',
+        balance_amount = bill_amount - net_paid
+    WHERE id = p_bill_id;
+  ELSE
+    -- Unpaid
+    UPDATE public.billing_student_bills
+    SET status = 'unpaid',
+        balance_amount = bill_amount,
+        payment_date = NULL
+    WHERE id = p_bill_id;
+  END IF;
+  
+  RAISE NOTICE 'Enhanced bill % status: paid=%, refunded=%, net=%, status=%', 
+    p_bill_id, total_paid, total_refunded, net_paid, 
+    (SELECT status FROM public.billing_student_bills WHERE id = p_bill_id);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger for refund status changes
+CREATE TRIGGER trigger_update_bill_on_refund_status_change
+  AFTER UPDATE ON public.billing_refunds
+  FOR EACH ROW
+  EXECUTE FUNCTION update_bill_on_refund_status_change();
+
+-- Create function to update balance_amount when bill is updated
+CREATE OR REPLACE FUNCTION update_bill_balance_on_amount_change()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Only trigger if final_amount, total_amount, or tax_amount changed
+  IF (NEW.final_amount != OLD.final_amount OR 
+      NEW.total_amount != OLD.total_amount OR 
+      NEW.tax_amount != OLD.tax_amount) THEN
+    
+    -- Recalculate balance amount based on payments and refunds
+    PERFORM recalculate_bill_status_with_refunds(NEW.id);
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to update balance when bill amounts change
+CREATE TRIGGER trigger_update_bill_balance_on_amount_change
+  AFTER UPDATE ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION update_bill_balance_on_amount_change(); 

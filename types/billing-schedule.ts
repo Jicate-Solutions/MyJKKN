@@ -7,7 +7,8 @@ export type BillStatus =
   | 'unpaid'
   | 'partially_paid'
   | 'cancelled'
-  | 'overdue';
+  | 'overdue'
+  | 'refunded';
 export type PaymentMode = 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque';
 export type RecurrencePattern = 'monthly' | 'quarterly' | 'yearly';
 export type DiscountCategory =
@@ -94,7 +95,7 @@ export interface CreateStudentBillDto {
   student_id: string;
   institution_id: string;
   item_category_id: string;
-  bill_description: string;
+  bill_description?: string;
   due_date: string;
   quantity?: number;
   unit_amount: number;

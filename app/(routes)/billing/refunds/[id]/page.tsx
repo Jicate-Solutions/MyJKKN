@@ -290,11 +290,10 @@ export default function RefundDetailsPage({ params }: RefundDetailsPageProps) {
 
       <div className='space-y-6 mt-4'>
         {/* Header */}
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
+        <div className='flex flex-col gap-4 sm:justify-between sm:items-start'>
           <div className='flex items-center gap-4'>
             <Button variant='outline' size='sm' onClick={() => router.back()}>
               <ArrowLeft className='mr-2 h-4 w-4' />
-              Back
             </Button>
             <div>
               <h1 className='text-2xl font-bold py-1'>Refund Details</h1>
