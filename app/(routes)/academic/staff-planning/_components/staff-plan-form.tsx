@@ -213,7 +213,9 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             department_id: staffPlan.department_id,
             program_id: staffPlan.program_id,
             semester_id: staffPlan.semester_id,
-            section_id: staffPlan.section,
+            section_id:
+              sectionsData.find((s) => s.section_name === staffPlan.section)
+                ?.id || staffPlan.section,
             academic_year_id: staffPlan.academic_year_id,
             start_date: new Date(staffPlan.start_date),
             end_date: new Date(staffPlan.end_date),
@@ -404,21 +406,30 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     try {
       setIsSubmitting(true);
 
-      const formattedValues = {
-        ...values,
-        // Map section_id to section for API compatibility
-        section: values.section_id,
-        start_date: values.start_date.toISOString(),
-        end_date: values.end_date.toISOString()
-      };
+      // Find the selected section to get its name
+      const selectedSection = sections.find((s) => s.id === values.section_id);
+      const sectionName = selectedSection?.section_name || values.section_id;
 
-      const { section_id, ...apiPayload } = formattedValues;
+      // Map section_id to section and format dates for API compatibility
+      const apiPayload = {
+        institution_id: values.institution_id,
+        degree_id: values.degree_id,
+        program_id: values.program_id,
+        department_id: values.department_id,
+        semester_id: values.semester_id,
+        section: sectionName, // Use section name
+        academic_year_id: values.academic_year_id,
+        start_date: values.start_date.toISOString(),
+        end_date: values.end_date.toISOString(),
+        courses: values.courses,
+        is_active: values.is_active
+      };
 
       if (isEditing && staffPlan) {
         await StaffPlanService.updateStaffPlan(staffPlan.id, apiPayload);
         toast.success('Staff plan updated successfully');
       } else {
-        await StaffPlanService.createStaffPlan(formattedValues);
+        await StaffPlanService.createStaffPlan(apiPayload);
         toast.success('Staff plan created successfully');
       }
 

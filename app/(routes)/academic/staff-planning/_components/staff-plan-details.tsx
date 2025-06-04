@@ -38,7 +38,6 @@ interface StaffPlanDetailsProps {
 
 interface Section {
   id: string;
-  section_code: string;
   section_name: string;
 }
 
@@ -64,14 +63,14 @@ export function StaffPlanDetailsPage({
           const planData = await StaffPlanService.getStaffPlan(id);
           setStaffPlan(planData);
 
-          // Fetch section data if we have semester ID and section code
+          // Fetch section data if we have semester ID and section name
           if (planData.semester_id && planData.section) {
             try {
               const sections = await SectionService.getSectionsBySemester(
                 planData.semester_id
               );
               const matchingSection = sections.find(
-                (s) => s.section_code === planData.section
+                (s) => s.section_name === planData.section
               );
               if (matchingSection) {
                 setSectionData(matchingSection);
