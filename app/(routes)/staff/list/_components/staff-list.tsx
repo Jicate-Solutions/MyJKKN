@@ -248,9 +248,14 @@ export function StaffList({
                         </AvatarFallback>
                       </Avatar>
                       <div className='flex flex-col'>
-                        <span className='font-medium'>
-                          {member.first_name} {member.last_name}
-                        </span>
+                        <Link
+                          href={`/staff/list/${member.id}`}
+                          className='cursor-pointer hover:underline hover:text-primary'
+                        >
+                          <span className='font-medium'>
+                            {member.first_name} {member.last_name}
+                          </span>
+                        </Link>
                         <span className='text-sm text-muted-foreground'>
                           {member.email}
                         </span>

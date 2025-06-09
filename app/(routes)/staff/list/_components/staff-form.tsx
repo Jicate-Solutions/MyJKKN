@@ -52,7 +52,7 @@ const staffSchema = z.object({
   }),
   marital_status: z.enum(['single', 'married', 'divorced', 'widow']),
   blood_group: z
-    .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
+    .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'A1+', 'A1B'])
     .optional(),
   email: z.string().email('Invalid email format'),
   institution_email: z.string().email('Invalid email format').optional(),
@@ -463,6 +463,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                       <SelectItem value='AB-'>AB-</SelectItem>
                       <SelectItem value='O+'>O+</SelectItem>
                       <SelectItem value='O-'>O-</SelectItem>
+                      <SelectItem value='A1+'>A1+</SelectItem>
+                      <SelectItem value='A1B'>A1B</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -502,11 +504,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                 <FormItem>
                   <FormLabel>Staff ID</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder='Enter staff ID'
-                      {...field}
-                      disabled={isEditing}
-                    />
+                    <Input placeholder='Enter staff ID' {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
