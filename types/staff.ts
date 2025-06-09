@@ -49,7 +49,9 @@ export type BloodGroup =
   | 'AB+'
   | 'AB-'
   | 'O+'
-  | 'O-';
+  | 'O-'
+  | 'A1+'
+  | 'A1B';
 
 export interface Staff {
   id: string;

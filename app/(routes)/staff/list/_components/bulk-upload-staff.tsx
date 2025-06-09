@@ -34,6 +34,8 @@ interface ValidationResult {
   valid_institution_id: string;
   valid_department_id: string;
   valid_category_id: string;
+  converted_date_of_birth?: string;
+  converted_date_of_joining?: string;
 }
 
 const validateEmail = (email: string) => {
@@ -44,12 +46,228 @@ const validatePhone = (phone: string) => {
   return /^\+?[\d\s-()]{10,}$/.test(phone);
 };
 
-const validateDate = (date: string) => {
-  if (!date) return false;
-  const regex = /^\d{4}-\d{2}-\d{2}$/;
-  if (!regex.test(date)) return false;
-  const d = new Date(date);
-  return d instanceof Date && !isNaN(d.getTime());
+const validateDate = (date: string | number) => {
+  if (!date)
+    return { isValid: false, convertedDate: '', error: 'Date is required' };
+
+  // Handle Excel serial dates (numbers)
+  if (
+    typeof date === 'number' ||
+    (!isNaN(Number(date)) && Number(date) > 1000)
+  ) {
+    try {
+      // Excel serial date: days since January 1, 1900
+      const excelEpoch = new Date(1900, 0, 1);
+      const serialNumber = Number(date);
+
+      // Excel incorrectly treats 1900 as a leap year, so subtract 1 for dates after Feb 28, 1900
+      const adjustedSerial =
+        serialNumber > 59 ? serialNumber - 1 : serialNumber;
+      const convertedDate = new Date(
+        excelEpoch.getTime() + (adjustedSerial - 1) * 24 * 60 * 60 * 1000
+      );
+
+      if (!isNaN(convertedDate.getTime())) {
+        const year = convertedDate.getFullYear();
+        const month = (convertedDate.getMonth() + 1)
+          .toString()
+          .padStart(2, '0');
+        const day = convertedDate.getDate().toString().padStart(2, '0');
+
+        // Check reasonable date range
+        const currentYear = new Date().getFullYear();
+        if (year < 1900 || year > currentYear + 1) {
+          return {
+            isValid: false,
+            convertedDate: '',
+            error: `Year must be between 1900 and ${
+              currentYear + 1
+            }. Got: ${year}`
+          };
+        }
+
+        return {
+          isValid: true,
+          convertedDate: `${year}-${month}-${day}`,
+          error: ''
+        };
+      }
+    } catch (error) {
+      // Fall through to text parsing
+    }
+  }
+
+  // Remove any extra whitespace
+  const cleanDate = date.toString().trim();
+
+  // Common date formats to try
+  const dateFormats = [
+    // ISO format (preferred)
+    { regex: /^\d{4}-\d{2}-\d{2}$/, format: 'YYYY-MM-DD' },
+    // DD/MM/YYYY or DD-MM-YYYY
+    {
+      regex: /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/,
+      format: 'DD/MM/YYYY or DD-MM-YYYY'
+    },
+    // MM/DD/YYYY or MM-DD-YYYY
+    {
+      regex: /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/,
+      format: 'MM/DD/YYYY or MM-DD-YYYY'
+    },
+    // DD.MM.YYYY
+    { regex: /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/, format: 'DD.MM.YYYY' },
+    // YYYY/MM/DD
+    {
+      regex: /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/,
+      format: 'YYYY/MM/DD or YYYY-MM-DD'
+    }
+  ];
+
+  let convertedDate = '';
+  let validDate = null;
+
+  // Try ISO format first (YYYY-MM-DD)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+    validDate = new Date(cleanDate);
+    if (!isNaN(validDate.getTime())) {
+      convertedDate = cleanDate;
+    }
+  }
+
+  // If ISO format didn't work, try other formats
+  if (!convertedDate) {
+    // Try DD/MM/YYYY, DD-MM-YYYY format
+    const ddmmyyyy = cleanDate.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (ddmmyyyy) {
+      const day = ddmmyyyy[1].padStart(2, '0');
+      const month = ddmmyyyy[2].padStart(2, '0');
+      const year = ddmmyyyy[3];
+
+      // Create date and validate
+      const testDate = new Date(`${year}-${month}-${day}`);
+      if (
+        !isNaN(testDate.getTime()) &&
+        testDate.getFullYear() == parseInt(year) &&
+        testDate.getMonth() + 1 == parseInt(month) &&
+        testDate.getDate() == parseInt(day)
+      ) {
+        convertedDate = `${year}-${month}-${day}`;
+        validDate = testDate;
+      }
+    }
+
+    // Try MM/DD/YYYY, MM-DD-YYYY format if DD/MM/YYYY didn't work
+    if (!convertedDate) {
+      const mmddyyyy = cleanDate.match(
+        /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/
+      );
+      if (mmddyyyy) {
+        const month = mmddyyyy[1].padStart(2, '0');
+        const day = mmddyyyy[2].padStart(2, '0');
+        const year = mmddyyyy[3];
+
+        // Create date and validate
+        const testDate = new Date(`${year}-${month}-${day}`);
+        if (
+          !isNaN(testDate.getTime()) &&
+          testDate.getFullYear() == parseInt(year) &&
+          testDate.getMonth() + 1 == parseInt(month) &&
+          testDate.getDate() == parseInt(day)
+        ) {
+          convertedDate = `${year}-${month}-${day}`;
+          validDate = testDate;
+        }
+      }
+    }
+
+    // Try DD.MM.YYYY format
+    if (!convertedDate) {
+      const ddmmyyyy_dot = cleanDate.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      if (ddmmyyyy_dot) {
+        const day = ddmmyyyy_dot[1].padStart(2, '0');
+        const month = ddmmyyyy_dot[2].padStart(2, '0');
+        const year = ddmmyyyy_dot[3];
+
+        // Create date and validate
+        const testDate = new Date(`${year}-${month}-${day}`);
+        if (
+          !isNaN(testDate.getTime()) &&
+          testDate.getFullYear() == parseInt(year) &&
+          testDate.getMonth() + 1 == parseInt(month) &&
+          testDate.getDate() == parseInt(day)
+        ) {
+          convertedDate = `${year}-${month}-${day}`;
+          validDate = testDate;
+        }
+      }
+    }
+
+    // Try YYYY/MM/DD format
+    if (!convertedDate) {
+      const yyyymmdd_slash = cleanDate.match(
+        /^(\d{4})[\/](\d{1,2})[\/](\d{1,2})$/
+      );
+      if (yyyymmdd_slash) {
+        const year = yyyymmdd_slash[1];
+        const month = yyyymmdd_slash[2].padStart(2, '0');
+        const day = yyyymmdd_slash[3].padStart(2, '0');
+
+        // Create date and validate
+        const testDate = new Date(`${year}-${month}-${day}`);
+        if (
+          !isNaN(testDate.getTime()) &&
+          testDate.getFullYear() == parseInt(year) &&
+          testDate.getMonth() + 1 == parseInt(month) &&
+          testDate.getDate() == parseInt(day)
+        ) {
+          convertedDate = `${year}-${month}-${day}`;
+          validDate = testDate;
+        }
+      }
+    }
+  }
+
+  // Additional validation for reasonable date ranges
+  if (validDate && convertedDate) {
+    const currentYear = new Date().getFullYear();
+    const dateYear = validDate.getFullYear();
+
+    // Check if year is reasonable (between 1900 and current year + 1)
+    if (dateYear < 1900 || dateYear > currentYear + 1) {
+      return {
+        isValid: false,
+        convertedDate: '',
+        error: `Year must be between 1900 and ${
+          currentYear + 1
+        }. Got: ${dateYear}`
+      };
+    }
+
+    return {
+      isValid: true,
+      convertedDate,
+      error: ''
+    };
+  }
+
+  // If all formats failed, provide helpful error message
+  const supportedFormats = [
+    'YYYY-MM-DD (e.g., 2023-12-25)',
+    'DD/MM/YYYY (e.g., 25/12/2023)',
+    'DD-MM-YYYY (e.g., 25-12-2023)',
+    'MM/DD/YYYY (e.g., 12/25/2023)',
+    'MM-DD-YYYY (e.g., 12-25-2023)',
+    'DD.MM.YYYY (e.g., 25.12.2023)',
+    'YYYY/MM/DD (e.g., 2023/12/25)'
+  ];
+
+  return {
+    isValid: false,
+    convertedDate: '',
+    error: `Invalid date format: "${cleanDate}". Supported formats: ${supportedFormats.join(
+      ', '
+    )}`
+  };
 };
 
 const validateRow = async (
@@ -74,11 +292,20 @@ const validateRow = async (
   if (!['male', 'female', 'bigender'].includes(row.gender?.toLowerCase())) {
     errors.push('Invalid gender value');
   }
+
+  // Validate and convert date of birth
+  let converted_date_of_birth = '';
   if (!row.date_of_birth) {
     errors.push('Date of birth is required');
-  } else if (!validateDate(row.date_of_birth)) {
-    errors.push('Invalid date of birth format (use YYYY-MM-DD)');
+  } else {
+    const dateValidation = validateDate(row.date_of_birth);
+    if (!dateValidation.isValid) {
+      errors.push(`Date of birth: ${dateValidation.error}`);
+    } else {
+      converted_date_of_birth = dateValidation.convertedDate;
+    }
   }
+
   if (!row.email) {
     errors.push('Email is required');
   } else if (!validateEmail(row.email)) {
@@ -89,11 +316,20 @@ const validateRow = async (
   } else if (!validatePhone(row.phone)) {
     errors.push('Invalid phone format');
   }
+
+  // Validate and convert date of joining
+  let converted_date_of_joining = '';
   if (!row.date_of_joining) {
     errors.push('Date of joining is required');
-  } else if (!validateDate(row.date_of_joining)) {
-    errors.push('Invalid date of joining format (use YYYY-MM-DD)');
+  } else {
+    const dateValidation = validateDate(row.date_of_joining);
+    if (!dateValidation.isValid) {
+      errors.push(`Date of joining: ${dateValidation.error}`);
+    } else {
+      converted_date_of_joining = dateValidation.convertedDate;
+    }
   }
+
   if (!row.designation) errors.push('Designation is required');
 
   // Get or validate institution
@@ -194,7 +430,7 @@ const validateRow = async (
   }
   if (
     row.blood_group &&
-    !['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].includes(
+    !['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'A1+', 'A1B'].includes(
       row.blood_group
     )
   ) {
@@ -239,7 +475,9 @@ const validateRow = async (
     errors,
     valid_institution_id,
     valid_department_id,
-    valid_category_id
+    valid_category_id,
+    converted_date_of_birth,
+    converted_date_of_joining
   };
 };
 
@@ -359,10 +597,64 @@ export default function BulkUploadStaff() {
               departmentIdMap.get(row.department_id)?.name ||
               '',
             category_name:
-              row.category_name || categoryMap.get(row.category_id) || ''
+              row.category_name || categoryMap.get(row.category_id) || '',
+            converted_date_of_birth: validation.converted_date_of_birth,
+            converted_date_of_joining: validation.converted_date_of_joining
           };
         })
       );
+
+      // Check for duplicate staff IDs within the uploaded data
+      const staffIdCounts = new Map<string, number[]>();
+      validatedData.forEach((row, index) => {
+        if (row.staff_id && row.staff_id.trim()) {
+          const staffId = row.staff_id.trim().toLowerCase();
+          if (!staffIdCounts.has(staffId)) {
+            staffIdCounts.set(staffId, []);
+          }
+          staffIdCounts.get(staffId)!.push(row.rowNumber);
+        }
+      });
+
+      // Mark duplicate staff IDs as invalid
+      validatedData.forEach((row) => {
+        if (row.staff_id && row.staff_id.trim()) {
+          const staffId = row.staff_id.trim().toLowerCase();
+          const occurrences = staffIdCounts.get(staffId) || [];
+          if (occurrences.length > 1) {
+            row.isValid = false;
+            row.errors.push(
+              `Duplicate staff ID found in rows: ${occurrences.join(', ')}`
+            );
+          }
+        }
+      });
+
+      // Check for duplicate emails within the uploaded data
+      const emailCounts = new Map<string, number[]>();
+      validatedData.forEach((row) => {
+        if (row.email && row.email.trim()) {
+          const email = row.email.trim().toLowerCase();
+          if (!emailCounts.has(email)) {
+            emailCounts.set(email, []);
+          }
+          emailCounts.get(email)!.push(row.rowNumber);
+        }
+      });
+
+      // Mark duplicate emails as invalid
+      validatedData.forEach((row) => {
+        if (row.email && row.email.trim()) {
+          const email = row.email.trim().toLowerCase();
+          const occurrences = emailCounts.get(email) || [];
+          if (occurrences.length > 1) {
+            row.isValid = false;
+            row.errors.push(
+              `Duplicate email found in rows: ${occurrences.join(', ')}`
+            );
+          }
+        }
+      });
 
       // Remove loading toast
       toast.dismiss();
@@ -418,6 +710,9 @@ export default function BulkUploadStaff() {
       let errorCount = 0;
       const errorDetails: string[] = [];
 
+      // Dismiss any existing toasts to prevent individual success messages
+      toast.dismiss();
+
       for (const batch of batches) {
         const promises = batch.map((row) => {
           // Validate IDs one more time as a safeguard
@@ -431,7 +726,7 @@ export default function BulkUploadStaff() {
             first_name: row.first_name,
             last_name: row.last_name,
             gender: row.gender.toLowerCase(),
-            date_of_birth: row.date_of_birth,
+            date_of_birth: row.converted_date_of_birth || row.date_of_birth,
             marital_status: row.marital_status?.toLowerCase(),
             blood_group: row.blood_group,
             email: row.email,
@@ -443,7 +738,8 @@ export default function BulkUploadStaff() {
             state: row.state,
             district: row.district,
             pincode: row.pincode,
-            date_of_joining: row.date_of_joining,
+            date_of_joining:
+              row.converted_date_of_joining || row.date_of_joining,
             designation: row.designation,
             category_id: row.category_id,
             institution_id: row.institution_id,
@@ -454,6 +750,8 @@ export default function BulkUploadStaff() {
           return StaffService.createStaff(staffData)
             .then(() => {
               successCount++;
+              // Suppress individual success toasts
+              toast.dismiss();
             })
             .catch((error) => {
               console.error(
@@ -464,6 +762,8 @@ export default function BulkUploadStaff() {
               const errorMessage =
                 error instanceof Error ? error.message : 'Unknown error';
               errorDetails.push(`Row ${row.rowNumber}: ${errorMessage}`);
+              // Suppress individual error toasts during bulk upload
+              toast.dismiss();
             });
         });
 
@@ -528,107 +828,341 @@ export default function BulkUploadStaff() {
           Bulk Upload
         </Button>
       </DialogTrigger>
-      <DialogContent className='max-w-4xl max-h-[80vh] overflow-y-auto'>
-        <DialogHeader>
-          <DialogTitle>Preview Bulk Upload</DialogTitle>
+      <DialogContent className='w-[95vw] max-w-6xl h-[90vh] flex flex-col p-0'>
+        <DialogHeader className='px-4 py-3 border-b bg-muted/50 rounded-t-lg'>
+          <DialogTitle className='text-lg sm:text-xl'>
+            Staff Bulk Upload
+          </DialogTitle>
+          <p className='text-sm text-muted-foreground'>
+            Upload staff data from Excel file (.xlsx format)
+          </p>
         </DialogHeader>
 
-        <div className='mt-4'>
+        <div className='flex-1 overflow-hidden flex flex-col'>
           {!selectedFile ? (
-            <div className='flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg'>
-              <input
-                type='file'
-                accept='.xlsx'
-                onChange={handleFileSelect}
-                className='hidden'
-                ref={fileInputRef}
-              />
-              <Upload className='h-8 w-8 mb-4 text-muted-foreground' />
-              <Button
-                variant='secondary'
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Select Excel File
-              </Button>
-              <p className='mt-2 text-sm text-muted-foreground'>
-                Only .xlsx files are supported
-              </p>
+            // File Upload Section
+            <div className='flex-1 flex items-center justify-center p-6'>
+              <div className='flex flex-col items-center justify-center max-w-md mx-auto text-center space-y-4'>
+                <input
+                  type='file'
+                  accept='.xlsx'
+                  onChange={handleFileSelect}
+                  className='hidden'
+                  ref={fileInputRef}
+                />
+                <div className='w-16 h-16 bg-muted rounded-full flex items-center justify-center'>
+                  <Upload className='h-8 w-8 text-muted-foreground' />
+                </div>
+                <div className='space-y-2'>
+                  <h3 className='text-lg font-medium'>Upload Excel File</h3>
+                  <p className='text-sm text-muted-foreground'>
+                    Select a .xlsx file containing staff data
+                  </p>
+                </div>
+                <Button
+                  size='lg'
+                  onClick={() => fileInputRef.current?.click()}
+                  className='w-full max-w-xs'
+                >
+                  <Upload className='mr-2 h-4 w-4' />
+                  Choose File
+                </Button>
+                <p className='text-xs text-muted-foreground'>
+                  Only Excel (.xlsx) files are supported
+                </p>
+              </div>
             </div>
           ) : (
-            <div className='space-y-4'>
-              <div className='flex items-center justify-between'>
-                <div className='flex items-center space-x-2'>
-                  <FileText className='h-5 w-5 text-muted-foreground' />
-                  <span>{selectedFile.name}</span>
+            // File Preview Section
+            <div className='flex-1 flex flex-col overflow-hidden'>
+              {/* File Info Header */}
+              <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b bg-muted/25'>
+                <div className='flex items-center space-x-3 min-w-0'>
+                  <FileText className='h-5 w-5 text-muted-foreground flex-shrink-0' />
+                  <div className='min-w-0'>
+                    <p className='text-sm font-medium truncate'>
+                      {selectedFile.name}
+                    </p>
+                    <p className='text-xs text-muted-foreground'>
+                      {previewData.length} row
+                      {previewData.length !== 1 ? 's' : ''} found
+                      {previewData.length > 0 && (
+                        <>
+                          {' • '}
+                          <span className='text-green-600'>
+                            {previewData.filter((row) => row.isValid).length}{' '}
+                            valid
+                          </span>
+                          {' • '}
+                          <span className='text-red-600'>
+                            {previewData.filter((row) => !row.isValid).length}{' '}
+                            invalid
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <Button variant='ghost' size='sm' onClick={clearFile}>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={clearFile}
+                  className='flex-shrink-0'
+                >
                   <X className='h-4 w-4 mr-2' />
-                  Clear
+                  Clear File
                 </Button>
               </div>
 
-              <div className='rounded-md border'>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Row</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Institution</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Errors</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {previewData.map((row) => (
-                      <TableRow key={row.rowNumber}>
-                        <TableCell>{row.rowNumber}</TableCell>
-                        <TableCell>{`${row.first_name} ${row.last_name}`}</TableCell>
-                        <TableCell>{row.email}</TableCell>
-                        <TableCell>{row.institution_name}</TableCell>
-                        <TableCell>{row.department_name}</TableCell>
-                        <TableCell>{row.category_name}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={row.isValid ? 'success' : 'destructive'}
-                          >
-                            {row.isValid ? 'Valid' : 'Invalid'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className='text-destructive max-w-[200px] truncate'>
-                          {row.errors?.join(', ')}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              {/* Table Section */}
+              <div className='flex-1 overflow-auto'>
+                {previewData.length === 0 ? (
+                  <div className='flex items-center justify-center h-32'>
+                    <p className='text-muted-foreground'>Processing file...</p>
+                  </div>
+                ) : (
+                  <div className='overflow-auto'>
+                    {/* Mobile View - Card Layout */}
+                    <div className='block md:hidden space-y-3 p-4'>
+                      {previewData.map((row) => (
+                        <div
+                          key={row.rowNumber}
+                          className={`border rounded-lg p-4 space-y-3 ${
+                            row.isValid
+                              ? 'border-green-200 bg-green-50'
+                              : 'border-red-200 bg-red-50'
+                          }`}
+                        >
+                          <div className='flex items-center justify-between'>
+                            <span className='text-sm font-medium'>
+                              Row {row.rowNumber}
+                            </span>
+                            <Badge
+                              variant={row.isValid ? 'default' : 'destructive'}
+                            >
+                              {row.isValid ? 'Valid' : 'Invalid'}
+                            </Badge>
+                          </div>
+
+                          <div className='grid grid-cols-1 gap-2 text-sm'>
+                            <div>
+                              <span className='font-medium'>Name: </span>
+                              <span>{`${row.first_name} ${row.last_name}`}</span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Email: </span>
+                              <span className='break-all'>{row.email}</span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Institution: </span>
+                              <span className='break-words'>
+                                {row.institution_name}
+                              </span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Department: </span>
+                              <span className='break-words'>
+                                {row.department_name}
+                              </span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Category: </span>
+                              <span className='break-words'>
+                                {row.category_name}
+                              </span>
+                            </div>
+
+                            {row.errors && row.errors.length > 0 && (
+                              <div className='mt-2 p-2 bg-red-100 rounded text-red-700 text-xs'>
+                                <span className='font-medium'>Errors: </span>
+                                <div className='mt-1 space-y-1'>
+                                  {row.errors.map(
+                                    (error: string, index: number) => (
+                                      <div key={index}>• {error}</div>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Desktop View - Table Layout */}
+                    <div className='hidden md:block'>
+                      <Table>
+                        <TableHeader className='sticky top-0 bg-background z-10'>
+                          <TableRow>
+                            <TableHead className='w-16'>Row</TableHead>
+                            <TableHead className='min-w-[160px]'>
+                              Name
+                            </TableHead>
+                            <TableHead className='min-w-[200px]'>
+                              Email
+                            </TableHead>
+                            <TableHead className='min-w-[180px]'>
+                              Institution
+                            </TableHead>
+                            <TableHead className='min-w-[150px]'>
+                              Department
+                            </TableHead>
+                            <TableHead className='min-w-[120px]'>
+                              Category
+                            </TableHead>
+                            <TableHead className='w-20'>Status</TableHead>
+                            <TableHead className='min-w-[250px]'>
+                              Errors
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {previewData.map((row) => (
+                            <TableRow
+                              key={row.rowNumber}
+                              className={row.isValid ? '' : 'bg-red-50'}
+                            >
+                              <TableCell className='font-medium'>
+                                {row.rowNumber}
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[160px]'>
+                                  <p className='truncate'>{`${row.first_name} ${row.last_name}`}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[200px]'>
+                                  <p className='truncate'>{row.email}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[180px]'>
+                                  <p className='truncate'>
+                                    {row.institution_name}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[150px]'>
+                                  <p className='truncate'>
+                                    {row.department_name}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[120px]'>
+                                  <p className='truncate'>
+                                    {row.category_name}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    row.isValid ? 'default' : 'destructive'
+                                  }
+                                  className='text-xs'
+                                >
+                                  {row.isValid ? 'Valid' : 'Invalid'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[250px]'>
+                                  {row.errors && row.errors.length > 0 ? (
+                                    <div className='space-y-1'>
+                                      {row.errors.map(
+                                        (error: string, index: number) => (
+                                          <p
+                                            key={index}
+                                            className='text-xs text-red-600 break-words'
+                                          >
+                                            • {error}
+                                          </p>
+                                        )
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className='text-xs text-muted-foreground'>
+                                      No errors
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
+        </div>
 
-          <div className='mt-4 flex justify-end space-x-2'>
-            <Button
-              variant='outline'
-              onClick={() => {
-                setIsOpen(false);
-                clearFile();
-              }}
-              disabled={isUploading}
-            >
-              Cancel
-            </Button>
-            {selectedFile && (
-              <Button
-                onClick={handleUpload}
-                disabled={
-                  isUploading || !previewData.some((row) => row.isValid)
-                }
-              >
-                {isUploading ? 'Uploading...' : 'Upload Valid Rows'}
-              </Button>
+        {/* Footer Actions */}
+        <div className='border-t bg-muted/50 p-4'>
+          <div className='flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center'>
+            {/* Summary */}
+            {selectedFile && previewData.length > 0 && (
+              <div className='text-sm text-muted-foreground'>
+                <span className='block sm:inline'>
+                  Total: {previewData.length} rows
+                </span>
+                <span className='block sm:inline sm:ml-4'>
+                  Valid:{' '}
+                  <span className='text-green-600 font-medium'>
+                    {previewData.filter((row) => row.isValid).length}
+                  </span>
+                </span>
+                <span className='block sm:inline sm:ml-4'>
+                  Invalid:{' '}
+                  <span className='text-red-600 font-medium'>
+                    {previewData.filter((row) => !row.isValid).length}
+                  </span>
+                </span>
+              </div>
             )}
+
+            {/* Action Buttons */}
+            <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
+              <Button
+                variant='outline'
+                onClick={() => {
+                  setIsOpen(false);
+                  clearFile();
+                }}
+                disabled={isUploading}
+                className='w-full sm:w-auto'
+              >
+                Cancel
+              </Button>
+              {selectedFile && previewData.some((row) => row.isValid) && (
+                <Button
+                  onClick={handleUpload}
+                  disabled={isUploading}
+                  className='w-full sm:w-auto'
+                >
+                  {isUploading ? (
+                    <>
+                      <div className='animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2'></div>
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className='mr-2 h-4 w-4' />
+                      Upload {
+                        previewData.filter((row) => row.isValid).length
+                      }{' '}
+                      Valid Row
+                      {previewData.filter((row) => row.isValid).length !== 1
+                        ? 's'
+                        : ''}
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </DialogContent>

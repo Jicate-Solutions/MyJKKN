@@ -100,10 +100,17 @@ const ID_BASED_INSTRUCTIONS = [
   ['1. First Name (Required)'],
   ['2. Last Name (Required)'],
   ['3. Gender (Required) - Values: male, female, bigender'],
-  ['4. Date of Birth (Required) - Format: YYYY-MM-DD'],
+  ['4. Date of Birth (Required) - Multiple formats accepted:'],
+  ['   • YYYY-MM-DD (e.g., 1990-01-01) - Preferred'],
+  ['   • DD/MM/YYYY (e.g., 01/01/1990)'],
+  ['   • DD-MM-YYYY (e.g., 01-01-1990)'],
+  ['   • MM/DD/YYYY (e.g., 01/01/1990)'],
+  ['   • MM-DD-YYYY (e.g., 01-01-1990)'],
+  ['   • DD.MM.YYYY (e.g., 01.01.1990)'],
+  ['   • YYYY/MM/DD (e.g., 1990/01/01)'],
   ['5. Email (Required)'],
   ['6. Phone (Required) - Format: 10 digits'],
-  ['7. Date of Joining (Required) - Format: YYYY-MM-DD'],
+  ['7. Date of Joining (Required) - Same formats as Date of Birth'],
   ['8. Designation (Required)'],
   ['9. Category ID (Required) - Must be a valid UUID from the list below'],
   ['10. Institution ID (Required) - Must be a valid UUID from the list below'],
@@ -121,6 +128,12 @@ const ID_BASED_INSTRUCTIONS = [
   ['9. Institution Email - Email address provided by the institution'],
   ['10. Is Active - Values: true, false (default is true)'],
   [''],
+  ['Date Format Notes:'],
+  ['- Multiple date formats are accepted and automatically converted'],
+  ['- Year must be between 1900 and current year + 1'],
+  ['- Date validation ensures the date actually exists (no Feb 30th, etc.)'],
+  ['- If you get date errors, try using YYYY-MM-DD format'],
+  [''],
   ['Important Notes:'],
   [
     '- The IDs (category_id, institution_id, department_id) must be exact UUIDs from the database'
@@ -128,7 +141,6 @@ const ID_BASED_INSTRUCTIONS = [
   ['- COPY THE IDs exactly from the lists below'],
   ['- Email must be unique'],
   ['- Staff ID must be unique (if provided)'],
-  ['- Dates must be in YYYY-MM-DD format'],
   ['- Each row will be validated before import'],
   ['- Invalid rows will be skipped during import']
 ];
@@ -140,10 +152,17 @@ const NAME_BASED_INSTRUCTIONS = [
   ['1. First Name (Required)'],
   ['2. Last Name (Required)'],
   ['3. Gender (Required) - Values: male, female, bigender'],
-  ['4. Date of Birth (Required) - Format: YYYY-MM-DD'],
+  ['4. Date of Birth (Required) - Multiple formats accepted:'],
+  ['   • YYYY-MM-DD (e.g., 1990-01-01) - Preferred'],
+  ['   • DD/MM/YYYY (e.g., 01/01/1990)'],
+  ['   • DD-MM-YYYY (e.g., 01-01-1990)'],
+  ['   • MM/DD/YYYY (e.g., 01/01/1990)'],
+  ['   • MM-DD-YYYY (e.g., 01-01-1990)'],
+  ['   • DD.MM.YYYY (e.g., 01.01.1990)'],
+  ['   • YYYY/MM/DD (e.g., 1990/01/01)'],
   ['5. Email (Required)'],
   ['6. Phone (Required) - Format: 10 digits'],
-  ['7. Date of Joining (Required) - Format: YYYY-MM-DD'],
+  ['7. Date of Joining (Required) - Same formats as Date of Birth'],
   ['8. Designation (Required)'],
   [
     '9. Category Name (Required) - Must match exactly a category name from the list below'
@@ -167,6 +186,12 @@ const NAME_BASED_INSTRUCTIONS = [
   ['9. Institution Email - Email address provided by the institution'],
   ['10. Is Active - Values: true, false (default is true)'],
   [''],
+  ['Date Format Notes:'],
+  ['- Multiple date formats are accepted and automatically converted'],
+  ['- Year must be between 1900 and current year + 1'],
+  ['- Date validation ensures the date actually exists (no Feb 30th, etc.)'],
+  ['- If you get date errors, try using YYYY-MM-DD format'],
+  [''],
   ['Important Notes:'],
   [
     '- The names (category_name, institution_name, department_name) must match EXACTLY what is in the database'
@@ -175,7 +200,6 @@ const NAME_BASED_INSTRUCTIONS = [
   ['- Department names must belong to the specified institution'],
   ['- Email must be unique'],
   ['- Staff ID must be unique (if provided)'],
-  ['- Dates must be in YYYY-MM-DD format'],
   ['- Each row will be validated before import'],
   ['- Invalid rows will be skipped during import']
 ];
@@ -211,9 +235,16 @@ export default function DownloadStaffTemplateButton() {
       ['first_name', 'John', 'Text only'],
       ['last_name', 'Doe', 'Text only'],
       ['gender', 'male', 'One of: male, female, bigender'],
-      ['date_of_birth', '1990-01-01', 'YYYY-MM-DD format'],
+      ['date_of_birth', '1990-01-01', 'YYYY-MM-DD (preferred)'],
+      ['', '01/01/1990', 'DD/MM/YYYY also supported'],
+      ['', '01-01-1990', 'DD-MM-YYYY also supported'],
+      ['', '01.01.1990', 'DD.MM.YYYY also supported'],
       ['marital_status', 'single', 'One of: single, married, divorced, widow'],
-      ['blood_group', 'O+', 'One of: A+, A-, B+, B-, AB+, AB-, O+, O-'],
+      [
+        'blood_group',
+        'O+',
+        'One of: A+, A-, B+, B-, AB+, AB-, O+, O-, A1+, A1B'
+      ],
       ['email', 'john.doe@example.com', 'Must be unique'],
       ['phone', '9876543210', '10 digits'],
       ['staff_id', 'STAFF001', 'Must be unique'],
@@ -222,7 +253,9 @@ export default function DownloadStaffTemplateButton() {
       ['state', 'Tamil Nadu', 'Text'],
       ['district', 'Chennai', 'Text'],
       ['pincode', '600001', 'Numbers only'],
-      ['date_of_joining', '2023-05-15', 'YYYY-MM-DD format'],
+      ['date_of_joining', '2023-05-15', 'YYYY-MM-DD (preferred)'],
+      ['', '15/05/2023', 'DD/MM/YYYY also supported'],
+      ['', '15-05-2023', 'DD-MM-YYYY also supported'],
       ['designation', 'Assistant Professor', 'Text'],
       ['institution_email', 'john.doe@institution.edu', 'Email format']
     ];
@@ -329,7 +362,7 @@ export default function DownloadStaffTemplateButton() {
           // Blood Group
           type: 'list',
           operator: 'equal',
-          formula1: '"A+,A-,B+,B-,AB+,AB-,O+,O-"'
+          formula1: '"A+,A-,B+,B-,AB+,AB-,O+,O-,A1+,A1B"'
         },
         U: {
           // Is Active
