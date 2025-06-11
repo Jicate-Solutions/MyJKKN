@@ -725,8 +725,8 @@ export function CourseMappingForm({
                       </p>
                     ) : filteredCourses.length === 0 ? (
                       <p className='text-sm text-muted-foreground'>
-                        No courses found matching "{searchTerm}". Try a
-                        different search term.
+                        No courses found matching &quot;{searchTerm}&quot;. Try
+                        a different search term.
                       </p>
                     ) : (
                       filteredCourses.map((course) => (
