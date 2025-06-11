@@ -34,6 +34,9 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Search, X } from 'lucide-react';
 
 const courseMappingSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -89,6 +92,7 @@ export function CourseMappingForm({
   const [availableCourses, setAvailableCourses] = useState<
     Array<{ id: string; course_name: string; course_code: string }>
   >([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const form = useForm<FormValues>({
     resolver: zodResolver(courseMappingSchema),
@@ -108,6 +112,17 @@ export function CourseMappingForm({
   const watchedDepartmentId = form.watch('department_id');
   const watchedProgramId = form.watch('program_id');
   const watchedSemesterId = form.watch('semester_id');
+  const selectedCourseIds = form.watch('course_ids') || [];
+
+  // Filter courses based on search term
+  const filteredCourses = availableCourses.filter((course) => {
+    if (!searchTerm.trim()) return true;
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      course.course_name.toLowerCase().includes(searchLower) ||
+      course.course_code.toLowerCase().includes(searchLower)
+    );
+  });
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -277,10 +292,11 @@ export function CourseMappingForm({
     } else {
       setAvailableCourses([]);
     }
-    // Reset selected courses when dependencies change
+    // Reset selected courses and search term when dependencies change
     if (!isEditing) {
       form.resetField('course_ids');
     }
+    setSearchTerm('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     watchedInstitutionId,
@@ -381,6 +397,51 @@ export function CourseMappingForm({
       console.error('Error reloading unmapped courses:', error);
     }
   }
+
+  // Helper functions for course selection
+  const handleSelectAll = () => {
+    const allCourseIds = filteredCourses.map((course) => course.id);
+    const currentSelected = form.getValues('course_ids') || [];
+    const newSelected = Array.from(
+      new Set([...currentSelected, ...allCourseIds])
+    );
+    form.setValue('course_ids', newSelected);
+  };
+
+  const handleDeselectAll = () => {
+    const filteredCourseIds = filteredCourses.map((course) => course.id);
+    const currentSelected = form.getValues('course_ids') || [];
+    const newSelected = currentSelected.filter(
+      (id) => !filteredCourseIds.includes(id)
+    );
+    form.setValue('course_ids', newSelected);
+  };
+
+  const handleClearSearch = () => {
+    setSearchTerm('');
+  };
+
+  // Helper function to highlight search term in text
+  const highlightSearchTerm = (text: string, searchTerm: string) => {
+    if (!searchTerm.trim()) return text;
+    const regex = new RegExp(
+      `(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`,
+      'gi'
+    );
+    const parts = text.split(regex);
+    return parts.map((part, index) =>
+      regex.test(part) ? (
+        <mark
+          key={index}
+          className='bg-yellow-200 text-yellow-900 rounded px-1'
+        >
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+  };
 
   return (
     <Form {...form}>
@@ -570,7 +631,91 @@ export function CourseMappingForm({
               name='course_ids'
               render={() => (
                 <FormItem>
-                  <FormLabel>Select Courses to Map</FormLabel>
+                  <div className='flex items-center justify-between'>
+                    <FormLabel>Select Courses to Map</FormLabel>
+                    {availableCourses.length > 0 && (
+                      <div className='flex items-center gap-4 text-sm text-muted-foreground'>
+                        <span>
+                          {searchTerm ? `${filteredCourses.length} of ` : ''}
+                          {availableCourses.length} course
+                          {availableCourses.length !== 1 ? 's' : ''}
+                          {searchTerm ? ' found' : ' available'}
+                        </span>
+                        {selectedCourseIds.length > 0 && (
+                          <Badge variant='default' className='bg-blue-600'>
+                            {selectedCourseIds.length} selected
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className='text-sm text-muted-foreground mb-2'>
+                    {availableCourses.length > 0
+                      ? searchTerm
+                        ? `Showing ${filteredCourses.length} of ${availableCourses.length} courses matching "${searchTerm}"`
+                        : `Choose from ${
+                            availableCourses.length
+                          } unmapped course${
+                            availableCourses.length !== 1 ? 's' : ''
+                          } for this institution and semester`
+                      : watchedSemesterId
+                      ? 'All courses for this institution and semester are already mapped'
+                      : 'Select institution and semester to see available courses'}
+                  </div>
+                  {availableCourses.length > 0 && (
+                    <div className='space-y-3 mb-3'>
+                      <div className='relative'>
+                        <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
+                        <Input
+                          placeholder='Search courses by name or code...'
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className='pl-9 pr-9'
+                        />
+                        {searchTerm && (
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            onClick={handleClearSearch}
+                            className='absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 p-0'
+                          >
+                            <X className='h-4 w-4' />
+                          </Button>
+                        )}
+                      </div>
+                      <div className='flex items-center gap-2'>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={handleSelectAll}
+                          disabled={
+                            filteredCourses.length === 0 ||
+                            filteredCourses.every((course) =>
+                              selectedCourseIds.includes(course.id)
+                            )
+                          }
+                        >
+                          Select All {searchTerm && 'Filtered'}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={handleDeselectAll}
+                          disabled={
+                            filteredCourses.length === 0 ||
+                            !filteredCourses.some((course) =>
+                              selectedCourseIds.includes(course.id)
+                            )
+                          }
+                        >
+                          Deselect All {searchTerm && 'Filtered'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   <ScrollArea className='h-72 w-full rounded-md border p-4'>
                     {availableCourses.length === 0 ? (
                       <p className='text-sm text-muted-foreground'>
@@ -578,8 +723,13 @@ export function CourseMappingForm({
                           ? 'No unmapped courses found for this selection.'
                           : 'Please select Institution and Semester to view available courses.'}
                       </p>
+                    ) : filteredCourses.length === 0 ? (
+                      <p className='text-sm text-muted-foreground'>
+                        No courses found matching "{searchTerm}". Try a
+                        different search term.
+                      </p>
                     ) : (
-                      availableCourses.map((course) => (
+                      filteredCourses.map((course) => (
                         <FormField
                           key={course.id}
                           control={form.control}
@@ -608,7 +758,15 @@ export function CourseMappingForm({
                                   />
                                 </FormControl>
                                 <FormLabel className='font-normal'>
-                                  {course.course_code} - {course.course_name}
+                                  {highlightSearchTerm(
+                                    course.course_code,
+                                    searchTerm
+                                  )}{' '}
+                                  -{' '}
+                                  {highlightSearchTerm(
+                                    course.course_name,
+                                    searchTerm
+                                  )}
                                 </FormLabel>
                               </FormItem>
                             );
