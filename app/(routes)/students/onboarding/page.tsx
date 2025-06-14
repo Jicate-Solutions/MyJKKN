@@ -209,11 +209,12 @@ export default function StudentonboardingPage() {
 
   // Load sections when semester changes
   useEffect(() => {
-    if (filters.semester) {
+    if (filters.semester && filters.institution) {
       async function loadSections() {
         try {
-          const data = await SectionService.getSectionsBySemester(
-            filters.semester as string
+          const data = await SectionService.getSectionsBySemesterAndInstitution(
+            filters.semester as string,
+            filters.institution as string
           );
           setSections(data);
         } catch (error) {
@@ -224,7 +225,7 @@ export default function StudentonboardingPage() {
     } else {
       setSections([]);
     }
-  }, [filters.semester]);
+  }, [filters.semester, filters.institution]);
 
   const handleSearchChange = (searchTerm: string) => {
     setFilters({

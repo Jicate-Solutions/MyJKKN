@@ -225,12 +225,12 @@ export default function EditDiscountPage() {
   };
 
   return (
-    <ContentLayout title='Edit Discount'>
+    <ContentLayout title='Edit Scholarship'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Discounts', href: '/billing/discounts' },
+          { label: 'Scholarships', href: '/billing/discounts' },
           { label: 'Details', href: `/billing/discounts/${discountId}` },
           { label: 'Edit', href: `/billing/discounts/${discountId}/edit` }
         ]}
@@ -245,9 +245,9 @@ export default function EditDiscountPage() {
               Back
             </Button>
             <div>
-              <h1 className='text-2xl font-bold py-1'>Edit Discount</h1>
+              <h1 className='text-2xl font-bold py-1'>Edit Scholarship</h1>
               <p className='text-sm sm:text-base text-muted-foreground'>
-                Update discount details for pending approval
+                Update scholarship details for pending approval
               </p>
             </div>
           </div>
@@ -259,14 +259,14 @@ export default function EditDiscountPage() {
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
                 <Percent className='h-5 w-5' />
-                Associated Bill
+                Associated Scholarship
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
                 <div>
                   <Label className='text-sm font-medium text-muted-foreground'>
-                    Bill Description
+                    Scholarship Description
                   </Label>
                   <p className='font-medium'>
                     {discount.bill.bill_description}
@@ -282,7 +282,7 @@ export default function EditDiscountPage() {
                 </div>
                 <div>
                   <Label className='text-sm font-medium text-muted-foreground'>
-                    Bill Amount
+                    Scholarship Amount
                   </Label>
                   <p className='font-medium'>
                     {formatCurrency(discount.bill.total_amount)}
@@ -296,14 +296,16 @@ export default function EditDiscountPage() {
         {/* Edit Form */}
         <Card>
           <CardHeader>
-            <CardTitle>Edit Discount Details</CardTitle>
+            <CardTitle>Edit Scholarship Details</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className='space-y-6'>
               <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                 {/* Discount Category */}
                 <div className='space-y-2'>
-                  <Label htmlFor='discount_category'>Discount Category *</Label>
+                  <Label htmlFor='discount_category'>
+                    Scholarship Category *
+                  </Label>
                   <Select
                     value={formData.discount_category || ''}
                     onValueChange={(value) =>
@@ -334,7 +336,7 @@ export default function EditDiscountPage() {
 
                 {/* Discount Type */}
                 <div className='space-y-2'>
-                  <Label htmlFor='discount_type'>Discount Type *</Label>
+                  <Label htmlFor='discount_type'>Scholarship Type *</Label>
                   <Select
                     value={formData.discount_type || ''}
                     onValueChange={(value) =>
@@ -354,7 +356,7 @@ export default function EditDiscountPage() {
                 {/* Discount Value */}
                 <div className='space-y-2'>
                   <Label htmlFor='discount_value'>
-                    Discount Value *{' '}
+                    Scholarship Value *{' '}
                     {formData.discount_type === 'percentage' ? '(%)' : '(₹)'}
                   </Label>
                   <Input
@@ -415,10 +417,10 @@ export default function EditDiscountPage() {
 
               {/* Discount Reason */}
               <div className='space-y-2'>
-                <Label htmlFor='discount_reason'>Discount Reason *</Label>
+                <Label htmlFor='discount_reason'>Scholarship Reason *</Label>
                 <Textarea
                   id='discount_reason'
-                  placeholder='Provide detailed reason for applying this discount'
+                  placeholder='Provide detailed reason for applying this scholarship'
                   value={formData.discount_reason || ''}
                   onChange={(e) =>
                     handleInputChange('discount_reason', e.target.value)
@@ -432,7 +434,7 @@ export default function EditDiscountPage() {
               {formData.discount_value && formData.discount_type && (
                 <div className='p-4 bg-blue-50 border border-blue-200 rounded-lg'>
                   <h4 className='font-medium mb-3'>
-                    Discount Calculation Preview
+                    Scholarship Calculation Preview
                   </h4>
                   <div className='grid grid-cols-2 md:grid-cols-4 gap-4 text-sm'>
                     <div>
@@ -444,7 +446,9 @@ export default function EditDiscountPage() {
                       </div>
                     </div>
                     <div>
-                      <span className='text-muted-foreground'>Discount:</span>
+                      <span className='text-muted-foreground'>
+                        Scholarship:
+                      </span>
                       <div className='font-semibold text-green-600'>
                         -{formatCurrency(discountAmount)}
                       </div>
@@ -458,7 +462,9 @@ export default function EditDiscountPage() {
                       </div>
                     </div>
                     <div>
-                      <span className='text-muted-foreground'>Discount %:</span>
+                      <span className='text-muted-foreground'>
+                        Scholarship %:
+                      </span>
                       <div className='font-semibold'>
                         {billAmount > 0
                           ? Math.round((discountAmount / billAmount) * 100)
@@ -475,7 +481,7 @@ export default function EditDiscountPage() {
                 <div className='flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg'>
                   <AlertCircle className='h-4 w-4 text-red-600' />
                   <span className='text-sm text-red-600'>
-                    Warning: Discount amount cannot exceed bill amount
+                    Warning: Scholarship amount cannot exceed bill amount
                   </span>
                 </div>
               )}
@@ -506,7 +512,7 @@ export default function EditDiscountPage() {
                   ) : (
                     <>
                       <Save className='mr-2 h-4 w-4' />
-                      Update Discount
+                      Update Scholarship
                     </>
                   )}
                 </Button>

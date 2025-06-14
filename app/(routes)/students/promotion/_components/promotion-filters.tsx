@@ -125,11 +125,12 @@ export function PromotionFilters({
 
   // Load sections when semester changes
   useEffect(() => {
-    if (filters.semester) {
+    if (filters.semester && filters.institution) {
       async function loadSections() {
         try {
-          const data = await SectionService.getSectionsBySemester(
-            filters.semester!
+          const data = await SectionService.getSectionsBySemesterAndInstitution(
+            filters.semester!,
+            filters.institution!
           );
           setSections(data);
         } catch (error) {
@@ -140,7 +141,7 @@ export function PromotionFilters({
     } else {
       setSections([]);
     }
-  }, [filters.semester]);
+  }, [filters.semester, filters.institution]);
 
   // Handle search input with debounce
   useEffect(() => {
@@ -303,7 +304,7 @@ export function PromotionFilters({
                   page: 1
                 })
               }
-              disabled={!filters.semester}
+              disabled={!filters.semester || !filters.institution}
             >
               <SelectTrigger>
                 <SelectValue placeholder='All Sections' />

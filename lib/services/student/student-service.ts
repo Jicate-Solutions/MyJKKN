@@ -722,10 +722,10 @@ export class StudentService {
     student: Partial<Student>
   ): boolean {
     // List of required fields for a complete profile
+    // Note: student_photo_url is optional and not required for profile completion
     const requiredFields = [
       'roll_number',
       'college_email',
-      'student_photo_url',
       'semester_id',
       'section_id'
     ];

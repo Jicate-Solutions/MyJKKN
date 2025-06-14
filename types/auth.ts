@@ -25,6 +25,7 @@ export interface Profile {
   designation: string | null;
   avatar_url: string | null;
   profile_completed: boolean;
+  institution_id: string | null;
   created_at: string;
   updated_at: string;
   last_login: string | null;

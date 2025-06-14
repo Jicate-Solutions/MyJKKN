@@ -21,6 +21,7 @@ import { PaginationWithControls } from '@/components/ui/pagination';
 import { SectionFilters } from './_components/section-filters';
 import { SectionEmptyState } from './_components/section-empty-state';
 import { SectionList } from './_components/section-list';
+import { BeatLoader } from 'react-spinners';
 
 export default function SectionsPage() {
   const {
@@ -58,7 +59,11 @@ export default function SectionsPage() {
   }, [permissionsLoading, canViewSections]);
 
   if (permissionsLoading) {
-    return <Loading title='Checking permissions...' />;
+    return (
+      <div className='flex justify-center items-center p-8'>
+        <BeatLoader color='#00e902' />
+      </div>
+    );
   }
 
   if (permissionsError) {
@@ -167,7 +172,11 @@ export default function SectionsPage() {
           <CardContent className='p-6'>
             <SectionFilters filters={filters} onFilterChange={updateFilters} />
 
-            {sectionsLoading && <Loading title='Loading sections...' />}
+            {sectionsLoading && (
+              <div className='flex justify-center items-center p-8'>
+                <BeatLoader color='#00e902' />
+              </div>
+            )}
 
             {!sectionsLoading && !sectionsError && sections.length === 0 && (
               <SectionEmptyState canCreate={canCreateSections} />

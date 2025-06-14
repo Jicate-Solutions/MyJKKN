@@ -10,8 +10,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useStudentsPromotion } from '@/hooks/student/use-students';
 import { PromotionFilters } from './_components/promotion-filters';
 import { StudentPromotionTable } from './_components/student-promotion-table';
-import Loading from '@/components/Loading/Loading';
 import { StudentFilters } from '@/types/student';
+import { BeatLoader } from 'react-spinners';
 
 export default function StudentPromotionPage() {
   const {
@@ -46,7 +46,11 @@ export default function StudentPromotionPage() {
   };
 
   if (!canViewStudents) {
-    return <Loading title='Checking permissions...' />;
+    return (
+      <div className='flex justify-center items-center p-8'>
+        <BeatLoader color='#00e902' />
+      </div>
+    );
   }
 
   if (error) {
@@ -93,7 +97,11 @@ export default function StudentPromotionPage() {
               onFilterChange={handleFilterChange}
             />
 
-            {loading && <Loading title='Loading students...' />}
+            {loading && (
+              <div className='flex justify-center items-center p-8'>
+                <BeatLoader color='#00e902' />
+              </div>
+            )}
 
             {!loading && !error && (
               <StudentPromotionTable

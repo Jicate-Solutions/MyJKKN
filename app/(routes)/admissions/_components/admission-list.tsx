@@ -137,11 +137,6 @@ export function AdmissionList({
         // Force navigation to onboarding page and back to refresh UI
         // This ensures the student onboarding data is refreshed in real-time
         router.refresh();
-
-        // Additional toast to inform about student creation
-        toast.success(
-          'Student record created and available in onboarding module'
-        );
       }
 
       onRefresh();

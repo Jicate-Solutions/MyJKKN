@@ -53,10 +53,10 @@ export default function BillingDiscountsPage() {
 
   if (!canViewDiscounts) {
     return (
-      <ContentLayout title='Discount Management'>
+      <ContentLayout title='Scholarship Management'>
         <div className='text-center py-8'>
           <p className='text-destructive'>
-            You don&apos;t have permission to view billing discounts.
+            You don&apos;t have permission to view billing scholarships.
           </p>
         </div>
       </ContentLayout>
@@ -65,7 +65,7 @@ export default function BillingDiscountsPage() {
 
   if (error) {
     return (
-      <ContentLayout title='Discount Management'>
+      <ContentLayout title='Scholarship Management'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
           <Button
@@ -95,20 +95,21 @@ export default function BillingDiscountsPage() {
   ).length;
 
   return (
-    <ContentLayout title='Discount Management'>
+    <ContentLayout title='Scholarship Management'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Discounts', href: '/billing/discounts' }
+          { label: 'Scholarships', href: '/billing/discounts' }
         ]}
       />
       <div className='space-y-6 mt-4'>
         <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
           <div>
-            <h1 className='text-2xl font-bold py-1'>Discount Management</h1>
+            <h1 className='text-2xl font-bold py-1'>Scholarship Management</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage discount policies, approvals, and bulk discount operations
+              Manage scholarship policies, approvals, and bulk scholarship
+              operations
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
@@ -116,7 +117,7 @@ export default function BillingDiscountsPage() {
               <Button className='w-full sm:w-auto' asChild>
                 <Link href='/billing/discounts/new'>
                   <Plus className='mr-2 h-4 w-4' />
-                  Apply Discount
+                  Apply Scholarship
                 </Link>
               </Button>
             ) : (
@@ -126,7 +127,7 @@ export default function BillingDiscountsPage() {
                 variant='outline'
               >
                 <Plus className='mr-2 h-4 w-4' />
-                Apply Discount
+                Apply Scholarship
               </Button>
             )}
             <Button variant='outline' asChild>
@@ -149,14 +150,14 @@ export default function BillingDiscountsPage() {
           <Card>
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
               <CardTitle className='text-sm font-medium'>
-                Total Discounts
+                Total Scholarships
               </CardTitle>
               <Percent className='h-4 w-4 text-muted-foreground' />
             </CardHeader>
             <CardContent>
               <div className='text-2xl font-bold'>{totalDiscounts}</div>
               <p className='text-xs text-muted-foreground'>
-                All time discounts
+                All time scholarships
               </p>
             </CardContent>
           </Card>
@@ -187,7 +188,9 @@ export default function BillingDiscountsPage() {
               <div className='text-2xl font-bold text-green-600'>
                 ₹{totalDiscountAmount.toLocaleString()}
               </div>
-              <p className='text-xs text-muted-foreground'>Total discounted</p>
+              <p className='text-xs text-muted-foreground'>
+                Total scholarships
+              </p>
             </CardContent>
           </Card>
 

@@ -127,13 +127,16 @@ export function StudentPromotionTable({
         setSingleStudentId(null);
       }
 
-      // Get unique program IDs from selected students (or the single student)
+      // Get unique program IDs and institution IDs from selected students (or the single student)
       const selectedStudents = studentId
         ? students.filter((s) => s.id === studentId)
         : students.filter((s) => selectedIds.includes(s.id));
 
       const uniqueProgramIds = [
         ...new Set(selectedStudents.map((s) => s.program_id))
+      ];
+      const uniqueInstitutionIds = [
+        ...new Set(selectedStudents.map((s) => s.institution_id))
       ];
 
       if (uniqueProgramIds.length > 1) {
@@ -143,8 +146,20 @@ export function StudentPromotionTable({
         return;
       }
 
+      if (uniqueInstitutionIds.length > 1) {
+        toast.error(
+          'Selected students must be from the same institution for promotion'
+        );
+        return;
+      }
+
       if (uniqueProgramIds.length === 0 || !uniqueProgramIds[0]) {
         toast.error('No valid program found for the selected students');
+        return;
+      }
+
+      if (uniqueInstitutionIds.length === 0 || !uniqueInstitutionIds[0]) {
+        toast.error('No valid institution found for the selected students');
         return;
       }
 
@@ -165,9 +180,29 @@ export function StudentPromotionTable({
   // Load sections when semester changes
   const loadSections = async (semesterId: string) => {
     try {
-      const sectionsData = await SectionService.getSectionsBySemester(
-        semesterId
-      );
+      // Get the institution ID from selected students
+      const selectedStudents = singleStudentId
+        ? students.filter((s) => s.id === singleStudentId)
+        : students.filter((s) => selectedIds.includes(s.id));
+
+      if (selectedStudents.length === 0) {
+        setSections([]);
+        return;
+      }
+
+      const institutionId = selectedStudents[0]?.institution_id;
+      if (!institutionId) {
+        console.log('No institution_id found for selected students');
+        setSections([]);
+        return;
+      }
+
+      // Use the new method that filters by both semester and institution
+      const sectionsData =
+        await SectionService.getSectionsBySemesterAndInstitution(
+          semesterId,
+          institutionId
+        );
       setSections(sectionsData);
     } catch (error) {
       console.error('Error loading sections:', error);

@@ -514,7 +514,7 @@ export function DiscountList({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject Discount</DialogTitle>
+            <DialogTitle>Reject Scholarship</DialogTitle>
           </DialogHeader>
           <div className='space-y-4'>
             <div>
