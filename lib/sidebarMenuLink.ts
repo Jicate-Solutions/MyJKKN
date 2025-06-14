@@ -599,7 +599,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         },
         {
           href: '/billing/discounts',
-          label: 'Discounts',
+          label: 'Scholarships',
           active: pathname.startsWith('/billing/discounts'),
           icon: Tags,
           submenus: []

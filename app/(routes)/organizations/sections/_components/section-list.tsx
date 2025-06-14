@@ -177,6 +177,7 @@ export function SectionList({
                 </TableHead>
               )}
               <TableHead>Section Name</TableHead>
+              <TableHead>Institution</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className='text-right'>Actions</TableHead>
             </TableRow>
@@ -205,6 +206,22 @@ export function SectionList({
                 )}
                 <TableCell className='font-medium'>
                   {section.section_name}
+                </TableCell>
+                <TableCell>
+                  {section.institution ? (
+                    <div className='flex flex-col'>
+                      <span className='font-medium'>
+                        {section.institution.name}
+                      </span>
+                      <span className='text-xs text-muted-foreground'>
+                        {section.institution.counselling_code}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className='text-muted-foreground'>
+                      No institution
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell>
                   {section.is_active ? (

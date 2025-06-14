@@ -170,11 +170,27 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
         form.setValue('section_id', ''); // Clear section in form if no semesterId
         return;
       }
+
+      // Check if student has institution_id
+      if (!student?.institution_id) {
+        console.log(
+          'No institution_id found for student, loading all sections'
+        );
+        setSections([]);
+        form.setValue('section_id', '');
+        return;
+      }
+
       try {
         setIsLoadingSections(true);
-        const data = await SectionService.getSectionsBySemester(semesterId);
-        console.log('Loaded sections:', data);
+        // Use the new method that filters by both semester and institution
+        const data = await SectionService.getSectionsBySemesterAndInstitution(
+          semesterId,
+          student.institution_id
+        );
+        console.log('Loaded sections for institution:', data);
         console.log('Student section_id:', student?.section_id);
+        console.log('Student institution_id:', student?.institution_id);
 
         setSections(data);
 
@@ -197,7 +213,7 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
         setIsLoadingSections(false);
       }
     },
-    [student?.section_id, form]
+    [student?.section_id, student?.institution_id, form]
   );
 
   const loadSemesters = useCallback(async () => {

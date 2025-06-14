@@ -345,13 +345,21 @@ export interface SemesterListResponse {
 
 export interface Section {
   id: string;
+  institution_id: string;
   section_name: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
 }
 
 export interface CreateSectionDto {
+  institution_id: string;
   section_name: string;
   is_active?: boolean;
 }
@@ -360,6 +368,7 @@ export interface UpdateSectionDto extends Partial<CreateSectionDto> {}
 
 export interface SectionFilters {
   search?: string;
+  institution_id?: string;
   isActive?: boolean;
   page?: number;
   limit?: number;

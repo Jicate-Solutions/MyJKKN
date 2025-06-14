@@ -77,13 +77,25 @@ export class SectionService {
     filters: SectionFilters = {}
   ): Promise<SectionListResponse> {
     try {
-      let query = this.supabase
-        .from('sections')
-        .select('*', { count: 'exact' });
+      let query = this.supabase.from('sections').select(
+        `
+          *,
+          institution:institutions!institution_id(
+            id,
+            name,
+            counselling_code
+          )
+        `,
+        { count: 'exact' }
+      );
 
       // Apply filters
       if (filters.search) {
         query = query.ilike('section_name', `%${filters.search}%`);
+      }
+
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
       }
 
       if (filters.isActive !== undefined) {
@@ -121,7 +133,16 @@ export class SectionService {
     try {
       const { data: section, error } = await this.supabase
         .from('sections')
-        .select('*')
+        .select(
+          `
+          *,
+          institution:institutions!institution_id(
+            id,
+            name,
+            counselling_code
+          )
+        `
+        )
         .eq('id', id)
         .single();
 
@@ -138,7 +159,16 @@ export class SectionService {
     try {
       const { data: sections, error } = await this.supabase
         .from('sections')
-        .select('*')
+        .select(
+          `
+          *,
+          institution:institutions!institution_id(
+            id,
+            name,
+            counselling_code
+          )
+        `
+        )
         .eq('is_active', true)
         .order('section_name');
 
@@ -147,6 +177,68 @@ export class SectionService {
       return sections || [];
     } catch (error) {
       console.error('Error fetching sections by semester:', error);
+      throw error;
+    }
+  }
+
+  static async getSectionsBySemesterAndInstitution(
+    semesterId: string,
+    institutionId: string
+  ): Promise<Section[]> {
+    try {
+      const { data: sections, error } = await this.supabase
+        .from('sections')
+        .select(
+          `
+          *,
+          institution:institutions!institution_id(
+            id,
+            name,
+            counselling_code
+          )
+        `
+        )
+        .eq('institution_id', institutionId)
+        .eq('is_active', true)
+        .order('section_name');
+
+      if (error) throw error;
+
+      return sections || [];
+    } catch (error) {
+      console.error(
+        'Error fetching sections by semester and institution:',
+        error
+      );
+      throw error;
+    }
+  }
+
+  static async getSectionsByInstitution(
+    institutionId: string
+  ): Promise<Section[]> {
+    try {
+      const { data: sections, error } = await this.supabase
+        .from('sections')
+        .select(
+          `
+          *,
+          institution:institutions!institution_id(
+            id,
+            name,
+            counselling_code
+          )
+        `
+        )
+        .eq('institution_id', institutionId)
+        .eq('is_active', true)
+        .order('section_name');
+
+      if (error) throw error;
+
+      return sections || [];
+    } catch (error) {
+      console.error('Error fetching sections by institution:', error);
       throw error;
     }
   }

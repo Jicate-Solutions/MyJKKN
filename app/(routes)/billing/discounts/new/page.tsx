@@ -92,7 +92,7 @@ export default function NewDiscountPage() {
   // Show loading state while permissions are loading
   if (permissionsLoading) {
     return (
-      <ContentLayout title='Apply Discount'>
+      <ContentLayout title='Apply Scholarship'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
         </div>
@@ -102,7 +102,7 @@ export default function NewDiscountPage() {
 
   if (!canApplyDiscounts) {
     return (
-      <ContentLayout title='Apply Discount'>
+      <ContentLayout title='Apply Scholarship'>
         <div className='text-center py-8'>
           <p className='text-destructive'>
             You don&apos;t have permission to apply discounts.
@@ -209,13 +209,13 @@ export default function NewDiscountPage() {
   };
 
   return (
-    <ContentLayout title='Apply Discount'>
+    <ContentLayout title='Apply Scholarship'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Discounts', href: '/billing/discounts' },
-          { label: 'Apply Discount', href: '/billing/discounts/new' }
+          { label: 'Scholarships', href: '/billing/discounts' },
+          { label: 'Apply Scholarship', href: '/billing/discounts/new' }
         ]}
       />
 
@@ -224,13 +224,12 @@ export default function NewDiscountPage() {
         <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
           <div className='flex items-center gap-4'>
             <Button variant='outline' size='sm' onClick={() => router.back()}>
-              <ArrowLeft className='mr-2 h-4 w-4' />
-              Back
+              <ArrowLeft className='h-4 w-4' />
             </Button>
             <div>
-              <h1 className='text-2xl font-bold py-1'>Apply Discount</h1>
+              <h1 className='text-2xl font-bold py-1'>Apply Scholarship</h1>
               <p className='text-sm sm:text-base text-muted-foreground'>
-                Apply discount to selected student bills
+                Apply scholarship to selected student bills
               </p>
             </div>
           </div>
@@ -254,7 +253,7 @@ export default function NewDiscountPage() {
                       <TableHead>Category</TableHead>
                       <TableHead className='text-right'>Bill Amount</TableHead>
                       <TableHead className='text-right'>
-                        Discount Amount
+                        Scholarship Amount
                       </TableHead>
                       <TableHead className='text-right'>Final Amount</TableHead>
                     </TableRow>
@@ -333,7 +332,7 @@ export default function NewDiscountPage() {
                   </div>
                   <div>
                     <span className='text-muted-foreground'>
-                      Total Discount:
+                      Total Scholarship:
                     </span>
                     <div className='font-semibold text-green-600'>
                       -{formatCurrency(totalDiscountAmount)}
@@ -354,14 +353,16 @@ export default function NewDiscountPage() {
         {/* Discount Form */}
         <Card>
           <CardHeader>
-            <CardTitle>Discount Details</CardTitle>
+            <CardTitle>Scholarship Details</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className='space-y-6'>
               <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                 {/* Discount Category */}
                 <div className='space-y-2'>
-                  <Label htmlFor='discount_category'>Discount Category *</Label>
+                  <Label htmlFor='discount_category'>
+                    Scholarship Category *
+                  </Label>
                   <Select
                     value={formData.discount_category || ''}
                     onValueChange={(value) =>
@@ -392,7 +393,7 @@ export default function NewDiscountPage() {
 
                 {/* Discount Type */}
                 <div className='space-y-2'>
-                  <Label htmlFor='discount_type'>Discount Type *</Label>
+                  <Label htmlFor='discount_type'>Scholarship Type *</Label>
                   <Select
                     value={formData.discount_type || ''}
                     onValueChange={(value) =>
@@ -412,7 +413,7 @@ export default function NewDiscountPage() {
                 {/* Discount Value */}
                 <div className='space-y-2'>
                   <Label htmlFor='discount_value'>
-                    Discount Value *{' '}
+                    Scholarship Value *{' '}
                     {formData.discount_type === 'percentage' ? '(%)' : '(₹)'}
                   </Label>
                   <Input
@@ -472,10 +473,10 @@ export default function NewDiscountPage() {
 
               {/* Discount Reason */}
               <div className='space-y-2'>
-                <Label htmlFor='discount_reason'>Discount Reason *</Label>
+                <Label htmlFor='discount_reason'>Scholarship Reason *</Label>
                 <Textarea
                   id='discount_reason'
-                  placeholder='Provide detailed reason for applying this discount'
+                  placeholder='Provide detailed reason for applying this scholarship'
                   value={formData.discount_reason || ''}
                   onChange={(e) =>
                     handleInputChange('discount_reason', e.target.value)
@@ -490,7 +491,7 @@ export default function NewDiscountPage() {
                 <div className='flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg'>
                   <AlertCircle className='h-4 w-4 text-red-600' />
                   <span className='text-sm text-red-600'>
-                    Warning: Total discount amount exceeds total bill amount
+                    Warning: Total scholarship amount exceeds total bill amount
                   </span>
                 </div>
               )}
@@ -521,7 +522,7 @@ export default function NewDiscountPage() {
                   ) : (
                     <>
                       <Save className='mr-2 h-4 w-4' />
-                      Apply Discount
+                      Apply Scholarship
                     </>
                   )}
                 </Button>

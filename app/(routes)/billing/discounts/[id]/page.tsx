@@ -277,12 +277,12 @@ export default function DiscountDetailsPage() {
   };
 
   return (
-    <ContentLayout title='Discount Details'>
+    <ContentLayout title='Scholarship Details'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Discounts', href: '/billing/discounts' },
+          { label: 'Scholarships', href: '/billing/discounts' },
           { label: 'Details', href: `/billing/discounts/${discountId}` }
         ]}
       />
@@ -296,9 +296,9 @@ export default function DiscountDetailsPage() {
               Back
             </Button>
             <div>
-              <h1 className='text-2xl font-bold py-1'>Discount Details</h1>
+              <h1 className='text-2xl font-bold py-1'>Scholarship Details</h1>
               <p className='text-sm sm:text-base text-muted-foreground'>
-                View discount information and manage approval status
+                View scholarship information and manage approval status
               </p>
             </div>
           </div>
@@ -332,7 +332,7 @@ export default function DiscountDetailsPage() {
               <CardHeader>
                 <CardTitle className='flex items-center gap-2'>
                   <Percent className='h-5 w-5' />
-                  Discount Overview
+                  Scholarship Overview
                 </CardTitle>
               </CardHeader>
               <CardContent className='space-y-6'>
@@ -340,7 +340,7 @@ export default function DiscountDetailsPage() {
                   <div className='space-y-4'>
                     <div>
                       <Label className='text-sm font-medium text-muted-foreground'>
-                        Discount ID
+                        Scholarship ID
                       </Label>
                       <p className='font-mono text-sm'>{discount.id}</p>
                     </div>
@@ -372,7 +372,7 @@ export default function DiscountDetailsPage() {
                   <div className='space-y-4'>
                     <div>
                       <Label className='text-sm font-medium text-muted-foreground'>
-                        Discount Value
+                        Scholarship Value
                       </Label>
                       <p className='text-lg font-semibold'>
                         {discount.discount_type === 'percentage'
@@ -382,7 +382,7 @@ export default function DiscountDetailsPage() {
                     </div>
                     <div>
                       <Label className='text-sm font-medium text-muted-foreground'>
-                        Discount Amount
+                        Scholarship Amount
                       </Label>
                       <p className='text-lg font-semibold text-green-600'>
                         {formatCurrency(discount.discount_amount)}
@@ -409,7 +409,7 @@ export default function DiscountDetailsPage() {
 
                 <div>
                   <Label className='text-sm font-medium text-muted-foreground'>
-                    Reason
+                    Scholarship Reason
                   </Label>
                   <p className='mt-1 p-3 bg-muted rounded-md'>
                     {discount.discount_reason}
@@ -527,7 +527,7 @@ export default function DiscountDetailsPage() {
                   ) : (
                     <div className='space-y-3'>
                       <p className='text-sm text-muted-foreground'>
-                        Users who can approve this discount:
+                        Users who can approve this scholarship:
                       </p>
                       <div className='space-y-2'>
                         {approverUsers.map((user) => (
@@ -596,7 +596,7 @@ export default function DiscountDetailsPage() {
       <Dialog open={showApprovalDialog} onOpenChange={setShowApprovalDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Approve Discount</DialogTitle>
+            <DialogTitle>Approve Scholarship</DialogTitle>
           </DialogHeader>
           <div className='space-y-4'>
             <p className='text-sm text-muted-foreground'>

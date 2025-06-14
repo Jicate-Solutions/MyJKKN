@@ -28,11 +28,9 @@ export class AdmissionService {
 
       if (error) throw error;
 
-      toast.success('Admission application submitted successfully');
       return admission;
     } catch (error) {
       console.error('Error creating admission:', error);
-      toast.error('Failed to submit admission application');
       throw error;
     }
   }
@@ -55,11 +53,9 @@ export class AdmissionService {
 
       if (error) throw error;
 
-      toast.success('Admission application updated successfully');
       return admission;
     } catch (error) {
       console.error('Error updating admission:', error);
-      toast.error('Failed to update admission application');
       throw error;
     }
   }
@@ -110,9 +106,6 @@ export class AdmissionService {
               );
               if (student) {
                 console.log('Student created successfully:', student.id);
-                toast.success(
-                  'Student record created and ready for onboarding'
-                );
 
                 // Manually trigger an event to refresh all related data
                 // This is a no-op in the code, but helps document the intention
@@ -135,7 +128,6 @@ export class AdmissionService {
         }
       }
 
-      toast.success(`Admission status updated to ${status}`);
       return admission;
     } catch (error) {
       console.error('Error updating admission status:', error);

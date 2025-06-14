@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { UserService } from '@/lib/services/users/user-service';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { SYSTEM_ROLES } from '@/types/auth';
+import { Profile } from '@/types/auth';
 
 interface UsePermissionsOptions {
   /**
@@ -19,6 +20,7 @@ export function usePermissions(
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const { waitForLoad = false } = options;
 
   // Load permissions from role
@@ -35,6 +37,11 @@ export function usePermissions(
 
         if (profileError) throw profileError;
         if (!profile) throw new Error('User profile not found');
+
+        // Set user profile
+        if (mounted) {
+          setUserProfile(profile);
+        }
 
         // Check if user is a super admin
         const isSuperAdminUser = profile.role === SYSTEM_ROLES.SUPER_ADMIN;
@@ -170,6 +177,7 @@ export function usePermissions(
     hasAllPermissions,
     hasAnyPermission,
     isSuperAdmin,
+    userProfile,
     // Generic permission check (legacy support)
     can: (permission: string) =>
       isSuperAdmin ? true : permissions[permission] || false,
