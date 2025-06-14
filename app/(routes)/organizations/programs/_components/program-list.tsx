@@ -1,33 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import {
-  MoreVertical,
-  Edit,
-  Trash2,
-  BookOpen,
-  RefreshCw,
-  ChevronLeft,
-  ChevronRight,
-  CheckSquare,
-  Square
-} from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { MoreVertical, Edit, Trash2, BookOpen, Plus } from 'lucide-react';
 import { Program } from '@/types/organizations';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,16 +17,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from '@/components/ui/alert-dialog';
+import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
+import { toast } from 'react-hot-toast';
 
 interface ProgramListProps {
   programs: Program[];
@@ -56,19 +29,19 @@ interface ProgramListProps {
     totalPages: number;
   };
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
+  paginationLoading?: boolean;
 }
 
 export function ProgramList({
   programs,
   metadata,
   onPageChange,
-  onRefresh
+  onPageSizeChange,
+  onRefresh,
+  paginationLoading
 }: ProgramListProps) {
-  const [isLoading, setIsLoading] = useState(false);
-  const [programToDelete, setProgramToDelete] = useState<Program | null>(null);
-  const [selectedPrograms, setSelectedPrograms] = useState<string[]>([]);
-  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewPrograms =
@@ -78,341 +51,277 @@ export function ProgramList({
   const canDeletePrograms =
     isSuperAdmin || canAccess('organizations.programs', 'delete');
 
-  const handleDelete = async () => {
-    if (!programToDelete) return;
-
+  // Handle bulk delete
+  const handleBulkDelete = async (selectedRows: Program[]) => {
     try {
-      setIsLoading(true);
-      await ProgramService.deleteProgram(programToDelete.id);
-      onRefresh();
-    } catch (error) {
-      console.error('Error deleting program:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to delete program'
-      );
-    } finally {
-      setIsLoading(false);
-      setProgramToDelete(null);
-    }
-  };
-
-  const handleBulkDelete = async () => {
-    if (selectedPrograms.length === 0) return;
-
-    try {
-      setIsLoading(true);
-
-      // Process deletions sequentially
-      for (const id of selectedPrograms) {
-        await ProgramService.deleteProgram(id);
+      // Process deletions sequentially to handle potential storage cleanup properly
+      for (const program of selectedRows) {
+        await ProgramService.deleteProgram(program.id);
       }
 
-      toast.success(`${selectedPrograms.length} programs deleted successfully`);
-      setSelectedPrograms([]);
+      toast.success(`${selectedRows.length} programs deleted successfully`);
       onRefresh();
     } catch (error) {
       console.error('Error deleting programs:', error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to delete programs'
       );
-    } finally {
-      setIsLoading(false);
-      setShowBulkDeleteDialog(false);
+      throw error; // Re-throw to let DataTable handle the error state
     }
   };
 
-  const toggleSelectAll = () => {
-    if (selectedPrograms.length === programs.length) {
-      setSelectedPrograms([]);
-    } else {
-      setSelectedPrograms(programs.map((program) => program.id));
-    }
-  };
+  // Handle single delete
+  const handleSingleDelete = useCallback(
+    async (program: Program) => {
+      try {
+        await ProgramService.deleteProgram(program.id);
+        toast.success('Program deleted successfully');
+        onRefresh();
+      } catch (error) {
+        console.error('Error deleting program:', error);
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to delete program'
+        );
+      }
+    },
+    [onRefresh]
+  );
 
-  const toggleSelectProgram = (id: string) => {
-    if (selectedPrograms.includes(id)) {
-      setSelectedPrograms(selectedPrograms.filter((itemId) => itemId !== id));
-    } else {
-      setSelectedPrograms([...selectedPrograms, id]);
-    }
-  };
-
+  // Format date helper
   const formatDate = (date: string) => {
     return format(new Date(date), 'MMM d, yyyy');
   };
 
-  return (
-    <div className='space-y-4'>
-      <div className='flex justify-between items-center'>
-        {selectedPrograms.length > 0 && (
-          <Button
-            variant='destructive'
-            size='sm'
-            onClick={() => setShowBulkDeleteDialog(true)}
-            disabled={!canDeletePrograms || isLoading}
-          >
-            <Trash2 className='mr-2 h-4 w-4' />
-            Delete Selected ({selectedPrograms.length})
-          </Button>
-        )}
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={onRefresh}
-          className={selectedPrograms.length > 0 ? 'ml-auto' : 'ml-auto'}
-          disabled={!canViewPrograms}
-        >
-          <RefreshCw className='mr-2 h-4 w-4' />
-          Refresh
-        </Button>
-      </div>
+  // Define columns for the data table
+  const columns: PermissionColumnDef<Program, any>[] = useMemo(
+    () => [
+      {
+        id: 'program_id',
+        accessorKey: 'program_id',
+        header: 'Program ID',
+        cell: ({ row }) => {
+          const program = row.original;
+          return canViewPrograms ? (
+            <Link
+              href={`/organizations/programs/${program.id}`}
+              className='flex items-center hover:text-primary font-medium'
+            >
+              <BookOpen className='mr-2 h-4 w-4' />
+              {program.program_id}
+            </Link>
+          ) : (
+            <div className='flex items-center font-medium'>
+              <BookOpen className='mr-2 h-4 w-4' />
+              {program.program_id}
+            </div>
+          );
+        }
+      },
+      {
+        id: 'program_name',
+        accessorKey: 'program_name',
+        header: 'Program Name',
+        cell: ({ row }) => {
+          return (
+            <span className='font-medium'>{row.getValue('program_name')}</span>
+          );
+        }
+      },
+      {
+        id: 'degree',
+        header: 'Degree',
+        cell: ({ row }) => {
+          const program = row.original;
+          return (
+            <span className='text-sm'>
+              {program.degree?.degree_name || 'N/A'}
+            </span>
+          );
+        }
+      },
+      {
+        id: 'department',
+        header: 'Department',
+        cell: ({ row }) => {
+          const program = row.original;
+          return (
+            <span className='text-sm'>
+              {program.department?.department_name || 'N/A'}
+            </span>
+          );
+        }
+      },
+      {
+        id: 'institution',
+        header: 'Institution',
+        cell: ({ row }) => {
+          const program = row.original;
+          return (
+            <span className='text-sm'>
+              {program.institution?.name || 'N/A'}
+            </span>
+          );
+        }
+      },
+      {
+        id: 'is_active',
+        accessorKey: 'is_active',
+        header: 'Status',
+        cell: ({ row }) => {
+          const isActive = row.getValue('is_active') as boolean;
+          return (
+            <Badge variant={isActive ? 'default' : 'secondary'}>
+              {isActive ? 'Active' : 'Inactive'}
+            </Badge>
+          );
+        }
+      },
+      {
+        id: 'created_at',
+        accessorKey: 'created_at',
+        header: 'Created',
+        cell: ({ row }) => {
+          return formatDate(row.getValue('created_at'));
+        }
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => {
+          const program = row.original;
 
-      <div className='rounded-md border'>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {canDeletePrograms && (
-                <TableHead className='w-12'>
-                  <div className='flex items-center' onClick={toggleSelectAll}>
-                    {selectedPrograms.length === programs.length &&
-                    programs.length > 0 ? (
-                      <CheckSquare className='h-4 w-4 cursor-pointer' />
-                    ) : (
-                      <Square className='h-4 w-4 cursor-pointer' />
-                    )}
-                  </div>
-                </TableHead>
-              )}
-              <TableHead>Program ID</TableHead>
-              <TableHead>Program Name</TableHead>
-              <TableHead>Degree</TableHead>
-              <TableHead>Department</TableHead>
-              <TableHead>Institution</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className='text-right'>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {programs.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={canDeletePrograms ? 9 : 8}
-                  className='text-center text-muted-foreground h-24'
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant='ghost' className='h-8 w-8 p-0'>
+                  <span className='sr-only'>Open menu</span>
+                  <MoreVertical className='h-4 w-4' />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <DropdownMenuItem
+                  asChild={canViewPrograms}
+                  disabled={!canViewPrograms}
+                  style={{ opacity: canViewPrograms ? 1 : 0.5 }}
                 >
-                  No programs found
-                </TableCell>
-              </TableRow>
-            ) : (
-              programs.map((program) => (
-                <TableRow
-                  key={program.id}
-                  className={
-                    selectedPrograms.includes(program.id) ? 'bg-muted/50' : ''
-                  }
-                >
-                  {canDeletePrograms && (
-                    <TableCell>
-                      <div
-                        className='flex items-center'
-                        onClick={() => toggleSelectProgram(program.id)}
-                      >
-                        {selectedPrograms.includes(program.id) ? (
-                          <CheckSquare className='h-4 w-4 cursor-pointer' />
-                        ) : (
-                          <Square className='h-4 w-4 cursor-pointer' />
-                        )}
-                      </div>
-                    </TableCell>
-                  )}
-                  <TableCell className='font-medium'>
-                    {canViewPrograms ? (
-                      <Link
-                        href={`/organizations/programs/${program.id}`}
-                        className='hover:text-primary'
-                      >
-                        {program.program_id}
-                      </Link>
-                    ) : (
-                      program.program_id
-                    )}
-                  </TableCell>
-                  <TableCell>{program.program_name}</TableCell>
-                  <TableCell>{program.degree?.degree_name || 'N/A'}</TableCell>
-                  <TableCell>
-                    {program.department?.department_name || 'N/A'}
-                  </TableCell>
-                  <TableCell>{program.institution?.name || 'N/A'}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={program.is_active ? 'default' : 'secondary'}
+                  {canViewPrograms ? (
+                    <Link
+                      href={`/organizations/programs/${program.id}`}
+                      className='cursor-pointer'
                     >
-                      {program.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{formatDate(program.created_at)}</TableCell>
-                  <TableCell className='text-right'>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant='ghost' className='h-8 w-8 p-0'>
-                          <span className='sr-only'>Open menu</span>
-                          <MoreVertical className='h-4 w-4' />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem
-                          asChild={canViewPrograms}
-                          disabled={!canViewPrograms}
-                          style={{ opacity: canViewPrograms ? 1 : 0.5 }}
-                        >
-                          {canViewPrograms ? (
-                            <Link
-                              href={`/organizations/programs/${program.id}`}
-                              className='cursor-pointer'
-                            >
-                              <BookOpen className='mr-2 h-4 w-4' />
-                              View
-                            </Link>
-                          ) : (
-                            <div>
-                              <BookOpen className='mr-2 h-4 w-4' />
-                              View
-                            </div>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          asChild={canEditPrograms}
-                          disabled={!canEditPrograms}
-                          style={{ opacity: canEditPrograms ? 1 : 0.5 }}
-                        >
-                          {canEditPrograms ? (
-                            <Link
-                              href={`/organizations/programs/${program.id}/edit`}
-                              className='cursor-pointer'
-                            >
-                              <Edit className='mr-2 h-4 w-4' />
-                              Edit
-                            </Link>
-                          ) : (
-                            <div className='flex items-center gap-2'>
-                              <Edit className='mr-2 h-4 w-4' />
-                              Edit
-                            </div>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={
-                            canDeletePrograms
-                              ? () => setProgramToDelete(program)
-                              : undefined
-                          }
-                          disabled={!canDeletePrograms}
-                          className={
-                            canDeletePrograms
-                              ? 'text-destructive focus:text-destructive cursor-pointer'
-                              : 'cursor-pointer'
-                          }
-                          style={{ opacity: canDeletePrograms ? 1 : 0.5 }}
-                        >
-                          <Trash2 className='mr-2 h-4 w-4' />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                      <BookOpen className='mr-2 h-4 w-4' />
+                      View Details
+                    </Link>
+                  ) : (
+                    <div>
+                      <BookOpen className='mr-2 h-4 w-4' />
+                      View Details
+                    </div>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  asChild={canEditPrograms}
+                  disabled={!canEditPrograms}
+                  style={{ opacity: canEditPrograms ? 1 : 0.5 }}
+                >
+                  {canEditPrograms ? (
+                    <Link
+                      href={`/organizations/programs/${program.id}/edit`}
+                      className='cursor-pointer'
+                    >
+                      <Edit className='mr-2 h-4 w-4' />
+                      Edit Program
+                    </Link>
+                  ) : (
+                    <div className='flex items-center gap-2'>
+                      <Edit className='mr-2 h-4 w-4' />
+                      Edit Program
+                    </div>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={
+                    canDeletePrograms
+                      ? () => handleSingleDelete(program)
+                      : undefined
+                  }
+                  disabled={!canDeletePrograms}
+                  className={
+                    canDeletePrograms
+                      ? 'text-destructive focus:text-destructive cursor-pointer'
+                      : 'cursor-pointer'
+                  }
+                  style={{ opacity: canDeletePrograms ? 1 : 0.5 }}
+                >
+                  <Trash2 className='mr-2 h-4 w-4' />
+                  Delete Program
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
+        enableSorting: false,
+        enableHiding: false
+      }
+    ],
+    [canViewPrograms, canEditPrograms, canDeletePrograms, handleSingleDelete]
+  );
 
-      {metadata.totalPages > 1 && (
-        <div className='flex items-center justify-between px-2'>
-          <div className='text-sm text-muted-foreground'>
-            Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
-            {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
-            {metadata.total} entries
-          </div>
-
-          <div className='flex items-center space-x-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => onPageChange(metadata.page - 1)}
-              disabled={metadata.page <= 1}
-            >
-              <ChevronLeft className='h-4 w-4' />
-              Previous
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => onPageChange(metadata.page + 1)}
-              disabled={metadata.page >= metadata.totalPages}
-            >
-              Next
-              <ChevronRight className='h-4 w-4' />
-            </Button>
-          </div>
-        </div>
+  // Create table tools (action buttons)
+  const tableTools = (
+    <div className='flex flex-col sm:flex-row gap-2'>
+      {canEditPrograms ? (
+        <Button className='w-full sm:w-auto' asChild>
+          <Link href='/organizations/programs/new'>
+            <Plus className='mr-2 h-4 w-4' />
+            Add Program
+          </Link>
+        </Button>
+      ) : (
+        <Button
+          className='w-full sm:w-auto opacity-50'
+          disabled
+          variant='outline'
+        >
+          <Plus className='mr-2 h-4 w-4' />
+          Add Program
+        </Button>
       )}
-
-      {/* Single Delete Dialog */}
-      <AlertDialog
-        open={!!programToDelete && canDeletePrograms}
-        onOpenChange={(open) => !open && setProgramToDelete(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Program</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete {programToDelete?.program_name}?
-              This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={isLoading}
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-            >
-              {isLoading ? 'Deleting...' : 'Delete Program'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Bulk Delete Dialog */}
-      <AlertDialog
-        open={showBulkDeleteDialog && canDeletePrograms}
-        onOpenChange={setShowBulkDeleteDialog}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Multiple Programs</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete {selectedPrograms.length}{' '}
-              programs? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleBulkDelete}
-              disabled={isLoading}
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-            >
-              {isLoading
-                ? 'Deleting...'
-                : `Delete ${selectedPrograms.length} Programs`}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
+  );
+
+  return (
+    <DataTable
+      columns={columns}
+      data={programs}
+      searchPlaceholder='Search programs...'
+      filterColumn='program_name'
+      permissions={{
+        module: 'organizations.programs',
+        actions: {
+          view: true,
+          delete: true
+        },
+        showPermissionError: true
+      }}
+      tableTools={tableTools}
+      onDeleteSelected={canDeletePrograms ? handleBulkDelete : undefined}
+      getRowId={(row) => row.id}
+      onRefresh={onRefresh}
+      showRefresh={true}
+      serverSidePagination={{
+        currentPage: metadata.page,
+        totalPages: metadata.totalPages,
+        pageSize: metadata.limit,
+        totalItems: metadata.total,
+        hasNextPage: metadata.page < metadata.totalPages,
+        hasPreviousPage: metadata.page > 1,
+        onPageChange: onPageChange,
+        onPageSizeChange: onPageSizeChange,
+        isLoading: paginationLoading
+      }}
+    />
   );
 }

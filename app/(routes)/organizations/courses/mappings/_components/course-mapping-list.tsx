@@ -1,40 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { MoreVertical, Eye, Edit, Trash2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { format } from 'date-fns';
+import { MoreVertical, Edit, Trash2, FileText, Plus, Eye } from 'lucide-react';
 import { CourseMapping } from '@/types/organizations';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger
-} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
-import { Pagination } from '@/components/pagination';
+import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
+import { toast } from 'react-hot-toast';
 
 interface CourseMappingListProps {
   courseMappings: CourseMapping[];
@@ -45,24 +29,21 @@ interface CourseMappingListProps {
     totalPages: number;
   };
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
+  paginationLoading?: boolean;
 }
 
 export function CourseMappingList({
   courseMappings,
   metadata,
   onPageChange,
-  onRefresh
+  onPageSizeChange,
+  onRefresh,
+  paginationLoading
 }: CourseMappingListProps) {
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [mappingToDelete, setMappingToDelete] = useState<CourseMapping | null>(
-    null
-  );
-
   const { canAccess, isSuperAdmin } = usePermissions();
 
-  const canViewCourseMappings =
-    isSuperAdmin || canAccess('organizations.course.mappings', 'view');
   const canViewCourses =
     isSuperAdmin || canAccess('organizations.courses', 'view');
   const canEditCourseMappings =
@@ -70,186 +51,284 @@ export function CourseMappingList({
   const canDeleteCourseMappings =
     isSuperAdmin || canAccess('organizations.course.mappings', 'delete');
 
-  const handleDelete = async () => {
-    if (!mappingToDelete) return;
-
+  // Handle bulk delete
+  const handleBulkDelete = async (selectedRows: CourseMapping[]) => {
     try {
-      setIsDeleting(true);
-      await CourseMappingService.deleteCourseMapping(mappingToDelete.id);
+      for (const mapping of selectedRows) {
+        await CourseMappingService.deleteCourseMapping(mapping.id);
+      }
+      toast.success(
+        `${selectedRows.length} course mappings deleted successfully`
+      );
       onRefresh();
-      toast.success('Course mapping deleted successfully');
     } catch (error) {
+      console.error('Error deleting course mappings:', error);
       toast.error(
         error instanceof Error
           ? error.message
-          : 'Failed to delete course mapping'
+          : 'Failed to delete course mappings'
       );
-    } finally {
-      setIsDeleting(false);
-      setMappingToDelete(null);
+      throw error;
     }
   };
 
-  if (courseMappings.length === 0) {
-    return (
-      <div className='text-center py-4'>
-        <p className='text-muted-foreground'>No course mappings found</p>
-      </div>
-    );
-  }
+  // Handle single delete
+  const handleSingleDelete = useCallback(
+    async (mapping: CourseMapping) => {
+      try {
+        await CourseMappingService.deleteCourseMapping(mapping.id);
+        toast.success('Course mapping deleted successfully');
+        onRefresh();
+      } catch (error) {
+        console.error('Error deleting course mapping:', error);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Failed to delete course mapping'
+        );
+      }
+    },
+    [onRefresh]
+  );
 
-  // Calculate the starting serial number for the current page
-  const startSerialNumber = (metadata.page - 1) * metadata.limit + 1;
+  // Format date helper
+  const formatDate = (date: string) => {
+    return format(new Date(date), 'MMM d, yyyy');
+  };
+
+  // Define columns for the data table
+  const columns: PermissionColumnDef<CourseMapping, any>[] = useMemo(
+    () => [
+      {
+        id: 'course_code',
+        accessorKey: 'course.course_code',
+        header: 'Course Code',
+        cell: ({ row }) => {
+          const mapping = row.original;
+          return canViewCourses ? (
+            <Link
+              href={`/organizations/courses/${mapping.course?.id}`}
+              className='flex items-center hover:text-primary font-medium'
+            >
+              <FileText className='mr-2 h-4 w-4' />
+              {mapping.course?.course_code}
+            </Link>
+          ) : (
+            <div className='flex items-center font-medium'>
+              <FileText className='mr-2 h-4 w-4' />
+              {mapping.course?.course_code}
+            </div>
+          );
+        }
+      },
+      {
+        id: 'course_name',
+        accessorKey: 'course.course_name',
+        header: 'Course Name',
+        cell: ({ row }) => {
+          return (
+            <span className='font-medium'>
+              {row.original.course?.course_name}
+            </span>
+          );
+        }
+      },
+      {
+        id: 'institution',
+        accessorKey: 'institution.name',
+        header: 'Institution',
+        cell: ({ row }) => {
+          return <span>{row.original.institution?.name}</span>;
+        }
+      },
+      {
+        id: 'department',
+        accessorKey: 'department.department_name',
+        header: 'Department',
+        cell: ({ row }) => {
+          return <span>{row.original.department?.department_name}</span>;
+        }
+      },
+      {
+        id: 'program',
+        accessorKey: 'program.program_name',
+        header: 'Program',
+        cell: ({ row }) => {
+          return <span>{row.original.program?.program_name}</span>;
+        }
+      },
+      {
+        id: 'semester',
+        accessorKey: 'semester.semester_name',
+        header: 'Semester',
+        cell: ({ row }) => {
+          return <span>{row.original.semester?.semester_name}</span>;
+        }
+      },
+      {
+        id: 'is_active',
+        accessorKey: 'is_active',
+        header: 'Status',
+        cell: ({ row }) => {
+          const isActive = row.getValue('is_active') as boolean;
+          return (
+            <Badge variant={isActive ? 'default' : 'secondary'}>
+              {isActive ? 'Active' : 'Inactive'}
+            </Badge>
+          );
+        }
+      },
+      {
+        id: 'created_at',
+        accessorKey: 'created_at',
+        header: 'Created',
+        cell: ({ row }) => {
+          return formatDate(row.getValue('created_at'));
+        }
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => {
+          const mapping = row.original;
+
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant='ghost' className='h-8 w-8 p-0'>
+                  <span className='sr-only'>Open menu</span>
+                  <MoreVertical className='h-4 w-4' />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <DropdownMenuItem
+                  asChild={canViewCourses}
+                  disabled={!canViewCourses}
+                  style={{ opacity: canViewCourses ? 1 : 0.5 }}
+                >
+                  {canViewCourses ? (
+                    <Link
+                      href={`/organizations/courses/${mapping.course?.id}`}
+                      className='cursor-pointer'
+                    >
+                      <Eye className='mr-2 h-4 w-4' />
+                      View Course
+                    </Link>
+                  ) : (
+                    <div>
+                      <Eye className='mr-2 h-4 w-4' />
+                      View Course
+                    </div>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  asChild={canEditCourseMappings}
+                  disabled={!canEditCourseMappings}
+                  style={{ opacity: canEditCourseMappings ? 1 : 0.5 }}
+                >
+                  {canEditCourseMappings ? (
+                    <Link
+                      href={`/organizations/courses/mappings/${mapping.id}/edit`}
+                      className='cursor-pointer'
+                    >
+                      <Edit className='mr-2 h-4 w-4' />
+                      Edit
+                    </Link>
+                  ) : (
+                    <div className='flex items-center gap-2'>
+                      <Edit className='mr-2 h-4 w-4' />
+                      Edit
+                    </div>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={
+                    canDeleteCourseMappings
+                      ? () => handleSingleDelete(mapping)
+                      : undefined
+                  }
+                  disabled={!canDeleteCourseMappings}
+                  className={
+                    canDeleteCourseMappings
+                      ? 'text-destructive focus:text-destructive cursor-pointer'
+                      : 'cursor-pointer'
+                  }
+                  style={{ opacity: canDeleteCourseMappings ? 1 : 0.5 }}
+                >
+                  <Trash2 className='mr-2 h-4 w-4' />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
+        enableSorting: false,
+        enableHiding: false
+      }
+    ],
+    [
+      canViewCourses,
+      canEditCourseMappings,
+      canDeleteCourseMappings,
+      handleSingleDelete
+    ]
+  );
+
+  // Create table tools (action buttons)
+  const tableTools = (
+    <div className='flex flex-col sm:flex-row gap-2'>
+      {canEditCourseMappings ? (
+        <Button className='w-full sm:w-auto' asChild>
+          <Link href='/organizations/courses/mappings/new'>
+            <Plus className='mr-2 h-4 w-4' />
+            Map Course
+          </Link>
+        </Button>
+      ) : (
+        <Button
+          className='w-full sm:w-auto opacity-50'
+          disabled
+          variant='outline'
+        >
+          <Plus className='mr-2 h-4 w-4' />
+          Map Course
+        </Button>
+      )}
+    </div>
+  );
 
   return (
-    <AlertDialog>
-      <div>
-        <div className='rounded-md border'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className='w-[50px]'>S.No</TableHead>
-                <TableHead>Course Code</TableHead>
-                <TableHead>Course Name</TableHead>
-                <TableHead>Department</TableHead>
-                <TableHead>Program</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className='text-right'>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {courseMappings.map((mapping, index) => (
-                <TableRow key={mapping.id}>
-                  <TableCell>{startSerialNumber + index}</TableCell>
-                  <TableCell className='font-medium'>
-                    {canViewCourses ? (
-                      <Link
-                        href={`/organizations/courses/${mapping.course?.id}`}
-                        className='hover:underline'
-                      >
-                        {mapping.course?.course_code}
-                      </Link>
-                    ) : (
-                      mapping.course?.course_code
-                    )}
-                  </TableCell>
-                  <TableCell>{mapping.course?.course_name}</TableCell>
-                  <TableCell>{mapping.department?.department_name}</TableCell>
-                  <TableCell>{mapping.program?.program_name}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={mapping.is_active ? 'default' : 'secondary'}
-                      className={mapping.is_active ? 'bg-green-500' : ''}
-                    >
-                      {mapping.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className='text-right'>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant='ghost' size='icon' className='h-8 w-8'>
-                          <MoreVertical className='h-4 w-4' />
-                          <span className='sr-only'>Actions</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
-                        <DropdownMenuItem
-                          asChild={canViewCourses}
-                          disabled={!canViewCourses}
-                          style={{ opacity: canViewCourses ? 1 : 0.5 }}
-                        >
-                          {canViewCourses ? (
-                            <Link
-                              href={`/organizations/courses/${mapping.course?.id}`}
-                            >
-                              <Eye className='mr-2 h-4 w-4' />
-                              View
-                            </Link>
-                          ) : (
-                            <div className='flex items-center gap-2'>
-                              <Eye className='mr-2 h-4 w-4' />
-                              View
-                            </div>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          asChild={canEditCourseMappings}
-                          disabled={!canEditCourseMappings}
-                          style={{ opacity: canEditCourseMappings ? 1 : 0.5 }}
-                        >
-                          {canEditCourseMappings ? (
-                            <Link
-                              href={`/organizations/courses/mappings/${mapping.id}/edit`}
-                            >
-                              <Edit className='mr-2 h-4 w-4' />
-                              Edit
-                            </Link>
-                          ) : (
-                            <div className='flex items-center gap-2'>
-                              <Edit className='mr-2 h-4 w-4' />
-                              Edit
-                            </div>
-                          )}
-                        </DropdownMenuItem>
-                        {canDeleteCourseMappings && (
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem
-                              className='text-destructive focus:text-destructive focus:bg-destructive/10'
-                              onSelect={(e) => {
-                                e.preventDefault();
-                                setMappingToDelete(mapping);
-                              }}
-                              style={{
-                                opacity: canDeleteCourseMappings ? 1 : 0.5
-                              }}
-                            >
-                              <Trash2 className='mr-2 h-4 w-4' />
-                              Delete
-                            </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-
-        <div className='mt-4 flex justify-end'>
-          <Pagination
-            currentPage={metadata.page}
-            totalPages={metadata.totalPages}
-            onPageChange={onPageChange}
-          />
-        </div>
-      </div>
-
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete Course Mapping</AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to delete this course mapping for course {''}
-            <span className='font-medium'>
-              {mappingToDelete?.course?.course_code || ''}
-            </span>
-            ? This action cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => setMappingToDelete(null)}>
-            Cancel
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-          >
-            {isDeleting ? 'Deleting...' : 'Delete'}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <DataTable
+      columns={columns}
+      data={courseMappings}
+      searchPlaceholder='Search course mappings...'
+      filterColumn='course_name'
+      permissions={{
+        module: 'organizations.course.mappings',
+        actions: {
+          view: true,
+          delete: true
+        },
+        showPermissionError: true
+      }}
+      tableTools={tableTools}
+      onDeleteSelected={canDeleteCourseMappings ? handleBulkDelete : undefined}
+      getRowId={(row) => row.id}
+      onRefresh={onRefresh}
+      showRefresh={true}
+      serverSidePagination={{
+        currentPage: metadata.page,
+        totalPages: metadata.totalPages,
+        pageSize: metadata.limit,
+        totalItems: metadata.total,
+        hasNextPage: metadata.page < metadata.totalPages,
+        hasPreviousPage: metadata.page > 1,
+        onPageChange: onPageChange,
+        onPageSizeChange: onPageSizeChange,
+        isLoading: paginationLoading
+      }}
+    />
   );
 }

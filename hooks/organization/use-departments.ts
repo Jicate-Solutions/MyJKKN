@@ -7,6 +7,7 @@ import type { Department, DepartmentFilters } from '@/types/organizations';
 export function useDepartments(initialFilters: DepartmentFilters = {}) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
+  const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<DepartmentFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
@@ -17,9 +18,13 @@ export function useDepartments(initialFilters: DepartmentFilters = {}) {
   });
 
   const fetchDepartments = useCallback(
-    async (newFilters?: DepartmentFilters) => {
+    async (newFilters?: DepartmentFilters, isPagination = false) => {
       try {
-        setLoading(true);
+        if (isPagination) {
+          setPaginationLoading(true);
+        } else {
+          setLoading(true);
+        }
         setError(null);
         const currentFilters = newFilters || filters;
 
@@ -34,7 +39,11 @@ export function useDepartments(initialFilters: DepartmentFilters = {}) {
         console.error('Error fetching departments:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
-        setLoading(false);
+        if (isPagination) {
+          setPaginationLoading(false);
+        } else {
+          setLoading(false);
+        }
       }
     },
     [filters]
@@ -57,7 +66,16 @@ export function useDepartments(initialFilters: DepartmentFilters = {}) {
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchDepartments(updatedFilters);
+      fetchDepartments(updatedFilters, true); // Mark as pagination
+    },
+    [filters, fetchDepartments]
+  );
+
+  const changePageSize = useCallback(
+    (limit: number) => {
+      const updatedFilters = { ...filters, limit, page: 1 }; // Reset to first page when page size changes
+      setFilters(updatedFilters);
+      fetchDepartments(updatedFilters, true); // Mark as pagination
     },
     [filters, fetchDepartments]
   );
@@ -65,11 +83,13 @@ export function useDepartments(initialFilters: DepartmentFilters = {}) {
   return {
     departments,
     loading,
+    paginationLoading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
+    changePageSize,
     fetchDepartments
   };
 }

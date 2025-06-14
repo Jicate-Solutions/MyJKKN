@@ -5,6 +5,7 @@ import type { Course, CourseFilters } from '@/types/organizations';
 export function useCourses(initialFilters: CourseFilters = {}) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
+  const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<CourseFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
@@ -15,9 +16,13 @@ export function useCourses(initialFilters: CourseFilters = {}) {
   });
 
   const fetchCourses = useCallback(
-    async (newFilters?: CourseFilters) => {
+    async (newFilters?: CourseFilters, isPagination = false) => {
       try {
-        setLoading(true);
+        if (isPagination) {
+          setPaginationLoading(true);
+        } else {
+          setLoading(true);
+        }
         setError(null);
         const currentFilters = newFilters || filters;
 
@@ -32,7 +37,11 @@ export function useCourses(initialFilters: CourseFilters = {}) {
         console.error('Error fetching courses:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
-        setLoading(false);
+        if (isPagination) {
+          setPaginationLoading(false);
+        } else {
+          setLoading(false);
+        }
       }
     },
     [filters]
@@ -55,7 +64,16 @@ export function useCourses(initialFilters: CourseFilters = {}) {
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchCourses(updatedFilters);
+      fetchCourses(updatedFilters, true); // Mark as pagination
+    },
+    [filters, fetchCourses]
+  );
+
+  const changePageSize = useCallback(
+    (limit: number) => {
+      const updatedFilters = { ...filters, limit, page: 1 }; // Reset to first page when page size changes
+      setFilters(updatedFilters);
+      fetchCourses(updatedFilters, true); // Mark as pagination
     },
     [filters, fetchCourses]
   );
@@ -63,11 +81,13 @@ export function useCourses(initialFilters: CourseFilters = {}) {
   return {
     courses,
     loading,
+    paginationLoading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
+    changePageSize,
     fetchCourses
   };
 }

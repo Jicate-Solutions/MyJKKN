@@ -181,12 +181,6 @@ export default function SemesterDetailsPage({
                 {semester.program?.program_name || 'N/A'}
               </p>
             </div>
-            <div>
-              <p className='font-medium'>Course</p>
-              <p className='text-base text-muted-foreground'>
-                {semester.course?.course_name || 'N/A'}
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>

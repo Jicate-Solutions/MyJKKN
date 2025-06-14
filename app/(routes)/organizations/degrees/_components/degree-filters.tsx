@@ -2,9 +2,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { useEffect, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -12,9 +10,12 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useDebounce } from '@/hooks/use-debounce';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeFilters as DegreeFilterType } from '@/types/organizations';
+import ExportDegrees from './export-degrees';
+import BulkUploadDegrees from './bulk-upload-degrees';
+import DownloadDegreeTemplateButton from './download-degree-template';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface DegreeFiltersProps {
   filters: DegreeFilterType;
@@ -25,6 +26,9 @@ export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canEditDegrees =
+    isSuperAdmin || canAccess('organizations.degrees', 'edit');
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -38,68 +42,55 @@ export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
     loadInstitutions();
   }, []);
 
-  const debouncedSearch = useDebounce((value: string) => {
-    onFilterChange({ search: value });
-  }, 300);
-
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      debouncedSearch(e.target.value);
-    },
-    [debouncedSearch]
-  );
-
   return (
     <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 md:grid-cols-3'>
-        <div className='relative'>
-          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            placeholder='Search degrees...'
-            onChange={handleSearchChange}
-            defaultValue={filters.search}
-            className='pl-9'
-          />
+      <div className='grid gap-4 md:grid-cols-2'>
+        <div className='flex items-center justify-between gap-2 w-full'>
+          <Select
+            value={filters.institution_id || 'all'}
+            onValueChange={(value) =>
+              onFilterChange({
+                institution_id: value === 'all' ? undefined : value
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Select institution' />
+            </SelectTrigger>
+            <SelectContent className='max-h-60 overflow-y-auto'>
+              <SelectItem value='all'>All Institutions</SelectItem>
+              {institutions.map((inst) => (
+                <SelectItem key={inst.id} value={inst.id}>
+                  {inst.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={filters.degree_type || 'all'}
+            onValueChange={(value) =>
+              onFilterChange({
+                degree_type:
+                  value === 'all' ? undefined : (value as 'ug' | 'pg')
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Filter by type' />
+            </SelectTrigger>
+            <SelectContent className='max-h-60 overflow-y-auto'>
+              <SelectItem value='all'>All Types</SelectItem>
+              <SelectItem value='ug'>UG</SelectItem>
+              <SelectItem value='pg'>PG</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-
-        <Select
-          value={filters.institution_id || 'all'}
-          onValueChange={(value) =>
-            onFilterChange({
-              institution_id: value === 'all' ? undefined : value
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Select institution' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Institutions</SelectItem>
-            {institutions.map((inst) => (
-              <SelectItem key={inst.id} value={inst.id}>
-                {inst.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={filters.degree_type || 'all'}
-          onValueChange={(value) =>
-            onFilterChange({
-              degree_type: value === 'all' ? undefined : (value as 'ug' | 'pg')
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Filter by type' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Types</SelectItem>
-            <SelectItem value='ug'>UG</SelectItem>
-            <SelectItem value='pg'>PG</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className='flex items-center justify-end gap-2 w-full'>
+          {canEditDegrees && <DownloadDegreeTemplateButton />}
+          {isSuperAdmin && <ExportDegrees />}
+          {canEditDegrees && <BulkUploadDegrees />}
+        </div>
       </div>
     </div>
   );

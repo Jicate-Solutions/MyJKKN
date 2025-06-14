@@ -1,8 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { useEffect, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -10,12 +8,15 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useDebounce } from '@/hooks/use-debounce';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterFilters as SemesterFilterType } from '@/types/organizations';
+import DownloadSemesterTemplateButton from './download-semester-template';
+import { ExportSemesters } from './export-semesters';
+import BulkUploadSemesters from './bulk-upload-semesters';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface SemesterFiltersProps {
   filters: SemesterFilterType;
@@ -39,7 +40,9 @@ export function SemesterFilters({
     Array<{ id: string; program_name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
-
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canEditSemesters =
+    isSuperAdmin || canAccess('organizations.semesters', 'edit');
   useEffect(() => {
     async function loadInstitutions() {
       try {
@@ -116,30 +119,9 @@ export function SemesterFilters({
     }
   }, [filters.department_id]);
 
-  const debouncedSearch = useDebounce((value: string) => {
-    onFilterChange({ search: value });
-  }, 300);
-
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      debouncedSearch(e.target.value);
-    },
-    [debouncedSearch]
-  );
-
   return (
     <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 md:grid-cols-4'>
-        <div className='relative'>
-          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            placeholder='Search semesters...'
-            onChange={handleSearchChange}
-            defaultValue={filters.search}
-            className='pl-9'
-          />
-        </div>
-
+      <div className='grid md:grid-cols-2 items-center justify-between gap-2 w-full'>
         <Select
           value={filters.institution_id || 'all'}
           onValueChange={(value) =>
@@ -251,6 +233,11 @@ export function SemesterFilters({
             <SelectItem value='odd'>Odd</SelectItem>
           </SelectContent>
         </Select>
+        <div className='flex items-center justify-between gap-2 w-full'>
+          {canEditSemesters && <DownloadSemesterTemplateButton />}
+          {isSuperAdmin && <ExportSemesters />}
+          {canEditSemesters && <BulkUploadSemesters />}
+        </div>
       </div>
     </div>
   );

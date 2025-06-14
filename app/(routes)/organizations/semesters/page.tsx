@@ -1,13 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { usePermissions } from '@/hooks/use-permissions';
-import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
 import {
   Breadcrumb,
@@ -17,32 +15,29 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { SemesterFilters } from './_components/semester-filters';
 import { SemesterList } from './_components/semester-list';
-import DownloadSemesterTemplateButton from './_components/download-semester-template';
-import BulkUploadSemesters from './_components/bulk-upload-semesters';
-import { ExportSemesters } from './_components/export-semesters';
+import { SemesterFilters } from './_components/semester-filters';
+import { SemesterFilters as SemesterFiltersType } from '@/types/organizations';
 
 export default function SemestersPage() {
   const {
     semesters,
     loading,
+    paginationLoading,
     error,
     metadata,
-    filters,
-    updateFilters,
     changePage,
+    changePageSize,
     fetchSemesters
   } = useSemesters();
 
   const { canAccess, isSuperAdmin } = usePermissions();
-
+  const [filters, setFilters] = useState<SemesterFiltersType>({
+    page: 1,
+    limit: 10
+  });
   const canViewSemesters =
     isSuperAdmin || canAccess('organizations.semesters', 'view');
-  const canCreateSemesters =
-    isSuperAdmin || canAccess('organizations.semesters', 'create');
-  const canEditSemesters =
-    isSuperAdmin || canAccess('organizations.semesters', 'edit');
 
   useEffect(() => {
     // Only fetch semesters if user has permission
@@ -92,55 +87,27 @@ export default function SemestersPage() {
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Semesters</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage academic semesters
-            </p>
-          </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            {canEditSemesters && <DownloadSemesterTemplateButton />}
-            {isSuperAdmin && <ExportSemesters />}
-            {canEditSemesters && <BulkUploadSemesters />}
-            {canCreateSemesters ? (
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/organizations/semesters/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Add Semester
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Add Semester
-              </Button>
-            )}
-          </div>
+        <div>
+          <h1 className='text-2xl font-bold py-1'>Semesters</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
+            Manage academic semesters
+          </p>
         </div>
-
-        <Card>
-          <CardContent className='p-6'>
-            <SemesterFilters filters={filters} onFilterChange={updateFilters} />
-
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <SemesterList
-                semesters={semesters}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchSemesters}
-              />
-            )}
-          </CardContent>
-        </Card>
+        <SemesterFilters filters={filters} onFilterChange={setFilters} />
+        {loading ? (
+          <div className='flex justify-center items-center p-8'>
+            <BeatLoader color='#00e902' />
+          </div>
+        ) : (
+          <SemesterList
+            semesters={semesters}
+            metadata={metadata}
+            onPageChange={changePage}
+            onPageSizeChange={changePageSize}
+            onRefresh={fetchSemesters}
+            paginationLoading={paginationLoading}
+          />
+        )}
       </div>
     </ContentLayout>
   );

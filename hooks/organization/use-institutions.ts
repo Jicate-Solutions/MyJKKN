@@ -7,6 +7,7 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 export function useInstitutions(initialFilters: InstitutionFilters = {}) {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [loading, setLoading] = useState(true);
+  const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<InstitutionFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
@@ -17,9 +18,13 @@ export function useInstitutions(initialFilters: InstitutionFilters = {}) {
   });
 
   const fetchInstitutions = useCallback(
-    async (newFilters?: InstitutionFilters) => {
+    async (newFilters?: InstitutionFilters, isPagination = false) => {
       try {
-        setLoading(true);
+        if (isPagination) {
+          setPaginationLoading(true);
+        } else {
+          setLoading(true);
+        }
         setError(null);
         const currentFilters = newFilters || filters;
 
@@ -36,7 +41,11 @@ export function useInstitutions(initialFilters: InstitutionFilters = {}) {
         console.error('Error fetching institutions:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
-        setLoading(false);
+        if (isPagination) {
+          setPaginationLoading(false);
+        } else {
+          setLoading(false);
+        }
       }
     },
     [filters]
@@ -59,7 +68,16 @@ export function useInstitutions(initialFilters: InstitutionFilters = {}) {
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchInstitutions(updatedFilters);
+      fetchInstitutions(updatedFilters, true); // Mark as pagination
+    },
+    [filters, fetchInstitutions]
+  );
+
+  const changePageSize = useCallback(
+    (limit: number) => {
+      const updatedFilters = { ...filters, limit, page: 1 }; // Reset to first page when page size changes
+      setFilters(updatedFilters);
+      fetchInstitutions(updatedFilters, true); // Mark as pagination
     },
     [filters, fetchInstitutions]
   );
@@ -67,11 +85,13 @@ export function useInstitutions(initialFilters: InstitutionFilters = {}) {
   return {
     institutions,
     loading,
+    paginationLoading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
+    changePageSize,
     fetchInstitutions
   };
 }

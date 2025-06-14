@@ -8,6 +8,7 @@ import type {
 export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
   const [courseMappings, setCourseMappings] = useState<CourseMapping[]>([]);
   const [loading, setLoading] = useState(true);
+  const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<CourseMappingFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
@@ -18,9 +19,13 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
   });
 
   const fetchCourseMappings = useCallback(
-    async (newFilters?: CourseMappingFilters) => {
+    async (newFilters?: CourseMappingFilters, isPagination = false) => {
       try {
-        setLoading(true);
+        if (isPagination) {
+          setPaginationLoading(true);
+        } else {
+          setLoading(true);
+        }
         setError(null);
         const currentFilters = newFilters || filters;
 
@@ -37,7 +42,11 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
         console.error('Error fetching course mappings:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
-        setLoading(false);
+        if (isPagination) {
+          setPaginationLoading(false);
+        } else {
+          setLoading(false);
+        }
       }
     },
     [filters]
@@ -60,7 +69,16 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchCourseMappings(updatedFilters);
+      fetchCourseMappings(updatedFilters, true);
+    },
+    [filters, fetchCourseMappings]
+  );
+
+  const changePageSize = useCallback(
+    (limit: number) => {
+      const updatedFilters = { ...filters, limit, page: 1 };
+      setFilters(updatedFilters);
+      fetchCourseMappings(updatedFilters, true);
     },
     [filters, fetchCourseMappings]
   );
@@ -68,11 +86,13 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
   return {
     courseMappings,
     loading,
+    paginationLoading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
+    changePageSize,
     fetchCourseMappings
   };
 }
