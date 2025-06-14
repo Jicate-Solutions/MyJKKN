@@ -1,11 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   Breadcrumb,
@@ -19,27 +17,27 @@ import { BeatLoader } from 'react-spinners';
 import { useCourseMappings } from '@/hooks/organization/use-course-mappings';
 import { CourseMappingList } from './_components/course-mapping-list';
 import { CourseMappingFilters } from './_components/course-mapping-filters';
+import { CourseMappingFilters as CourseMappingFiltersType } from '@/types/organizations';
 
 export default function CourseMappingsPage() {
   const {
     courseMappings,
     loading,
+    paginationLoading,
     error,
     metadata,
-    filters,
-    updateFilters,
     changePage,
+    changePageSize,
     fetchCourseMappings
   } = useCourseMappings();
 
   const { canAccess, isSuperAdmin } = usePermissions();
-
+  const [filters, setFilters] = useState<CourseMappingFiltersType>({
+    page: 1,
+    limit: 10
+  });
   const canViewCourseMappings =
     isSuperAdmin || canAccess('organizations.course.mappings', 'view');
-  const canCreateCourseMappings =
-    isSuperAdmin || canAccess('organizations.course.mappings', 'create');
-  const canEditCourseMappings =
-    isSuperAdmin || canAccess('organizations.course.mappings', 'edit');
 
   useEffect(() => {
     // Only fetch course mappings if user has permission
@@ -102,48 +100,25 @@ export default function CourseMappingsPage() {
               Map courses to institutions, degrees, departments, and semesters
             </p>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            {canCreateCourseMappings ? (
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/organizations/courses/mappings/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Map Course
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Map Course
-              </Button>
-            )}
-          </div>
         </div>
-
-        <Card>
-          <CardContent className='p-6'>
-            <CourseMappingFilters
-              filters={filters}
-              onFilterChange={updateFilters}
-            />
-
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <CourseMappingList
-                courseMappings={courseMappings}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchCourseMappings}
-              />
-            )}
-          </CardContent>
-        </Card>
+        <CourseMappingFilters
+          filters={filters}
+          onFilterChange={setFilters}
+        />
+        {loading ? (
+          <div className='flex justify-center items-center p-8'>
+            <BeatLoader color='#00e902' />
+          </div>
+        ) : (
+          <CourseMappingList
+            courseMappings={courseMappings}
+            metadata={metadata}
+            onPageChange={changePage}
+            onPageSizeChange={changePageSize}
+            onRefresh={fetchCourseMappings}
+            paginationLoading={paginationLoading}
+          />
+        )}
       </div>
     </ContentLayout>
   );

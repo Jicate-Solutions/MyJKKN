@@ -1,8 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { useEffect, useState } from 'react';
+
 import {
   Select,
   SelectContent,
@@ -10,10 +9,13 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useDebounce } from '@/hooks/use-debounce';
+
 import { usePermissions } from '@/hooks/use-permissions';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { SectionFilters as SectionFilterType } from '@/types/organizations';
+import DownloadSectionTemplateButton from './download-section-template';
+import { ExportSections } from './export-sections';
+import BulkUploadSections from './bulk-upload-sections';
 
 interface SectionFiltersProps {
   filters: SectionFilterType;
@@ -29,18 +31,9 @@ export function SectionFilters({
   >([]);
   const [loadingInstitutions, setLoadingInstitutions] = useState(true);
 
-  const { isSuperAdmin, userProfile } = usePermissions();
-
-  const debouncedSearch = useDebounce((value: string) => {
-    onFilterChange({ search: value });
-  }, 300);
-
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      debouncedSearch(e.target.value);
-    },
-    [debouncedSearch]
-  );
+  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  const canViewSections =
+    isSuperAdmin || canAccess('organizations.sections', 'view');
 
   // Fetch institutions for dropdown (only for super admin)
   useEffect(() => {
@@ -79,19 +72,8 @@ export function SectionFilters({
 
   return (
     <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 md:grid-cols-3'>
-        <div className='relative'>
-          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            placeholder='Search sections...'
-            onChange={handleSearchChange}
-            defaultValue={filters.search}
-            className='pl-9'
-          />
-        </div>
-
-        {/* Institution Filter - Only show for super admin */}
-        {isSuperAdmin && (
+      <div className='grid gap-4 w-full md:grid-cols-2'>
+        <div className='flex items-center justify-between gap-2 w-full'>
           <Select
             value={filters.institution_id || 'all'}
             onValueChange={(value) =>
@@ -113,27 +95,34 @@ export function SectionFilters({
               ))}
             </SelectContent>
           </Select>
-        )}
 
-        <Select
-          value={
-            filters.isActive !== undefined ? filters.isActive.toString() : 'all'
-          }
-          onValueChange={(value) =>
-            onFilterChange({
-              isActive: value === 'all' ? undefined : value === 'true'
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Filter by status' />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>All Statuses</SelectItem>
-            <SelectItem value='true'>Active</SelectItem>
-            <SelectItem value='false'>Inactive</SelectItem>
-          </SelectContent>
-        </Select>
+          <Select
+            value={
+              filters.isActive !== undefined
+                ? filters.isActive.toString()
+                : 'all'
+            }
+            onValueChange={(value) =>
+              onFilterChange({
+                isActive: value === 'all' ? undefined : value === 'true'
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Filter by status' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>All Statuses</SelectItem>
+              <SelectItem value='true'>Active</SelectItem>
+              <SelectItem value='false'>Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className='flex items-center justify-between gap-2 w-full'>
+          {canViewSections && <DownloadSectionTemplateButton />}
+          {isSuperAdmin && <ExportSections />}
+          {canViewSections && <BulkUploadSections />}
+        </div>
       </div>
     </div>
   );

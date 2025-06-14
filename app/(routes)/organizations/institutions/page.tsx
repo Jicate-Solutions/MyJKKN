@@ -2,13 +2,10 @@
 'use client';
 
 import { useEffect } from 'react';
-import Link from 'next/link';
-import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { useInstitutions } from '@/hooks/organization/use-institutions';
 import { usePermissions } from '@/hooks/use-permissions';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -19,20 +16,20 @@ import {
 } from '@/components/ui/breadcrumb';
 import { BeatLoader } from 'react-spinners';
 import { InstitutionList } from './_components/institution-list';
+import Link from 'next/link';
 import { InstitutionFilter } from './_components/institution-filters';
-import BulkUploadInstitutions from './_components/bulk-upload-institutions';
-import DownloadTemplateButton from './_components/download-template-button';
-import ExportInstitutions from './_components/export-institutions';
 
 export default function InstitutionsPage() {
   const {
     institutions,
     loading,
+    paginationLoading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
+    changePageSize,
     fetchInstitutions
   } = useInstitutions();
 
@@ -40,10 +37,6 @@ export default function InstitutionsPage() {
 
   const canViewInstitutions =
     isSuperAdmin || canAccess('organizations.institutions', 'view');
-  const canCreateInstitutions =
-    isSuperAdmin || canAccess('organizations.institutions', 'create');
-  const canEditInstitutions =
-    isSuperAdmin || canAccess('organizations.institutions', 'edit');
 
   useEffect(() => {
     fetchInstitutions();
@@ -90,58 +83,29 @@ export default function InstitutionsPage() {
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Institutions</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage your educational institutions
-            </p>
-          </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            {canEditInstitutions && <DownloadTemplateButton />}
-            {isSuperAdmin && <ExportInstitutions />}
-            {canEditInstitutions && <BulkUploadInstitutions />}
-            {canCreateInstitutions ? (
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/organizations/institutions/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Add Institution
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Add Institution
-              </Button>
-            )}
-          </div>
+        <div>
+          <h1 className='text-2xl font-bold py-1'>Institutions</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
+            Manage your educational institutions
+          </p>
         </div>
 
-        <Card>
-          <CardContent className='p-6'>
-            <InstitutionFilter
-              filters={filters}
-              onFilterChange={updateFilters}
-            />
+        <InstitutionFilter filters={filters} onFilterChange={updateFilters} />
 
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <InstitutionList
-                institutions={institutions}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchInstitutions}
-              />
-            )}
-          </CardContent>
-        </Card>
+        {loading ? (
+          <div className='flex justify-center items-center p-8'>
+            <BeatLoader color='#00e902' />
+          </div>
+        ) : (
+          <InstitutionList
+            institutions={institutions}
+            metadata={metadata}
+            onPageChange={changePage}
+            onPageSizeChange={changePageSize}
+            onRefresh={fetchInstitutions}
+            paginationLoading={paginationLoading}
+          />
+        )}
       </div>
     </ContentLayout>
   );

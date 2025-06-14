@@ -1,13 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { usePermissions } from '@/hooks/use-permissions';
-import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -17,27 +15,27 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { BeatLoader } from 'react-spinners';
-
-import { ProgramFilters } from './_components/program-filters';
 import { ProgramList } from './_components/program-list';
-import DownloadProgramTemplateButton from './_components/download-program-template';
-import BulkUploadPrograms from './_components/bulk-upload-programs';
-import { ExportPrograms } from './_components/export-programs';
+import { ProgramFilters } from './_components/program-filters';
+import { ProgramFilters as ProgramFiltersType } from '@/types/organizations';
 
 export default function ProgramsPage() {
   const {
     programs,
     loading,
+    paginationLoading,
     error,
     metadata,
-    filters,
-    updateFilters,
     changePage,
+    changePageSize,
     fetchPrograms
   } = usePrograms();
 
   const { canAccess, isSuperAdmin } = usePermissions();
-
+  const [filters, setFilters] = useState<ProgramFiltersType>({
+    page: 1,
+    limit: 10
+  });
   const canViewPrograms =
     isSuperAdmin || canAccess('organizations.programs', 'view');
   const canCreatePrograms =
@@ -93,55 +91,28 @@ export default function ProgramsPage() {
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Programs</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage academic programs
-            </p>
-          </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            {canEditPrograms && <DownloadProgramTemplateButton />}
-            {isSuperAdmin && <ExportPrograms />}
-            {canEditPrograms && <BulkUploadPrograms />}
-            {canCreatePrograms ? (
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/organizations/programs/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Add Program
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Add Program
-              </Button>
-            )}
-          </div>
+        <div>
+          <h1 className='text-2xl font-bold py-1'>Programs</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
+            Manage academic programs
+          </p>
         </div>
+        <ProgramFilters filters={filters} onFilterChange={setFilters} />
 
-        <Card>
-          <CardContent className='p-6'>
-            <ProgramFilters filters={filters} onFilterChange={updateFilters} />
-
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <ProgramList
-                programs={programs}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchPrograms}
-              />
-            )}
-          </CardContent>
-        </Card>
+        {loading ? (
+          <div className='flex justify-center items-center p-8'>
+            <BeatLoader color='#00e902' />
+          </div>
+        ) : (
+          <ProgramList
+            programs={programs}
+            metadata={metadata}
+            onPageChange={changePage}
+            onPageSizeChange={changePageSize}
+            onRefresh={fetchPrograms}
+            paginationLoading={paginationLoading}
+          />
+        )}
       </div>
     </ContentLayout>
   );

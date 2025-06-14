@@ -2,14 +2,12 @@
 
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePermissions } from '@/hooks/use-permissions';
-import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -19,32 +17,29 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { BeatLoader } from 'react-spinners';
-import { DepartmentFilters } from './_components/department-filters';
 import { DepartmentList } from './_components/department-list';
-import DownloadDepartmentTemplateButton from './_components/download-department-template';
-import BulkUploadDepartments from './_components/bulk-upload-departments';
-import { ExportDepartments } from './_components/export-departments';
+import { DepartmentFilters } from './_components/department-filters';
+import { DepartmentFilters as DepartmentFiltersType } from '@/types/organizations';
 
 export default function DepartmentsPage() {
   const {
     departments,
     loading,
+    paginationLoading,
     error,
     metadata,
-    filters,
-    updateFilters,
     changePage,
+    changePageSize,
     fetchDepartments
   } = useDepartments();
 
   const { canAccess, isSuperAdmin } = usePermissions();
-
+  const [filters, setFilters] = useState<DepartmentFiltersType>({
+    page: 1,
+    limit: 10
+  });
   const canViewDepartments =
     isSuperAdmin || canAccess('organizations.departments', 'view');
-  const canCreateDepartments =
-    isSuperAdmin || canAccess('organizations.departments', 'create');
-  const canEditDepartments =
-    isSuperAdmin || canAccess('organizations.departments', 'edit');
 
   useEffect(() => {
     fetchDepartments();
@@ -91,58 +86,32 @@ export default function DepartmentsPage() {
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Departments</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage departments for institutions
-            </p>
-          </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            {canEditDepartments && <DownloadDepartmentTemplateButton />}
-            {isSuperAdmin && <ExportDepartments />}
-            {canEditDepartments && <BulkUploadDepartments />}
-            {canCreateDepartments ? (
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/organizations/departments/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Add Department
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Add Department
-              </Button>
-            )}
-          </div>
+        <div>
+          <h1 className='text-2xl font-bold py-1'>Departments</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
+            Manage departments for institutions
+          </p>
         </div>
 
-        <Card>
-          <CardContent className='p-6'>
-            <DepartmentFilters
-              filters={filters}
-              onFilterChange={updateFilters}
-            />
+        <DepartmentFilters
+          filters={filters}
+          onFilterChange={setFilters}
+        />
 
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <DepartmentList
-                departments={departments}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchDepartments}
-              />
-            )}
-          </CardContent>
-        </Card>
+        {loading ? (
+          <div className='flex justify-center items-center p-8'>
+            <BeatLoader color='#00e902' />
+          </div>
+        ) : (
+          <DepartmentList
+            departments={departments}
+            metadata={metadata}
+            onPageChange={changePage}
+            onPageSizeChange={changePageSize}
+            onRefresh={fetchDepartments}
+            paginationLoading={paginationLoading}
+          />
+        )}
       </div>
     </ContentLayout>
   );

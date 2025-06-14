@@ -5,6 +5,7 @@ import type { Semester, SemesterFilters } from '@/types/organizations';
 export function useSemesters(initialFilters: SemesterFilters = {}) {
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [loading, setLoading] = useState(true);
+  const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<SemesterFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
@@ -15,9 +16,13 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
   });
 
   const fetchSemesters = useCallback(
-    async (newFilters?: SemesterFilters) => {
+    async (newFilters?: SemesterFilters, isPagination = false) => {
       try {
-        setLoading(true);
+        if (isPagination) {
+          setPaginationLoading(true);
+        } else {
+          setLoading(true);
+        }
         setError(null);
         const currentFilters = newFilters || filters;
 
@@ -32,7 +37,11 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
         console.error('Error fetching semesters:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
-        setLoading(false);
+        if (isPagination) {
+          setPaginationLoading(false);
+        } else {
+          setLoading(false);
+        }
       }
     },
     [filters]
@@ -55,7 +64,16 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchSemesters(updatedFilters);
+      fetchSemesters(updatedFilters, true); // Mark as pagination
+    },
+    [filters, fetchSemesters]
+  );
+
+  const changePageSize = useCallback(
+    (limit: number) => {
+      const updatedFilters = { ...filters, limit, page: 1 }; // Reset to first page when page size changes
+      setFilters(updatedFilters);
+      fetchSemesters(updatedFilters, true); // Mark as pagination
     },
     [filters, fetchSemesters]
   );
@@ -63,11 +81,13 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
   return {
     semesters,
     loading,
+    paginationLoading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
+    changePageSize,
     fetchSemesters
   };
 }

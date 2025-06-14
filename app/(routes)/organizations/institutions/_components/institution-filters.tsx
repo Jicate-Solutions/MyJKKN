@@ -1,9 +1,6 @@
 // app/(routes)/organizations/institutions/_components/institution-filters.tsx
 'use client';
 
-import { useCallback } from 'react';
-import { Search } from 'lucide-react';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -11,8 +8,11 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useDebounce } from '@/hooks/use-debounce';
 import { InstitutionFilters } from '@/types/organizations';
+import DownloadTemplateButton from './download-template-button';
+import ExportInstitutions from './export-institutions';
+import BulkUploadInstitutions from './bulk-upload-institutions';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface InstitutionFiltersProps {
   filters: InstitutionFilters;
@@ -23,30 +23,19 @@ export function InstitutionFilter({
   filters,
   onFilterChange
 }: InstitutionFiltersProps) {
-  const debouncedSearch = useDebounce((value: string) => {
-    onFilterChange({ search: value });
-  }, 300);
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canEditInstitutions =
+    isSuperAdmin || canAccess('organizations.institutions', 'edit');
 
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      debouncedSearch(e.target.value);
-    },
-    [debouncedSearch]
-  );
+  const handleStatusChange = (value: string) => {
+    onFilterChange({
+      isActive: value === 'all' ? undefined : value === 'active' ? true : false
+    });
+  };
 
   return (
-    <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 md:grid-cols-2'>
-        <div className='relative'>
-          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            placeholder='Search institutions...'
-            onChange={handleSearchChange}
-            defaultValue={filters.search}
-            className='pl-9'
-          />
-        </div>
-
+    <div className='space-y-4 mb-6 w-full'>
+      <div className='grid gap-4 md:grid-cols-2 w-full items-center justify-between'>
         <Select
           value={
             filters.isActive === undefined
@@ -55,12 +44,7 @@ export function InstitutionFilter({
               ? 'active'
               : 'inactive'
           }
-          onValueChange={(value) =>
-            onFilterChange({
-              isActive:
-                value === 'all' ? undefined : value === 'active' ? true : false
-            })
-          }
+          onValueChange={handleStatusChange}
         >
           <SelectTrigger>
             <SelectValue placeholder='Filter by status' />
@@ -71,6 +55,11 @@ export function InstitutionFilter({
             <SelectItem value='inactive'>Inactive</SelectItem>
           </SelectContent>
         </Select>
+        <div className='flex items-center justify-end gap-2 w-full'>
+          {canEditInstitutions && <DownloadTemplateButton />}
+          {isSuperAdmin && <ExportInstitutions />}
+          {canEditInstitutions && <BulkUploadInstitutions />}
+        </div>
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import type { Degree, DegreeFilters } from '@/types/organizations';
 export function useDegrees(initialFilters: DegreeFilters = {}) {
   const [degrees, setDegrees] = useState<Degree[]>([]);
   const [loading, setLoading] = useState(true);
+  const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<DegreeFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
@@ -17,9 +18,13 @@ export function useDegrees(initialFilters: DegreeFilters = {}) {
   });
 
   const fetchDegrees = useCallback(
-    async (newFilters?: DegreeFilters) => {
+    async (newFilters?: DegreeFilters, isPagination = false) => {
       try {
-        setLoading(true);
+        if (isPagination) {
+          setPaginationLoading(true);
+        } else {
+          setLoading(true);
+        }
         setError(null);
         const currentFilters = newFilters || filters;
 
@@ -34,7 +39,11 @@ export function useDegrees(initialFilters: DegreeFilters = {}) {
         console.error('Error fetching degrees:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
-        setLoading(false);
+        if (isPagination) {
+          setPaginationLoading(false);
+        } else {
+          setLoading(false);
+        }
       }
     },
     [filters]
@@ -57,7 +66,16 @@ export function useDegrees(initialFilters: DegreeFilters = {}) {
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchDegrees(updatedFilters);
+      fetchDegrees(updatedFilters, true); // Mark as pagination
+    },
+    [filters, fetchDegrees]
+  );
+
+  const changePageSize = useCallback(
+    (limit: number) => {
+      const updatedFilters = { ...filters, limit, page: 1 }; // Reset to first page when page size changes
+      setFilters(updatedFilters);
+      fetchDegrees(updatedFilters, true); // Mark as pagination
     },
     [filters, fetchDegrees]
   );
@@ -65,11 +83,13 @@ export function useDegrees(initialFilters: DegreeFilters = {}) {
   return {
     degrees,
     loading,
+    paginationLoading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
+    changePageSize,
     fetchDegrees
   };
 }
