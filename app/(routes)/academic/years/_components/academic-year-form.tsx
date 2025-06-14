@@ -11,6 +11,7 @@ import { toast } from 'react-hot-toast';
 import { AcademicYear } from '@/types/academics';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -74,13 +75,16 @@ export function AcademicYearForm({
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
+    Array<{ id: string; name: string; counselling_code: string }>
   >([]);
+  const [loadingInstitutions, setLoadingInstitutions] = useState(true);
+
+  const { isSuperAdmin, userProfile } = usePermissions();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(academicYearSchema),
     defaultValues: {
-      institution_id: academicYear?.institution_id || '',
+      institution_id: '',
       academic_year_name: academicYear?.academic_year_name || '',
       start_date: academicYear?.start_date || '',
       end_date: academicYear?.end_date || '',
@@ -88,27 +92,75 @@ export function AcademicYearForm({
     }
   });
 
+  // Set initial values when data is available
+  useEffect(() => {
+    const institutionId =
+      academicYear?.institution_id || userProfile?.institution_id || '';
+    if (institutionId && form.getValues('institution_id') !== institutionId) {
+      form.setValue('institution_id', institutionId);
+    }
+  }, [academicYear, userProfile, form]);
+
+  // Fetch institutions for dropdown
   useEffect(() => {
     async function loadInstitutions() {
       try {
+        setLoadingInstitutions(true);
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
         console.error('Error loading institutions:', error);
         toast.error('Failed to load institutions');
+      } finally {
+        setLoadingInstitutions(false);
       }
     }
     loadInstitutions();
   }, []);
 
+  // Auto-set institution for faculty users
+  useEffect(() => {
+    if (!isSuperAdmin && userProfile?.institution_id) {
+      const currentValue = form.getValues('institution_id');
+      if (!currentValue || currentValue !== userProfile.institution_id) {
+        form.setValue('institution_id', userProfile.institution_id);
+        // Clear any validation errors for institution_id
+        form.clearErrors('institution_id');
+      }
+    }
+  }, [userProfile, isSuperAdmin, form]);
+
   const onSubmit = async (values: FormValues) => {
     try {
       setIsSubmitting(true);
 
+      // Ensure institution_id is set for faculty users
+      const submitValues = {
+        ...values,
+        institution_id:
+          values.institution_id || userProfile?.institution_id || ''
+      };
+
+      // Validate that institution_id is present
+      if (!submitValues.institution_id) {
+        if (isSuperAdmin) {
+          form.setError('institution_id', {
+            type: 'manual',
+            message: 'Institution is required'
+          });
+        } else {
+          toast.error('Institution information is missing from your profile');
+        }
+        return;
+      }
+
       if (isEditing && academicYear) {
-        await AcademicYearService.updateAcademicYear(academicYear.id, values);
+        await AcademicYearService.updateAcademicYear(
+          academicYear.id,
+          submitValues
+        );
       } else {
-        await AcademicYearService.createAcademicYear(values);
+        await AcademicYearService.createAcademicYear(submitValues);
       }
 
       router.push('/academic/years');
@@ -129,6 +181,7 @@ export function AcademicYearForm({
         <Card>
           <CardContent className='p-6 space-y-6'>
             <div className='grid gap-6 md:grid-cols-2'>
+              {/* Institution Selector */}
               <FormField
                 control={form.control}
                 name='institution_id'
@@ -138,7 +191,9 @@ export function AcademicYearForm({
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
-                      disabled={isEditing}
+                      disabled={
+                        !isSuperAdmin || loadingInstitutions || isEditing
+                      }
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -146,14 +201,27 @@ export function AcademicYearForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className='max-h-60 overflow-y-auto'>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
+                        {institutions.map((institution) => (
+                          <SelectItem
+                            key={institution.id}
+                            value={institution.id}
+                          >
+                            {institution.name} ({institution.counselling_code})
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
+                    {!isSuperAdmin && (
+                      <p className='text-xs text-muted-foreground'>
+                        Institution is automatically set based on your profile
+                      </p>
+                    )}
+                    {isEditing && (
+                      <p className='text-xs text-muted-foreground'>
+                        Institution cannot be changed when editing
+                      </p>
+                    )}
                   </FormItem>
                 )}
               />

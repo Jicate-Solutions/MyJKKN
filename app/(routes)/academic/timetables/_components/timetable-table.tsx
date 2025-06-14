@@ -170,7 +170,7 @@ export function TimetableTable({
         </div>
       )}
 
-      <div className='rounded-md border'>
+      <div className='rounded-md border mt-4'>
         <Table>
           <TableHeader>
             <TableRow>
