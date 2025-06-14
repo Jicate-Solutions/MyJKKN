@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -13,8 +13,8 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/use-debounce';
+import { usePermissions } from '@/hooks/use-permissions';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { useEffect, useState } from 'react';
 import type { AcademicYearFilters } from '@/types/academics';
 
 interface AcademicYearFiltersProps {
@@ -27,8 +27,10 @@ export function AcademicYearFilters({
   onFilterChange
 }: AcademicYearFiltersProps) {
   const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
+    Array<{ id: string; name: string; counselling_code: string }>
   >([]);
+
+  const { isSuperAdmin, userProfile } = usePermissions();
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -41,6 +43,16 @@ export function AcademicYearFilters({
     }
     loadInstitutions();
   }, []);
+
+  // Auto-set institution filter for faculty users
+  useEffect(() => {
+    if (!isSuperAdmin && userProfile?.institution_id) {
+      // Only set if not already set to avoid infinite loops
+      if (filters.institution_id !== userProfile.institution_id) {
+        onFilterChange({ institution_id: userProfile.institution_id });
+      }
+    }
+  }, [userProfile, isSuperAdmin, filters.institution_id, onFilterChange]);
 
   const debouncedSearch = useDebounce((value: string) => {
     onFilterChange({ search: value });
@@ -66,26 +78,29 @@ export function AcademicYearFilters({
           />
         </div>
 
-        <Select
-          value={filters.institution_id || 'all'}
-          onValueChange={(value) =>
-            onFilterChange({
-              institution_id: value === 'all' ? undefined : value
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Select institution' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Institutions</SelectItem>
-            {institutions.map((inst) => (
-              <SelectItem key={inst.id} value={inst.id}>
-                {inst.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Institution Filter - Only show for super admins */}
+        {isSuperAdmin && (
+          <Select
+            value={filters.institution_id || 'all'}
+            onValueChange={(value) =>
+              onFilterChange({
+                institution_id: value === 'all' ? undefined : value
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Select institution' />
+            </SelectTrigger>
+            <SelectContent className='max-h-60 overflow-y-auto'>
+              <SelectItem value='all'>All Institutions</SelectItem>
+              {institutions.map((inst) => (
+                <SelectItem key={inst.id} value={inst.id}>
+                  {inst.name} ({inst.counselling_code})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Select
           value={
@@ -111,6 +126,13 @@ export function AcademicYearFilters({
           </SelectContent>
         </Select>
       </div>
+
+      {/* Show current institution for faculty users */}
+      {!isSuperAdmin && userProfile?.institution_id && (
+        <div className='text-sm text-muted-foreground'>
+          Showing academic years for your institution only
+        </div>
+      )}
     </div>
   );
 }
