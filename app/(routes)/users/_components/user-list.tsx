@@ -146,26 +146,26 @@ export function UserList({
                 <span className='text-sm text-muted-foreground'>
                   {user.email}
                 </span>
-              </div>
+      </div>
             </Link>
           ) : (
-            <div className='flex items-center gap-3'>
-              <Avatar className='h-9 w-9'>
-                <AvatarImage
-                  src={user.avatar_url || undefined}
-                  alt={user.full_name || 'User'}
-                />
-                <AvatarFallback>{getInitials(user)}</AvatarFallback>
-              </Avatar>
-              <div className='flex flex-col'>
-                <span className='font-medium'>
-                  {user.full_name || 'No name'}
-                </span>
-                <span className='text-sm text-muted-foreground'>
-                  {user.email}
-                </span>
-              </div>
-            </div>
+                    <div className='flex items-center gap-3'>
+                      <Avatar className='h-9 w-9'>
+                        <AvatarImage
+                          src={user.avatar_url || undefined}
+                          alt={user.full_name || 'User'}
+                        />
+                        <AvatarFallback>{getInitials(user)}</AvatarFallback>
+                      </Avatar>
+                      <div className='flex flex-col'>
+                        <span className='font-medium'>
+                          {user.full_name || 'No name'}
+                        </span>
+                        <span className='text-sm text-muted-foreground'>
+                          {user.email}
+                        </span>
+                      </div>
+                    </div>
           );
         }
       },
@@ -184,9 +184,9 @@ export function UserList({
         cell: ({ row }) => {
           const role = row.getValue('role') as string;
           return (
-            <Badge variant='secondary'>
+                    <Badge variant='secondary'>
               {ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role}
-            </Badge>
+                    </Badge>
           );
         }
       },
@@ -196,12 +196,12 @@ export function UserList({
         cell: ({ row }) => {
           const user = row.original;
           return (
-            <Badge
+                    <Badge
               variant={user.last_login ? 'default' : 'secondary'}
-              className='whitespace-nowrap'
-            >
-              {user.last_login ? 'Active' : 'Inactive'}
-            </Badge>
+                      className='whitespace-nowrap'
+                    >
+                      {user.last_login ? 'Active' : 'Inactive'}
+                    </Badge>
           );
         }
       },
@@ -220,14 +220,14 @@ export function UserList({
           const user = row.original;
 
           return (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant='ghost' className='h-8 w-8 p-0'>
-                  <span className='sr-only'>Open menu</span>
-                  <MoreVertical className='h-4 w-4' />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align='end'>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant='ghost' className='h-8 w-8 p-0'>
+                          <span className='sr-only'>Open menu</span>
+                          <MoreVertical className='h-4 w-4' />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align='end'>
                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
                 <DropdownMenuItem
                   asChild={canViewUsers}
@@ -236,16 +236,16 @@ export function UserList({
                 >
                   {canViewUsers ? (
                     <Link href={`/users/${user.id}`} className='cursor-pointer'>
-                      <Eye className='mr-2 h-4 w-4' />
+                            <Eye className='mr-2 h-4 w-4' />
                       View Profile
-                    </Link>
+                          </Link>
                   ) : (
                     <div>
                       <Eye className='mr-2 h-4 w-4' />
                       View Profile
                     </div>
                   )}
-                </DropdownMenuItem>
+                        </DropdownMenuItem>
 
                 <DropdownMenuItem
                   asChild={canEditUsers}
@@ -253,51 +253,51 @@ export function UserList({
                   style={{ opacity: canEditUsers ? 1 : 0.5 }}
                 >
                   {canEditUsers ? (
-                    <Link
-                      href={`/users/${user.id}/edit`}
-                      className='cursor-pointer'
-                    >
-                      <Pencil className='mr-2 h-4 w-4' />
+                          <Link
+                            href={`/users/${user.id}/edit`}
+                            className='cursor-pointer'
+                          >
+                            <Pencil className='mr-2 h-4 w-4' />
                       Edit User
-                    </Link>
+                          </Link>
                   ) : (
                     <div>
                       <Pencil className='mr-2 h-4 w-4' />
                       Edit User
                     </div>
                   )}
-                </DropdownMenuItem>
+                        </DropdownMenuItem>
 
-                <DropdownMenuItem
-                  onClick={
+                        <DropdownMenuItem
+                          onClick={
                     canEditRoles ? () => handleRoleChange(user) : undefined
                   }
                   disabled={!canEditRoles}
                   style={{ opacity: canEditRoles ? 1 : 0.5 }}
-                >
-                  <Shield className='mr-2 h-4 w-4' />
+                        >
+                          <Shield className='mr-2 h-4 w-4' />
                   Change Role
-                </DropdownMenuItem>
+                        </DropdownMenuItem>
 
-                <DropdownMenuSeparator />
+                        <DropdownMenuSeparator />
 
-                <DropdownMenuItem
-                  onClick={
+                        <DropdownMenuItem
+                          onClick={
                     canDeleteUsers ? () => handleSingleDelete(user) : undefined
-                  }
+                          }
                   disabled={!canDeleteUsers}
-                  className={
+                          className={
                     canDeleteUsers
                       ? 'text-destructive focus:text-destructive cursor-pointer'
                       : 'cursor-pointer'
                   }
                   style={{ opacity: canDeleteUsers ? 1 : 0.5 }}
-                >
-                  <Trash2 className='mr-2 h-4 w-4' />
+                        >
+                          <Trash2 className='mr-2 h-4 w-4' />
                   Delete User
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
           );
         },
         enableSorting: false,
@@ -322,16 +322,16 @@ export function UserList({
             <Plus className='mr-2 h-4 w-4' />
             Add User
           </Link>
-        </Button>
+          </Button>
       ) : (
-        <Button
+          <Button
           className='w-full sm:w-auto opacity-50'
           disabled
-          variant='outline'
-        >
+            variant='outline'
+          >
           <Plus className='mr-2 h-4 w-4' />
           Add User
-        </Button>
+          </Button>
       )}
     </div>
   );

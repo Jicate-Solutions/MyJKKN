@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/select';
 import { PeriodFilters as PeriodFiltersType } from '@/types/academics';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface PeriodFiltersProps {
   filters: PeriodFiltersType;
@@ -22,11 +24,60 @@ export function PeriodFilters({ filters, onFilterChange }: PeriodFiltersProps) {
   const [searchTerm, setSearchTerm] = useState(filters.search || '');
   const debouncedSearchTerm = useDebounceValue(searchTerm, 500);
 
+  // State for institutions data
+  const [institutions, setInstitutions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [institutionsLoading, setInstitutionsLoading] = useState(true);
+
+  const { isSuperAdmin, userProfile } = usePermissions();
+
+  // Fetch institutions data (only for super admin)
+  useEffect(() => {
+    const fetchInstitutions = async () => {
+      if (!isSuperAdmin) {
+        setInstitutionsLoading(false);
+        return;
+      }
+
+      try {
+        setInstitutionsLoading(true);
+        const data = await OrganizationService.getInstitutionNames(true);
+        setInstitutions(data);
+      } catch (error) {
+        console.error('Error loading institutions:', error);
+      } finally {
+        setInstitutionsLoading(false);
+      }
+    };
+
+    fetchInstitutions();
+  }, [isSuperAdmin]);
+
+  // Auto-set institution filter for faculty users
+  useEffect(() => {
+    if (
+      !isSuperAdmin &&
+      userProfile?.institution_id &&
+      !filters.institution_id
+    ) {
+      onFilterChange({ institution_id: userProfile.institution_id });
+    }
+  }, [userProfile, isSuperAdmin, filters.institution_id, onFilterChange]);
+
   useEffect(() => {
     if (debouncedSearchTerm !== filters.search) {
       onFilterChange({ search: debouncedSearchTerm || undefined });
     }
   }, [debouncedSearchTerm, filters.search, onFilterChange]);
+
+  const handleInstitutionChange = (value: string) => {
+    if (value === 'all') {
+      onFilterChange({ institution_id: undefined });
+    } else {
+      onFilterChange({ institution_id: value });
+    }
+  };
 
   const handleIsBreakChange = (value: string) => {
     if (value === 'all') {
@@ -47,6 +98,34 @@ export function PeriodFilters({ filters, onFilterChange }: PeriodFiltersProps) {
           onChange={(e) => setSearchTerm(e.target.value)}
         />
       </div>
+
+      {/* Institution Filter - Only show for super admins */}
+      {isSuperAdmin && (
+        <Select
+          value={filters.institution_id || 'all'}
+          onValueChange={handleInstitutionChange}
+          disabled={institutionsLoading}
+        >
+          <SelectTrigger className='w-full sm:w-[200px]'>
+            <SelectValue placeholder='Filter by institution' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Institutions</SelectItem>
+            {institutions.length === 0 && !institutionsLoading ? (
+              <SelectItem value='no-data' disabled>
+                No institutions available
+              </SelectItem>
+            ) : (
+              institutions.map((institution) => (
+                <SelectItem key={institution.id} value={institution.id}>
+                  {institution.name}
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+      )}
+
       <Select
         value={
           filters.isBreak === undefined

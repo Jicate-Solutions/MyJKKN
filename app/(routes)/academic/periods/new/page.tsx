@@ -139,7 +139,7 @@ export default function NewPeriodPage() {
           <h1 className='text-2xl font-bold'>Create New Period</h1>
         </div>
 
-        <div className='max-w-2xl'>
+        <div className='max-w-5xl'>
           <PeriodForm isSubmitting={isSubmitting} onSubmit={handleSubmit} />
         </div>
       </div>

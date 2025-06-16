@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -16,8 +16,17 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { Period } from '@/types/academics';
 import { Card, CardContent } from '@/components/ui/card';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Validation schema
 const periodSchema = z
@@ -38,6 +47,7 @@ const periodSchema = z
         /^\d{2}:\d{2}(:\d{2})?$/,
         'End time must be in HH:MM or HH:MM:SS format'
       ),
+    institution_id: z.string().min(1, 'Institution is required'),
     is_break: z.boolean().default(false)
   })
   .refine(
@@ -66,6 +76,36 @@ export function PeriodForm({
   isSubmitting,
   onSubmit
 }: PeriodFormProps) {
+  // State for institutions data
+  const [institutions, setInstitutions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [institutionsLoading, setInstitutionsLoading] = useState(true);
+
+  const { isSuperAdmin, userProfile } = usePermissions();
+
+  // Fetch institutions data (only for super admin)
+  useEffect(() => {
+    const fetchInstitutions = async () => {
+      if (!isSuperAdmin) {
+        setInstitutionsLoading(false);
+        return;
+      }
+
+      try {
+        setInstitutionsLoading(true);
+        const data = await OrganizationService.getInstitutionNames(true);
+        setInstitutions(data);
+      } catch (error) {
+        console.error('Error loading institutions:', error);
+      } finally {
+        setInstitutionsLoading(false);
+      }
+    };
+
+    fetchInstitutions();
+  }, [isSuperAdmin]);
+
   // Initialize form with default values or existing period data
   const form = useForm<PeriodFormValues>({
     resolver: zodResolver(periodSchema),
@@ -74,15 +114,24 @@ export function PeriodForm({
           period_name: period.period_name,
           start_time: period.start_time.substring(0, 5), // Format to HH:MM
           end_time: period.end_time.substring(0, 5), // Format to HH:MM
+          institution_id: period.institution_id,
           is_break: period.is_break
         }
       : {
           period_name: '',
           start_time: '',
           end_time: '',
+          institution_id: userProfile?.institution_id || '',
           is_break: false
         }
   });
+
+  // Auto-set institution for non-super admin users
+  useEffect(() => {
+    if (!isSuperAdmin && userProfile?.institution_id && !period) {
+      form.setValue('institution_id', userProfile.institution_id);
+    }
+  }, [userProfile, isSuperAdmin, period, form]);
 
   // Format time to include seconds if needed
   const formatTime = (time: string): string => {
@@ -110,7 +159,55 @@ export function PeriodForm({
       >
         <Card>
           <CardContent className='p-6 space-y-6'>
-            <div className='grid gap-6 md:grid-cols-2'>
+            <div
+              className={`grid gap-6 ${
+                isSuperAdmin ? 'md:grid-cols-2' : 'md:grid-cols-1'
+              }`}
+            >
+              {/* Institution Filter - Only show for super admins */}
+              {isSuperAdmin && (
+                <FormField
+                  control={form.control}
+                  name='institution_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Institution</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                        disabled={institutionsLoading || isSubmitting}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select institution' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {institutions.length === 0 && !institutionsLoading ? (
+                            <SelectItem value='no-data' disabled>
+                              No institutions available
+                            </SelectItem>
+                          ) : (
+                            institutions.map((institution) => (
+                              <SelectItem
+                                key={institution.id}
+                                value={institution.id}
+                              >
+                                {institution.name}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Select the institution for this period.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
               <FormField
                 control={form.control}
                 name='period_name'

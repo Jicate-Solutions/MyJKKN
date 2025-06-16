@@ -8,6 +8,7 @@ import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { useAcademicYears } from '@/hooks/academic/use-academic-years';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
@@ -22,6 +23,8 @@ import { AcademicYearFilters } from './_components/academic-year-filters';
 import { AcademicYearList } from './_components/academic-year-list';
 
 export default function AcademicYearsPage() {
+  const { isSuperAdmin, userProfile } = usePermissions();
+
   const {
     academicYears,
     loading,
@@ -31,7 +34,13 @@ export default function AcademicYearsPage() {
     updateFilters,
     changePage,
     fetchAcademicYears
-  } = useAcademicYears();
+  } = useAcademicYears({
+    page: 1,
+    limit: 10,
+    institution_id: !isSuperAdmin
+      ? userProfile?.institution_id || undefined
+      : undefined
+  });
 
   useEffect(() => {
     fetchAcademicYears();

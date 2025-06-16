@@ -191,6 +191,7 @@ export function PeriodTable({
               )}
               <TableHead>S.No</TableHead>
               <TableHead>Period Name</TableHead>
+              <TableHead>Institution</TableHead>
               <TableHead>Start Time</TableHead>
               <TableHead>End Time</TableHead>
               <TableHead>Duration</TableHead>
@@ -232,6 +233,7 @@ export function PeriodTable({
                   <TableCell className='font-medium'>
                     {period.period_name}
                   </TableCell>
+                  <TableCell>{period.institution?.name || 'N/A'}</TableCell>
                   <TableCell>{formatTime(period.start_time)}</TableCell>
                   <TableCell>{formatTime(period.end_time)}</TableCell>
                   <TableCell>{durationMinutes} minutes</TableCell>
