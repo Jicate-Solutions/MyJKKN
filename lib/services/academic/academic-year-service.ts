@@ -105,27 +105,61 @@ export class AcademicYearService {
     return { success, failed };
   }
 
-  static async getAcademicYears(filters: AcademicYearFilters = {}) {
+  static async getAcademicYears(
+    filters: AcademicYearFilters = {}
+  ): Promise<AcademicYearListResponse> {
     try {
-      let query = this.supabase
-        .from('academic_years')
-        .select(
-          `          *,          institution:institutions (            id,            name,            counselling_code          )          `,
-          { count: 'exact' }
-        );
+      let query = this.supabase.from('academic_years').select(
+        `
+          *,
+          institution:institutions (
+            id,
+            name,
+            counselling_code
+          )
+          `,
+        { count: 'exact' }
+      );
 
+      // Apply institution filter
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+      }
+
+      // Apply search filter
+      if (filters.search) {
+        query = query.ilike('academic_year_name', `%${filters.search}%`);
+      }
+
+      // Apply active status filter
       if (filters.isActive !== undefined) {
         query = query.eq('is_active', filters.isActive);
       }
+
+      // Apply sorting
+      query = query.order('created_at', { ascending: false });
+
+      // Apply pagination
+      const page = filters.page || 1;
+      const limit = filters.limit || 10;
+      const offset = (page - 1) * limit;
+
+      query = query.range(offset, offset + limit - 1);
 
       const { data, error, count } = await query;
 
       if (error) throw error;
 
+      const total = count || 0;
+      const totalPages = Math.ceil(total / limit);
+
       return {
         data: data || [],
         metadata: {
-          total: count || 0
+          total,
+          page,
+          limit,
+          totalPages
         }
       };
     } catch (error) {

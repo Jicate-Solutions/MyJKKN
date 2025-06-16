@@ -103,11 +103,21 @@ export class PeriodService {
     filters: PeriodFilters = {}
   ): Promise<PeriodListResponse> {
     try {
-      let query = this.supabase.from('periods').select('*', { count: 'exact' });
+      let query = this.supabase.from('periods').select(
+        `
+          *,
+          institution:institutions(id, name)
+        `,
+        { count: 'exact' }
+      );
 
       // Apply filters
       if (filters.search) {
         query = query.ilike('period_name', `%${filters.search}%`);
+      }
+
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
       }
 
       if (filters.isBreak !== undefined) {
@@ -153,7 +163,12 @@ export class PeriodService {
     try {
       const { data: period, error } = await this.supabase
         .from('periods')
-        .select('*')
+        .select(
+          `
+          *,
+          institution:institutions(id, name)
+        `
+        )
         .eq('id', id)
         .single();
 

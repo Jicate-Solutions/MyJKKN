@@ -52,8 +52,14 @@ export interface Period {
   start_time: string;
   end_time: string;
   is_break: boolean;
+  institution_id: string;
   created_at: string;
   updated_at: string;
+  // Relations
+  institution?: {
+    id: string;
+    name: string;
+  };
 }
 
 export interface CreatePeriodDto {
@@ -61,12 +67,14 @@ export interface CreatePeriodDto {
   start_time: string; // Format: HH:MM:SS
   end_time: string; // Format: HH:MM:SS
   is_break?: boolean;
+  institution_id: string;
 }
 
 export interface UpdatePeriodDto extends Partial<CreatePeriodDto> {}
 
 export interface PeriodFilters {
   search?: string;
+  institution_id?: string;
   isBreak?: boolean;
   page?: number;
   limit?: number;

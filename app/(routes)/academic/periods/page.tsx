@@ -23,6 +23,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
 
 export default function PeriodsPage() {
+  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+
   const {
     periods,
     loading,
@@ -33,9 +35,11 @@ export default function PeriodsPage() {
     changePage,
     fetchPeriods,
     deletePeriod
-  } = usePeriods({ limit: 10 });
-
-  const { canAccess, isSuperAdmin } = usePermissions();
+  } = usePeriods({
+    page: 1,
+    limit: 10,
+    institution_id: !isSuperAdmin ? userProfile?.institution_id : undefined
+  });
 
   const canViewPeriods = isSuperAdmin || canAccess('academic.periods', 'view');
   const canCreatePeriods =
