@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Profile } from '@/types/auth';
-import { Shield, AlertCircle, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Shield, AlertCircle } from 'lucide-react';
 import { ROLE_LABELS } from '@/lib/constants/permissions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -12,14 +12,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,9 +24,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { Button } from '@/components/ui/button';
 import { CustomRole } from '@/types/auth';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 
 interface RolesListProps {
   users: Profile[];
@@ -47,14 +39,18 @@ interface RolesListProps {
     hasPreviousPage: boolean;
   };
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
   onRoleUpdate: (userId: string, newRole: string) => Promise<void>;
+  paginationLoading?: boolean;
 }
 
 export function RolesList({
   users,
   metadata,
   onPageChange,
-  onRoleUpdate
+  onPageSizeChange,
+  onRoleUpdate,
+  paginationLoading
 }: RolesListProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -132,150 +128,123 @@ export function RolesList({
     return role ? role.role_name : roleKey;
   };
 
-  return (
-    <div className='space-y-4'>
-      <div className='rounded-md border'>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>S.No</TableHead>
-              <TableHead>User Name</TableHead>
-              <TableHead>Current Role</TableHead>
-              <TableHead>New Role</TableHead>
-              <TableHead>Last Updated</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {users.map((user, index) => (
-              <TableRow key={user.id}>
-                <TableCell className='font-medium'>
-                  {(metadata.page - 1) * metadata.limit + index + 1}
-                </TableCell>
-                <TableCell>
-                  <div className='flex items-center gap-3'>
-                    <Avatar className='h-9 w-9'>
-                      <AvatarImage
-                        src={user.avatar_url || undefined}
-                        alt={user.full_name || 'User'}
-                      />
-                      <AvatarFallback>{getInitials(user)}</AvatarFallback>
-                    </Avatar>
-                    <div className='flex flex-col'>
-                      <span className='font-medium'>
-                        {user.full_name || 'No name'}
-                      </span>
-                      <span className='text-sm text-muted-foreground'>
-                        {user.email}
-                      </span>
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className='flex items-center gap-2'>
-                    <Shield className='h-4 w-4 text-muted-foreground' />
-                    <span>{getRoleName(user.role)}</span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {isLoadingRoles ? (
-                    <div className='w-[200px] h-10 bg-muted animate-pulse rounded' />
-                  ) : (
-                    <Select
-                      defaultValue={user.role}
-                      onValueChange={(value) =>
-                        handleRoleChange(
-                          user.id,
-                          value,
-                          user.role,
-                          user.full_name || user.email
-                        )
-                      }
-                    >
-                      <SelectTrigger className='w-[200px]'>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableRoles.map((role) => (
-                          <SelectItem key={role.role_key} value={role.role_key}>
-                            {role.role_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </TableCell>
-                <TableCell>{formatDate(user.updated_at)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Advanced Pagination */}
-      <div className='flex items-center justify-between px-2'>
-        <div className='text-sm text-muted-foreground'>
-          Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
-          {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
-          {metadata.total} entries
-        </div>
-
-        <div className='flex items-center space-x-2'>
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => onPageChange(1)}
-            disabled={metadata.page === 1}
-          >
-            First
-          </Button>
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => onPageChange(metadata.page - 1)}
-            disabled={!metadata.hasPreviousPage}
-          >
-            <ChevronLeft className='h-4 w-4' />
-            Previous
-          </Button>
-          <div className='flex items-center gap-1'>
-            {[...Array(Math.min(5, metadata.totalPages))].map((_, i) => {
-              const pageNumber = metadata.page + i - 2;
-              if (pageNumber > 0 && pageNumber <= metadata.totalPages) {
-                return (
-                  <Button
-                    key={pageNumber}
-                    variant={
-                      metadata.page === pageNumber ? 'default' : 'outline'
-                    }
-                    size='sm'
-                    onClick={() => onPageChange(pageNumber)}
-                  >
-                    {pageNumber}
-                  </Button>
-                );
+  // Define columns for the data table
+  const columns: PermissionColumnDef<Profile, any>[] = useMemo(
+    () => [
+      {
+        id: 'user',
+        header: 'User Name',
+        cell: ({ row }) => {
+          const user = row.original;
+          return (
+            <div className='flex items-center gap-3'>
+              <Avatar className='h-9 w-9'>
+                <AvatarImage
+                  src={user.avatar_url || undefined}
+                  alt={user.full_name || 'User'}
+                />
+                <AvatarFallback>{getInitials(user)}</AvatarFallback>
+              </Avatar>
+              <div className='flex flex-col'>
+                <span className='font-medium'>
+                  {user.full_name || 'No name'}
+                </span>
+                <span className='text-sm text-muted-foreground'>
+                  {user.email}
+                </span>
+              </div>
+            </div>
+          );
+        }
+      },
+      {
+        id: 'current_role',
+        header: 'Current Role',
+        cell: ({ row }) => {
+          const user = row.original;
+          return (
+            <div className='flex items-center gap-2'>
+              <Shield className='h-4 w-4 text-muted-foreground' />
+              <span>{getRoleName(user.role)}</span>
+            </div>
+          );
+        }
+      },
+      {
+        id: 'new_role',
+        header: 'New Role',
+        cell: ({ row }) => {
+          const user = row.original;
+          return isLoadingRoles ? (
+            <div className='w-[200px] h-10 bg-muted animate-pulse rounded' />
+          ) : (
+            <Select
+              defaultValue={user.role}
+              onValueChange={(value) =>
+                handleRoleChange(
+                  user.id,
+                  value,
+                  user.role,
+                  user.full_name || user.email
+                )
               }
-              return null;
-            })}
-          </div>
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => onPageChange(metadata.page + 1)}
-            disabled={!metadata.hasNextPage}
-          >
-            Next
-            <ChevronRight className='h-4 w-4' />
-          </Button>
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => onPageChange(metadata.totalPages)}
-            disabled={metadata.page === metadata.totalPages}
-          >
-            Last
-          </Button>
-        </div>
-      </div>
+            >
+              <SelectTrigger className='w-[200px]'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableRoles.map((role) => (
+                  <SelectItem key={role.role_key} value={role.role_key}>
+                    {role.role_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          );
+        },
+        enableSorting: false
+      },
+      {
+        id: 'updated_at',
+        accessorKey: 'updated_at',
+        header: 'Last Updated',
+        cell: ({ row }) => {
+          return formatDate(row.getValue('updated_at'));
+        }
+      }
+    ],
+    [availableRoles, isLoadingRoles]
+  );
+
+  return (
+    <>
+      <DataTable
+        columns={columns}
+        data={users}
+        searchPlaceholder='Search users...'
+        filterColumn='email'
+        permissions={{
+          module: 'roles',
+          actions: {
+            view: true,
+            edit: true
+          },
+          showPermissionError: true
+        }}
+        getRowId={(row) => row.id}
+        showRefresh={false}
+        serverSidePagination={{
+          currentPage: metadata.page,
+          totalPages: metadata.totalPages,
+          pageSize: metadata.limit,
+          totalItems: metadata.total,
+          hasNextPage: metadata.hasNextPage,
+          hasPreviousPage: metadata.hasPreviousPage,
+          onPageChange: onPageChange,
+          onPageSizeChange: onPageSizeChange,
+          isLoading: paginationLoading
+        }}
+      />
 
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <AlertDialogContent>
@@ -300,6 +269,6 @@ export function RolesList({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }

@@ -18,6 +18,7 @@ import { Plus, Download } from 'lucide-react';
 export default function UsersPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
+  const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
@@ -35,26 +36,36 @@ export default function UsersPage() {
   });
 
   // Define fetchData as a useCallback function
-  const fetchData = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
+  const fetchData = useCallback(
+    async (showPaginationLoader = false) => {
+      try {
+        if (showPaginationLoader) {
+          setPaginationLoading(true);
+        } else {
+          setIsLoading(true);
+        }
+        setError(null);
 
-      // Fetch users with filters
-      const response = await UserService.getUsers(filters);
-      setUsers(response.data);
-      setMetadata(response.metadata);
+        // Fetch users with filters
+        const response = await UserService.getUsers(filters);
+        setUsers(response.data);
+        setMetadata(response.metadata);
 
-      // Fetch stats
-      const statsData = await UserService.getUserStats();
-      setStats(statsData);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filters]); // Add filters as dependency
+        // Fetch stats only on initial load
+        if (!showPaginationLoader) {
+          const statsData = await UserService.getUserStats();
+          setStats(statsData);
+        }
+      } catch (err) {
+        console.error('Error fetching data:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setIsLoading(false);
+        setPaginationLoading(false);
+      }
+    },
+    [filters]
+  );
 
   // Fetch users and stats
   useEffect(() => {
@@ -73,6 +84,15 @@ export default function UsersPage() {
     setFilters((prev) => ({
       ...prev,
       page
+    }));
+    fetchData(true); // Show pagination loader
+  };
+
+  const handlePageSizeChange = (pageSize: number) => {
+    setFilters((prev) => ({
+      ...prev,
+      limit: pageSize,
+      page: 1 // Reset to first page when page size changes
     }));
   };
 
@@ -152,7 +172,9 @@ export default function UsersPage() {
                 users={users}
                 metadata={metadata}
                 onPageChange={handlePageChange}
-                onRefresh={fetchData}
+                onPageSizeChange={handlePageSizeChange}
+                onRefresh={() => fetchData()}
+                paginationLoading={paginationLoading}
               />
             )}
           </CardContent>

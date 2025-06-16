@@ -24,6 +24,7 @@ import { UserFiltersComponent } from '../_components/user-filters';
 export default function RolesPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
+  const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
@@ -68,19 +69,27 @@ export default function RolesPage() {
   };
 
   // Update fetchUsers to use filters
-  const fetchUsers = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const response = await UserService.getUsers(filters);
-      setUsers(response.data);
-      setMetadata(response.metadata);
-    } catch (err) {
-      console.error('Error fetching users:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filters]);
+  const fetchUsers = useCallback(
+    async (showPaginationLoader = false) => {
+      try {
+        if (showPaginationLoader) {
+          setPaginationLoading(true);
+        } else {
+          setIsLoading(true);
+        }
+        const response = await UserService.getUsers(filters);
+        setUsers(response.data);
+        setMetadata(response.metadata);
+      } catch (err) {
+        console.error('Error fetching users:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setIsLoading(false);
+        setPaginationLoading(false);
+      }
+    },
+    [filters]
+  );
 
   // Update useEffect to depend on filters
   useEffect(() => {
@@ -103,8 +112,9 @@ export default function RolesPage() {
       await UserService.updateUserRole(userId, newRole);
 
       // Refresh user list
-      const response = await UserService.getUsers();
+      const response = await UserService.getUsers(filters);
       setUsers(response.data);
+      setMetadata(response.metadata);
     } catch (error) {
       console.error('Error updating role:', error);
       setError(
@@ -122,6 +132,15 @@ export default function RolesPage() {
     setFilters((prev) => ({
       ...prev,
       page
+    }));
+    fetchUsers(true); // Show pagination loader
+  };
+
+  const handlePageSizeChange = (pageSize: number) => {
+    setFilters((prev) => ({
+      ...prev,
+      limit: pageSize,
+      page: 1 // Reset to first page when page size changes
     }));
   };
 
@@ -184,7 +203,9 @@ export default function RolesPage() {
                 users={users}
                 metadata={metadata}
                 onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
                 onRoleUpdate={handleRoleUpdate}
+                paginationLoading={paginationLoading}
               />
             )}
           </CardContent>
