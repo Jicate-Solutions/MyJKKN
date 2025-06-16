@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { usePermissions } from '@/hooks/use-permissions';
-import { BeatLoader } from 'react-spinners';
+import { Button } from '@/components/ui/button';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -15,9 +14,9 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { BeatLoader } from 'react-spinners';
 import { SemesterList } from './_components/semester-list';
 import { SemesterFilters } from './_components/semester-filters';
-import { SemesterFilters as SemesterFiltersType } from '@/types/organizations';
 
 export default function SemestersPage() {
   const {
@@ -26,25 +25,20 @@ export default function SemestersPage() {
     paginationLoading,
     error,
     metadata,
+    filters,
+    updateFilters,
     changePage,
     changePageSize,
     fetchSemesters
-  } = useSemesters();
+  } = useSemesters({ page: 1, limit: 10 });
 
   const { canAccess, isSuperAdmin } = usePermissions();
-  const [filters, setFilters] = useState<SemesterFiltersType>({
-    page: 1,
-    limit: 10
-  });
   const canViewSemesters =
     isSuperAdmin || canAccess('organizations.semesters', 'view');
 
   useEffect(() => {
-    // Only fetch semesters if user has permission
-    if (canViewSemesters) {
-      fetchSemesters();
-    }
-  }, [fetchSemesters, canViewSemesters]);
+    fetchSemesters();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) {
     return (
@@ -93,7 +87,12 @@ export default function SemestersPage() {
             Manage academic semesters
           </p>
         </div>
-        <SemesterFilters filters={filters} onFilterChange={setFilters} />
+
+        <SemesterFilters
+          filters={filters}
+          onFilterChange={updateFilters}
+        />
+
         {loading ? (
           <div className='flex justify-center items-center p-8'>
             <BeatLoader color='#00e902' />
