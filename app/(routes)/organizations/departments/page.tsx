@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useDepartments } from '@/hooks/organization/use-departments';
@@ -19,7 +19,6 @@ import {
 import { BeatLoader } from 'react-spinners';
 import { DepartmentList } from './_components/department-list';
 import { DepartmentFilters } from './_components/department-filters';
-import { DepartmentFilters as DepartmentFiltersType } from '@/types/organizations';
 
 export default function DepartmentsPage() {
   const {
@@ -28,16 +27,14 @@ export default function DepartmentsPage() {
     paginationLoading,
     error,
     metadata,
+    filters,
+    updateFilters,
     changePage,
     changePageSize,
     fetchDepartments
-  } = useDepartments();
+  } = useDepartments({ page: 1, limit: 10 });
 
   const { canAccess, isSuperAdmin } = usePermissions();
-  const [filters, setFilters] = useState<DepartmentFiltersType>({
-    page: 1,
-    limit: 10
-  });
   const canViewDepartments =
     isSuperAdmin || canAccess('organizations.departments', 'view');
 
@@ -93,10 +90,7 @@ export default function DepartmentsPage() {
           </p>
         </div>
 
-        <DepartmentFilters
-          filters={filters}
-          onFilterChange={setFilters}
-        />
+        <DepartmentFilters filters={filters} onFilterChange={updateFilters} />
 
         {loading ? (
           <div className='flex justify-center items-center p-8'>

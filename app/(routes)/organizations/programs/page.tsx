@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePrograms } from '@/hooks/organization/use-programs';
@@ -17,7 +17,6 @@ import {
 import { BeatLoader } from 'react-spinners';
 import { ProgramList } from './_components/program-list';
 import { ProgramFilters } from './_components/program-filters';
-import { ProgramFilters as ProgramFiltersType } from '@/types/organizations';
 
 export default function ProgramsPage() {
   const {
@@ -26,29 +25,20 @@ export default function ProgramsPage() {
     paginationLoading,
     error,
     metadata,
+    filters,
+    updateFilters,
     changePage,
     changePageSize,
     fetchPrograms
-  } = usePrograms();
+  } = usePrograms({ page: 1, limit: 10 });
 
   const { canAccess, isSuperAdmin } = usePermissions();
-  const [filters, setFilters] = useState<ProgramFiltersType>({
-    page: 1,
-    limit: 10
-  });
   const canViewPrograms =
     isSuperAdmin || canAccess('organizations.programs', 'view');
-  const canCreatePrograms =
-    isSuperAdmin || canAccess('organizations.programs', 'create');
-  const canEditPrograms =
-    isSuperAdmin || canAccess('organizations.programs', 'edit');
 
   useEffect(() => {
-    // Only fetch programs if user has permission
-    if (canViewPrograms) {
-      fetchPrograms();
-    }
-  }, [fetchPrograms, canViewPrograms]);
+    fetchPrograms();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) {
     return (
@@ -97,7 +87,8 @@ export default function ProgramsPage() {
             Manage academic programs
           </p>
         </div>
-        <ProgramFilters filters={filters} onFilterChange={setFilters} />
+
+        <ProgramFilters filters={filters} onFilterChange={updateFilters} />
 
         {loading ? (
           <div className='flex justify-center items-center p-8'>

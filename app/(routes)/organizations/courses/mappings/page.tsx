@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
+import { useCourseMappings } from '@/hooks/organization/use-course-mappings';
 import { usePermissions } from '@/hooks/use-permissions';
+import { Button } from '@/components/ui/button';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -14,10 +15,8 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { BeatLoader } from 'react-spinners';
-import { useCourseMappings } from '@/hooks/organization/use-course-mappings';
 import { CourseMappingList } from './_components/course-mapping-list';
 import { CourseMappingFilters } from './_components/course-mapping-filters';
-import { CourseMappingFilters as CourseMappingFiltersType } from '@/types/organizations';
 
 export default function CourseMappingsPage() {
   const {
@@ -26,25 +25,20 @@ export default function CourseMappingsPage() {
     paginationLoading,
     error,
     metadata,
+    filters,
+    updateFilters,
     changePage,
     changePageSize,
     fetchCourseMappings
-  } = useCourseMappings();
+  } = useCourseMappings({ page: 1, limit: 10 });
 
   const { canAccess, isSuperAdmin } = usePermissions();
-  const [filters, setFilters] = useState<CourseMappingFiltersType>({
-    page: 1,
-    limit: 10
-  });
   const canViewCourseMappings =
-    isSuperAdmin || canAccess('organizations.course.mappings', 'view');
+    isSuperAdmin || canAccess('organizations.course_mappings', 'view');
 
   useEffect(() => {
-    // Only fetch course mappings if user has permission
-    if (canViewCourseMappings) {
-      fetchCourseMappings();
-    }
-  }, [fetchCourseMappings, canViewCourseMappings]);
+    fetchCourseMappings();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) {
     return (
@@ -87,24 +81,24 @@ export default function CourseMappingsPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Course Mappings</BreadcrumbPage>
+            <BreadcrumbPage>Mappings</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Course Mappings</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Map courses to institutions, degrees, departments, and semesters
-            </p>
-          </div>
+        <div>
+          <h1 className='text-2xl font-bold py-1'>Course Mappings</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
+            Manage course mappings and prerequisites
+          </p>
         </div>
+
         <CourseMappingFilters
           filters={filters}
-          onFilterChange={setFilters}
+          onFilterChange={updateFilters}
         />
+
         {loading ? (
           <div className='flex justify-center items-center p-8'>
             <BeatLoader color='#00e902' />

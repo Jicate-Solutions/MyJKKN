@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,6 @@ import { BeatLoader } from 'react-spinners';
 import { DegreeList } from './_components/degree-list';
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { DegreeFilters } from './_components/degree-filters';
-import { DegreeFilters as DegreeFiltersType } from '@/types/organizations';
 
 export default function DegreesPage() {
   const {
@@ -28,16 +27,17 @@ export default function DegreesPage() {
     paginationLoading,
     error,
     metadata,
+    filters,
+    updateFilters,
     changePage,
     changePageSize,
     fetchDegrees
-  } = useDegrees();
-
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const [filters, setFilters] = useState<DegreeFiltersType>({
+  } = useDegrees({
     page: 1,
     limit: 10
   });
+
+  const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewDegrees =
     isSuperAdmin || canAccess('organizations.degrees', 'view');
@@ -94,7 +94,7 @@ export default function DegreesPage() {
           </p>
         </div>
 
-        <DegreeFilters filters={filters} onFilterChange={setFilters} />
+        <DegreeFilters filters={filters} onFilterChange={updateFilters} />
 
         {loading ? (
           <div className='flex justify-center items-center p-8'>

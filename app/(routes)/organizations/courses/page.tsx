@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,6 @@ import { BeatLoader } from 'react-spinners';
 import { CourseList } from './_components/course-list';
 import { useCourses } from '@/hooks/organization/use-courses';
 import { CourseFilters } from './_components/course-filters';
-import { CourseFilters as CourseFiltersType } from '@/types/organizations';
 
 export default function CoursesPage() {
   const {
@@ -26,22 +25,16 @@ export default function CoursesPage() {
     paginationLoading,
     error,
     metadata,
+    filters,
+    updateFilters,
     changePage,
     changePageSize,
     fetchCourses
-  } = useCourses();
+  } = useCourses({ page: 1, limit: 10 });
 
   const { canAccess, isSuperAdmin } = usePermissions();
-  const [filters, setFilters] = useState<CourseFiltersType>({
-    page: 1,
-    limit: 10
-  });
   const canViewCourses =
     isSuperAdmin || canAccess('organizations.courses', 'view');
-  const canCreateCourses =
-    isSuperAdmin || canAccess('organizations.courses', 'create');
-  const canEditCourses =
-    isSuperAdmin || canAccess('organizations.courses', 'edit');
 
   useEffect(() => {
     // Only fetch courses if user has permission
@@ -97,7 +90,8 @@ export default function CoursesPage() {
             Manage academic courses
           </p>
         </div>
-        <CourseFilters filters={filters} onFilterChange={setFilters} />
+
+        <CourseFilters filters={filters} onFilterChange={updateFilters} />
 
         {loading ? (
           <div className='flex justify-center items-center p-8'>

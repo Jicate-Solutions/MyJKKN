@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { useSections } from '@/hooks/organization/use-sections';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import {
   Breadcrumb,
@@ -12,12 +14,9 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { useSections } from '@/hooks/organization/use-sections';
-import { usePermissions } from '@/hooks/use-permissions';
-import { SectionList } from './_components/section-list';
 import { BeatLoader } from 'react-spinners';
+import { SectionList } from './_components/section-list';
 import { SectionFilters } from './_components/section-filters';
-import { SectionFilters as SectionFiltersType } from '@/types/organizations';
 
 export default function SectionsPage() {
   const {
@@ -26,16 +25,14 @@ export default function SectionsPage() {
     paginationLoading,
     error,
     metadata,
+    filters,
+    updateFilters,
     changePage,
     changePageSize,
     fetchSections
-  } = useSections({ limit: 10 });
+  } = useSections({ page: 1, limit: 10 });
 
   const { canAccess, isSuperAdmin } = usePermissions();
-  const [filters, setFilters] = useState<SectionFiltersType>({
-    page: 1,
-    limit: 10
-  });
   const canViewSections =
     isSuperAdmin || canAccess('organizations.sections', 'view');
 
@@ -87,13 +84,12 @@ export default function SectionsPage() {
         <div>
           <h1 className='text-2xl font-bold py-1'>Sections</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Manage sections in your organization
+            Manage academic sections
           </p>
         </div>
-        <SectionFilters
-          filters={filters}
-          onFilterChange={setFilters}
-        />
+
+        <SectionFilters filters={filters} onFilterChange={updateFilters} />
+
         {loading ? (
           <div className='flex justify-center items-center p-8'>
             <BeatLoader color='#00e902' />
