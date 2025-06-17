@@ -29,41 +29,15 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { usePermissions } from '@/hooks/use-permissions';
 
 // Validation schema
-const periodSchema = z
-  .object({
-    period_name: z
-      .string()
-      .min(1, 'Period name is required')
-      .max(50, 'Period name cannot exceed 50 characters'),
-    start_time: z
-      .string()
-      .regex(
-        /^\d{2}:\d{2}(:\d{2})?$/,
-        'Start time must be in HH:MM or HH:MM:SS format'
-      ),
-    end_time: z
-      .string()
-      .regex(
-        /^\d{2}:\d{2}(:\d{2})?$/,
-        'End time must be in HH:MM or HH:MM:SS format'
-      ),
-    institution_id: z.string().min(1, 'Institution is required'),
-    is_break: z.boolean().default(false)
-  })
-  .refine(
-    (data) => {
-      // Ensure start time is before end time
-      const start = new Date(`2000-01-01T${data.start_time}`);
-      const end = new Date(`2000-01-01T${data.end_time}`);
-      return start < end;
-    },
-    {
-      message: 'Start time must be before end time',
-      path: ['end_time']
-    }
-  );
+const formSchema = z.object({
+  period_name: z.string().min(1, 'Period name is required'),
+  start_time: z.string().min(1, 'Start time is required'),
+  end_time: z.string().min(1, 'End time is required'),
+  is_break: z.boolean().default(false),
+  institution_id: z.string().optional()
+});
 
-type PeriodFormValues = z.infer<typeof periodSchema>;
+type PeriodFormValues = z.infer<typeof formSchema>;
 
 interface PeriodFormProps {
   period?: Period;
@@ -81,6 +55,7 @@ export function PeriodForm({
     Array<{ id: string; name: string }>
   >([]);
   const [institutionsLoading, setInstitutionsLoading] = useState(true);
+  const [institutionName, setInstitutionName] = useState<string>('');
 
   const { isSuperAdmin, userProfile } = usePermissions();
 
@@ -106,9 +81,24 @@ export function PeriodForm({
     fetchInstitutions();
   }, [isSuperAdmin]);
 
+  useEffect(() => {
+    const loadInstitutionName = async () => {
+      if (!isSuperAdmin && userProfile?.institution_id) {
+        try {
+          const data = await OrganizationService.getInstitutionNames();
+          const inst = data.find((i) => i.id === userProfile.institution_id);
+          if (inst) setInstitutionName(inst.name);
+        } catch (err) {
+          console.error('Failed loading institution name', err);
+        }
+      }
+    };
+    loadInstitutionName();
+  }, [isSuperAdmin, userProfile]);
+
   // Initialize form with default values or existing period data
   const form = useForm<PeriodFormValues>({
-    resolver: zodResolver(periodSchema),
+    resolver: zodResolver(formSchema),
     defaultValues: period
       ? {
           period_name: period.period_name,
@@ -165,7 +155,7 @@ export function PeriodForm({
               }`}
             >
               {/* Institution Filter - Only show for super admins */}
-              {isSuperAdmin && (
+              {isSuperAdmin ? (
                 <FormField
                   control={form.control}
                   name='institution_id'
@@ -179,7 +169,7 @@ export function PeriodForm({
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder='Select institution' />
+                            <SelectValue placeholder='Select an institution' />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -206,6 +196,18 @@ export function PeriodForm({
                     </FormItem>
                   )}
                 />
+              ) : (
+                userProfile?.institution_id && (
+                  <div>
+                    <label className='block text-sm font-medium mb-1'>
+                      Institution
+                    </label>
+                    <Input
+                      value={institutionName || 'Current Institution'}
+                      disabled
+                    />
+                  </div>
+                )
               )}
 
               <FormField

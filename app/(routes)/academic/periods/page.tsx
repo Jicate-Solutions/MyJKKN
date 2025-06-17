@@ -140,6 +140,7 @@ export default function PeriodsPage() {
                   deletePeriod={deletePeriod}
                   canEdit={canEditPeriods}
                   canDelete={canDeletePeriods}
+                  onRefresh={fetchPeriods}
                 />
                 <Pagination
                   currentPage={metadata.page}

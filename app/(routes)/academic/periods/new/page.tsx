@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
@@ -18,8 +18,8 @@ import { usePeriods } from '@/hooks/academic/use-periods';
 import { useToast } from '@/hooks/use-toast';
 import { PeriodForm } from '../_components/period-form';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useEffect, useState as useStateImport } from 'react';
 import Loading from '@/components/Loading/Loading';
+import { CreatePeriodDto } from '@/types/academics';
 
 export default function NewPeriodPage() {
   const router = useRouter();
@@ -30,22 +30,15 @@ export default function NewPeriodPage() {
   const {
     canAccess,
     isSuperAdmin,
-    isLoading: permissionsLoading
+    isLoading: permissionsLoading,
+    userProfile
   } = usePermissions();
 
   const canCreatePeriods =
     isSuperAdmin || canAccess('academic.periods', 'create');
 
   useEffect(() => {
-    // Only proceed with permission check when permissions have loaded
     if (!permissionsLoading) {
-      // Debug to console to verify permissions
-      console.log('Can create periods:', canCreatePeriods);
-      console.log('Permissions check:', {
-        isSuperAdmin,
-        'academic.periods.create': canAccess('academic.periods', 'create')
-      });
-
       if (!canCreatePeriods) {
         toast({
           title: 'Access Denied',
@@ -73,27 +66,42 @@ export default function NewPeriodPage() {
     return <Loading title='Redirecting...' />;
   }
 
-  const handleSubmit = async (data: {
-    period_name: string;
-    start_time: string;
-    end_time: string;
-    is_break: boolean;
-  }) => {
+  const handleSubmit = async (
+    data: Omit<CreatePeriodDto, 'institution_id'> & { institution_id?: string }
+  ) => {
     setIsSubmitting(true);
     try {
-      const success = await createPeriod(data);
-      if (success) {
+      if (!isSuperAdmin && !userProfile?.institution_id) {
         toast({
-          title: 'Period created',
-          description: 'The period has been created successfully.'
+          title: 'Profile Incomplete',
+          description:
+            'Your profile is missing an institution. Please contact an administrator to set your institution before creating periods.',
+          variant: 'destructive'
         });
-        router.push('/academic/periods');
+        return;
       }
+
+      const payload: CreatePeriodDto = {
+        ...data,
+        institution_id: isSuperAdmin
+          ? data.institution_id!
+          : userProfile!.institution_id!
+      };
+
+      await createPeriod(payload);
+      toast({
+        title: 'Period created',
+        description: 'The period has been created successfully.'
+      });
+      router.push('/academic/periods');
     } catch (error) {
       console.error('Error creating period:', error);
       toast({
         title: 'Error',
-        description: 'Failed to create period. Please try again.',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Failed to create period. Please try again.',
         variant: 'destructive'
       });
     } finally {

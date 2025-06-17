@@ -1,6 +1,11 @@
 import { useState, useCallback } from 'react';
 import { PeriodService } from '@/lib/services/academic/period-service';
-import type { Period, PeriodFilters } from '@/types/academics';
+import type {
+  Period,
+  PeriodFilters,
+  CreatePeriodDto,
+  UpdatePeriodDto
+} from '@/types/academics';
 
 export function usePeriods(initialFilters: PeriodFilters = {}) {
   const [periods, setPeriods] = useState<Period[]>([]);
@@ -64,23 +69,17 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
   );
 
   const createPeriod = useCallback(
-    async (data: {
-      period_name: string;
-      start_time: string;
-      end_time: string;
-      is_break?: boolean;
-    }) => {
+    async (data: CreatePeriodDto) => {
       try {
         setLoading(true);
         setError(null);
         await PeriodService.createPeriod(data);
         // Refresh periods list
         fetchPeriods();
-        return true;
       } catch (err) {
         console.error('Error creating period:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
-        return false;
+        throw err;
       } finally {
         setLoading(false);
       }
@@ -90,18 +89,17 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
   );
 
   const updatePeriod = useCallback(
-    async (id: string, data: Partial<Period>) => {
+    async (id: string, data: UpdatePeriodDto) => {
       try {
         setLoading(true);
         setError(null);
         await PeriodService.updatePeriod(id, data);
         // Refresh periods list
         fetchPeriods();
-        return true;
       } catch (err) {
         console.error('Error updating period:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
-        return false;
+        throw err;
       } finally {
         setLoading(false);
       }
@@ -118,11 +116,10 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
         await PeriodService.deletePeriod(id);
         // Refresh periods list
         fetchPeriods();
-        return true;
       } catch (err) {
         console.error('Error deleting period:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
-        return false;
+        throw err;
       } finally {
         setLoading(false);
       }

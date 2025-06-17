@@ -21,7 +21,9 @@ export class PeriodService {
 
       if (error) {
         if (error.code === '23505') {
-          throw new Error('A period with this name already exists');
+          throw new Error(
+            'A period with this name already exists for the selected institution.'
+          );
         }
         throw error;
       }
@@ -49,7 +51,14 @@ export class PeriodService {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error(
+            'A period with this name already exists for the selected institution.'
+          );
+        }
+        throw error;
+      }
 
       toast.success('Period updated successfully');
       return period;
