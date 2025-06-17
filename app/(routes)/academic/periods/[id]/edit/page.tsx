@@ -17,7 +17,7 @@ import {
 import { PeriodForm } from '../../_components/period-form';
 import { useToast } from '@/hooks/use-toast';
 import { PeriodService } from '@/lib/services/academic/period-service';
-import { Period } from '@/types/academics';
+import { Period, UpdatePeriodDto } from '@/types/academics';
 import Loading from '@/components/Loading/Loading';
 import { BeatLoader } from 'react-spinners';
 import { Card, CardContent } from '@/components/ui/card';
@@ -60,12 +60,7 @@ export default function EditPeriodPage({ params }: EditPeriodPageProps) {
     fetchPeriod();
   }, [id, toast]);
 
-  const handleSubmit = async (data: {
-    period_name: string;
-    start_time: string;
-    end_time: string;
-    is_break: boolean;
-  }) => {
+  const handleSubmit = async (data: UpdatePeriodDto) => {
     setIsSubmitting(true);
     try {
       await PeriodService.updatePeriod(id, data);
@@ -78,7 +73,10 @@ export default function EditPeriodPage({ params }: EditPeriodPageProps) {
       console.error('Error updating period:', err);
       toast({
         title: 'Error',
-        description: 'Failed to update period. Please try again.',
+        description:
+          err instanceof Error
+            ? err.message
+            : 'Failed to update period. Please try again.',
         variant: 'destructive'
       });
     } finally {

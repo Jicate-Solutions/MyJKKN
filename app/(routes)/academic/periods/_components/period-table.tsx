@@ -39,21 +39,26 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Period } from '@/types/academics';
 import { PeriodService } from '@/lib/services/academic/period-service';
+import { useRouter } from 'next/navigation';
+import { ColumnDef } from '@/components/ui/table';
 
 interface PeriodTableProps {
   periods: Period[];
-  deletePeriod: (id: string) => Promise<boolean>;
-  canEdit?: boolean;
-  canDelete?: boolean;
+  deletePeriod: (id: string) => Promise<void>;
+  canEdit: boolean;
+  canDelete: boolean;
+  onRefresh: () => void;
 }
 
 export function PeriodTable({
   periods,
   deletePeriod,
-  canEdit = false,
-  canDelete = false
+  canEdit,
+  canDelete,
+  onRefresh
 }: PeriodTableProps) {
   const { toast } = useToast();
+  const router = useRouter();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [periodToDelete, setPeriodToDelete] = useState<Period | null>(null);
   const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
@@ -78,16 +83,20 @@ export function PeriodTable({
   const handleConfirmDelete = async () => {
     if (!periodToDelete) return;
 
-    const success = await deletePeriod(periodToDelete.id);
-    if (success) {
+    try {
+      await deletePeriod(periodToDelete.id);
       toast({
         title: 'Period deleted',
         description: `Period "${periodToDelete.period_name}" was deleted successfully.`
       });
-    } else {
+      onRefresh(); // Refresh the list
+    } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to delete period. Please try again.',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Failed to delete period. Please try again.',
         variant: 'destructive'
       });
     }
@@ -129,26 +138,21 @@ export function PeriodTable({
 
       if (result.failed.length > 0) {
         toast({
-          title: 'Deletion failed',
-          description: `Failed to delete ${result.failed.length} periods.`,
+          title: 'Some deletions failed',
+          description: `Failed to delete ${result.failed.length} periods. Please try again.`,
           variant: 'destructive'
         });
-        console.error('Failed deletions:', result.failed);
       }
 
-      // Refresh the period list - we'll rely on the deletePeriod prop to trigger a refresh
-      // Just do a fake delete on the first id to trigger a refresh
-      if (result.success.length > 0) {
-        await deletePeriod(result.success[0]);
-      }
-
+      onRefresh(); // Refresh the list
       setSelectedPeriods([]);
     } catch (error) {
-      console.error('Error performing bulk delete:', error);
       toast({
         title: 'Error',
         description:
-          error instanceof Error ? error.message : 'Failed to delete periods',
+          error instanceof Error
+            ? error.message
+            : 'An error occurred during bulk deletion.',
         variant: 'destructive'
       });
     } finally {
@@ -156,6 +160,104 @@ export function PeriodTable({
       setIsBulkDeleteDialogOpen(false);
     }
   };
+
+  const columns: ColumnDef<Period>[] = [
+    {
+      accessorKey: 'period_name',
+      header: 'Period Name',
+      cell: ({ row }) => {
+        const period = row.original;
+        return <div className='font-medium'>{period.period_name}</div>;
+      }
+    },
+    {
+      accessorKey: 'institution',
+      header: 'Institution',
+      cell: ({ row }) => {
+        const period = row.original;
+        return <div>{period.institution?.name || 'N/A'}</div>;
+      }
+    },
+    {
+      accessorKey: 'start_time',
+      header: 'Start Time',
+      cell: ({ row }) => {
+        const period = row.original;
+        return <div>{formatTime(period.start_time)}</div>;
+      }
+    },
+    {
+      accessorKey: 'end_time',
+      header: 'End Time',
+      cell: ({ row }) => {
+        const period = row.original;
+        return <div>{formatTime(period.end_time)}</div>;
+      }
+    },
+    {
+      accessorKey: 'duration',
+      header: 'Duration',
+      cell: ({ row }) => {
+        const period = row.original;
+        const startTime = new Date(`2000-01-01T${period.start_time}`);
+        const endTime = new Date(`2000-01-01T${period.end_time}`);
+        const durationMs = endTime.getTime() - startTime.getTime();
+        const durationMinutes = Math.floor(durationMs / (1000 * 60));
+        return <div>{durationMinutes} minutes</div>;
+      }
+    },
+    {
+      accessorKey: 'type',
+      header: 'Type',
+      cell: ({ row }) => {
+        const period = row.original;
+        return (
+          <Badge variant={period.is_break ? 'secondary' : 'outline'}>
+            {period.is_break ? 'Break' : 'Academic'}
+          </Badge>
+        );
+      }
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => {
+        const period = row.original;
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant='ghost' size='icon'>
+                <MoreHorizontal className='h-4 w-4' />
+                <span className='sr-only'>Open menu</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end'>
+              {canEdit && (
+                <DropdownMenuItem asChild>
+                  <Link href={`/academic/periods/${period.id}/edit`}>
+                    <Edit className='h-4 w-4 mr-2' />
+                    Edit
+                  </Link>
+                </DropdownMenuItem>
+              )}
+
+              {canEdit && canDelete && <DropdownMenuSeparator />}
+
+              {canDelete && (
+                <DropdownMenuItem
+                  className='text-red-600'
+                  onClick={() => handleDeleteClick(period)}
+                >
+                  <Trash2 className='h-4 w-4 mr-2' />
+                  Delete
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      }
+    }
+  ];
 
   return (
     <>
