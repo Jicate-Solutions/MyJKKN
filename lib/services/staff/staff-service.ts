@@ -117,11 +117,20 @@ export class StaffService {
 
           console.log('API URL for user creation:', apiUrl);
 
+          // Get current user session for authorization headers
+          const { data: sessionData } = await this.supabase.auth.getSession();
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+          };
+
+          // Add session cookies if available
+          if (sessionData?.session) {
+            console.log('Adding session authorization for user creation');
+          }
+
           const userResponse = await fetch(apiUrl, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
+            headers,
             body: JSON.stringify(userPayload),
             cache: 'no-store',
             credentials: 'include'

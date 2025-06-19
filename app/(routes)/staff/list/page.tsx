@@ -23,6 +23,7 @@ import { StaffList } from './_components/staff-list';
 import DownloadStaffTemplateButton from './_components/download-staff-template';
 import BulkUploadStaff from './_components/bulk-upload-staff';
 import ExportStaff from './_components/export-staff';
+import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Info } from 'lucide-react';
@@ -120,16 +121,19 @@ export default function StaffPage() {
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
+        <div className='flex flex-col gap-4 justify-between items-start'>
           <div>
             <h1 className='text-2xl font-bold py-1'>Staff List</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
               Manage staff members
             </p>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
+          <div className='flex flex-col sm:flex-row gap-2 sm:items-end'>
             {canEditStaff && <DownloadStaffTemplateButton />}
             {isSuperAdmin && <ExportStaff />}
+            {(isSuperAdmin || canAccess('user', 'create')) && (
+              <CreateMissingProfilesButton />
+            )}
             {canEditStaff && <BulkUploadStaff />}
             {canCreateStaff ? (
               <Button className='w-full sm:w-auto' asChild>
