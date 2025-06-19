@@ -128,7 +128,7 @@ export async function POST(request: Request) {
 
     const { data: currentUser, error: userError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, institution_id')
       .eq('id', session.user.id)
       .single();
 
@@ -136,11 +136,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!['super_admin', 'administrator'].includes(currentUser.role)) {
+    // Allow super_admin, administrator, and faculty to create users
+    if (
+      !['super_admin', 'administrator', 'faculty'].includes(currentUser.role)
+    ) {
       return NextResponse.json(
         { error: 'Insufficient permissions' },
         { status: 403 }
       );
+    }
+
+    // Role-specific restrictions
+    if (currentUser.role === 'faculty') {
+      // Faculty can only create faculty role accounts
+      if (role !== 'faculty') {
+        return NextResponse.json(
+          { error: 'Faculty users can only create other faculty accounts' },
+          { status: 403 }
+        );
+      }
+
+      // Faculty must provide institution_id and it must match their own
+      if (!institution_id || institution_id !== currentUser.institution_id) {
+        return NextResponse.json(
+          {
+            error:
+              'Faculty users can only create accounts for their own institution'
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // Validate role
@@ -298,13 +323,13 @@ export async function GET(request: NextRequest) {
     // Verify admin role
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, institution_id')
       .eq('id', user.id)
       .single();
 
     if (
       profileError ||
-      !['super_admin', 'administrator'].includes(profile?.role || '')
+      !['super_admin', 'administrator', 'faculty'].includes(profile?.role || '')
     ) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -320,13 +345,18 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase.from('profiles').select('*', { count: 'exact' });
 
+    // Faculty users can only see profiles from their own institution
+    if (profile.role === 'faculty' && profile.institution_id) {
+      query = query.eq('institution_id', profile.institution_id);
+    }
+
     // Apply filters
     if (role) {
       query = query.eq('role', role);
     }
 
     if (institution) {
-      query = query.eq('institution', institution);
+      query = query.eq('institution_id', institution);
     }
 
     if (search) {
