@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -10,9 +10,11 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { INSTITUTIONS, ROLE_LABELS } from '@/lib/constants/permissions';
 import { UserFilters } from '@/types/users';
 import { useDebounce } from '@/hooks/use-debounce';
+import { CustomRole } from '@/types/auth';
+import { RoleService } from '@/lib/services/roles/role-service';
+import { toast } from 'react-hot-toast';
 
 interface UserFiltersProps {
   filters: UserFilters;
@@ -23,6 +25,27 @@ export function UserFiltersComponent({
   filters,
   onFilterChange
 }: UserFiltersProps) {
+  const [roles, setRoles] = useState<CustomRole[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+
+  // Fetch all available roles on component mount
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        setRolesLoading(true);
+        const rolesData = await RoleService.getAllRoles();
+        setRoles(rolesData);
+      } catch (error) {
+        console.error('Error fetching roles:', error);
+        toast.error('Failed to load roles for filtering');
+      } finally {
+        setRolesLoading(false);
+      }
+    };
+
+    fetchRoles();
+  }, []);
+
   // Debounce search to avoid too many API calls
   const debouncedSearch = useDebounce((value: string) => {
     onFilterChange({ search: value });
@@ -55,17 +78,30 @@ export function UserFiltersComponent({
           onValueChange={(value) =>
             onFilterChange({ role: value === 'all' ? undefined : value })
           }
+          disabled={rolesLoading}
         >
           <SelectTrigger>
-            <SelectValue placeholder='Filter by role' />
+            <SelectValue
+              placeholder={rolesLoading ? 'Loading roles...' : 'Filter by role'}
+            />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Roles</SelectItem>
-            {Object.entries(ROLE_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
+            {rolesLoading ? (
+              <SelectItem value='loading' disabled>
+                Loading roles...
               </SelectItem>
-            ))}
+            ) : roles.length === 0 ? (
+              <SelectItem value='no-roles' disabled>
+                No roles available
+              </SelectItem>
+            ) : (
+              roles.map((role) => (
+                <SelectItem key={role.id} value={role.role_key}>
+                  {role.role_name}
+                </SelectItem>
+              ))
+            )}
           </SelectContent>
         </Select>
 

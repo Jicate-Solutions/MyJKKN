@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     );
 
     const json = await request.json();
-    const { email, full_name, role, phone_number, password } =
+    const { email, full_name, role, phone_number, password, institution_id } =
       json as CreateUserRequest;
 
     // Validate required fields
@@ -170,7 +170,8 @@ export async function POST(request: Request) {
         user_metadata: {
           full_name,
           role,
-          phone_number
+          phone_number,
+          institution_id
         }
       });
 
@@ -207,7 +208,8 @@ export async function POST(request: Request) {
       phone_number,
       is_active: true,
       profile_completed: 'false',
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      institution_id
     };
 
     console.log('Attempting to create profile with data:', profileData);

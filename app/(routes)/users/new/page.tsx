@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
+import { useState, useEffect } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,13 +35,14 @@ import {
 } from '@/components/ui/breadcrumb';
 import { useUsers } from '@/hooks/use-users';
 import { Input } from '@/components/ui/input';
-import { SYSTEM_ROLES } from '@/types/auth';
+import { CustomRole } from '@/types/auth';
+import { RoleService } from '@/lib/services/roles/role-service';
 
 const formSchema = z.object({
   email: z.string().email('Invalid email address'),
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
-  role: z.nativeEnum(SYSTEM_ROLES),
+  role: z.string().min(1, 'Please select a role'),
   phone_number: z.string().nullable()
 });
 
@@ -49,6 +51,8 @@ type FormValues = z.infer<typeof formSchema>;
 export default function NewUserPage() {
   const router = useRouter();
   const { createUser, loading } = useUsers();
+  const [roles, setRoles] = useState<CustomRole[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -56,15 +60,34 @@ export default function NewUserPage() {
       email: '',
       full_name: '',
       password: '',
-      role: SYSTEM_ROLES.GUEST,
+      role: '',
       phone_number: ''
     }
   });
+
+  // Fetch all available roles on component mount
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        setRolesLoading(true);
+        const rolesData = await RoleService.getAllRoles();
+        setRoles(rolesData);
+      } catch (error) {
+        console.error('Error fetching roles:', error);
+        toast.error('Failed to load roles');
+      } finally {
+        setRolesLoading(false);
+      }
+    };
+
+    fetchRoles();
+  }, []);
 
   const onSubmit = async (data: FormValues) => {
     try {
       const result = await createUser(data);
       if (result.error) throw result.error;
+      toast.success('User created successfully');
       router.push('/users');
     } catch (error) {
       console.error('Error creating user:', error);
@@ -169,18 +192,35 @@ export default function NewUserPage() {
                       <Select
                         onValueChange={field.onChange}
                         defaultValue={field.value}
+                        disabled={rolesLoading || loading}
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder='Select a role' />
+                            <SelectValue
+                              placeholder={
+                                rolesLoading
+                                  ? 'Loading roles...'
+                                  : 'Select a role'
+                              }
+                            />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value='administrator'>
-                            Administrator
-                          </SelectItem>
-                          <SelectItem value='faculty'>Faculty</SelectItem>
-                          <SelectItem value='student'>Student</SelectItem>
+                          {rolesLoading ? (
+                            <SelectItem value='loading' disabled>
+                              Loading roles...
+                            </SelectItem>
+                          ) : roles.length === 0 ? (
+                            <SelectItem value='no-roles' disabled>
+                              No roles available
+                            </SelectItem>
+                          ) : (
+                            roles.map((role) => (
+                              <SelectItem key={role.id} value={role.role_key}>
+                                {role.role_name}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                       <FormMessage />
