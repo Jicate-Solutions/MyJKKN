@@ -59,8 +59,14 @@ export async function GET(request: NextRequest) {
       limit
     });
 
-    // Start building the query - simplified query first to debug
-    let query = supabase.from('applications').select('*', { count: 'exact' });
+    // Start building the query with category join
+    let query = supabase.from('applications').select(
+      `
+      *,
+      category:categories(id, name, description)
+    `,
+      { count: 'exact' }
+    );
 
     // Apply filters
     if (category && category !== 'all') {
@@ -115,8 +121,16 @@ export async function GET(request: NextRequest) {
       return {
         ...app,
         roles_access: Array.isArray(app.roles_access) ? app.roles_access : [],
-        category: app.category || null,
-        subcategory: null,
+        category:
+          app.category ||
+          (app.category_id
+            ? {
+                id: app.category_id,
+                name: 'Unknown Category',
+                description: null
+              }
+            : null),
+        subcategory: app.subcategory || null,
         tags: Array.isArray(app.tags) ? app.tags : [],
         api_endpoints: Array.isArray(app.api_endpoints)
           ? app.api_endpoints
