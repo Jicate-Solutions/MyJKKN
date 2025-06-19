@@ -216,7 +216,9 @@ export function CreateMissingProfilesButton() {
                         {checkData.summary.without_profiles} missing staff
                       </li>
                       <li>Generate temporary passwords for new accounts</li>
-                      <li>Set all new accounts with 'faculty' role</li>
+                      <li>
+                        Set all new accounts with &apos;faculty&apos; role
+                      </li>
                       <li>Link accounts to their respective institutions</li>
                     </ul>
                   </AlertDescription>
@@ -265,7 +267,7 @@ export function CreateMissingProfilesButton() {
                     Create authentication accounts for staff without profiles
                   </li>
                   <li>Generate temporary passwords for new accounts</li>
-                  <li>Set all new accounts with 'faculty' role</li>
+                  <li>Set all new accounts with &apos;faculty&apos; role</li>
                   <li>Link accounts to their respective institutions</li>
                 </ul>
               </AlertDescription>
