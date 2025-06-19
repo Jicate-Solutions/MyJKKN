@@ -101,7 +101,8 @@ export class StaffService {
             full_name: `${staff.first_name} ${staff.last_name}`,
             password: tempPassword,
             role: 'faculty', // Faculty role
-            phone_number: staff.phone || null
+            phone_number: staff.phone || null,
+            institution_id: staff.institution_id
           };
 
           console.log('User payload:', JSON.stringify(userPayload, null, 2));
@@ -195,6 +196,15 @@ export class StaffService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
+      // Get the current staff data before update
+      const { data: currentStaff, error: fetchError } = await this.supabase
+        .from('staff')
+        .select('institution_email, institution_id')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
       const { data: staff, error } = await this.supabase
         .from('staff')
         .update({
@@ -207,6 +217,32 @@ export class StaffService {
         .single();
 
       if (error) throw error;
+
+      // If institution_id was updated and staff has an institution_email, update the profile
+      if (data.institution_id && currentStaff.institution_email) {
+        try {
+          const { error: profileUpdateError } = await this.supabase
+            .from('profiles')
+            .update({ institution_id: data.institution_id })
+            .eq('email', currentStaff.institution_email);
+
+          if (profileUpdateError) {
+            console.warn(
+              'Failed to update profile institution_id:',
+              profileUpdateError
+            );
+            toast.error(
+              'Staff updated but failed to sync user profile institution'
+            );
+          } else {
+            console.log(
+              `Updated institution_id in profile for ${currentStaff.institution_email}`
+            );
+          }
+        } catch (profileError) {
+          console.warn('Error updating profile institution_id:', profileError);
+        }
+      }
 
       return staff;
     } catch (error) {
@@ -399,6 +435,78 @@ export class StaffService {
       return staff;
     } catch (error) {
       console.error('Error fetching staff:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Utility function to sync institution_id for existing staff profiles
+   * This should be called to fix profiles that were created without institution_id
+   */
+  static async syncStaffProfileInstitutions(): Promise<{
+    success: number;
+    failed: { staff_id: string; email: string; error: string }[];
+  }> {
+    try {
+      const success: string[] = [];
+      const failed: { staff_id: string; email: string; error: string }[] = [];
+
+      // Get all staff with institution_email
+      const { data: staffList, error: staffError } = await this.supabase
+        .from('staff')
+        .select('id, institution_email, institution_id')
+        .not('institution_email', 'is', null);
+
+      if (staffError) throw staffError;
+
+      // Process each staff member
+      for (const staff of staffList || []) {
+        try {
+          // Check if profile exists and has null institution_id
+          const { data: profile, error: profileError } = await this.supabase
+            .from('profiles')
+            .select('id, institution_id')
+            .eq('email', staff.institution_email)
+            .single();
+
+          if (profileError) {
+            failed.push({
+              staff_id: staff.id,
+              email: staff.institution_email,
+              error: `Profile not found: ${profileError.message}`
+            });
+            continue;
+          }
+
+          // Update profile if institution_id is null
+          if (!profile.institution_id && staff.institution_id) {
+            const { error: updateError } = await this.supabase
+              .from('profiles')
+              .update({ institution_id: staff.institution_id })
+              .eq('email', staff.institution_email);
+
+            if (updateError) {
+              failed.push({
+                staff_id: staff.id,
+                email: staff.institution_email,
+                error: `Update failed: ${updateError.message}`
+              });
+            } else {
+              success.push(staff.id);
+            }
+          }
+        } catch (error) {
+          failed.push({
+            staff_id: staff.id,
+            email: staff.institution_email,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }
+
+      return { success: success.length, failed };
+    } catch (error) {
+      console.error('Error syncing staff profile institutions:', error);
       throw error;
     }
   }

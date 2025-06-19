@@ -324,8 +324,6 @@ export class UserService {
       if (!response.ok) {
         throw new Error(data.error || 'Failed to delete user');
       }
-
-      toast.success('User deleted successfully');
     } catch (error) {
       console.error('Error deleting user:', error);
       const message =

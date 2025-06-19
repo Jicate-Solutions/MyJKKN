@@ -47,6 +47,7 @@ export type CreateUserRequest = Pick<
   'email' | 'full_name' | 'role' | 'phone_number'
 > & {
   password: string;
+  institution_id?: string | null;
 };
 
 export type UpdateUserRequest = Partial<CreateUserRequest> & {
