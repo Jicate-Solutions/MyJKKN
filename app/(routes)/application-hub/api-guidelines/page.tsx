@@ -3,6 +3,7 @@ import ApiGuidelinesContent from './_components/api-guidelines-content';
 import OrganizationApiDocs from './_components/organization-api-docs';
 import StudentsApiDocs from './_components/students-api-docs';
 import StaffApiDocs from './_components/staff-api-docs';
+import CurlDocumentationContent from './_components/curl-documentation-content';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -55,6 +56,7 @@ export default function ApiGuidelinesPage() {
             <TabsTrigger value='organization'>Organizations API</TabsTrigger>
             <TabsTrigger value='students'>Students API</TabsTrigger>
             <TabsTrigger value='staff'>Staff API</TabsTrigger>
+            <TabsTrigger value='curl'>CURL Documentation</TabsTrigger>
           </TabsList>
           <TabsContent value='basic'>
             <Card className='p-6'>
@@ -74,6 +76,11 @@ export default function ApiGuidelinesPage() {
           <TabsContent value='staff'>
             <Card className='p-6'>
               <StaffApiDocs />
+            </Card>
+          </TabsContent>
+          <TabsContent value='curl'>
+            <Card className='p-6'>
+              <CurlDocumentationContent />
             </Card>
           </TabsContent>
         </Tabs>
