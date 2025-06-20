@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { BeatLoader } from 'react-spinners';
 import {
@@ -15,10 +15,12 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { ProfileForm } from './_components/profile-form';
 import { useAuth } from '@/providers/auth-provider';
 import { INSTITUTIONS, ROLE_LABELS } from '@/lib/constants/permissions';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
+import type { Institution } from '@/types/organizations';
 import {
   Card,
   CardContent,
@@ -38,6 +40,35 @@ import {
 export default function ProfilePage() {
   const { user, loading, refreshUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
+  const [institutionData, setInstitutionData] = useState<Institution | null>(
+    null
+  );
+  const [institutionLoading, setInstitutionLoading] = useState(false);
+
+  // Fetch institution data when user has institution_id
+  useEffect(() => {
+    const fetchInstitutionData = async () => {
+      if (!user?.institution_id) {
+        setInstitutionData(null);
+        return;
+      }
+
+      try {
+        setInstitutionLoading(true);
+        const result = await OrganizationService.getInstitution(
+          user.institution_id
+        );
+        setInstitutionData(result.institution);
+      } catch (error) {
+        console.error('Error fetching institution data:', error);
+        setInstitutionData(null);
+      } finally {
+        setInstitutionLoading(false);
+      }
+    };
+
+    fetchInstitutionData();
+  }, [user?.institution_id]);
 
   if (loading) {
     return (
@@ -75,11 +106,12 @@ export default function ProfilePage() {
     });
   };
 
-  // Get institution label
-  const getInstitutionLabel = (value: string | null) => {
-    if (!value) return 'Not Set';
-    const institution = INSTITUTIONS.find((i) => i.value === value);
-    return institution ? institution.label : value;
+  // Get institution display
+  const getInstitutionDisplay = () => {
+    if (institutionLoading) return 'Loading...';
+    if (!user?.institution_id) return 'JKKN institution';
+    if (!institutionData) return 'Institution not found';
+    return institutionData.name;
   };
 
   // Generate initials for avatar
@@ -171,7 +203,51 @@ export default function ProfilePage() {
 
                   <Separator />
 
-                  {/* Contact Information */}
+                  {/* Organization Information */}
+                  <div>
+                    <h3 className='text-lg font-semibold mb-4'>
+                      Organization Information
+                    </h3>
+                    <div className='grid gap-4 md:grid-cols-1'>
+                      <div className='flex items-center gap-2 text-muted-foreground'>
+                        <Building2 className='h-4 w-4 shrink-0' />
+                        <span className='truncate'>
+                          Institution: {getInstitutionDisplay()}
+                        </span>
+                      </div>
+                      {institutionData && (
+                        <>
+                          {institutionData.counselling_code && (
+                            <div className='flex items-center gap-2 text-muted-foreground ml-6'>
+                              <span className='text-sm'>
+                                Code: {institutionData.counselling_code}
+                              </span>
+                            </div>
+                          )}
+                          {institutionData.email && (
+                            <div className='flex items-center gap-2 text-muted-foreground ml-6'>
+                              <Mail className='h-3 w-3 shrink-0' />
+                              <span className='text-sm'>
+                                {institutionData.email}
+                              </span>
+                            </div>
+                          )}
+                          {institutionData.phone && (
+                            <div className='flex items-center gap-2 text-muted-foreground ml-6'>
+                              <Phone className='h-3 w-3 shrink-0' />
+                              <span className='text-sm'>
+                                {institutionData.phone}
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Personal Information */}
                   <div>
                     <h3 className='text-lg font-semibold mb-4'>
                       Personal Information
