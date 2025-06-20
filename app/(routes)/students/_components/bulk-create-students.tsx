@@ -46,52 +46,193 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { StudentService } from '@/lib/services/student/student-service';
 
-// Define the Zod schema for validating a NEW student row
-// This needs to align with your CreateStudentDto and database requirements
+// Helper function to parse and normalize date formats
+const parseAndNormalizeDate = (dateString: string): string | null => {
+  if (!dateString || typeof dateString !== 'string') return null;
+
+  const cleanDate = dateString.trim();
+  if (!cleanDate) return null;
+
+  // Try multiple date formats
+  const formats = [
+    // YYYY-MM-DD (current required format)
+    /^(\d{4})-(\d{1,2})-(\d{1,2})$/,
+    // DD/MM/YYYY
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+    // MM/DD/YYYY
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+    // DD-MM-YYYY
+    /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
+    // MM-DD-YYYY
+    /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
+    // DD.MM.YYYY
+    /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/,
+    // YYYY/MM/DD
+    /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/,
+    // YYYY.MM.DD
+    /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/
+  ];
+
+  // Try parsing with different formats
+  let parsedDate: Date | null = null;
+
+  // First check if it's already in YYYY-MM-DD format
+  if (formats[0].test(cleanDate)) {
+    const match = cleanDate.match(formats[0]);
+    if (match) {
+      const [_, year, month, day] = match;
+      parsedDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    }
+  }
+  // Try DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY formats
+  else if (
+    formats[1].test(cleanDate) ||
+    formats[3].test(cleanDate) ||
+    formats[5].test(cleanDate)
+  ) {
+    const match = cleanDate.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if (match) {
+      const [_, day, month, year] = match;
+      parsedDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    }
+  }
+  // Try YYYY/MM/DD or YYYY.MM.DD formats
+  else if (formats[6].test(cleanDate) || formats[7].test(cleanDate)) {
+    const match = cleanDate.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})$/);
+    if (match) {
+      const [_, year, month, day] = match;
+      parsedDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    }
+  }
+  // Try native Date parsing as fallback
+  else {
+    parsedDate = new Date(cleanDate);
+  }
+
+  // Validate the parsed date
+  if (!parsedDate || isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  // Check if date is reasonable (between 1900 and current year + 10)
+  const year = parsedDate.getFullYear();
+  const currentYear = new Date().getFullYear();
+  if (year < 1900 || year > currentYear + 10) {
+    return null;
+  }
+
+  // Return in YYYY-MM-DD format
+  const normalizedYear = parsedDate.getFullYear();
+  const normalizedMonth = String(parsedDate.getMonth() + 1).padStart(2, '0');
+  const normalizedDay = String(parsedDate.getDate()).padStart(2, '0');
+
+  return `${normalizedYear}-${normalizedMonth}-${normalizedDay}`;
+};
+
+/**
+ * COMPREHENSIVE BULK STUDENT UPLOAD COMPONENT
+ *
+ * This component provides a user-friendly bulk upload system for creating student records.
+ *
+ * KEY IMPROVEMENTS MADE:
+ *
+ * 1. **User-Friendly Template Structure**:
+ *    - Replaced complex JSON fields with separate, easy-to-fill columns
+ *    - Clear indication of required vs optional fields (marked with *)
+ *    - Organized fields into logical sections (Personal, Academic, Course, Contact, Reference)
+ *
+ * 2. **Simplified Academic Marks Entry**:
+ *    - Instead of complex JSON strings for marks, users fill separate columns:
+ *      * tenth_marks_max_marks, tenth_marks_obtained_marks, tenth_marks_percentage
+ *      * twelfth_marks_group, twelfth_marks_max_marks, twelfth_marks_obtained_marks, twelfth_marks_percentage
+ *      * Individual subject marks (physics, chemistry, mathematics, biology, computer_science)
+ *    - System automatically converts these to required JSON format during processing
+ *
+ * 3. **Multi-Sheet Excel Template**:
+ *    - Sheet 1: Main template with sample data
+ *    - Sheet 2: Comprehensive instructions and field explanations
+ *    - Sheet 3: Reference data (Institution, Degree, Department, Program UUIDs)
+ *    - Sheet 4: JSON examples showing how separate fields are converted
+ *
+ * 4. **Enhanced Validation**:
+ *    - Clear field-by-field validation with descriptive error messages
+ *    - Handles headers with asterisks (required field markers)
+ *    - Transforms user-friendly input into database-compatible format
+ *
+ * 5. **Required Fields for Profile Completion**:
+ *    - Basic creation: student_name, father_name, mother_name, mother_mobile, date_of_birth,
+ *      gender, religion, community, academic info, course info, contact info, accommodation_type
+ *    - Profile completion (optional): roll_number, college_email, semester_id, section_id
+ *    - When college_email is provided, user accounts are automatically created
+ *
+ * 6. **Batch Processing & Error Handling**:
+ *    - Processes uploads in batches of 50 for better performance
+ *    - Detailed error reporting with row-level validation
+ *    - User creation tracking with success/failure details
+ *    - Progress indicators and comprehensive result summaries
+ *
+ * 7. **Reference Data Integration**:
+ *    - Template includes actual Institution, Degree, Department, and Program UUIDs
+ *    - Users don't need to guess or look up complex identifiers
+ *    - Clear examples for all field types and formats
+ *
+ * VALIDATION SCHEMA:
+ * The component now uses separate fields for marks instead of JSON, making it much more
+ * user-friendly while maintaining full compatibility with the database structure.
+ */
+
+// Define the Zod schema for validating a NEW student row with user-friendly separate fields
+// This accepts separate marks columns and will be transformed into JSON for the database
 const newStudentSchema = z
   .object({
     // Personal Info
     student_name: z.string().min(1, 'Student name is required'),
     father_name: z.string().min(1, 'Father name is required'),
     father_occupation: z.string().optional().nullable(),
-    father_mobile: z.string().optional().nullable(), // Add more specific phone validation if needed
+    father_mobile: z.string().optional().nullable(),
     mother_name: z.string().min(1, 'Mother name is required'),
     mother_occupation: z.string().optional().nullable(),
     mother_mobile: z.string().min(1, 'Mother mobile is required'),
     date_of_birth: z
       .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of birth must be YYYY-MM-DD'),
+      .min(1, 'Date of birth is required')
+      .transform((val) => {
+        const normalized = parseAndNormalizeDate(val);
+        if (!normalized) {
+          throw new Error(
+            'Invalid date format. Accepted formats: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, etc.'
+          );
+        }
+        return normalized;
+      }),
     gender: z.string().min(1, 'Gender is required'),
     religion: z.string().min(1, 'Religion is required'),
     community: z.string().min(1, 'Community is required'),
     caste: z.string().optional().nullable(),
     annual_income: z.string().optional().nullable(),
 
-    // Academic Info
-    last_school: z.string().min(1, 'Last school is required'),
-    board_of_study: z.string().min(1, 'Board of study is required'),
-    tenth_marks_json: z.string().refine(
-      (val) => {
-        try {
-          JSON.parse(val);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      { message: 'Tenth marks must be valid JSON string' }
-    ),
-    twelfth_marks_json: z.string().refine(
-      (val) => {
-        try {
-          JSON.parse(val);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      { message: 'Twelfth marks must be valid JSON string' }
-    ),
+    // Academic Info - Separate fields for easier user input (now optional)
+    last_school: z.string().optional().nullable(),
+    board_of_study: z.string().optional().nullable(),
+
+    // 10th marks - separate fields (now optional)
+    tenth_marks_max_marks: z.string().optional().nullable(),
+    tenth_marks_obtained_marks: z.string().optional().nullable(),
+    tenth_marks_percentage: z.string().optional().nullable(),
+
+    // 12th marks - separate fields (now optional)
+    twelfth_marks_group: z.string().optional().nullable(),
+    twelfth_marks_max_marks: z.string().optional().nullable(),
+    twelfth_marks_obtained_marks: z.string().optional().nullable(),
+    twelfth_marks_percentage: z.string().optional().nullable(),
+
+    // 12th marks - subject-wise (optional)
+    twelfth_marks_physics: z.string().optional().nullable(),
+    twelfth_marks_chemistry: z.string().optional().nullable(),
+    twelfth_marks_mathematics: z.string().optional().nullable(),
+    twelfth_marks_biology: z.string().optional().nullable(),
+    twelfth_marks_computer_science: z.string().optional().nullable(),
+    twelfth_marks_other_subject: z.string().optional().nullable(),
     medical_cutoff_marks: z.string().optional().nullable(),
     engineering_cutoff_marks: z.string().optional().nullable(),
     neet_roll_number: z.string().optional().nullable(),
@@ -108,30 +249,59 @@ const newStudentSchema = z
     // Course Info
     quota: z.string().optional().nullable(),
     category: z.string().optional().nullable(),
-    institution_id: z.string().uuid('Valid Institution UUID required'),
-    degree_id: z.string().uuid('Valid Degree UUID required'),
-    department_id: z.string().uuid('Valid Department UUID required'),
-    program_id: z.string().uuid('Valid Program UUID required'),
-    entry_type: z.string().min(1, 'Entry type is required'),
+    institution_id: z
+      .string()
+      .uuid('Institution ID must be a valid UUID. Check Reference Data sheet.'),
+    degree_id: z
+      .string()
+      .uuid('Degree ID must be a valid UUID. Check Reference Data sheet.')
+      .optional()
+      .nullable(),
+    department_id: z
+      .string()
+      .uuid('Department ID must be a valid UUID. Check Reference Data sheet.'),
+    program_id: z
+      .string()
+      .uuid('Program ID must be a valid UUID. Check Reference Data sheet.'),
+    entry_type: z.string().optional().nullable(),
 
     // Contact Info
-    permanent_address_street: z.string().min(1, 'Address street is required'),
+    permanent_address_street: z
+      .string()
+      .min(1, 'Permanent address street is required'),
     permanent_address_taluk: z.string().optional().nullable(),
     permanent_address_district: z
       .string()
-      .min(1, 'Address district is required'),
+      .min(1, 'Permanent address district is required'),
     permanent_address_pin_code: z
       .string()
-      .regex(/^\d{6}$/, 'Address PIN code must be 6 digits'),
-    permanent_address_state: z.string().min(1, 'Address state is required'),
-    student_mobile: z.string().min(1, 'Student mobile is required'),
-    student_email: z.string().email('Valid student email required'),
+      .regex(/^\d{6}$/, 'PIN code must be exactly 6 digits (e.g., 637001)'),
+    permanent_address_state: z
+      .string()
+      .min(1, 'Permanent address state is required'),
+    student_mobile: z
+      .string()
+      .min(10, 'Student mobile must be at least 10 digits')
+      .regex(
+        /^\d{10,15}$/,
+        'Student mobile must contain only digits (10-15 characters)'
+      ),
+    student_email: z
+      .string()
+      .email(
+        'Student email must be a valid email address (e.g., student@domain.com)'
+      ),
 
     // Accommodation Info
-    accommodation_type: z.string().min(1, 'Accommodation type is required'),
+    accommodation_type: z
+      .string()
+      .min(1, 'Accommodation type is required (e.g., DAY SCHOLAR, HOSTEL)'),
     hostel_type: z.string().optional().nullable(),
     bus_required: z
-      .preprocess((val) => String(val).toLowerCase() === 'true', z.boolean())
+      .preprocess((val) => {
+        if (val === null || val === undefined || val === '') return null;
+        return String(val).toLowerCase() === 'true';
+      }, z.boolean())
       .optional()
       .nullable(),
     bus_route: z.string().optional().nullable(),
@@ -146,7 +316,9 @@ const newStudentSchema = z
     roll_number: z.string().optional().nullable(),
     college_email: z
       .string()
-      .email('Invalid college email format')
+      .email(
+        'College email must be a valid email address (e.g., student@college.edu)'
+      )
       .optional()
       .nullable()
   })
@@ -158,6 +330,109 @@ type ValidationError = {
   row: number;
   errors: Record<string, string[] | undefined>;
   rowData: Record<string, any>;
+};
+
+type DuplicateCheckResult = {
+  isDuplicate: boolean;
+  duplicateField: string;
+  existingStudentInfo?: string;
+};
+
+// Function to check for existing students using direct Supabase queries
+const checkForDuplicateStudent = async (
+  studentData: NewStudentData
+): Promise<DuplicateCheckResult> => {
+  try {
+    const { createClientSupabaseClient } = await import(
+      '@/lib/supabase/client'
+    );
+    const supabase = createClientSupabaseClient();
+
+    // Check by student email (most reliable unique identifier)
+    if (studentData.student_email) {
+      const { data: existingByEmail, error: emailError } = await supabase
+        .from('students')
+        .select('id, student_name')
+        .eq('student_email', studentData.student_email)
+        .limit(1);
+
+      if (emailError) throw emailError;
+
+      if (existingByEmail && existingByEmail.length > 0) {
+        return {
+          isDuplicate: true,
+          duplicateField: 'student_email',
+          existingStudentInfo: `Student with email "${studentData.student_email}" already exists: ${existingByEmail[0].student_name} (ID: ${existingByEmail[0].id})`
+        };
+      }
+    }
+
+    // Check by college email if provided
+    if (studentData.college_email) {
+      const { data: existingByCollegeEmail, error: collegeEmailError } =
+        await supabase
+          .from('students')
+          .select('id, student_name')
+          .eq('college_email', studentData.college_email)
+          .limit(1);
+
+      if (collegeEmailError) throw collegeEmailError;
+
+      if (existingByCollegeEmail && existingByCollegeEmail.length > 0) {
+        return {
+          isDuplicate: true,
+          duplicateField: 'college_email',
+          existingStudentInfo: `Student with college email "${studentData.college_email}" already exists: ${existingByCollegeEmail[0].student_name} (ID: ${existingByCollegeEmail[0].id})`
+        };
+      }
+    }
+
+    // Check by roll number if provided
+    if (studentData.roll_number) {
+      const { data: existingByRoll, error: rollError } = await supabase
+        .from('students')
+        .select('id, student_name')
+        .eq('roll_number', studentData.roll_number)
+        .limit(1);
+
+      if (rollError) throw rollError;
+
+      if (existingByRoll && existingByRoll.length > 0) {
+        return {
+          isDuplicate: true,
+          duplicateField: 'roll_number',
+          existingStudentInfo: `Student with roll number "${studentData.roll_number}" already exists: ${existingByRoll[0].student_name} (ID: ${existingByRoll[0].id})`
+        };
+      }
+    }
+
+    // Check by mobile + name combination as additional check
+    if (studentData.student_mobile && studentData.student_name) {
+      const { data: existingByMobileAndName, error: mobileNameError } =
+        await supabase
+          .from('students')
+          .select('id, student_name')
+          .eq('student_mobile', studentData.student_mobile)
+          .eq('student_name', studentData.student_name)
+          .limit(1);
+
+      if (mobileNameError) throw mobileNameError;
+
+      if (existingByMobileAndName && existingByMobileAndName.length > 0) {
+        return {
+          isDuplicate: true,
+          duplicateField: 'student_mobile + student_name',
+          existingStudentInfo: `Student with mobile "${studentData.student_mobile}" and name "${studentData.student_name}" already exists (ID: ${existingByMobileAndName[0].id})`
+        };
+      }
+    }
+
+    return { isDuplicate: false, duplicateField: '' };
+  } catch (error) {
+    console.error('Error checking for duplicate student:', error);
+    // Return false to not block upload due to check error, but log it
+    return { isDuplicate: false, duplicateField: '' };
+  }
 };
 
 export function BulkCreateStudents() {
@@ -251,16 +526,25 @@ export function BulkCreateStudents() {
           }
           const errors: ValidationError[] = [];
           const valid: NewStudentData[] = [];
+          const duplicateErrors: ValidationError[] = [];
           const headers = Object.keys(parsedData[0] || {});
+
+          // Clean header names to remove potential asterisks from required field markers
+          const cleanHeaders = headers.map((h) =>
+            h.replace(/\s*\*\s*$/, '').trim()
+          );
+
           const requiredSchemaFields = Object.entries(newStudentSchema.shape)
             .filter(
               ([_, schemaType]) =>
                 !(schemaType.isOptional() || schemaType.isNullable())
             )
             .map(([key, _]) => key);
+
           const actualMissingHeaders = requiredSchemaFields.filter(
-            (h) => !headers.includes(h)
+            (h) => !cleanHeaders.includes(h)
           );
+
           if (actualMissingHeaders.length > 0) {
             toast.error(
               `Missing required columns in the file: ${actualMissingHeaders.join(
@@ -270,53 +554,166 @@ export function BulkCreateStudents() {
             resetState(true);
             return;
           }
-          parsedData.forEach((row, index) => {
-            const processedRow = { ...row };
-            ['counseling_applied', 'first_graduate', 'bus_required'].forEach(
-              (key) => {
-                if (typeof processedRow[key] === 'string') {
-                  processedRow[key] = processedRow[key].trim().toLowerCase();
-                }
-              }
-            );
-            const result = newStudentSchema.safeParse(processedRow);
-            if (!result.success) {
-              errors.push({
-                row: index + 2,
-                errors: result.error.flatten().fieldErrors,
-                rowData: row
+          // Process each row with validation and duplicate checking
+          for (let index = 0; index < parsedData.length; index++) {
+            const row = parsedData[index];
+
+            try {
+              // Clean the row keys to remove asterisks and normalize data
+              const processedRow: Record<string, any> = {};
+              Object.entries(row).forEach(([key, value]) => {
+                const cleanKey = key.replace(/\s*\*\s*$/, '').trim();
+                processedRow[cleanKey] = value;
               });
-            } else {
+
+              // Normalize boolean fields
+              ['counseling_applied', 'first_graduate', 'bus_required'].forEach(
+                (key) => {
+                  if (typeof processedRow[key] === 'string') {
+                    processedRow[key] = processedRow[key].trim().toLowerCase();
+                  }
+                }
+              );
+
+              // Step 1: Validate with Zod schema
+              const result = newStudentSchema.safeParse(processedRow);
+              if (!result.success) {
+                errors.push({
+                  row: index + 2,
+                  errors: result.error.flatten().fieldErrors,
+                  rowData: row
+                });
+                continue; // Skip to next row
+              }
+
               const validData = result.data;
+
+              // Step 2: Check for duplicates
+              const duplicateCheck = await checkForDuplicateStudent(validData);
+              if (duplicateCheck.isDuplicate) {
+                duplicateErrors.push({
+                  row: index + 2,
+                  errors: {
+                    [duplicateCheck.duplicateField]: [
+                      `DUPLICATE: ${duplicateCheck.existingStudentInfo}`
+                    ]
+                  },
+                  rowData: row
+                });
+                continue; // Skip to next row
+              }
+
+              // Step 3: Transform data (marks JSON conversion)
               try {
-                validData.tenth_marks_json = JSON.parse(
-                  validData.tenth_marks_json
-                );
-                validData.twelfth_marks_json = JSON.parse(
-                  validData.twelfth_marks_json
-                );
-                valid.push(validData);
-              } catch (jsonError) {
+                // Transform separate marks fields into JSON format (only if data exists)
+                let tenthMarksJson = null;
+                if (
+                  validData.tenth_marks_max_marks ||
+                  validData.tenth_marks_obtained_marks ||
+                  validData.tenth_marks_percentage
+                ) {
+                  tenthMarksJson = {
+                    max_marks: validData.tenth_marks_max_marks || '',
+                    obtained_marks: validData.tenth_marks_obtained_marks || '',
+                    percentage: validData.tenth_marks_percentage || ''
+                  };
+                }
+
+                // Build subjects object for 12th marks
+                const subjects: Record<string, string> = {};
+                if (validData.twelfth_marks_physics)
+                  subjects.physics = validData.twelfth_marks_physics;
+                if (validData.twelfth_marks_chemistry)
+                  subjects.chemistry = validData.twelfth_marks_chemistry;
+                if (validData.twelfth_marks_mathematics)
+                  subjects.mathematics = validData.twelfth_marks_mathematics;
+                if (validData.twelfth_marks_biology)
+                  subjects.biology = validData.twelfth_marks_biology;
+                if (validData.twelfth_marks_computer_science)
+                  subjects.computerScience =
+                    validData.twelfth_marks_computer_science;
+                if (validData.twelfth_marks_other_subject)
+                  subjects.other = validData.twelfth_marks_other_subject;
+
+                let twelfthMarksJson = null;
+                if (
+                  validData.twelfth_marks_group ||
+                  validData.twelfth_marks_max_marks ||
+                  validData.twelfth_marks_obtained_marks ||
+                  validData.twelfth_marks_percentage
+                ) {
+                  twelfthMarksJson = {
+                    group: validData.twelfth_marks_group || '',
+                    max_marks: validData.twelfth_marks_max_marks || '',
+                    obtained_marks:
+                      validData.twelfth_marks_obtained_marks || '',
+                    percentage: validData.twelfth_marks_percentage || '',
+                    subjects: subjects
+                  };
+                }
+
+                // Create final data object with JSON fields (only include if data exists)
+                const transformedData: any = { ...validData };
+                if (tenthMarksJson) {
+                  transformedData.tenth_marks_json =
+                    JSON.stringify(tenthMarksJson);
+                }
+                if (twelfthMarksJson) {
+                  transformedData.twelfth_marks_json =
+                    JSON.stringify(twelfthMarksJson);
+                }
+
+                valid.push(transformedData as NewStudentData);
+              } catch (transformError) {
                 errors.push({
                   row: index + 2,
                   errors: {
-                    json_parse: ['Failed to parse marks JSON after validation']
+                    marks_transform: [
+                      'Failed to transform marks data into required format'
+                    ]
                   },
                   rowData: row
                 });
               }
+            } catch (rowError) {
+              console.error(`Error processing row ${index + 2}:`, rowError);
+              errors.push({
+                row: index + 2,
+                errors: {
+                  processing_error: [
+                    `Row processing failed: ${
+                      rowError instanceof Error
+                        ? rowError.message
+                        : 'Unknown error'
+                    }`
+                  ]
+                },
+                rowData: row
+              });
             }
-          });
-          setValidationErrors(errors);
+          }
+          // Combine validation errors and duplicate errors
+          const allErrors = [...errors, ...duplicateErrors];
+
+          setValidationErrors(allErrors);
           setValidRows(valid);
-          if (errors.length > 0) {
-            toast(
-              `Validation finished with ${errors.length} error(s). Please fix them before uploading.`,
-              { icon: '⚠️' }
-            );
+
+          if (allErrors.length > 0) {
+            const validationErrorCount = errors.length;
+            const duplicateErrorCount = duplicateErrors.length;
+
+            let errorMessage = `Validation finished with ${allErrors.length} error(s)`;
+            if (validationErrorCount > 0 && duplicateErrorCount > 0) {
+              errorMessage += ` (${validationErrorCount} validation errors, ${duplicateErrorCount} duplicates)`;
+            } else if (duplicateErrorCount > 0) {
+              errorMessage += ` (${duplicateErrorCount} duplicates found)`;
+            }
+            errorMessage += '. Please fix them before uploading.';
+
+            toast(errorMessage, { icon: '⚠️' });
           } else if (valid.length > 0) {
             toast.success(
-              `Validation successful. ${valid.length} rows ready for upload.`
+              `Validation successful! ${valid.length} rows ready for upload. No duplicates found.`
             );
           } else {
             toast('No valid rows found to upload after validation.', {
@@ -407,19 +804,37 @@ export function BulkCreateStudents() {
         // Create a promise for each student in the batch
         const promises = batch.map(async (row) => {
           try {
-            // Parse JSON strings if needed
+            // Parse JSON strings that were created during validation
+            const rowData = row as any;
             const tenthMarks =
-              typeof row.tenth_marks_json === 'string'
-                ? JSON.parse(row.tenth_marks_json)
-                : row.tenth_marks_json;
+              typeof rowData.tenth_marks_json === 'string'
+                ? JSON.parse(rowData.tenth_marks_json)
+                : rowData.tenth_marks_json;
 
             const twelfthMarks =
-              typeof row.twelfth_marks_json === 'string'
-                ? JSON.parse(row.twelfth_marks_json)
-                : row.twelfth_marks_json;
+              typeof rowData.twelfth_marks_json === 'string'
+                ? JSON.parse(rowData.twelfth_marks_json)
+                : rowData.twelfth_marks_json;
 
-            // Create a new object without the _json fields
-            const { tenth_marks_json, twelfth_marks_json, ...restData } = row;
+            // Create a new object without the separate marks fields and _json fields
+            const {
+              tenth_marks_json,
+              twelfth_marks_json,
+              tenth_marks_max_marks,
+              tenth_marks_obtained_marks,
+              tenth_marks_percentage,
+              twelfth_marks_group,
+              twelfth_marks_max_marks,
+              twelfth_marks_obtained_marks,
+              twelfth_marks_percentage,
+              twelfth_marks_physics,
+              twelfth_marks_chemistry,
+              twelfth_marks_mathematics,
+              twelfth_marks_biology,
+              twelfth_marks_computer_science,
+              twelfth_marks_other_subject,
+              ...restData
+            } = rowData;
 
             // Add in the special fields handling and include defaults for required fields
             // Handle as type any to bypass complex strict type checking
@@ -716,7 +1131,7 @@ export function BulkCreateStudents() {
               {isValidating && (
                 <div className='flex items-center space-x-2 text-sm text-muted-foreground'>
                   <Loader2 className='h-4 w-4 animate-spin' />
-                  <span>Validating file...</span>
+                  <span>Validating file and checking for duplicates...</span>
                 </div>
               )}
               {isUploading && (
