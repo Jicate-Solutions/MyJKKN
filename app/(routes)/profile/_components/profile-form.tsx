@@ -1,7 +1,7 @@
 // app/(routes)/profile/_components/profile-form.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -39,6 +39,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import type { Institution } from '@/types/organizations';
 
 interface ProfileFormProps {
   user: Profile;
@@ -47,7 +49,36 @@ interface ProfileFormProps {
 
 export function ProfileForm({ user, onComplete }: ProfileFormProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [institutionData, setInstitutionData] = useState<Institution | null>(
+    null
+  );
+  const [institutionLoading, setInstitutionLoading] = useState(false);
   const supabase = createClientSupabaseClient();
+
+  // Fetch institution data when user has institution_id
+  useEffect(() => {
+    const fetchInstitutionData = async () => {
+      if (!user?.institution_id) {
+        setInstitutionData(null);
+        return;
+      }
+
+      try {
+        setInstitutionLoading(true);
+        const result = await OrganizationService.getInstitution(
+          user.institution_id
+        );
+        setInstitutionData(result.institution);
+      } catch (error) {
+        console.error('Error fetching institution data:', error);
+        setInstitutionData(null);
+      } finally {
+        setInstitutionLoading(false);
+      }
+    };
+
+    fetchInstitutionData();
+  }, [user?.institution_id]);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -155,6 +186,39 @@ export function ProfileForm({ user, onComplete }: ProfileFormProps) {
                 value={ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
                 disabled
               />
+            </div>
+
+            {/* Institution (Read-only) */}
+            <div className='space-y-2 mb-6'>
+              <FormLabel>Institution</FormLabel>
+              <Input
+                value={
+                  institutionLoading
+                    ? 'Loading...'
+                    : institutionData
+                    ? institutionData.name
+                    : user.institution_id
+                    ? 'Institution not found'
+                    : 'No institution assigned'
+                }
+                disabled
+              />
+              {institutionData && (
+                <p className='text-sm text-muted-foreground'>
+                  {institutionData.counselling_code && (
+                    <span>Code: {institutionData.counselling_code}</span>
+                  )}
+                  {institutionData.counselling_code &&
+                    institutionData.email &&
+                    ' • '}
+                  {institutionData.email && (
+                    <span>Email: {institutionData.email}</span>
+                  )}
+                </p>
+              )}
+              <p className='text-sm text-muted-foreground'>
+                Institution assignments are managed by administrators
+              </p>
             </div>
 
             <div className='grid gap-6 grid-cols-1 md:grid-cols-2'>
