@@ -669,7 +669,7 @@ echo "API Tests Completed!"`;
               </div>
               <div className='flex items-center gap-2'>
                 <Badge variant='destructive'>404</Badge>
-                <span>Not Found (Resource doesn't exist)</span>
+                <span>Not Found (Resource doesn&apos;t exist)</span>
               </div>
               <div className='flex items-center gap-2'>
                 <Badge variant='destructive'>429</Badge>
