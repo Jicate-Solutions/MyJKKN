@@ -54,9 +54,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Check if user account is active
+      if (profile && profile.is_active === false) {
+        // Sign out inactive user and redirect to unauthorized page
+        await supabase.auth.signOut();
+        setUser(null);
+        router.push('/unauthorized?reason=inactive');
+        toast.error(
+          'Your account has been deactivated. Please contact your administrator.'
+        );
+        return;
+      }
+
       setUser(profile);
     } catch (error) {
-      console.error('Error refreshing user:', error);
       // On error, verify auth and redirect if needed
       const { data, error: userError } = await supabase.auth.getUser();
       if (userError || !data.user) {
@@ -75,7 +86,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       router.push('/auth/login');
       toast.success('Signed out successfully');
     } catch (error) {
-      console.error('Sign out error:', error);
       toast.error('Error signing out');
     }
   };

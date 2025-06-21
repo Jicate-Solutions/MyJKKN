@@ -57,7 +57,6 @@ export class UserService {
         }
       };
     } catch (error) {
-      console.error('Error fetching users:', error);
       throw error;
     }
   }
@@ -113,7 +112,6 @@ export class UserService {
         byInstitution
       };
     } catch (error) {
-      console.error('Error fetching user stats:', error);
       throw error;
     }
   }
@@ -157,7 +155,6 @@ export class UserService {
 
       return { data, error: null };
     } catch (error) {
-      console.error('Error getting current user profile:', error);
       return {
         data: null,
         error: error instanceof Error ? error : new Error('Unknown error')
@@ -192,7 +189,6 @@ export class UserService {
       if (error) throw error;
       return data;
     } catch (error) {
-      console.error('Error fetching user by ID:', error);
       throw error;
     }
   }
@@ -212,7 +208,6 @@ export class UserService {
         throw new Error(errorData.error || 'Failed to update role');
       }
     } catch (error) {
-      console.error('Error updating user role:', error);
       const message =
         error instanceof Error ? error.message : 'Failed to update role';
       toast.error(message);
@@ -241,7 +236,6 @@ export class UserService {
 
       toast.success('User deactivated successfully');
     } catch (error) {
-      console.error('Error deactivating user:', error);
       const message =
         error instanceof Error ? error.message : 'Failed to deactivate user';
       toast.error(message);
@@ -265,7 +259,6 @@ export class UserService {
         profile?.role === 'super_admin' || profile?.role === 'administrator'
       );
     } catch (error) {
-      console.error('Error checking admin status:', error);
       return false;
     }
   }
@@ -296,7 +289,6 @@ export class UserService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error fetching users with roles:', error);
       throw error;
     }
   }
@@ -324,7 +316,6 @@ export class UserService {
 
       return user;
     } catch (error) {
-      console.error('Error updating user:', error);
       throw error;
     }
   }
@@ -353,7 +344,6 @@ export class UserService {
 
       return user;
     } catch (error) {
-      console.error('Error creating user:', error);
       throw error;
     }
   }
@@ -373,9 +363,32 @@ export class UserService {
         throw new Error(data.error || 'Failed to delete user');
       }
     } catch (error) {
-      console.error('Error deleting user:', error);
       const message =
         error instanceof Error ? error.message : 'Failed to delete user';
+      toast.error(message);
+      throw error;
+    }
+  }
+
+  static async toggleUserStatus(userId: string): Promise<void> {
+    try {
+      const response = await fetch(`/api/users/${userId}/toggle-status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to toggle user status');
+      }
+
+      toast.success(data.message || 'User status updated successfully');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to toggle user status';
       toast.error(message);
       throw error;
     }

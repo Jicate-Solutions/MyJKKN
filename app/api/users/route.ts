@@ -19,6 +19,14 @@ const supabaseAdmin = createClient(
     auth: {
       autoRefreshToken: false,
       persistSession: false
+    },
+    db: {
+      schema: 'public'
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
+      }
     }
   }
 );
@@ -77,42 +85,36 @@ export async function POST(request: Request) {
     }
 
     // First check if email exists in auth
-    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers();
-    const authUser = authUsers.users.find((user) => user.email === email);
+    const {
+      data: { users: authUsers }
+    } = await supabaseAdmin.auth.admin.listUsers();
+    const authUser = authUsers.find((user) => user.email === email);
 
-    // If auth user exists, check and clean up both auth and profile
     if (authUser) {
-      // Delete profile if exists
-      const { error: profileDeleteError } = await supabaseAdmin
-        .from('profiles')
-        .delete()
-        .eq('email', email);
-
-      if (profileDeleteError) {
-        console.error('Profile deletion error:', profileDeleteError);
-      }
-
-      // Delete auth user
-      const { error: authDeleteError } =
-        await supabaseAdmin.auth.admin.deleteUser(authUser.id);
-
-      if (authDeleteError) {
-        console.error('Auth user deletion error:', authDeleteError);
-      }
+      // If auth user exists, we should not proceed.
+      // The email is already taken in the auth system.
+      // The client-side validation should prevent this, but this is a server-side guard.
+      return NextResponse.json(
+        {
+          error: `User with email ${email} already exists in the authentication system.`,
+          details: 'An authentication user with this email already exists.'
+        },
+        { status: 409 }
+      );
     }
 
-    // Then check if email exists in profiles
-    const { data: profile } = await supabaseAdmin
+    // Then check if email exists in profiles table just in case of inconsistency
+    const { data: profile, error: profileCheckError } = await supabaseAdmin
       .from('profiles')
       .select('id')
       .eq('email', email)
-      .maybeSingle();
+      .single();
 
     if (profile) {
       return NextResponse.json(
         {
-          error: 'Email is already registered',
-          details: 'A user with this email already exists in the system'
+          error: `User with email ${email} already exists in profiles.`,
+          details: 'A profile with this email already exists in the system.'
         },
         { status: 409 }
       );
@@ -170,12 +172,39 @@ export async function POST(request: Request) {
       }
     }
 
-    // Validate role
-    const validRoles = ['super_admin', 'administrator', 'faculty', 'student'];
+    // Validate role against database roles
+    const { data: validRoleData, error: roleError } = await supabaseAdmin
+      .from('custom_roles')
+      .select('role_key, is_system_role')
+      .eq('role_key', role)
+      .single();
 
-    if (!validRoles.includes(role)) {
+    let validRole = validRoleData;
+
+    if (roleError) {
+      // If custom_roles table doesn't exist or there's an error, fallback to basic validation
+      const basicValidRoles = [
+        'super_admin',
+        'administrator',
+        'faculty',
+        'student'
+      ];
+      if (!basicValidRoles.includes(role)) {
+        return NextResponse.json(
+          { error: 'Invalid role specified. Please select a valid role.' },
+          { status: 400 }
+        );
+      }
+      // Create a mock validRole for basic roles
+      validRole = {
+        role_key: role,
+        is_system_role: ['super_admin', 'administrator'].includes(role)
+      };
+    }
+
+    if (!validRole) {
       return NextResponse.json(
-        { error: 'Invalid role specified' },
+        { error: 'Invalid role specified. Please select a valid role.' },
         { status: 400 }
       );
     }
@@ -188,122 +217,135 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create auth user with admin client
-    const { data: authData, error: authError } =
-      await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: {
-          full_name,
-          role,
-          phone_number,
-          institution_id
-        }
-      });
-
-    if (authError) {
-      console.error('Auth error details:', authError);
-      console.error('Auth error message:', authError.message);
-      console.error('Auth error status:', authError.status);
-
-      // Check for specific error related to disabled email provider
-      if (authError.message.includes('provider')) {
-        return NextResponse.json(
-          {
-            error: 'Authentication provider error',
-            details:
-              'Email provider may be disabled in Supabase. Please enable email provider in Supabase Authentication settings.',
-            message: authError.message
-          },
-          { status: authError.status || 500 }
-        );
-      }
-
+    // Additional permission checks for system roles
+    if (validRole.is_system_role && currentUser?.role !== 'super_admin') {
       return NextResponse.json(
-        { error: authError.message },
-        { status: authError.status || 500 }
+        { error: 'Only super admins can assign system roles' },
+        { status: 403 }
       );
     }
 
-    // Create profile with admin client
-    const profileData = {
-      id: authData.user.id,
+    // Prepare user creation data
+    const userToCreate = {
       email,
-      full_name,
-      role,
-      phone_number,
-      is_active: true,
-      profile_completed: 'false',
-      updated_at: new Date().toISOString(),
-      institution_id
+      password,
+      email_confirm: true,
+      user_metadata: {
+        full_name,
+        role
+      }
     };
 
-    console.log('Attempting to create profile with data:', profileData);
+    let userId: string;
+    let existingAuthUser = false;
 
-    try {
-      // Replace the double-check and insert with an upsert.
-      // This will update the profile if one already exists (e.g. from the trigger)
-      const { data, error } = await supabaseAdmin
-        .from('profiles')
-        .upsert(profileData, { onConflict: 'email' }) // perform an upsert on email
-        .select()
-        .single();
+    // Attempt to create the user in auth
+    const { data: authCreationResponse, error: authCreationError } =
+      await supabaseAdmin.auth.admin.createUser(userToCreate);
 
-      if (error) {
-        // If upsert fails, delete the auth user and return error
-        await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-        console.error('Profile upsert error:', error);
+    if (authCreationError) {
+      // If the error is that the user already exists, we can recover
+      if (
+        authCreationError.message.includes(
+          'duplicate key value violates unique constraint'
+        ) ||
+        authCreationError.message.includes('already registered')
+      ) {
+        existingAuthUser = true;
+
+        // Find the existing user by email
+        const {
+          data: { users },
+          error: listError
+        } = await supabaseAdmin.auth.admin.listUsers();
+
+        if (listError || !users || users.length === 0) {
+          return NextResponse.json(
+            { error: 'User exists in auth, but could not be retrieved.' },
+            { status: 500 }
+          );
+        }
+
+        const targetUser = users.find((u) => u.email === email);
+        if (!targetUser) {
+          return NextResponse.json(
+            {
+              error:
+                'Could not resolve existing user. Please try again or contact support.'
+            },
+            { status: 500 }
+          );
+        }
+
+        userId = targetUser.id;
+      } else {
+        // For any other auth error, we should fail
         return NextResponse.json(
-          {
-            error: 'Failed to create user profile',
-            details: error.message,
-            code: error.code
-          },
+          { error: authCreationError.message },
           { status: 500 }
         );
       }
+    } else {
+      userId = authCreationResponse.user.id;
+    }
 
-      // Log the user creation activity
-      const actorName = currentUser?.full_name || 'Unknown';
-      const template = ActivityTemplates.userCreated(actorName, email, role);
+    // Now, call the RPC function to create the profile, which will handle its own checks
+    const { data: profileData, error: rpcError } = await supabaseAdmin.rpc(
+      'create_user_profile',
+      {
+        user_id: userId,
+        user_email: email,
+        user_full_name: full_name,
+        user_role: role,
+        user_phone_number: phone_number,
+        user_institution_id: institution_id
+      }
+    );
 
-      await logActivity({
-        userId: session.user.id,
-        actionType: template.actionType,
-        resourceType: template.resourceType,
-        resourceId: authData.user.id,
-        resourceName: full_name,
-        description: template.description,
-        request: request as NextRequest,
-        metadata: {
-          target_user_id: authData.user.id,
-          target_email: email,
-          target_role: role,
-          created_by_role: currentUser?.role
-        },
-        institutionId: currentUser?.institution_id,
-        statusCode: 201
-      });
+    if (rpcError) {
+      // If the profile creation fails, we need to clean up the auth user we might have just created
+      if (!existingAuthUser && userId) {
+        await supabaseAdmin.auth.admin.deleteUser(userId);
+      }
 
-      return NextResponse.json({
-        success: true,
-        data,
-        message: 'User created successfully'
-      });
-    } catch (error) {
-      // Clean up auth user if profile upsert fails
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-      console.error('Error in profile upsert:', error);
       return NextResponse.json(
         {
-          error: 'Failed to create user profile',
-          details: error instanceof Error ? error.message : 'Unknown error',
-          code: error instanceof Error ? error.cause : 'UNKNOWN'
+          error: rpcError.message,
+          details: rpcError.details,
+          code: rpcError.code,
+          hint: rpcError.hint
         },
-        { status: 500 }
+        { status: 409 } // Conflict is a good status code here
       );
     }
+
+    // Log the user creation activity
+    const actorName = currentUser?.full_name || 'Unknown';
+    const template = ActivityTemplates.userCreated(actorName, email, role);
+
+    await logActivity({
+      userId: session.user.id,
+      actionType: template.actionType,
+      resourceType: template.resourceType,
+      resourceId: userId,
+      resourceName: full_name,
+      description: template.description,
+      request: request as NextRequest,
+      metadata: {
+        target_user_id: userId,
+        target_email: email,
+        target_role: role,
+        created_by_role: currentUser?.role
+      },
+      institutionId: currentUser?.institution_id,
+      statusCode: 201
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: profileData,
+      message: 'User created successfully'
+    });
   } catch (error) {
     console.error('Error in POST /api/users:', error);
     return NextResponse.json(

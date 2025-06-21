@@ -7,7 +7,8 @@ import { PROTECTED_ROUTES } from './lib/auth/protected-routes';
 const PUBLIC_PATHS = [
   '/auth/login',
   '/auth/callback',
-  '/auth/complete-profile'
+  '/auth/complete-profile',
+  '/unauthorized'
 ];
 
 // Helper to check if path is public
@@ -76,8 +77,20 @@ export async function middleware(request: NextRequest) {
       .single();
 
     if (profileError) {
-      console.error('Profile fetch error:', profileError);
       return NextResponse.redirect(new URL('/unauthorized', request.url));
+    }
+
+    // Check if user account is active
+    if (profile.is_active === false) {
+      // Clear the session and redirect to unauthorized page
+      const redirectUrl = new URL('/unauthorized?reason=inactive', request.url);
+      const response = NextResponse.redirect(redirectUrl);
+
+      // Clear auth cookies
+      response.cookies.delete('sb-access-token');
+      response.cookies.delete('sb-refresh-token');
+
+      return response;
     }
 
     // Check profile completion
@@ -95,9 +108,6 @@ export async function middleware(request: NextRequest) {
       if (config.paths.some((path) => currentPath.startsWith(path))) {
         // Verify role-based access
         if (!profile.role || !config.roles.includes(profile.role)) {
-          console.warn(
-            `Access denied to ${currentPath} for role ${profile.role}`
-          );
           return NextResponse.redirect(new URL('/unauthorized', request.url));
         }
 
@@ -111,13 +121,6 @@ export async function middleware(request: NextRequest) {
 
     return res;
   } catch (error) {
-    // Log the error with context
-    console.error('Middleware critical error:', {
-      error,
-      path: request.nextUrl.pathname,
-      timestamp: new Date().toISOString()
-    });
-
     // Redirect to error page for critical failures
     return NextResponse.redirect(new URL('/error', request.url));
   }

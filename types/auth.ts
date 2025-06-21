@@ -39,6 +39,7 @@ export interface Profile {
   designation: string | null;
   avatar_url: string | null;
   profile_completed: boolean;
+  is_active: boolean;
   institution_id: string | null;
   institutions?: Institution | null;
   created_at: string;
@@ -55,6 +56,7 @@ export interface ProfileUpdate {
   designation?: string | null;
   avatar_url?: string | null;
   profile_completed?: boolean;
+  is_active?: boolean;
 }
 
 // Custom role interface

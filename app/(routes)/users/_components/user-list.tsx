@@ -10,7 +10,9 @@ import {
   Eye,
   Pencil,
   Shield,
-  User
+  User,
+  UserCheck,
+  UserX
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Profile } from '@/types/auth';
@@ -30,6 +32,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { Plus } from 'lucide-react';
+import { DeleteUserDialog } from './delete-user-dialog';
 
 interface UserListProps {
   users: Profile[];
@@ -73,7 +76,6 @@ export function UserList({
       toast.success(`${selectedRows.length} users deleted successfully`);
       onRefresh();
     } catch (error) {
-      console.error('Error deleting users:', error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to delete users'
       );
@@ -89,7 +91,6 @@ export function UserList({
         toast.success('User deleted successfully');
         onRefresh();
       } catch (error) {
-        console.error('Error deleting user:', error);
         toast.error(
           error instanceof Error ? error.message : 'Failed to delete user'
         );
@@ -104,6 +105,19 @@ export function UserList({
     // This is just a placeholder - implement the actual role change dialog
     toast.success('Role change feature coming soon');
   };
+
+  // Handle status toggle
+  const handleStatusToggle = useCallback(
+    async (user: Profile) => {
+      try {
+        await UserService.toggleUserStatus(user.id);
+        onRefresh();
+      } catch (error) {
+        // Error handling is done in the service
+      }
+    },
+    [onRefresh]
+  );
 
   const getInitials = (user: Profile) => {
     return user.full_name
@@ -146,26 +160,26 @@ export function UserList({
                 <span className='text-sm text-muted-foreground'>
                   {user.email}
                 </span>
-      </div>
+              </div>
             </Link>
           ) : (
-                    <div className='flex items-center gap-3'>
-                      <Avatar className='h-9 w-9'>
-                        <AvatarImage
-                          src={user.avatar_url || undefined}
-                          alt={user.full_name || 'User'}
-                        />
-                        <AvatarFallback>{getInitials(user)}</AvatarFallback>
-                      </Avatar>
-                      <div className='flex flex-col'>
-                        <span className='font-medium'>
-                          {user.full_name || 'No name'}
-                        </span>
-                        <span className='text-sm text-muted-foreground'>
-                          {user.email}
-                        </span>
-                      </div>
-                    </div>
+            <div className='flex items-center gap-3'>
+              <Avatar className='h-9 w-9'>
+                <AvatarImage
+                  src={user.avatar_url || undefined}
+                  alt={user.full_name || 'User'}
+                />
+                <AvatarFallback>{getInitials(user)}</AvatarFallback>
+              </Avatar>
+              <div className='flex flex-col'>
+                <span className='font-medium'>
+                  {user.full_name || 'No name'}
+                </span>
+                <span className='text-sm text-muted-foreground'>
+                  {user.email}
+                </span>
+              </div>
+            </div>
           );
         }
       },
@@ -184,9 +198,9 @@ export function UserList({
         cell: ({ row }) => {
           const role = row.getValue('role') as string;
           return (
-                    <Badge variant='secondary'>
+            <Badge variant='secondary'>
               {ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role}
-                    </Badge>
+            </Badge>
           );
         }
       },
@@ -196,12 +210,12 @@ export function UserList({
         cell: ({ row }) => {
           const user = row.original;
           return (
-                    <Badge
-              variant={user.last_login ? 'default' : 'secondary'}
-                      className='whitespace-nowrap'
-                    >
-                      {user.last_login ? 'Active' : 'Inactive'}
-                    </Badge>
+            <Badge
+              variant={user.is_active ? 'default' : 'secondary'}
+              className='whitespace-nowrap'
+            >
+              {user.is_active ? 'Active' : 'Inactive'}
+            </Badge>
           );
         }
       },
@@ -220,14 +234,14 @@ export function UserList({
           const user = row.original;
 
           return (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant='ghost' className='h-8 w-8 p-0'>
-                          <span className='sr-only'>Open menu</span>
-                          <MoreVertical className='h-4 w-4' />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant='ghost' className='h-8 w-8 p-0'>
+                  <span className='sr-only'>Open menu</span>
+                  <MoreVertical className='h-4 w-4' />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
                 <DropdownMenuItem
                   asChild={canViewUsers}
@@ -236,16 +250,16 @@ export function UserList({
                 >
                   {canViewUsers ? (
                     <Link href={`/users/${user.id}`} className='cursor-pointer'>
-                            <Eye className='mr-2 h-4 w-4' />
+                      <Eye className='mr-2 h-4 w-4' />
                       View Profile
-                          </Link>
+                    </Link>
                   ) : (
                     <div>
                       <Eye className='mr-2 h-4 w-4' />
                       View Profile
                     </div>
                   )}
-                        </DropdownMenuItem>
+                </DropdownMenuItem>
 
                 <DropdownMenuItem
                   asChild={canEditUsers}
@@ -253,51 +267,79 @@ export function UserList({
                   style={{ opacity: canEditUsers ? 1 : 0.5 }}
                 >
                   {canEditUsers ? (
-                          <Link
-                            href={`/users/${user.id}/edit`}
-                            className='cursor-pointer'
-                          >
-                            <Pencil className='mr-2 h-4 w-4' />
+                    <Link
+                      href={`/users/${user.id}/edit`}
+                      className='cursor-pointer'
+                    >
+                      <Pencil className='mr-2 h-4 w-4' />
                       Edit User
-                          </Link>
+                    </Link>
                   ) : (
                     <div>
                       <Pencil className='mr-2 h-4 w-4' />
                       Edit User
                     </div>
                   )}
-                        </DropdownMenuItem>
+                </DropdownMenuItem>
 
-                        <DropdownMenuItem
-                          onClick={
+                <DropdownMenuItem
+                  onClick={
                     canEditRoles ? () => handleRoleChange(user) : undefined
                   }
                   disabled={!canEditRoles}
                   style={{ opacity: canEditRoles ? 1 : 0.5 }}
-                        >
-                          <Shield className='mr-2 h-4 w-4' />
+                >
+                  <Shield className='mr-2 h-4 w-4' />
                   Change Role
-                        </DropdownMenuItem>
+                </DropdownMenuItem>
 
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuItem
-                          onClick={
-                    canDeleteUsers ? () => handleSingleDelete(user) : undefined
-                          }
-                  disabled={!canDeleteUsers}
-                          className={
-                    canDeleteUsers
-                      ? 'text-destructive focus:text-destructive cursor-pointer'
-                      : 'cursor-pointer'
+                <DropdownMenuItem
+                  onClick={
+                    canEditUsers ? () => handleStatusToggle(user) : undefined
                   }
-                  style={{ opacity: canDeleteUsers ? 1 : 0.5 }}
-                        >
-                          <Trash2 className='mr-2 h-4 w-4' />
-                  Delete User
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                  disabled={!canEditUsers}
+                  style={{ opacity: canEditUsers ? 1 : 0.5 }}
+                >
+                  {user.is_active ? (
+                    <>
+                      <UserX className='mr-2 h-4 w-4' />
+                      Deactivate User
+                    </>
+                  ) : (
+                    <>
+                      <UserCheck className='mr-2 h-4 w-4' />
+                      Activate User
+                    </>
+                  )}
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                <DeleteUserDialog
+                  user={user}
+                  onConfirm={handleSingleDelete}
+                  disabled={!canDeleteUsers}
+                  trigger={
+                    <DropdownMenuItem
+                      disabled={!canDeleteUsers}
+                      className={
+                        canDeleteUsers
+                          ? 'text-destructive focus:text-destructive cursor-pointer'
+                          : 'cursor-not-allowed'
+                      }
+                      style={{ opacity: canDeleteUsers ? 1 : 0.5 }}
+                      onSelect={(e) => {
+                        if (!canDeleteUsers) return;
+                        e.preventDefault(); // Prevent dropdown from closing
+                      }}
+                    >
+                      <Trash2 className='mr-2 h-4 w-4' />
+                      Delete User
+                    </DropdownMenuItem>
+                  }
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
           );
         },
         enableSorting: false,
@@ -309,7 +351,8 @@ export function UserList({
       canEditUsers,
       canDeleteUsers,
       canEditRoles,
-      handleSingleDelete
+      handleSingleDelete,
+      handleStatusToggle
     ]
   );
 
@@ -322,16 +365,16 @@ export function UserList({
             <Plus className='mr-2 h-4 w-4' />
             Add User
           </Link>
-          </Button>
+        </Button>
       ) : (
-          <Button
+        <Button
           className='w-full sm:w-auto opacity-50'
           disabled
-            variant='outline'
-          >
+          variant='outline'
+        >
           <Plus className='mr-2 h-4 w-4' />
           Add User
-          </Button>
+        </Button>
       )}
     </div>
   );
