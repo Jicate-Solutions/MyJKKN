@@ -3,6 +3,7 @@
 
 import { useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import {
   useActivityLogs,
   useActivityMetrics,
@@ -15,14 +16,6 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,8 +41,13 @@ import {
   AlertTriangle,
   Info,
   X,
-  ChevronLeft,
-  ChevronRight
+  LogIn,
+  LogOut,
+  Plus,
+  Edit,
+  Trash2,
+  Upload,
+  Clipboard
 } from 'lucide-react';
 import {
   BarChart,
@@ -60,17 +58,15 @@ import {
   Tooltip,
   ResponsiveContainer,
   LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell
+  Line
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   ACTIVITY_TYPES,
   RESOURCE_TYPES,
-  ACTIVITY_SEVERITY
+  ACTIVITY_SEVERITY,
+  UserActivityLogWithUser
 } from '@/types/activity';
 import { cn } from '@/lib/utils';
 
@@ -82,15 +78,27 @@ const SEVERITY_COLORS = {
 };
 
 const ACTION_ICONS = {
-  [ACTIVITY_TYPES.LOGIN]: '🔐',
-  [ACTIVITY_TYPES.LOGOUT]: '🚪',
-  [ACTIVITY_TYPES.CREATE]: '➕',
-  [ACTIVITY_TYPES.UPDATE]: '✏️',
-  [ACTIVITY_TYPES.DELETE]: '🗑️',
-  [ACTIVITY_TYPES.VIEW]: '👁️',
-  [ACTIVITY_TYPES.UPLOAD]: '📤',
-  [ACTIVITY_TYPES.DOWNLOAD]: '📥',
-  default: '📋'
+  [ACTIVITY_TYPES.LOGIN]: LogIn,
+  [ACTIVITY_TYPES.LOGOUT]: LogOut,
+  [ACTIVITY_TYPES.CREATE]: Plus,
+  [ACTIVITY_TYPES.UPDATE]: Edit,
+  [ACTIVITY_TYPES.DELETE]: Trash2,
+  [ACTIVITY_TYPES.VIEW]: Eye,
+  [ACTIVITY_TYPES.UPLOAD]: Upload,
+  [ACTIVITY_TYPES.DOWNLOAD]: Download,
+  default: Clipboard
+};
+
+const ACTION_ICON_COLORS = {
+  [ACTIVITY_TYPES.LOGIN]: 'text-green-600',
+  [ACTIVITY_TYPES.LOGOUT]: 'text-red-600',
+  [ACTIVITY_TYPES.CREATE]: 'text-blue-600',
+  [ACTIVITY_TYPES.UPDATE]: 'text-yellow-600',
+  [ACTIVITY_TYPES.DELETE]: 'text-red-600',
+  [ACTIVITY_TYPES.VIEW]: 'text-gray-600',
+  [ACTIVITY_TYPES.UPLOAD]: 'text-purple-600',
+  [ACTIVITY_TYPES.DOWNLOAD]: 'text-indigo-600',
+  default: 'text-gray-500'
 };
 
 export default function ActivityPage() {
@@ -154,10 +162,6 @@ export default function ActivityPage() {
     activityError,
     filters: finalFilters
   });
-
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-  };
 
   const handleRefresh = () => {
     refreshActivity();
@@ -279,10 +283,13 @@ export default function ActivityPage() {
   };
 
   const getActionIcon = (actionType: string) => {
-    return (
+    const IconComponent =
       ACTION_ICONS[actionType as keyof typeof ACTION_ICONS] ||
-      ACTION_ICONS.default
-    );
+      ACTION_ICONS.default;
+    const colorClass =
+      ACTION_ICON_COLORS[actionType as keyof typeof ACTION_ICON_COLORS] ||
+      ACTION_ICON_COLORS.default;
+    return <IconComponent className={`h-4 w-4 ${colorClass}`} />;
   };
 
   const formatDateTime = (dateString: string) => {
@@ -293,9 +300,180 @@ export default function ActivityPage() {
     }
   };
 
-  const totalPages = activityData
-    ? Math.ceil(activityData.count / pageSize)
-    : 0;
+  // Define columns for DataTable
+  const columns: PermissionColumnDef<UserActivityLogWithUser, any>[] = [
+    {
+      id: 'icon',
+      header: '',
+      enableSorting: false,
+      cell: ({ row }) => (
+        <div className='flex justify-center'>
+          {getActionIcon(row.original.action_type)}
+        </div>
+      )
+    },
+    {
+      id: 'created_at',
+      header: 'Time',
+      enableSorting: true,
+      cell: ({ row }) => (
+        <div className='font-mono text-sm'>
+          {formatDateTime(row.original.created_at)}
+        </div>
+      )
+    },
+    {
+      id: 'user',
+      header: 'User',
+      enableSorting: false,
+      cell: ({ row }) => (
+        <div>
+          <div className='font-medium'>
+            {row.original.profiles?.full_name || 'Unknown User'}
+          </div>
+          <div className='text-sm text-gray-500'>
+            {row.original.profiles?.email}
+          </div>
+        </div>
+      ),
+      requiredPermission: {
+        module: 'users',
+        action: 'view'
+      }
+    },
+    {
+      id: 'action_type',
+      header: 'Action',
+      enableSorting: true,
+      cell: ({ row }) => (
+        <Badge variant='outline'>
+          {row.original.action_type.replace('_', ' ')}
+        </Badge>
+      )
+    },
+    {
+      id: 'resource',
+      header: 'Resource',
+      enableSorting: false,
+      cell: ({ row }) =>
+        row.original.resource_type ? (
+          <div>
+            <div className='font-medium'>{row.original.resource_type}</div>
+            {row.original.resource_name && (
+              <div className='text-sm text-gray-500'>
+                {row.original.resource_name}
+              </div>
+            )}
+          </div>
+        ) : null
+    },
+    {
+      id: 'description',
+      header: 'Description',
+      enableSorting: false,
+      cell: ({ row }) => (
+        <div className='max-w-md truncate' title={row.original.description}>
+          {row.original.description}
+        </div>
+      )
+    },
+    {
+      id: 'ip_address',
+      header: 'IP Address',
+      enableSorting: false,
+      cell: ({ row }) => (
+        <div className='font-mono text-sm'>
+          {row.original.ip_address || '-'}
+        </div>
+      ),
+      requiredPermission: {
+        module: 'users',
+        action: 'view'
+      }
+    },
+    {
+      id: 'status_code',
+      header: 'Status',
+      enableSorting: true,
+      cell: ({ row }) =>
+        row.original.status_code ? (
+          <Badge
+            variant={
+              row.original.status_code >= 200 && row.original.status_code < 300
+                ? 'default'
+                : row.original.status_code >= 400
+                ? 'destructive'
+                : 'secondary'
+            }
+          >
+            {row.original.status_code}
+          </Badge>
+        ) : null
+    },
+    {
+      id: 'severity',
+      header: 'Severity',
+      enableSorting: false,
+      cell: ({ row }) =>
+        getSeverityBadge(row.original.action_type, row.original.status_code)
+    }
+  ];
+
+  // Handle page changes for server-side pagination
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPageSize(newPageSize);
+    setCurrentPage(1); // Reset to first page when changing page size
+  };
+
+  // Prepare server-side pagination configuration
+  const serverSidePagination = {
+    currentPage,
+    totalPages: activityData ? Math.ceil(activityData.count / pageSize) : 0,
+    pageSize,
+    totalItems: activityData?.count || 0,
+    hasNextPage:
+      currentPage <
+      (activityData ? Math.ceil(activityData.count / pageSize) : 0),
+    hasPreviousPage: currentPage > 1,
+    onPageChange: handlePageChange,
+    onPageSizeChange: handlePageSizeChange,
+    isLoading: activityLoading
+  };
+
+  // Table tools (buttons in the toolbar)
+  const tableTools = (
+    <>
+      <Button
+        variant='outline'
+        onClick={() => setShowFilters(!showFilters)}
+        className='flex items-center gap-2'
+      >
+        <Filter className='h-4 w-4' />
+        Filters
+        {hasActiveFilters && (
+          <Badge variant='destructive' className='ml-1 px-1 py-0 text-xs'>
+            {Object.keys(filters).length}
+          </Badge>
+        )}
+      </Button>
+
+      {hasExportPermission && (
+        <Button
+          variant='outline'
+          className='flex items-center gap-2'
+          onClick={handleExport}
+          disabled={activityLoading || !activityData?.data.length}
+        >
+          <Download className='h-4 w-4' />
+          Export
+        </Button>
+      )}
+    </>
+  );
 
   return (
     <ContentLayout title='Activity Audit Logs'>
@@ -309,46 +487,6 @@ export default function ActivityPage() {
             <p className='text-gray-600'>
               Comprehensive user activity monitoring and analytics
             </p>
-          </div>
-          <div className='flex gap-2'>
-            <Button
-              variant='outline'
-              onClick={() => setShowFilters(!showFilters)}
-              className='flex items-center gap-2'
-            >
-              <Filter className='h-4 w-4' />
-              Filters
-              {hasActiveFilters && (
-                <Badge variant='destructive' className='ml-1 px-1 py-0 text-xs'>
-                  {Object.keys(filters).length}
-                </Badge>
-              )}
-            </Button>
-            <Button
-              variant='outline'
-              onClick={handleRefresh}
-              disabled={activityLoading || metricsLoading}
-              className='flex items-center gap-2'
-            >
-              <RefreshCw
-                className={cn(
-                  'h-4 w-4',
-                  (activityLoading || metricsLoading) && 'animate-spin'
-                )}
-              />
-              Refresh
-            </Button>
-            {hasExportPermission && (
-              <Button
-                variant='outline'
-                className='flex items-center gap-2'
-                onClick={handleExport}
-                disabled={activityLoading || !activityData?.data.length}
-              >
-                <Download className='h-4 w-4' />
-                Export
-              </Button>
-            )}
           </div>
         </div>
 
@@ -497,7 +635,7 @@ export default function ActivityPage() {
                 <div className='relative flex-1'>
                   <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4' />
                   <Input
-                    placeholder='Search activities, actions, or descriptions...'
+                    placeholder='Search by action, description, resource...'
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className='pl-10'
@@ -541,8 +679,12 @@ export default function ActivityPage() {
                         <SelectItem value='none'>All Actions</SelectItem>
                         {Object.values(ACTIVITY_TYPES).map((type) => (
                           <SelectItem key={type} value={type}>
-                            {getActionIcon(type)}{' '}
-                            {type.replace('_', ' ').toUpperCase()}
+                            <div className='flex items-center gap-2'>
+                              {getActionIcon(type)}
+                              <span>
+                                {type.replace('_', ' ').toUpperCase()}
+                              </span>
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -629,49 +771,18 @@ export default function ActivityPage() {
           </CardContent>
         </Card>
 
-        {/* Activity Table */}
+        {/* Activity Table using DataTable */}
         <Card>
           <CardHeader>
-            <div className='flex justify-between items-center'>
-              <div>
-                <CardTitle>Activity Logs</CardTitle>
-                <CardDescription>
-                  {activityData
-                    ? `Showing ${activityData.data.length} of ${activityData.count} activities`
-                    : 'Loading activities...'}
-                </CardDescription>
-              </div>
-              <div className='flex items-center gap-2'>
-                <Select
-                  value={pageSize.toString()}
-                  onValueChange={(value) => setPageSize(parseInt(value))}
-                >
-                  <SelectTrigger className='w-20'>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='25'>25</SelectItem>
-                    <SelectItem value='50'>50</SelectItem>
-                    <SelectItem value='100'>100</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            <CardTitle>Activity Logs</CardTitle>
+            <CardDescription>
+              {activityData
+                ? `Showing ${activityData.data.length} of ${activityData.count} activities`
+                : 'Loading activities...'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            {activityLoading ? (
-              <div className='space-y-4'>
-                {Array.from({ length: 10 }).map((_, i) => (
-                  <div key={i} className='flex items-center space-x-4'>
-                    <Skeleton className='h-4 w-4' />
-                    <Skeleton className='h-4 w-24' />
-                    <Skeleton className='h-4 w-32' />
-                    <Skeleton className='h-4 w-48' />
-                    <Skeleton className='h-4 w-24' />
-                  </div>
-                ))}
-              </div>
-            ) : activityError ? (
+            {activityError ? (
               <div className='text-center py-8'>
                 <AlertTriangle className='h-12 w-12 text-red-500 mx-auto mb-4' />
                 <h3 className='text-lg font-semibold text-gray-900 mb-2'>
@@ -680,7 +791,7 @@ export default function ActivityPage() {
                 <p className='text-gray-600 mb-4'>{activityError}</p>
                 <Button onClick={handleRefresh}>Try Again</Button>
               </div>
-            ) : !activityData?.data.length ? (
+            ) : !activityData?.data.length && !activityLoading ? (
               <div className='text-center py-8'>
                 <Activity className='h-12 w-12 text-gray-400 mx-auto mb-4' />
                 <h3 className='text-lg font-semibold text-gray-900 mb-2'>
@@ -691,150 +802,26 @@ export default function ActivityPage() {
                 </p>
               </div>
             ) : (
-              <>
-                <div className='overflow-x-auto'>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className='w-12'></TableHead>
-                        <TableHead
-                          className='cursor-pointer hover:bg-gray-50'
-                          onClick={() => {
-                            if (sortBy === 'created_at') {
-                              setSortOrder(
-                                sortOrder === 'asc' ? 'desc' : 'asc'
-                              );
-                            } else {
-                              setSortBy('created_at');
-                              setSortOrder('desc');
-                            }
-                          }}
-                        >
-                          Time
-                          {sortBy === 'created_at' && (
-                            <span className='ml-1'>
-                              {sortOrder === 'asc' ? '↑' : '↓'}
-                            </span>
-                          )}
-                        </TableHead>
-                        <TableHead>User</TableHead>
-                        <TableHead>Action</TableHead>
-                        <TableHead>Resource</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>IP Address</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Severity</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {activityData?.data.map((activity) => (
-                        <TableRow
-                          key={activity.id}
-                          className='hover:bg-gray-50'
-                        >
-                          <TableCell>
-                            <span className='text-lg'>
-                              {getActionIcon(activity.action_type)}
-                            </span>
-                          </TableCell>
-                          <TableCell className='font-mono text-sm'>
-                            {formatDateTime(activity.created_at)}
-                          </TableCell>
-                          <TableCell>
-                            <div>
-                              <div className='font-medium'>
-                                {activity.profiles?.full_name || 'Unknown User'}
-                              </div>
-                              <div className='text-sm text-gray-500'>
-                                {activity.profiles?.email}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant='outline'>
-                              {activity.action_type.replace('_', ' ')}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {activity.resource_type && (
-                              <div>
-                                <div className='font-medium'>
-                                  {activity.resource_type}
-                                </div>
-                                {activity.resource_name && (
-                                  <div className='text-sm text-gray-500'>
-                                    {activity.resource_name}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell className='max-w-md'>
-                            <div
-                              className='truncate'
-                              title={activity.description}
-                            >
-                              {activity.description}
-                            </div>
-                          </TableCell>
-                          <TableCell className='font-mono text-sm'>
-                            {activity.ip_address || '-'}
-                          </TableCell>
-                          <TableCell>
-                            {activity.status_code && (
-                              <Badge
-                                variant={
-                                  activity.status_code >= 200 &&
-                                  activity.status_code < 300
-                                    ? 'default'
-                                    : activity.status_code >= 400
-                                    ? 'destructive'
-                                    : 'secondary'
-                                }
-                              >
-                                {activity.status_code}
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {getSeverityBadge(
-                              activity.action_type,
-                              activity.status_code
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className='flex items-center justify-between mt-4'>
-                    <div className='text-sm text-gray-700'>
-                      Page {currentPage} of {totalPages}
-                    </div>
-                    <div className='flex items-center gap-2'>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => handlePageChange(currentPage - 1)}
-                        disabled={currentPage === 1}
-                      >
-                        <ChevronLeft className='h-4 w-4' />
-                      </Button>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                      >
-                        <ChevronRight className='h-4 w-4' />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </>
+              <DataTable
+                columns={columns}
+                data={activityData?.data || []}
+                searchPlaceholder='Search by action, description, resource...'
+                filterColumn=''
+                permissions={{
+                  module: 'users',
+                  actions: {
+                    view: true,
+                    create: false,
+                    edit: false,
+                    delete: false
+                  },
+                  showPermissionError: true
+                }}
+                tableTools={tableTools}
+                serverSidePagination={serverSidePagination}
+                onRefresh={handleRefresh}
+                showRefresh={true}
+              />
             )}
           </CardContent>
         </Card>

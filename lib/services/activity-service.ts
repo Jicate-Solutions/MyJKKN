@@ -189,12 +189,11 @@ export class ActivityService {
       }
 
       if (filters.search) {
-        query = query.or(`
-          description.ilike.%${filters.search}%,
-          action_type.ilike.%${filters.search}%,
-          resource_type.ilike.%${filters.search}%,
-          resource_name.ilike.%${filters.search}%
-        `);
+        // Search across main table fields only
+        // This is a simple, guaranteed-to-work approach
+        query = query.or(
+          `description.ilike.%${filters.search}%,action_type.ilike.%${filters.search}%,resource_type.ilike.%${filters.search}%,resource_name.ilike.%${filters.search}%`
+        );
       }
 
       // Apply sorting
