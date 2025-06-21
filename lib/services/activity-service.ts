@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { IPDetector } from '@/lib/utils/ip-detector';
 import {
   UserActivityLog,
   UserActivityLogWithUser,
@@ -90,13 +91,16 @@ export class ActivityService {
         activityData.user_agent =
           request.headers.get('user-agent') || undefined;
 
-        // Extract IP address from various headers
-        const forwarded = request.headers.get('x-forwarded-for');
-        const realIp = request.headers.get('x-real-ip');
-        const clientIp = request.headers.get('x-client-ip');
+        // Enhanced IP address detection
+        const ipInfo = IPDetector.extractIPInfo(request);
+        activityData.ip_address = ipInfo.public_ip || undefined;
 
-        activityData.ip_address =
-          forwarded?.split(',')[0] || realIp || clientIp || undefined;
+        // Add comprehensive IP information to metadata
+        const ipMetadata = IPDetector.formatIPInfo(ipInfo);
+        activityData.metadata = {
+          ...activityData.metadata,
+          ip_info: ipMetadata
+        };
       }
 
       return await this.createActivityLog(activityData);
