@@ -3,6 +3,8 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { Database } from '@/types/supabase';
+import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
+import { ACTIVITY_TYPES, RESOURCE_TYPES } from '@/types/activity';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,24 +68,60 @@ export async function GET(request: NextRequest) {
       // Get or create profile
       const { data: existingProfile } = await supabase
         .from('profiles')
-        .select('profile_completed')
+        .select('profile_completed, full_name, role, institution_id')
         .eq('id', user.id)
         .single();
 
+      // Helper function to log login activity
+      const logLoginActivity = async (profile: any) => {
+        try {
+          const userName = profile?.full_name || user.email || 'Unknown';
+          const template = ActivityTemplates.userLogin(userName);
+
+          await logActivity({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            description: template.description,
+            request,
+            metadata: {
+              login_method: 'google_oauth',
+              user_email: user.email,
+              user_role: profile?.role || 'unknown',
+              profile_completed: profile?.profile_completed || false,
+              first_login: !existingProfile
+            },
+            institutionId: profile?.institution_id,
+            statusCode: 200
+          });
+        } catch (error) {
+          console.error('Failed to log login activity:', error);
+          // Don't throw - login should continue even if activity logging fails
+        }
+      };
+
       // If no profile exists, create one
       if (!existingProfile) {
-        const { error: insertError } = await supabase.from('profiles').insert([
-          {
-            id: user.id,
-            email: user.email,
-            role: 'student',
-            profile_completed: false
-          }
-        ]);
+        const newProfile = {
+          id: user.id,
+          email: user.email,
+          role: 'student',
+          profile_completed: false
+        };
 
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert([newProfile]);
         if (insertError) throw insertError;
+
+        // Log login activity for new user
+        await logLoginActivity(newProfile);
+
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));
       }
+
+      // Log login activity for existing user
+      await logLoginActivity(existingProfile);
 
       // If profile exists but not completed
       if (!existingProfile.profile_completed) {

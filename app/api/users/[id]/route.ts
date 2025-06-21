@@ -5,6 +5,8 @@ import type { NextRequest } from 'next/server';
 import { Database } from '@/types/auth';
 import { createClient } from '@supabase/supabase-js';
 import { UpdateUserRequest } from '@/types/users';
+import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
+import { RESOURCE_TYPES } from '@/types/activity';
 
 // Create admin client for user management
 const supabaseAdmin = createClient(
@@ -179,7 +181,7 @@ export async function PATCH(
     // Get current user's profile to check permissions
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, full_name, institution_id')
       .eq('id', user.id)
       .single();
 
@@ -214,18 +216,18 @@ export async function PATCH(
       );
     }
 
+    // Get target user's original data for activity logging
+    const { data: originalTargetUser } = await supabase
+      .from('profiles')
+      .select('role, full_name, email, phone_number, institution_id')
+      .eq('id', userId)
+      .single();
+
     // If editing someone else's profile, check additional restrictions
     if (user.id !== userId) {
-      // Get target user's profile to check role restrictions
-      const { data: targetProfile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .single();
-
       // Only super_admin can edit other super_admin profiles
       if (
-        targetProfile?.role === 'super_admin' &&
+        originalTargetUser?.role === 'super_admin' &&
         currentProfile.role !== 'super_admin'
       ) {
         return NextResponse.json(
@@ -260,6 +262,55 @@ export async function PATCH(
         { error: 'Failed to update user' },
         { status: 500 }
       );
+    }
+
+    // Log the user update activity
+    const actorName = currentProfile?.full_name || 'Unknown';
+    const targetName =
+      originalTargetUser?.full_name || body.full_name || 'Unknown';
+
+    // Track what fields changed
+    const changes: string[] = [];
+    if (originalTargetUser?.full_name !== body.full_name) changes.push('name');
+    if (originalTargetUser?.email !== body.email) changes.push('email');
+    if (originalTargetUser?.role !== body.role) changes.push('role');
+    if (originalTargetUser?.phone_number !== body.phone_number)
+      changes.push('phone');
+    if (originalTargetUser?.institution_id !== body.institution_id)
+      changes.push('institution');
+
+    if (changes.length > 0) {
+      const template = ActivityTemplates.userUpdated(
+        actorName,
+        targetName,
+        changes
+      );
+
+      await logActivity({
+        userId: user.id,
+        actionType: template.actionType,
+        resourceType: template.resourceType,
+        resourceId: userId,
+        resourceName: targetName,
+        description: template.description,
+        request,
+        metadata: {
+          target_user_id: userId,
+          changes_made: changes,
+          original_data: originalTargetUser,
+          new_data: {
+            full_name: body.full_name,
+            email: body.email,
+            role: body.role,
+            phone_number: body.phone_number,
+            institution_id: body.institution_id
+          },
+          is_self_edit: user.id === userId,
+          editor_role: currentProfile?.role
+        },
+        institutionId: currentProfile?.institution_id,
+        statusCode: 200
+      });
     }
 
     return NextResponse.json(
@@ -319,7 +370,7 @@ export async function DELETE(
     // Check if user has permission to delete users (super_admin or administrator)
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, full_name, institution_id')
       .eq('id', user.id)
       .single();
 
@@ -336,7 +387,7 @@ export async function DELETE(
     // Check if trying to delete a super admin (only super admins can delete other super admins)
     const { data: targetUser } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, full_name, email')
       .eq('id', id)
       .single();
 
@@ -381,6 +432,29 @@ export async function DELETE(
         { status: 500 }
       );
     }
+
+    // Log the user deletion activity
+    const actorName = currentProfile?.full_name || 'Unknown';
+    const targetName = targetUser?.full_name || 'Unknown';
+    const template = ActivityTemplates.userDeleted(actorName, targetName);
+
+    await logActivity({
+      userId: user.id,
+      actionType: template.actionType,
+      resourceType: template.resourceType,
+      resourceId: id,
+      resourceName: targetName,
+      description: template.description,
+      request,
+      metadata: {
+        target_user_id: id,
+        target_email: targetUser?.email,
+        target_role: targetUser?.role,
+        deleted_by_role: currentProfile?.role
+      },
+      institutionId: currentProfile?.institution_id,
+      statusCode: 200
+    });
 
     return NextResponse.json({
       success: true,
