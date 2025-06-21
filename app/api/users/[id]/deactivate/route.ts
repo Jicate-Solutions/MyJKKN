@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
+import { RESOURCE_TYPES } from '@/types/activity';
 
 export async function POST(
   request: NextRequest,
@@ -41,7 +43,7 @@ export async function POST(
     // Verify admin permissions
     const { data: currentUser, error: currentUserError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, full_name, institution_id')
       .eq('id', user.id)
       .single();
 
@@ -58,7 +60,7 @@ export async function POST(
     // Check if trying to deactivate a super admin
     const { data: targetUser, error: targetUserError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, full_name, email')
       .eq('id', params.id)
       .single();
 
@@ -85,6 +87,29 @@ export async function POST(
       .single();
 
     if (error) throw error;
+
+    // Log the user deactivation activity
+    const actorName = currentUser?.full_name || 'Unknown';
+    const targetName = targetUser?.full_name || 'Unknown';
+    const template = ActivityTemplates.userDeactivated(actorName, targetName);
+
+    await logActivity({
+      userId: user.id,
+      actionType: template.actionType,
+      resourceType: template.resourceType,
+      resourceId: params.id,
+      resourceName: targetName,
+      description: template.description,
+      request,
+      metadata: {
+        target_user_id: params.id,
+        target_email: targetUser?.email,
+        target_role: targetUser?.role,
+        deactivated_by_role: currentUser?.role
+      },
+      institutionId: currentUser?.institution_id,
+      statusCode: 200
+    });
 
     return NextResponse.json({
       success: true,

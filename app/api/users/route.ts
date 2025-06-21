@@ -6,6 +6,8 @@ import type { Database } from '@/types/supabase';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
 import { CreateUserRequest } from '@/types/users';
+import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
+import { RESOURCE_TYPES } from '@/types/activity';
 
 export const dynamic = 'force-dynamic';
 
@@ -128,7 +130,7 @@ export async function POST(request: Request) {
 
     const { data: currentUser, error: userError } = await supabase
       .from('profiles')
-      .select('role, institution_id')
+      .select('role, institution_id, full_name')
       .eq('id', session.user.id)
       .single();
 
@@ -261,6 +263,28 @@ export async function POST(request: Request) {
           { status: 500 }
         );
       }
+
+      // Log the user creation activity
+      const actorName = currentUser?.full_name || 'Unknown';
+      const template = ActivityTemplates.userCreated(actorName, email, role);
+
+      await logActivity({
+        userId: session.user.id,
+        actionType: template.actionType,
+        resourceType: template.resourceType,
+        resourceId: authData.user.id,
+        resourceName: full_name,
+        description: template.description,
+        request: request as NextRequest,
+        metadata: {
+          target_user_id: authData.user.id,
+          target_email: email,
+          target_role: role,
+          created_by_role: currentUser?.role
+        },
+        institutionId: currentUser?.institution_id,
+        statusCode: 201
+      });
 
       return NextResponse.json({
         success: true,

@@ -29,6 +29,19 @@ export class AuthService {
 
   static async signOut() {
     try {
+      // Log logout activity via API before signing out
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+      } catch (activityError) {
+        console.error('Failed to log logout activity:', activityError);
+        // Continue with logout even if activity logging fails
+      }
+
       // Clear any user-related data from local storage
       if (typeof window !== 'undefined') {
         localStorage.clear();

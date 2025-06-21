@@ -74,6 +74,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // User Management
   '/users': 'users.view',
+  '/users/activity': 'users.activity.view',
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
 
@@ -222,6 +223,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Users,
           submenus: []
         },
+
         {
           href: '/users/roles',
           label: 'Roles Assignment',
@@ -234,6 +236,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Role Management',
           active: pathname === '/users/role-management',
           icon: Settings,
+          submenus: []
+        },
+        {
+          href: '/users/activity',
+          label: 'Activity Audit Logs',
+          active: pathname === '/users/activity',
+          icon: ClipboardCheck,
           submenus: []
         }
       ]

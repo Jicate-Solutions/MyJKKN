@@ -4,6 +4,8 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { Database, SYSTEM_ROLES } from '@/types/auth';
+import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
+import { RESOURCE_TYPES } from '@/types/activity';
 
 export async function PATCH(
   request: NextRequest,
@@ -59,7 +61,7 @@ export async function PATCH(
     // Verify super admin role
     const { data: currentUser, error: currentUserError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, full_name, institution_id')
       .eq('id', user.id)
       .single();
 
@@ -93,7 +95,7 @@ export async function PATCH(
     // Check target user
     const { data: targetUser, error: targetUserError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, full_name, email')
       .eq('id', params.id)
       .single();
 
@@ -141,6 +143,38 @@ export async function PATCH(
         { status: 500 }
       );
     }
+
+    // Log the role change activity
+    const actorName = currentUser?.full_name || 'Unknown';
+    const targetName = targetUser?.full_name || 'Unknown';
+    const oldRole = targetUser?.role || 'Unknown';
+    const newRole = role;
+
+    const template = ActivityTemplates.roleChanged(
+      actorName,
+      targetName,
+      oldRole,
+      newRole
+    );
+
+    await logActivity({
+      userId: user.id,
+      actionType: template.actionType,
+      resourceType: template.resourceType,
+      resourceId: params.id,
+      resourceName: targetName,
+      description: template.description,
+      request,
+      metadata: {
+        target_user_id: params.id,
+        target_email: targetUser?.email,
+        old_role: oldRole,
+        new_role: newRole,
+        changed_by_role: currentUser?.role
+      },
+      institutionId: currentUser?.institution_id,
+      statusCode: 200
+    });
 
     return NextResponse.json({
       success: true,
