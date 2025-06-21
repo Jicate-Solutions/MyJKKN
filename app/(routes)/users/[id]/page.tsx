@@ -16,7 +16,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, EditIcon } from 'lucide-react';
+import { ArrowLeft, Edit } from 'lucide-react';
 import { UserDetails } from './_components/user-details';
 
 interface UserDetailsPageProps {
@@ -106,10 +106,18 @@ export default function UserDetailsPage({ params }: UserDetailsPageProps) {
               {user.email}
             </p>
           </div>
-          <Button variant='outline' onClick={() => router.back()}>
-            <ArrowLeft className='mr-2 h-4 w-4' />
-            Back
-          </Button>
+          <div className='flex gap-2'>
+            <Button asChild>
+              <Link href={`/users/${user.id}/edit`}>
+                <Edit className='mr-2 h-4 w-4' />
+                Edit User
+              </Link>
+            </Button>
+            <Button variant='outline' onClick={() => router.back()}>
+              <ArrowLeft className='mr-2 h-4 w-4' />
+              Back
+            </Button>
+          </div>
         </div>
 
         <UserDetails user={user} />

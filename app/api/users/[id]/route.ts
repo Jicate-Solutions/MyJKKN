@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { Database } from '@/types/auth';
 import { createClient } from '@supabase/supabase-js';
+import { UpdateUserRequest } from '@/types/users';
 
 // Create admin client for user management
 const supabaseAdmin = createClient(
@@ -17,8 +18,13 @@ const supabaseAdmin = createClient(
   }
 );
 
-export async function GET(request: NextRequest) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
+    const userId = params.id;
+
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,7 +44,7 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    // Get current user's session
+    // Get current user for authorization
     const {
       data: { user },
       error: userError
@@ -48,8 +54,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get current user's profile
-    const { data: currentUserProfile, error: profileError } = await supabase
+    // Get current user's profile to check permissions
+    const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -62,52 +68,56 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get URL parameters
-    const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
-    const search = searchParams.get('search');
-    const role = searchParams.get('role');
+    // Check permissions: users can view their own profile, or admins can view any profile
+    const canView =
+      user.id === userId || // User viewing their own profile
+      ['super_admin', 'administrator'].includes(currentProfile.role); // Admin roles
 
-    // Base query
-    let query = supabase.from('profiles').select('*', { count: 'exact' });
-
-    // Apply filters
-    if (currentUserProfile.role === 'super_admin') {
-      // Super admins can see all users with all filters
-      if (search) {
-        query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
-      }
-      if (role) {
-        query = query.eq('role', role);
-      }
-    } else {
-      // Non-super admins can only see their own profile
-      query = query.eq('id', user.id);
+    if (!canView) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions to view this user' },
+        { status: 403 }
+      );
     }
 
-    // Apply pagination
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+    // Get user by ID with institution data
+    const { data, error } = await supabase
+      .from('profiles')
+      .select(
+        `
+        *,
+        institutions (
+          id,
+          name,
+          category,
+          institution_type,
+          website,
+          email,
+          phone,
+          city,
+          state,
+          country
+        )
+      `
+      )
+      .eq('id', userId)
+      .single();
 
-    query = query.range(from, to).order('created_at', { ascending: false });
+    if (error) {
+      console.error('Error fetching user:', error);
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
 
-    // Execute query
-    const { data: users, error: usersError, count } = await query;
-
-    if (usersError) throw usersError;
-
-    return NextResponse.json({
-      data: users,
-      metadata: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: count ? Math.ceil(count / limit) : 0
-      }
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        data,
+        message: 'User fetched successfully'
+      },
+      { status: 200 }
+    );
   } catch (error) {
-    console.error('Error in GET /api/users:', error);
+    console.error('Error in user fetch API:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -120,8 +130,8 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    // Ensure params is properly handled
-    const { id } = params;
+    const userId = params.id;
+    const body: UpdateUserRequest = await request.json();
 
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(
@@ -142,67 +152,126 @@ export async function PATCH(
       }
     );
 
-    const { role } = await request.json();
-
-    // Check for required data
-    if (!role) {
-      return NextResponse.json({ error: 'Role is required' }, { status: 400 });
-    }
-
-    // Check authentication
+    // Get current user for authorization
     const {
       data: { user },
       error: userError
     } = await supabase.auth.getUser();
 
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (userError) {
+      console.error('PATCH Auth error:', userError);
+      return NextResponse.json(
+        { error: 'Authentication failed', details: userError.message },
+        { status: 401 }
+      );
     }
 
-    // Check if user is super_admin
+    if (!user) {
+      console.error('PATCH No user found in session');
+      return NextResponse.json(
+        { error: 'No authenticated user' },
+        { status: 401 }
+      );
+    }
+
+    console.log('PATCH Authenticated user:', user.id, 'editing user:', userId);
+
+    // Get current user's profile to check permissions
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    if (profileError || currentProfile.role !== 'super_admin') {
+    if (profileError) {
+      console.error('PATCH Error fetching current user profile:', profileError);
       return NextResponse.json(
-        { error: 'Only super admins can update roles' },
+        { error: 'Error fetching user profile' },
+        { status: 500 }
+      );
+    }
+
+    console.log('PATCH Current user role:', currentProfile.role);
+
+    // Check permissions: users can edit their own profile, or admins can edit any profile
+    const canEdit =
+      user.id === userId || // User editing their own profile
+      ['super_admin', 'administrator'].includes(currentProfile.role); // Admin roles
+
+    console.log(
+      'PATCH Can edit:',
+      canEdit,
+      'self-edit:',
+      user.id === userId,
+      'admin role:',
+      ['super_admin', 'administrator'].includes(currentProfile.role)
+    );
+
+    if (!canEdit) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions to edit this user' },
         { status: 403 }
       );
     }
 
-    // Check if trying to modify another super admin
-    const { data: targetUser } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', id)
-      .single();
+    // If editing someone else's profile, check additional restrictions
+    if (user.id !== userId) {
+      // Get target user's profile to check role restrictions
+      const { data: targetProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
 
-    if (targetUser?.role === 'super_admin' && role !== 'super_admin') {
-      return NextResponse.json(
-        { error: "Cannot modify another super admin's role" },
-        { status: 403 }
-      );
+      // Only super_admin can edit other super_admin profiles
+      if (
+        targetProfile?.role === 'super_admin' &&
+        currentProfile.role !== 'super_admin'
+      ) {
+        return NextResponse.json(
+          { error: 'Only super admins can edit other super admin profiles' },
+          { status: 403 }
+        );
+      }
     }
 
-    // Update role
+    // Update the user profile
     const { data, error } = await supabase
       .from('profiles')
       .update({
-        role,
+        email: body.email,
+        full_name: body.full_name,
+        phone_number: body.phone_number,
+        role: body.role,
+        institution_id: body.institution_id,
+        designation: body.designation,
+        bio: body.bio,
+        gender: body.gender,
+        profile_completed: body.profile_complete,
         updated_at: new Date().toISOString()
       })
-      .eq('id', id)
+      .eq('id', userId)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error updating user:', error);
+      return NextResponse.json(
+        { error: 'Failed to update user' },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json(data);
+    return NextResponse.json(
+      {
+        success: true,
+        data,
+        message: 'User updated successfully'
+      },
+      { status: 200 }
+    );
   } catch (error) {
-    console.error('Error updating user role:', error);
+    console.error('Error in user update API:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

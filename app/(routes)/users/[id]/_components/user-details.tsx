@@ -103,6 +103,111 @@ export function UserDetails({ user }: UserDetailsProps) {
         </CardContent>
       </Card>
 
+      {/* Institution Information Card */}
+      {user.institutions && (
+        <Card>
+          <CardHeader className='pb-4'>
+            <CardTitle>Institution Information</CardTitle>
+          </CardHeader>
+          <CardContent className='grid gap-4'>
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+              <div className='flex items-center gap-3'>
+                <Building2 className='h-4 w-4 text-muted-foreground' />
+                <div className='grid gap-0.5'>
+                  <span className='text-sm font-medium'>Institution</span>
+                  <span className='text-sm text-muted-foreground'>
+                    {user.institutions.name}
+                  </span>
+                </div>
+              </div>
+              {user.institutions.category && (
+                <div className='flex items-center gap-3'>
+                  <BookOpen className='h-4 w-4 text-muted-foreground' />
+                  <div className='grid gap-0.5'>
+                    <span className='text-sm font-medium'>Category</span>
+                    <span className='text-sm text-muted-foreground'>
+                      {user.institutions.category.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {user.institutions.institution_type && (
+                <div className='flex items-center gap-3'>
+                  <BookOpen className='h-4 w-4 text-muted-foreground' />
+                  <div className='grid gap-0.5'>
+                    <span className='text-sm font-medium'>Type</span>
+                    <span className='text-sm text-muted-foreground'>
+                      {user.institutions.institution_type}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {user.institutions.email && (
+                <div className='flex items-center gap-3'>
+                  <Mail className='h-4 w-4 text-muted-foreground' />
+                  <div className='grid gap-0.5'>
+                    <span className='text-sm font-medium'>
+                      Institution Email
+                    </span>
+                    <span className='text-sm text-muted-foreground'>
+                      {user.institutions.email}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {user.institutions.phone && (
+                <div className='flex items-center gap-3'>
+                  <Phone className='h-4 w-4 text-muted-foreground' />
+                  <div className='grid gap-0.5'>
+                    <span className='text-sm font-medium'>
+                      Institution Phone
+                    </span>
+                    <span className='text-sm text-muted-foreground'>
+                      {user.institutions.phone}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {user.institutions.website && (
+                <div className='flex items-center gap-3'>
+                  <Building2 className='h-4 w-4 text-muted-foreground' />
+                  <div className='grid gap-0.5'>
+                    <span className='text-sm font-medium'>Website</span>
+                    <a
+                      href={user.institutions.website}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='text-sm text-blue-600 hover:text-blue-800 underline'
+                    >
+                      {user.institutions.website}
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+            {(user.institutions.city ||
+              user.institutions.state ||
+              user.institutions.country) && (
+              <div className='flex items-center gap-3 pt-2 border-t'>
+                <MapPin className='h-4 w-4 text-muted-foreground' />
+                <div className='grid gap-0.5'>
+                  <span className='text-sm font-medium'>Location</span>
+                  <span className='text-sm text-muted-foreground'>
+                    {[
+                      user.institutions.city,
+                      user.institutions.state,
+                      user.institutions.country
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Academic Information Card */}
       <Card>
         <CardHeader className='pb-4'>

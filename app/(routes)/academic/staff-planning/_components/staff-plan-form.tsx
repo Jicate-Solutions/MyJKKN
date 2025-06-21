@@ -40,6 +40,7 @@ import { AcademicYearService } from '@/lib/services/academic/academic-year-servi
 import { BeatLoader } from 'react-spinners';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { Section } from '@/types/organizations';
+import { StaffSearchSelector } from './staff-search-selector';
 
 const staffPlanSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -58,11 +59,17 @@ const staffPlanSchema = z.object({
   courses: z.array(
     z.object({
       course_id: z.string().min(1, 'Course is required'),
-      staff_id: z.string().min(1, 'Staff member is required'),
-      hours_allocated: z.number().min(1, 'Hours must be at least 1'),
-      is_coordinator: z.boolean().default(false),
-      is_combined: z.boolean().default(false),
-      staff_type: z.string().min(1, 'Staff type is required')
+      staff_assignments: z
+        .array(
+          z.object({
+            staff_id: z.string().min(1, 'Staff member is required'),
+            hours_allocated: z.number().min(1, 'Hours must be at least 1'),
+            is_coordinator: z.boolean().default(false),
+            staff_type: z.string().min(1, 'Staff type is required')
+          })
+        )
+        .min(1, 'At least one staff member must be assigned'),
+      is_combined: z.boolean().default(false)
     })
   ),
   is_active: z.boolean().default(true)
@@ -220,14 +227,29 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             start_date: new Date(staffPlan.start_date),
             end_date: new Date(staffPlan.end_date),
             courses:
-              staffPlan.courses?.map((course) => ({
-                course_id: course.course_id,
-                staff_id: course.staff_id,
-                hours_allocated: course.hours_allocated,
-                is_coordinator: course.is_coordinator,
-                is_combined: course.is_combined,
-                staff_type: course.staff_type
-              })) || [],
+              staffPlan.courses?.reduce((acc, course) => {
+                // Group courses by course_id to handle multiple staff assignments
+                const existingCourse = acc.find(
+                  (c) => c.course_id === course.course_id
+                );
+                const staffAssignment = {
+                  staff_id: course.staff_id,
+                  hours_allocated: course.hours_allocated,
+                  is_coordinator: course.is_coordinator,
+                  staff_type: course.staff_type
+                };
+
+                if (existingCourse) {
+                  existingCourse.staff_assignments.push(staffAssignment);
+                } else {
+                  acc.push({
+                    course_id: course.course_id,
+                    staff_assignments: [staffAssignment],
+                    is_combined: course.is_combined
+                  });
+                }
+                return acc;
+              }, [] as FormValues['courses']) || [],
             is_active: staffPlan.is_active
           });
         } catch (error) {
@@ -411,6 +433,18 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       const sectionName = selectedSection?.section_name || values.section_id;
 
       // Map section_id to section and format dates for API compatibility
+      // Flatten staff assignments back to the API format
+      const flattenedCourses = values.courses.flatMap((course) =>
+        course.staff_assignments.map((assignment) => ({
+          course_id: course.course_id,
+          staff_id: assignment.staff_id,
+          hours_allocated: assignment.hours_allocated,
+          is_coordinator: assignment.is_coordinator,
+          is_combined: course.is_combined,
+          staff_type: assignment.staff_type
+        }))
+      );
+
       const apiPayload = {
         institution_id: values.institution_id,
         degree_id: values.degree_id,
@@ -421,7 +455,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         academic_year_id: values.academic_year_id,
         start_date: values.start_date.toISOString(),
         end_date: values.end_date.toISOString(),
-        courses: values.courses,
+        courses: flattenedCourses,
         is_active: values.is_active
       };
 
@@ -765,11 +799,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                       ...form.getValues('courses'),
                       {
                         course_id: '',
-                        staff_id: '',
-                        hours_allocated: 0,
-                        is_coordinator: false,
-                        is_combined: false,
-                        staff_type: ''
+                        staff_assignments: [],
+                        is_combined: false
                       }
                     ])
                   }
@@ -780,188 +811,132 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
               </div>
 
               {/* Dynamic Course Assignment Fields */}
-              {form.watch('courses').map((_, index) => (
-                <Card key={index}>
-                  <CardContent className='p-4 grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3'>
-                    <FormField
-                      control={form.control}
-                      name={`courses.${index}.course_id`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Course</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
+              {form.watch('courses').map((courseAssignment, index) => {
+                const selectedCourse = courses.find(
+                  (c) => c.id === courseAssignment.course_id
+                );
+                const courseName = selectedCourse
+                  ? `${selectedCourse.course_code} - ${selectedCourse.course_name}`
+                  : 'Select a course';
+
+                return (
+                  <Card key={index} className='p-6'>
+                    <div className='space-y-6'>
+                      {/* Course Selection */}
+                      <div className='flex items-center justify-between'>
+                        <div className='flex-1 max-w-md'>
+                          <FormField
+                            control={form.control}
+                            name={`courses.${index}.course_id`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Course</FormLabel>
+                                <Select
+                                  value={field.value}
+                                  onValueChange={field.onChange}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder='Select course' />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent className='max-h-60 overflow-y-auto'>
+                                    {courses.length === 0 ? (
+                                      <div className='p-2 text-center text-sm text-muted-foreground'>
+                                        No courses available
+                                      </div>
+                                    ) : (
+                                      courses.map((course) => (
+                                        <SelectItem
+                                          key={course.id}
+                                          value={course.id}
+                                        >
+                                          {course.course_code} -{' '}
+                                          {course.course_name}
+                                        </SelectItem>
+                                      ))
+                                    )}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <div className='flex items-center gap-4'>
+                          {/* Combined Course Toggle */}
+                          <FormField
+                            control={form.control}
+                            name={`courses.${index}.is_combined`}
+                            render={({ field }) => (
+                              <FormItem className='flex flex-row items-center space-x-2 space-y-0'>
+                                <FormControl>
+                                  <Switch
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                                <FormLabel className='text-sm'>
+                                  Combined Course
+                                </FormLabel>
+                              </FormItem>
+                            )}
+                          />
+
+                          {/* Remove Course Button */}
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            onClick={() => {
+                              const courses = form.getValues('courses');
+                              courses.splice(index, 1);
+                              form.setValue('courses', courses);
+                            }}
+                            className='text-destructive hover:text-destructive'
                           >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder='Select course' />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent className='max-h-60 overflow-y-auto'>
-                              {courses.length === 0 ? (
-                                <div className='p-2 text-center text-sm text-muted-foreground'>
-                                  No courses available
-                                </div>
-                              ) : (
-                                courses.map((course) => (
-                                  <SelectItem key={course.id} value={course.id}>
-                                    {course.course_name}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                            <Trash2 className='h-4 w-4' />
+                          </Button>
+                        </div>
+                      </div>
 
-                    <FormField
-                      control={form.control}
-                      name={`courses.${index}.staff_id`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Staff Member</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder='Select staff' />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent className='max-h-60 overflow-y-auto'>
-                              {staffMembers.length === 0 ? (
-                                <div className='p-2 text-center text-sm text-muted-foreground'>
-                                  No staff members available
-                                </div>
-                              ) : (
-                                staffMembers.map((staff) => (
-                                  <SelectItem key={staff.id} value={staff.id}>
-                                    {staff.first_name} {staff.last_name}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
+                      {/* Staff Assignments */}
+                      {courseAssignment.course_id && (
+                        <FormField
+                          control={form.control}
+                          name={`courses.${index}.staff_assignments`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <StaffSearchSelector
+                                staffMembers={staffMembers}
+                                value={field.value}
+                                onChange={field.onChange}
+                                courseName={courseName}
+                                placeholder='Search and assign staff members to this course...'
+                              />
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       )}
-                    />
 
-                    <FormField
-                      control={form.control}
-                      name={`courses.${index}.hours_allocated`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Hours Allocated</FormLabel>
-                          <FormControl>
-                            <Input
-                              type='number'
-                              min={1}
-                              {...field}
-                              value={field.value === 0 ? '' : field.value}
-                              onChange={(e) => {
-                                const value =
-                                  e.target.value === ''
-                                    ? 0
-                                    : Math.max(0, parseInt(e.target.value));
-                                field.onChange(value);
-                              }}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
+                      {!courseAssignment.course_id && (
+                        <div className='text-center py-8 text-muted-foreground'>
+                          Select a course to assign staff members
+                        </div>
                       )}
-                    />
+                    </div>
+                  </Card>
+                );
+              })}
 
-                    <FormField
-                      control={form.control}
-                      name={`courses.${index}.staff_type`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Staff Type</FormLabel>
-                          <Select
-                            value={field.value}
-                            onValueChange={field.onChange}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder='Select type' />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent className='max-h-60 overflow-y-auto'>
-                              <SelectItem value='lecturer'>Lecturer</SelectItem>
-                              <SelectItem value='assistant_professor'>
-                                Assistant Professor
-                              </SelectItem>
-                              <SelectItem value='associate_professor'>
-                                Associate Professor
-                              </SelectItem>
-                              <SelectItem value='professor'>
-                                Professor
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name={`courses.${index}.is_coordinator`}
-                      render={({ field }) => (
-                        <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
-                          <div className='space-y-0.5'>
-                            <FormLabel>Course Coordinator</FormLabel>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name={`courses.${index}.is_combined`}
-                      render={({ field }) => (
-                        <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
-                          <div className='space-y-0.5'>
-                            <FormLabel>Combined Course</FormLabel>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-
-                    <Button
-                      type='button'
-                      variant='destructive'
-                      className='mt-2'
-                      onClick={() => {
-                        const courses = form.getValues('courses');
-                        courses.splice(index, 1);
-                        form.setValue('courses', courses);
-                      }}
-                    >
-                      <Trash2 className='mr-2 h-4 w-4' />
-                      Remove Course
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+              {form.watch('courses').length === 0 && (
+                <div className='text-center py-8 text-muted-foreground border border-dashed border-border rounded-lg'>
+                  No courses added yet. Click &quot;Add Course&quot; to get
+                  started.
+                </div>
+              )}
             </div>
 
             <FormField
