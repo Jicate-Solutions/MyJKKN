@@ -1,6 +1,10 @@
 import { useState, useCallback } from 'react';
 import { UserService } from '@/lib/services/users/user-service';
-import { CreateUserRequest, UserFilters } from '@/types/users';
+import {
+  CreateUserRequest,
+  UpdateUserRequest,
+  UserFilters
+} from '@/types/users';
 import { Profile } from '@/types/auth';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
@@ -96,6 +100,36 @@ export function useUsers(initialFilters: UserFilters = {}) {
     [filters, fetchUsers]
   );
 
+  const updateUser = async (userId: string, userData: UpdateUserRequest) => {
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(userData)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update user');
+      }
+
+      toast.success('User updated successfully');
+      return { data: data.data, error: null };
+    } catch (error) {
+      console.error('Error updating user:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update user'
+      );
+      return { data: null, error };
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     users,
     loading,
@@ -103,6 +137,7 @@ export function useUsers(initialFilters: UserFilters = {}) {
     metadata,
     filters,
     createUser,
+    updateUser,
     updateFilters,
     changePage,
     fetchUsers

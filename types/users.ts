@@ -53,4 +53,7 @@ export type CreateUserRequest = Pick<
 export type UpdateUserRequest = Partial<CreateUserRequest> & {
   is_active?: boolean;
   profile_complete?: boolean;
+  designation?: string | null;
+  bio?: string | null;
+  gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null;
 };

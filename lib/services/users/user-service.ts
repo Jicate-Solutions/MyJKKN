@@ -133,7 +133,23 @@ export class UserService {
 
       const { data, error } = await this.supabase
         .from('profiles')
-        .select('*')
+        .select(
+          `
+          *,
+          institutions (
+            id,
+            name,
+            category,
+            institution_type,
+            website,
+            email,
+            phone,
+            city,
+            state,
+            country
+          )
+        `
+        )
         .eq('id', userData.user.id)
         .single();
 
@@ -153,7 +169,23 @@ export class UserService {
     try {
       const { data, error } = await this.supabase
         .from('profiles')
-        .select('*')
+        .select(
+          `
+          *,
+          institutions (
+            id,
+            name,
+            category,
+            institution_type,
+            website,
+            email,
+            phone,
+            city,
+            state,
+            country
+          )
+        `
+        )
         .eq('id', id)
         .single();
 
@@ -242,7 +274,23 @@ export class UserService {
     try {
       const { data, error } = await this.supabase
         .from('profiles')
-        .select('*')
+        .select(
+          `
+          *,
+          institutions (
+            id,
+            name,
+            category,
+            institution_type,
+            website,
+            email,
+            phone,
+            city,
+            state,
+            country
+          )
+        `
+        )
         .order('full_name');
 
       if (error) throw error;
