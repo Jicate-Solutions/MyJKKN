@@ -34,12 +34,14 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { useUsers } from '@/hooks/use-users';
+import { useEmailValidation } from '@/hooks/use-email-validation';
 import { Input } from '@/components/ui/input';
 import { CustomRole } from '@/types/auth';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
 const formSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').min(1, 'Email is required'),
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   role: z.string().min(1, 'Please select a role'),
@@ -51,6 +53,8 @@ type FormValues = z.infer<typeof formSchema>;
 export default function NewUserPage() {
   const router = useRouter();
   const { createUser, loading } = useUsers();
+  const { isChecking, validationResult, validateEmail, clearValidation } =
+    useEmailValidation();
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [rolesLoading, setRolesLoading] = useState(true);
 
@@ -84,16 +88,34 @@ export default function NewUserPage() {
   }, []);
 
   const onSubmit = async (data: FormValues) => {
+    // Check if email is available before submitting
+    if (validationResult && !validationResult.available) {
+      toast.error('Please use a different email address');
+      return;
+    }
+
     try {
       const result = await createUser(data);
       if (result.error) throw result.error;
       toast.success('User created successfully');
+      clearValidation(); // Clear validation state
       router.push('/users');
     } catch (error) {
       console.error('Error creating user:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to create user'
-      );
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to create user';
+
+      // Handle specific error cases
+      if (
+        errorMessage.includes('already exists') ||
+        errorMessage.includes('already registered')
+      ) {
+        toast.error(
+          'This email is already registered. Please use a different email.'
+        );
+      } else {
+        toast.error(errorMessage);
+      }
     }
   };
 
@@ -140,13 +162,54 @@ export default function NewUserPage() {
                     <FormItem>
                       <FormLabel>Email</FormLabel>
                       <FormControl>
-                        <Input
-                          type='email'
-                          placeholder='Enter email address'
-                          {...field}
-                        />
+                        <div className='relative'>
+                          <Input
+                            type='email'
+                            placeholder='Enter email address'
+                            {...field}
+                            onChange={(e) => {
+                              field.onChange(e);
+                              const email = e.target.value;
+                              if (email.length >= 3) {
+                                validateEmail(email);
+                              } else {
+                                clearValidation();
+                              }
+                            }}
+                            className={`pr-10 ${
+                              validationResult !== null
+                                ? validationResult.available
+                                  ? 'border-green-500 focus:border-green-500'
+                                  : 'border-red-500 focus:border-red-500'
+                                : ''
+                            }`}
+                          />
+                          <div className='absolute inset-y-0 right-0 flex items-center pr-3'>
+                            {isChecking && (
+                              <Loader2 className='h-4 w-4 animate-spin text-gray-400' />
+                            )}
+                            {!isChecking &&
+                              validationResult &&
+                              (validationResult.available ? (
+                                <CheckCircle className='h-4 w-4 text-green-500' />
+                              ) : (
+                                <XCircle className='h-4 w-4 text-red-500' />
+                              ))}
+                          </div>
+                        </div>
                       </FormControl>
                       <FormMessage />
+                      {validationResult && (
+                        <p
+                          className={`text-sm ${
+                            validationResult.available
+                              ? 'text-green-600'
+                              : 'text-red-600'
+                          }`}
+                        >
+                          {validationResult.message}
+                        </p>
+                      )}
                     </FormItem>
                   )}
                 />
@@ -255,7 +318,14 @@ export default function NewUserPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type='submit' disabled={loading}>
+                  <Button
+                    type='submit'
+                    disabled={
+                      loading ||
+                      isChecking ||
+                      Boolean(validationResult && !validationResult.available)
+                    }
+                  >
                     {loading ? 'Creating...' : 'Create User'}
                   </Button>
                 </div>

@@ -16,7 +16,6 @@ export async function GET(request: NextRequest) {
 
     // Early return if no code
     if (!code) {
-      console.error('No code in callback');
       return NextResponse.redirect(
         new URL(`/auth/login?error=no_code`, origin)
       );
@@ -46,7 +45,6 @@ export async function GET(request: NextRequest) {
       code
     );
     if (exchangeError) {
-      console.error('Exchange error:', exchangeError);
       return NextResponse.redirect(
         new URL(`/auth/login?error=exchange`, origin)
       );
@@ -58,7 +56,6 @@ export async function GET(request: NextRequest) {
       error: userError
     } = await supabase.auth.getUser();
     if (userError || !user) {
-      console.error('User error:', userError);
       return NextResponse.redirect(
         new URL(`/auth/login?error=session`, origin)
       );
@@ -68,7 +65,7 @@ export async function GET(request: NextRequest) {
       // Get or create profile
       const { data: existingProfile } = await supabase
         .from('profiles')
-        .select('profile_completed, full_name, role, institution_id')
+        .select('profile_completed, full_name, role, institution_id, is_active')
         .eq('id', user.id)
         .single();
 
@@ -95,7 +92,6 @@ export async function GET(request: NextRequest) {
             statusCode: 200
           });
         } catch (error) {
-          console.error('Failed to log login activity:', error);
           // Don't throw - login should continue even if activity logging fails
         }
       };
@@ -106,7 +102,8 @@ export async function GET(request: NextRequest) {
           id: user.id,
           email: user.email,
           role: 'student',
-          profile_completed: false
+          profile_completed: false,
+          is_active: true
         };
 
         const { error: insertError } = await supabase
@@ -120,6 +117,17 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));
       }
 
+      // Check if user account is active
+      if (existingProfile.is_active === false) {
+        // Sign out the user immediately
+        await supabase.auth.signOut();
+
+        // Redirect to unauthorized page with specific message
+        return NextResponse.redirect(
+          new URL('/unauthorized?reason=inactive', origin)
+        );
+      }
+
       // Log login activity for existing user
       await logLoginActivity(existingProfile);
 
@@ -131,11 +139,9 @@ export async function GET(request: NextRequest) {
       // If profile exists and is completed, redirect to home
       return NextResponse.redirect(new URL('/', origin));
     } catch (dbError) {
-      console.error('Database error:', dbError);
       return NextResponse.redirect(new URL('/auth/complete-profile', origin));
     }
   } catch (error) {
-    console.error('General error:', error);
     return NextResponse.redirect(new URL(`/auth/login?error=general`, origin));
   }
 }
