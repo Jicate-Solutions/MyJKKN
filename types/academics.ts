@@ -152,7 +152,7 @@ export interface TimetableSlot {
   day_of_week: DayOfWeek;
   period_id: string;
   course_id?: string;
-  staff_id?: string;
+  staff_id?: string; // Kept for backward compatibility
   is_break_slot: boolean;
   break_description?: string;
   created_at: string;
@@ -169,6 +169,12 @@ export interface TimetableSlot {
     first_name: string;
     last_name: string;
   };
+  // New field for multiple staff support
+  staff_members?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+  }[];
 }
 
 export interface CreateTimetableDto {
@@ -194,7 +200,8 @@ export interface CreateTimetableSlotDto {
   day_of_week: DayOfWeek;
   period_id: string;
   course_id?: string;
-  staff_id?: string;
+  staff_id?: string; // Kept for backward compatibility
+  staff_ids?: string[]; // New field for multiple staff support
   is_break_slot?: boolean;
   break_description?: string;
 }
