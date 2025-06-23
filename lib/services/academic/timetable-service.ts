@@ -69,7 +69,15 @@ export class TimetableService {
 
   static async deleteTimetable(id: string): Promise<void> {
     try {
-      // First delete all timetable slots
+      // First delete all timetable periods
+      const { error: periodsError } = await this.supabase
+        .from('timetable_periods')
+        .delete()
+        .eq('timetable_id', id);
+
+      if (periodsError) throw periodsError;
+
+      // Then delete all timetable slots
       const { error: slotsError } = await this.supabase
         .from('timetable_slots')
         .delete()
@@ -77,7 +85,7 @@ export class TimetableService {
 
       if (slotsError) throw slotsError;
 
-      // Then delete the timetable
+      // Finally delete the timetable
       const { error } = await this.supabase
         .from('timetables')
         .delete()
@@ -293,6 +301,22 @@ export class TimetableService {
 
       if (error) throw error;
 
+      // Copy period selections to the new template
+      const timetablePeriods = await this.getTimetablePeriods(id);
+      if (timetablePeriods.length > 0) {
+        const newTimetablePeriods = timetablePeriods.map((tp) => ({
+          timetable_id: newTemplate.id,
+          period_id: tp.period_id,
+          sort_order: tp.sort_order
+        }));
+
+        const { error: periodsError } = await this.supabase
+          .from('timetable_periods')
+          .insert(newTimetablePeriods);
+
+        if (periodsError) throw periodsError;
+      }
+
       // Copy all slots to the new template
       if (timetable.slots && timetable.slots.length > 0) {
         const newSlots = timetable.slots.map((slot) => ({
@@ -340,6 +364,22 @@ export class TimetableService {
         .single();
 
       if (error) throw error;
+
+      // Copy period selections from the template
+      const templatePeriods = await this.getTimetablePeriods(templateId);
+      if (templatePeriods.length > 0) {
+        const newTimetablePeriods = templatePeriods.map((tp) => ({
+          timetable_id: newTimetable.id,
+          period_id: tp.period_id,
+          sort_order: tp.sort_order
+        }));
+
+        const { error: periodsError } = await this.supabase
+          .from('timetable_periods')
+          .insert(newTimetablePeriods);
+
+        if (periodsError) throw periodsError;
+      }
 
       // Get all slots from the template
       const { data: templateSlots, error: slotsError } = await this.supabase
@@ -525,6 +565,83 @@ export class TimetableService {
       return data && data.length > 0;
     } catch (error) {
       console.error('Error checking staff conflicts:', error);
+      throw error;
+    }
+  }
+
+  // Timetable Periods Methods
+  static async getTimetablePeriods(timetableId: string): Promise<any[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('timetable_periods')
+        .select(
+          `
+          *,
+          period:period_id(*)
+        `
+        )
+        .eq('timetable_id', timetableId)
+        .order('sort_order');
+
+      if (error) throw error;
+
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching timetable periods:', error);
+      throw error;
+    }
+  }
+
+  static async saveTimetablePeriods(
+    timetableId: string,
+    periodIds: string[]
+  ): Promise<void> {
+    try {
+      // First, delete existing timetable periods
+      const { error: deleteError } = await this.supabase
+        .from('timetable_periods')
+        .delete()
+        .eq('timetable_id', timetableId);
+
+      if (deleteError) throw deleteError;
+
+      // Then insert new periods with sort order
+      if (periodIds.length > 0) {
+        const timetablePeriods = periodIds.map((periodId, index) => ({
+          timetable_id: timetableId,
+          period_id: periodId,
+          sort_order: index
+        }));
+
+        const { error: insertError } = await this.supabase
+          .from('timetable_periods')
+          .insert(timetablePeriods);
+
+        if (insertError) throw insertError;
+      }
+    } catch (error) {
+      console.error('Error saving timetable periods:', error);
+      throw error;
+    }
+  }
+
+  // Timetable Days Methods
+  static async saveTimetableDays(
+    timetableId: string,
+    selectedDays: string[]
+  ): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from('timetables')
+        .update({
+          selected_days: selectedDays,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', timetableId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error saving timetable days:', error);
       throw error;
     }
   }

@@ -116,6 +116,9 @@ export interface Timetable {
   is_active: boolean;
   is_template: boolean;
   template_name?: string;
+  start_date?: string;
+  end_date?: string;
+  selected_days?: DayOfWeek[];
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -180,6 +183,8 @@ export interface CreateTimetableDto {
   is_active?: boolean;
   is_template?: boolean;
   template_name?: string;
+  start_date?: string;
+  end_date?: string;
 }
 
 export interface UpdateTimetableDto extends Partial<CreateTimetableDto> {}

@@ -6,10 +6,17 @@ import Link from 'next/link';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { Save, ArrowLeft } from 'lucide-react';
+import { Save, ArrowLeft, CalendarIcon } from 'lucide-react';
+import { format } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -46,37 +53,53 @@ import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import Loading from '@/components/Loading/Loading';
 import { Checkbox } from '@/components/ui/checkbox';
+import { cn } from '@/lib/utils';
 
 // Define the schema for timetable creation
-const timetableFormSchema = z.object({
-  timetable_name: z.string().min(3, {
-    message: 'Timetable name must be at least 3 characters.'
-  }),
-  institution_id: z.string().min(1, {
-    message: 'Please select an institution.'
-  }),
-  academic_year_id: z.string().min(1, {
-    message: 'Please select an academic year.'
-  }),
-  degree_id: z.string().min(1, {
-    message: 'Please select a degree.'
-  }),
-  program_id: z.string().min(1, {
-    message: 'Please select a program.'
-  }),
-  department_id: z.string().min(1, {
-    message: 'Please select a department.'
-  }),
-  semester: z.string().min(1, {
-    message: 'Please select a semester.'
-  }),
-  section: z.string().min(1, {
-    message: 'Please select a section.'
-  }),
-  is_active: z.boolean().default(true),
-  is_template: z.boolean().default(false),
-  template_name: z.string().optional()
-});
+const timetableFormSchema = z
+  .object({
+    timetable_name: z.string().min(3, {
+      message: 'Timetable name must be at least 3 characters.'
+    }),
+    institution_id: z.string().min(1, {
+      message: 'Please select an institution.'
+    }),
+    academic_year_id: z.string().min(1, {
+      message: 'Please select an academic year.'
+    }),
+    degree_id: z.string().min(1, {
+      message: 'Please select a degree.'
+    }),
+    program_id: z.string().min(1, {
+      message: 'Please select a program.'
+    }),
+    department_id: z.string().min(1, {
+      message: 'Please select a department.'
+    }),
+    semester: z.string().min(1, {
+      message: 'Please select a semester.'
+    }),
+    section: z.string().min(1, {
+      message: 'Please select a section.'
+    }),
+    start_date: z.date().optional(),
+    end_date: z.date().optional(),
+    is_active: z.boolean().default(true),
+    is_template: z.boolean().default(false),
+    template_name: z.string().optional()
+  })
+  .refine(
+    (data) => {
+      if (data.start_date && data.end_date) {
+        return data.end_date >= data.start_date;
+      }
+      return true;
+    },
+    {
+      message: 'End date must be on or after start date',
+      path: ['end_date']
+    }
+  );
 
 type TimetableFormValues = z.infer<typeof timetableFormSchema>;
 
@@ -138,7 +161,9 @@ export default function NewTimetablePage() {
       section: '',
       is_active: true,
       is_template: false,
-      template_name: ''
+      template_name: '',
+      start_date: undefined,
+      end_date: undefined
     }
   });
 
@@ -214,8 +239,6 @@ export default function NewTimetablePage() {
       // Only fetch sections if both program and department are selected
       if (selectedProgramId && watchDepartmentId) {
         fetchSections({
-          program_id: selectedProgramId,
-          department_id: watchDepartmentId,
           isActive: true
         });
       }
@@ -231,7 +254,22 @@ export default function NewTimetablePage() {
   const onSubmit = async (values: TimetableFormValues) => {
     setLoading(true);
     try {
-      const success = await createTimetable(values);
+      // Format dates for database submission (timezone-safe)
+      const formatDateForDB = (date: Date | undefined): string | undefined => {
+        if (!date) return undefined;
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const formattedValues = {
+        ...values,
+        start_date: formatDateForDB(values.start_date),
+        end_date: formatDateForDB(values.end_date)
+      };
+
+      const success = await createTimetable(formattedValues);
       if (success) {
         toast({
           title: 'Timetable created',
@@ -310,7 +348,7 @@ export default function NewTimetablePage() {
           <Button variant='outline' asChild>
             <Link href='/academic/timetables'>
               <ArrowLeft className='mr-2 h-4 w-4' />
-              Back to Timetables
+              Back
             </Link>
           </Button>
         </div>
@@ -573,6 +611,101 @@ export default function NewTimetablePage() {
                         </Select>
                         <FormDescription>
                           The section for this timetable
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {/* Date Fields */}
+                <div className='grid grid-cols-1 gap-6 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='start_date'
+                    render={({ field }) => (
+                      <FormItem className='flex flex-col'>
+                        <FormLabel>Start Date</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant={'outline'}
+                                className={cn(
+                                  'w-full pl-3 text-left font-normal',
+                                  !field.value && 'text-muted-foreground'
+                                )}
+                              >
+                                {field.value ? (
+                                  format(field.value, 'PPP')
+                                ) : (
+                                  <span>Pick start date</span>
+                                )}
+                                <CalendarIcon className='ml-auto h-4 w-4 opacity-50' />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className='w-auto p-0' align='start'>
+                            <Calendar
+                              mode='single'
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              disabled={(date) => {
+                                const endDate = form.getValues().end_date;
+                                return endDate ? date > endDate : false;
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormDescription>
+                          The start date of the timetable period
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='end_date'
+                    render={({ field }) => (
+                      <FormItem className='flex flex-col'>
+                        <FormLabel>End Date</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant={'outline'}
+                                className={cn(
+                                  'w-full pl-3 text-left font-normal',
+                                  !field.value && 'text-muted-foreground'
+                                )}
+                              >
+                                {field.value ? (
+                                  format(field.value, 'PPP')
+                                ) : (
+                                  <span>Pick end date</span>
+                                )}
+                                <CalendarIcon className='ml-auto h-4 w-4 opacity-50' />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className='w-auto p-0' align='start'>
+                            <Calendar
+                              mode='single'
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              disabled={(date) => {
+                                const startDate = form.getValues().start_date;
+                                return startDate ? date < startDate : false;
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormDescription>
+                          The end date of the timetable period
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
