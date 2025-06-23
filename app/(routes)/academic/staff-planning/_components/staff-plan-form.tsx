@@ -38,8 +38,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Plus, Trash2 } from 'lucide-react';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { BeatLoader } from 'react-spinners';
-import { SectionService } from '@/lib/services/organization/section-service';
-import { Section } from '@/types/organizations';
+
 import { StaffSearchSelector } from './staff-search-selector';
 
 const staffPlanSchema = z.object({
@@ -48,7 +47,6 @@ const staffPlanSchema = z.object({
   department_id: z.string().min(1, 'Department is required'),
   program_id: z.string().min(1, 'Program is required'),
   semester_id: z.string().min(1, 'Semester is required'),
-  section_id: z.string().min(1, 'Section is required'),
   academic_year_id: z.string().min(1, 'Academic year is required'),
   start_date: z.date({
     required_error: 'Start date is required'
@@ -103,7 +101,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const [semesters, setSemesters] = useState<
     Array<{ id: string; semester_name: string }>
   >([]);
-  const [sections, setSections] = useState<Section[]>([]);
+
   const [academicYears, setAcademicYears] = useState<
     Array<{ id: string; academic_year_name: string }>
   >([]);
@@ -122,7 +120,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       department_id: '',
       program_id: '',
       semester_id: '',
-      section_id: '',
       academic_year_id: '',
       start_date: new Date(),
       end_date: new Date(),
@@ -136,7 +133,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const watchedDegreeId = form.watch('degree_id');
   const watchedDepartmentId = form.watch('department_id');
   const watchedProgramId = form.watch('program_id');
-  const watchedSemesterId = form.watch('semester_id');
 
   // Load staff plan data for editing
   useEffect(() => {
@@ -176,7 +172,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             departmentsData,
             programsData,
             semestersData,
-            sectionsData,
             academicYearsData,
             coursesData,
             staffData
@@ -186,7 +181,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             DepartmentService.getDepartmentsByDegree(staffPlan.degree_id),
             ProgramService.getProgramsByDepartment(staffPlan.department_id),
             SemesterService.getSemestersByProgram(staffPlan.program_id),
-            SectionService.getSectionsBySemester(staffPlan.semester_id),
             AcademicYearService.getAcademicYears({ isActive: true }),
             CourseService.getCoursesByMapping(
               staffPlan.program_id,
@@ -201,11 +195,10 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           setDepartments(departmentsData);
           setPrograms(programsData);
           setSemesters(semestersData);
-          setSections(sectionsData);
           setAcademicYears(academicYearsData.data);
           // Format courses to have the expected structure
           setCourses(
-            coursesData.map((course) => ({
+            coursesData.map((course: any) => ({
               id: course.id,
               course_name: course.course_name,
               course_code: course.course_code
@@ -220,9 +213,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             department_id: staffPlan.department_id,
             program_id: staffPlan.program_id,
             semester_id: staffPlan.semester_id,
-            section_id:
-              sectionsData.find((s) => s.section_name === staffPlan.section)
-                ?.id || staffPlan.section,
             academic_year_id: staffPlan.academic_year_id,
             start_date: new Date(staffPlan.start_date),
             end_date: new Date(staffPlan.end_date),
@@ -294,7 +284,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           form.setValue('department_id', '');
           form.setValue('program_id', '');
           form.setValue('semester_id', '');
-          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading degrees:', error);
         }
@@ -314,7 +303,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           form.setValue('department_id', '');
           form.setValue('program_id', '');
           form.setValue('semester_id', '');
-          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading departments:', error);
         }
@@ -333,7 +321,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           setPrograms(data);
           form.setValue('program_id', '');
           form.setValue('semester_id', '');
-          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading programs:', error);
         }
@@ -364,7 +351,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           );
 
           form.setValue('semester_id', '');
-          form.setValue('section_id', '');
         } catch (error) {
           console.error('Error loading program data:', error);
           toast.error('Failed to load courses. Please check your selections.');
@@ -374,65 +360,10 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     }
   }, [watchedProgramId, isEditing, form]);
 
-  useEffect(() => {
-    if (watchedSemesterId && watchedProgramId && !isEditing) {
-      const loadSemesterData = async () => {
-        try {
-          // Load sections and semester-specific courses in parallel
-          const [sectionsData, coursesData] = await Promise.all([
-            SectionService.getSectionsBySemester(watchedSemesterId),
-            CourseService.getCoursesByMapping(
-              watchedProgramId,
-              watchedSemesterId
-            )
-          ]);
-
-          setSections(sectionsData);
-
-          // Format courses to have the expected structure
-          setCourses(
-            coursesData.map((course) => ({
-              id: course.id,
-              course_name: course.course_name,
-              course_code: course.course_code
-            }))
-          );
-
-          form.setValue('section_id', '');
-        } catch (error) {
-          console.error('Error loading semester data:', error);
-          toast.error(
-            'Failed to load sections or courses. Please check your selections.'
-          );
-        }
-      };
-      loadSemesterData();
-    } else if (watchedSemesterId && !isEditing) {
-      // Just load sections if we don't have a program ID
-      const loadSections = async () => {
-        try {
-          const data = await SectionService.getSectionsBySemester(
-            watchedSemesterId
-          );
-          setSections(data);
-          form.setValue('section_id', '');
-        } catch (error) {
-          console.error('Error loading sections:', error);
-        }
-      };
-      loadSections();
-    }
-  }, [watchedSemesterId, watchedProgramId, isEditing, form]);
-
   const onSubmit = async (values: FormValues) => {
     try {
       setIsSubmitting(true);
 
-      // Find the selected section to get its name
-      const selectedSection = sections.find((s) => s.id === values.section_id);
-      const sectionName = selectedSection?.section_name || values.section_id;
-
-      // Map section_id to section and format dates for API compatibility
       // Flatten staff assignments back to the API format
       const flattenedCourses = values.courses.flatMap((course) =>
         course.staff_assignments.map((assignment) => ({
@@ -451,7 +382,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         program_id: values.program_id,
         department_id: values.department_id,
         semester_id: values.semester_id,
-        section: sectionName, // Use section name
         academic_year_id: values.academic_year_id,
         start_date: values.start_date.toISOString(),
         end_date: values.end_date.toISOString(),
@@ -677,41 +607,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           semesters.map((semester) => (
                             <SelectItem key={semester.id} value={semester.id}>
                               {semester.semester_name}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='section_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Section</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      disabled={!form.watch('semester_id')}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select section' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent className='max-h-60 overflow-y-auto'>
-                        {sections.length === 0 ? (
-                          <div className='p-2 text-center text-sm text-muted-foreground'>
-                            No sections available
-                          </div>
-                        ) : (
-                          sections.map((section) => (
-                            <SelectItem key={section.id} value={section.id}>
-                              {section.section_name}
                             </SelectItem>
                           ))
                         )}

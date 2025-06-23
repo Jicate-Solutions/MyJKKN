@@ -15,7 +15,6 @@ export interface StaffPlanBaseData {
   program_id: string;
   department_id: string;
   semester_id: string;
-  section: string;
   academic_year_id: string;
   start_date: string;
   end_date: string;

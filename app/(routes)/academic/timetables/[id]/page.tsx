@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, forwardRef } from 'react';
 import { use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -18,7 +18,9 @@ import {
   ListFilter,
   FileDown,
   Printer,
-  Calendar
+  Calendar,
+  Settings,
+  Download
 } from 'lucide-react';
 import {
   DndContext,
@@ -92,12 +94,15 @@ import { useTimetables } from '@/hooks/academic/use-timetables';
 import { PeriodService } from '@/lib/services/academic/period-service';
 import { useStaff } from '@/hooks/staff/use-staff';
 import { useCourses } from '@/hooks/organization/use-courses';
+import { useSections } from '@/hooks/organization/use-sections';
 import {
   Timetable,
   TimetableSlot,
+  TimetableSubSlot,
   DayOfWeek,
   Period,
-  CreateTimetableSlotDto
+  CreateTimetableSlotDto,
+  CreateTimetableSubSlotDto
 } from '@/types/academics';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -241,6 +246,647 @@ function SortablePeriodItem({
   );
 }
 
+// Temporary component stubs - these should be replaced with full implementations
+const TimetableGrid = forwardRef<
+  HTMLDivElement,
+  {
+    selectedDays: DayOfWeek[];
+    selectedPeriods: Period[];
+    slots: TimetableSlot[];
+    onSlotClick: (
+      day: DayOfWeek,
+      period: Period,
+      existingSlot?: TimetableSlot
+    ) => void;
+    lockedPeriods: string[];
+  }
+>(
+  (
+    { selectedDays, selectedPeriods, slots, onSlotClick, lockedPeriods },
+    ref
+  ) => {
+    // Helper function to get slot for a specific day and period
+    const getSlotForDayAndPeriod = (day: DayOfWeek, periodId: string) => {
+      return slots.find(
+        (slot) => slot.day_of_week === day && slot.period_id === periodId
+      );
+    };
+
+    // Helper function to render slot content
+    const renderSlotContent = (
+      slot: TimetableSlot | undefined,
+      day: DayOfWeek,
+      period: Period
+    ) => {
+      if (!slot) {
+        return (
+          <Button
+            variant='ghost'
+            className='w-full h-20 border-2 border-dashed border-gray-200 hover:border-blue-400 hover:bg-blue-50/50 transition-all duration-200'
+            onClick={() => onSlotClick(day, period)}
+          >
+            <div className='text-center'>
+              <Plus className='h-4 w-4 mx-auto mb-1 text-gray-400' />
+              <span className='text-xs text-gray-500'>Add Class</span>
+            </div>
+          </Button>
+        );
+      }
+
+      // Break slot
+      if (slot.is_break_slot) {
+        return (
+          <Button
+            variant='outline'
+            className='w-full h-20 bg-orange-50 border-orange-200 hover:bg-orange-100 text-orange-900'
+            onClick={() => onSlotClick(day, period, slot)}
+          >
+            <div className='text-center'>
+              <Badge
+                variant='secondary'
+                className='mb-1 bg-orange-200 text-orange-800'
+              >
+                Break
+              </Badge>
+              <div className='text-xs font-medium'>
+                {slot.break_description || 'Break Time'}
+              </div>
+            </div>
+          </Button>
+        );
+      }
+
+      // Combined class slot
+      if (slot.is_combined && slot.sub_slots && slot.sub_slots.length > 0) {
+        return (
+          <Button
+            variant='outline'
+            className='w-full h-20 bg-purple-50 border-purple-200 hover:bg-purple-100 text-purple-900 p-1'
+            onClick={() => onSlotClick(day, period, slot)}
+          >
+            <div className='w-full space-y-1'>
+              <Badge
+                variant='secondary'
+                className='text-xs bg-purple-200 text-purple-800 mb-1'
+              >
+                Combined Class
+              </Badge>
+              <div className='grid grid-cols-2 gap-1 text-xs'>
+                {slot.sub_slots.slice(0, 2).map((subSlot, index) => (
+                  <div
+                    key={index}
+                    className='bg-white/70 rounded px-1 py-0.5 border'
+                  >
+                    {subSlot.is_break_slot ? (
+                      <span className='text-orange-600 font-medium'>Break</span>
+                    ) : (
+                      <div className='truncate'>
+                        <div className='font-medium truncate'>
+                          {subSlot.course?.course_code || 'Course'}
+                        </div>
+                        {subSlot.staff_members &&
+                          subSlot.staff_members.length > 0 && (
+                            <div className='text-gray-600 truncate'>
+                              {subSlot.staff_members[0]?.first_name}{' '}
+                              {subSlot.staff_members[0]?.last_name}
+                            </div>
+                          )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Button>
+        );
+      }
+
+      // Regular class slot
+      return (
+        <Button
+          variant='outline'
+          className='w-full h-20 bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-900'
+          onClick={() => onSlotClick(day, period, slot)}
+        >
+          <div className='text-center w-full'>
+            <div className='font-medium text-sm mb-1 truncate'>
+              {slot.course?.course_name || slot.course?.course_code || 'Course'}
+            </div>
+            {slot.staff_members && slot.staff_members.length > 0 && (
+              <div className='text-xs text-gray-600 mb-1 truncate'>
+                {slot.staff_members
+                  .map((s) => `${s.first_name} ${s.last_name}`)
+                  .join(', ')}
+              </div>
+            )}
+            {slot.sections && slot.sections.length > 0 && (
+              <div className='text-xs text-gray-500 truncate'>
+                {slot.sections.map((s) => s.section_name).join(', ')}
+              </div>
+            )}
+          </div>
+        </Button>
+      );
+    };
+
+    if (selectedPeriods.length === 0 || selectedDays.length === 0) {
+      return (
+        <div ref={ref} className='border rounded-lg p-8 text-center'>
+          <div className='text-gray-500'>
+            <Calendar className='h-12 w-12 mx-auto mb-4 text-gray-300' />
+            <h3 className='text-lg font-medium mb-2'>
+              No Timetable Configuration
+            </h3>
+            <p className='text-sm'>
+              Please configure periods and days to view the timetable grid.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div ref={ref} className='border rounded-lg overflow-hidden bg-white'>
+        <div className='bg-gray-50 p-4 border-b'>
+          <h3 className='text-lg font-semibold'>Timetable Grid</h3>
+          <p className='text-sm text-gray-600 mt-1'>
+            Click on any slot to add or edit classes
+          </p>
+        </div>
+
+        <div className='overflow-x-auto'>
+          <table className='w-full border-collapse'>
+            <thead>
+              <tr className='bg-gray-100'>
+                <th className='border border-gray-200 p-3 text-left font-medium w-32'>
+                  Time / Day
+                </th>
+                {selectedDays.map((day) => (
+                  <th
+                    key={day}
+                    className='border border-gray-200 p-3 text-center font-medium min-w-40'
+                  >
+                    <div className='space-y-1'>
+                      <div className='font-semibold'>
+                        {day.charAt(0) + day.slice(1).toLowerCase()}
+                      </div>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {selectedPeriods.map((period) => {
+                const isLocked = lockedPeriods.includes(period.id);
+                return (
+                  <tr key={period.id} className='hover:bg-gray-50'>
+                    <td className='border border-gray-200 p-3 bg-gray-50'>
+                      <div className='space-y-1'>
+                        <div className='font-medium text-sm'>
+                          {period.period_name}
+                          {isLocked && (
+                            <Lock className='inline h-3 w-3 ml-1 text-blue-500' />
+                          )}
+                        </div>
+                        <div className='text-xs text-gray-500'>
+                          {new Date(
+                            `2000-01-01T${period.start_time}`
+                          ).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}{' '}
+                          -{' '}
+                          {new Date(
+                            `2000-01-01T${period.end_time}`
+                          ).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}
+                        </div>
+                        {period.is_break && (
+                          <Badge
+                            variant='outline'
+                            className='text-xs bg-orange-100 text-orange-700 border-orange-200'
+                          >
+                            Break Period
+                          </Badge>
+                        )}
+                      </div>
+                    </td>
+                    {selectedDays.map((day) => {
+                      const slot = getSlotForDayAndPeriod(day, period.id);
+                      return (
+                        <td
+                          key={`${day}-${period.id}`}
+                          className='border border-gray-200 p-2'
+                        >
+                          {renderSlotContent(slot, day, period)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {selectedPeriods.length === 0 && (
+          <div className='p-8 text-center text-gray-500'>
+            <p>
+              No periods configured. Please add periods to see the timetable.
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+);
+
+TimetableGrid.displayName = 'TimetableGrid';
+
+const SlotDialog = ({
+  isOpen,
+  onClose,
+  day,
+  period,
+  existingSlot,
+  slotType,
+  setSlotType,
+  selectedCourse,
+  setSelectedCourse,
+  selectedStaff,
+  setSelectedStaff,
+  selectedSections,
+  setSelectedSections,
+  isCombinedClass,
+  setIsCombinedClass,
+  subSlots,
+  updateSubSlot,
+  updateSubSlotStaff,
+  updateSubSlotSections,
+  saving,
+  onSave,
+  onDelete,
+  courses,
+  staff,
+  sections
+}: any) => {
+  if (!isOpen || !day || !period) return null;
+
+  const isBreakSlot = slotType === 'break';
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className='max-w-4xl max-h-[90vh] overflow-y-auto'>
+        <DialogHeader>
+          <DialogTitle className='flex items-center gap-2'>
+            {existingSlot ? 'Edit' : 'Create'} Slot
+            <Badge variant='outline' className='text-xs'>
+              {day.charAt(0) + day.slice(1).toLowerCase()} -{' '}
+              {period?.period_name}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className='space-y-6'>
+          {/* Slot Type Selection */}
+          <div className='space-y-3'>
+            <Label className='text-sm font-medium'>Slot Type</Label>
+            <div className='flex gap-4'>
+              <div className='flex items-center space-x-2'>
+                <Checkbox
+                  id='regularSlot'
+                  checked={slotType === 'regular'}
+                  onCheckedChange={() => setSlotType('regular')}
+                />
+                <Label htmlFor='regularSlot'>Regular Class</Label>
+              </div>
+              <div className='flex items-center space-x-2'>
+                <Checkbox
+                  id='breakSlot'
+                  checked={slotType === 'break'}
+                  onCheckedChange={() => setSlotType('break')}
+                />
+                <Label htmlFor='breakSlot'>Break</Label>
+              </div>
+            </div>
+          </div>
+
+          {!isBreakSlot && (
+            <div className='space-y-3'>
+              <div className='flex items-center space-x-2'>
+                <Checkbox
+                  id='combinedClass'
+                  checked={isCombinedClass}
+                  onCheckedChange={setIsCombinedClass}
+                />
+                <Label htmlFor='combinedClass'>Combined Class</Label>
+                <Badge variant='secondary' className='text-xs ml-2'>
+                  Split period into 2 sub-slots
+                </Badge>
+              </div>
+            </div>
+          )}
+
+          {/* Break Slot Configuration */}
+          {isBreakSlot && (
+            <div className='space-y-3'>
+              <Label htmlFor='breakDescription'>Break Description</Label>
+              <Input
+                id='breakDescription'
+                placeholder='e.g., Lunch Break, Tea Break'
+                className='max-w-md'
+              />
+            </div>
+          )}
+
+          {/* Regular Slot Configuration */}
+          {!isBreakSlot && !isCombinedClass && (
+            <div className='space-y-4 border rounded-lg p-4'>
+              <h4 className='font-medium'>Class Configuration</h4>
+
+              {/* Course Selection */}
+              <div className='space-y-2'>
+                <Label>Course</Label>
+                <Select
+                  value={selectedCourse}
+                  onValueChange={setSelectedCourse}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select a course' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {courses?.map((course: any) => (
+                      <SelectItem key={course.id} value={course.id}>
+                        {course.course_name} ({course.course_code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Staff Selection */}
+              <div className='space-y-2'>
+                <Label>Staff (Multiple selection allowed)</Label>
+                <div className='border rounded-md p-2 max-h-32 overflow-y-auto'>
+                  {staff?.map((member: any) => (
+                    <div
+                      key={member.id}
+                      className='flex items-center space-x-2 py-1'
+                    >
+                      <Checkbox
+                        id={`staff-${member.id}`}
+                        checked={selectedStaff.includes(member.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedStaff([...selectedStaff, member.id]);
+                          } else {
+                            setSelectedStaff(
+                              selectedStaff.filter(
+                                (id: string) => id !== member.id
+                              )
+                            );
+                          }
+                        }}
+                      />
+                      <Label htmlFor={`staff-${member.id}`} className='text-sm'>
+                        {member.first_name} {member.last_name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Section Selection */}
+              <div className='space-y-2'>
+                <Label>Sections (Multiple selection allowed)</Label>
+                <div className='border rounded-md p-2 max-h-32 overflow-y-auto'>
+                  {sections?.map((section: any) => (
+                    <div
+                      key={section.id}
+                      className='flex items-center space-x-2 py-1'
+                    >
+                      <Checkbox
+                        id={`section-${section.id}`}
+                        checked={selectedSections.includes(section.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedSections([
+                              ...selectedSections,
+                              section.id
+                            ]);
+                          } else {
+                            setSelectedSections(
+                              selectedSections.filter(
+                                (id: string) => id !== section.id
+                              )
+                            );
+                          }
+                        }}
+                      />
+                      <Label
+                        htmlFor={`section-${section.id}`}
+                        className='text-sm'
+                      >
+                        {section.section_name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Combined Class Configuration */}
+          {!isBreakSlot && isCombinedClass && (
+            <div className='space-y-4'>
+              <h4 className='font-medium'>Combined Class Configuration</h4>
+
+              {subSlots.map((subSlot: any, index: number) => (
+                <div key={index} className='border rounded-lg p-4 space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <h5 className='font-medium'>Sub-slot {index + 1}</h5>
+                    <div className='flex items-center space-x-2'>
+                      <Checkbox
+                        id={`subSlotBreak-${index}`}
+                        checked={subSlot.is_break_slot}
+                        onCheckedChange={(checked) => {
+                          updateSubSlot(index, { is_break_slot: checked });
+                        }}
+                      />
+                      <Label
+                        htmlFor={`subSlotBreak-${index}`}
+                        className='text-sm'
+                      >
+                        Break Slot
+                      </Label>
+                    </div>
+                  </div>
+
+                  {subSlot.is_break_slot ? (
+                    <div className='space-y-2'>
+                      <Label>Break Description</Label>
+                      <Input
+                        value={subSlot.break_description || ''}
+                        onChange={(e) =>
+                          updateSubSlot(index, {
+                            break_description: e.target.value
+                          })
+                        }
+                        placeholder='e.g., Short Break'
+                      />
+                    </div>
+                  ) : (
+                    <div className='space-y-4'>
+                      {/* Course Selection */}
+                      <div className='space-y-2'>
+                        <Label>Course</Label>
+                        <Select
+                          value={subSlot.course_id || ''}
+                          onValueChange={(value) =>
+                            updateSubSlot(index, { course_id: value })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select a course' />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {courses?.map((course: any) => (
+                              <SelectItem key={course.id} value={course.id}>
+                                {course.course_name} ({course.course_code})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Staff Selection */}
+                      <div className='space-y-2'>
+                        <Label>Staff</Label>
+                        <div className='border rounded-md p-2 max-h-24 overflow-y-auto'>
+                          {staff?.map((member: any) => (
+                            <div
+                              key={member.id}
+                              className='flex items-center space-x-2 py-1'
+                            >
+                              <Checkbox
+                                id={`subSlotStaff-${index}-${member.id}`}
+                                checked={
+                                  subSlot.staff_ids?.includes(member.id) ||
+                                  false
+                                }
+                                onCheckedChange={(checked) => {
+                                  const currentStaff = subSlot.staff_ids || [];
+                                  if (checked) {
+                                    updateSubSlotStaff(index, [
+                                      ...currentStaff,
+                                      member.id
+                                    ]);
+                                  } else {
+                                    updateSubSlotStaff(
+                                      index,
+                                      currentStaff.filter(
+                                        (id: string) => id !== member.id
+                                      )
+                                    );
+                                  }
+                                }}
+                              />
+                              <Label
+                                htmlFor={`subSlotStaff-${index}-${member.id}`}
+                                className='text-xs'
+                              >
+                                {member.first_name} {member.last_name}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Section Selection */}
+                      <div className='space-y-2'>
+                        <Label>Sections</Label>
+                        <div className='border rounded-md p-2 max-h-24 overflow-y-auto'>
+                          {sections?.map((section: any) => (
+                            <div
+                              key={section.id}
+                              className='flex items-center space-x-2 py-1'
+                            >
+                              <Checkbox
+                                id={`subSlotSection-${index}-${section.id}`}
+                                checked={
+                                  subSlot.section_ids?.includes(section.id) ||
+                                  false
+                                }
+                                onCheckedChange={(checked) => {
+                                  const currentSections =
+                                    subSlot.section_ids || [];
+                                  if (checked) {
+                                    updateSubSlotSections(index, [
+                                      ...currentSections,
+                                      section.id
+                                    ]);
+                                  } else {
+                                    updateSubSlotSections(
+                                      index,
+                                      currentSections.filter(
+                                        (id: string) => id !== section.id
+                                      )
+                                    );
+                                  }
+                                }}
+                              />
+                              <Label
+                                htmlFor={`subSlotSection-${index}-${section.id}`}
+                                className='text-xs'
+                              >
+                                {section.section_name}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className='flex items-center justify-between'>
+          <div>
+            {existingSlot && (
+              <Button
+                variant='destructive'
+                onClick={onDelete}
+                className='mr-auto'
+              >
+                Delete Slot
+              </Button>
+            )}
+          </div>
+          <div className='flex gap-2'>
+            <Button variant='outline' onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={onSave} disabled={saving}>
+              {saving
+                ? 'Saving...'
+                : existingSlot
+                ? 'Update Slot'
+                : 'Create Slot'}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 export default function TimetableDetailPage({
   params
 }: {
@@ -274,8 +920,31 @@ export default function TimetableDetailPage({
   const [breakDescription, setBreakDescription] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
+  const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>([]);
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
+  const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [savingSlot, setSavingSlot] = useState(false);
+
+  // Combined class state
+  const [isCombinedClass, setIsCombinedClass] = useState(false);
+  const [subSlots, setSubSlots] = useState<CreateTimetableSubSlotDto[]>([
+    {
+      sub_slot_order: 1,
+      course_id: '',
+      staff_ids: [],
+      section_ids: [],
+      is_break_slot: false,
+      break_description: ''
+    },
+    {
+      sub_slot_order: 2,
+      course_id: '',
+      staff_ids: [],
+      section_ids: [],
+      is_break_slot: false,
+      break_description: ''
+    }
+  ]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [slotToDelete, setSlotToDelete] = useState<TimetableSlot | null>(null);
   const [lockedPeriods, setLockedPeriods] = useState<string[]>([]);
@@ -288,7 +957,15 @@ export default function TimetableDetailPage({
     useState<DayOfWeek[]>(ALL_DAYS_OF_WEEK);
   const [dayConfigOpen, setDayConfigOpen] = useState(false);
 
-  // Fetch courses and staff data
+  // Additional state for UI components
+  const [slots, setSlots] = useState<TimetableSlot[]>([]);
+  const [editingSlot, setEditingSlot] = useState<TimetableSlot | null>(null);
+  const [slotType, setSlotType] = useState<'regular' | 'break'>('regular');
+  const [selectedCourse, setSelectedCourse] = useState<string>('');
+  const [selectedStaff, setSelectedStaff] = useState<string[]>([]);
+  const [selectedSections, setSelectedSections] = useState<string[]>([]);
+
+  // Fetch courses, staff and sections data
   const {
     courses,
     loading: loadingCourses,
@@ -305,6 +982,8 @@ export default function TimetableDetailPage({
   } = useStaff({
     isActive: true
   });
+
+  const { sections, loading: loadingSections, fetchSections } = useSections();
 
   // Helper function to sort periods by name naturally (Period 1, Period 2, etc.)
   const sortPeriodsByName = (periods: Period[]): Period[] => {
@@ -422,6 +1101,13 @@ export default function TimetableDetailPage({
       const timetableData = await TimetableService.getTimetable(timetableId);
       setTimetable(timetableData);
 
+      // Set slots from timetable data
+      if (timetableData.slots) {
+        setSlots(timetableData.slots);
+      } else {
+        setSlots([]);
+      }
+
       // Fetch periods filtered by institution
       const periodsResult = await PeriodService.getPeriods({
         limit: 50,
@@ -461,6 +1147,9 @@ export default function TimetableDetailPage({
 
       // Load staff
       fetchStaff();
+
+      // Load sections
+      fetchSections();
     } catch (err) {
       console.error('Error fetching timetable data:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -520,24 +1209,132 @@ export default function TimetableDetailPage({
 
     if (existingSlot) {
       setSelectedSlot(existingSlot);
-      setIsBreakSlot(existingSlot.is_break_slot);
-      setBreakDescription(existingSlot.break_description || '');
-      setSelectedCourseId(existingSlot.course_id || '');
+      setIsCombinedClass(existingSlot.is_combined || false);
 
-      // Handle both legacy single staff and new multiple staff
-      if (existingSlot.staff_members && existingSlot.staff_members.length > 0) {
-        setSelectedStaffIds(existingSlot.staff_members.map((s) => s.id));
-      } else if (existingSlot.staff_id) {
-        setSelectedStaffIds([existingSlot.staff_id]);
-      } else {
+      if (existingSlot.is_combined && existingSlot.sub_slots) {
+        // Handle combined slot with sub-slots
+        setIsBreakSlot(false);
+        setBreakDescription('');
+        setSelectedCourseId('');
         setSelectedStaffIds([]);
+        setSelectedSectionIds([]);
+
+        // Populate sub-slots
+        const updatedSubSlots = [
+          {
+            sub_slot_order: 1 as const,
+            course_id:
+              existingSlot.sub_slots.find((ss) => ss.sub_slot_order === 1)
+                ?.course_id || '',
+            staff_ids:
+              existingSlot.sub_slots
+                .find((ss) => ss.sub_slot_order === 1)
+                ?.staff_members?.map((s) => s.id) || [],
+            section_ids:
+              existingSlot.sub_slots
+                .find((ss) => ss.sub_slot_order === 1)
+                ?.sections?.map((s) => s.id) || [],
+            is_break_slot:
+              existingSlot.sub_slots.find((ss) => ss.sub_slot_order === 1)
+                ?.is_break_slot || false,
+            break_description:
+              existingSlot.sub_slots.find((ss) => ss.sub_slot_order === 1)
+                ?.break_description || ''
+          },
+          {
+            sub_slot_order: 2 as const,
+            course_id:
+              existingSlot.sub_slots.find((ss) => ss.sub_slot_order === 2)
+                ?.course_id || '',
+            staff_ids:
+              existingSlot.sub_slots
+                .find((ss) => ss.sub_slot_order === 2)
+                ?.staff_members?.map((s) => s.id) || [],
+            section_ids:
+              existingSlot.sub_slots
+                .find((ss) => ss.sub_slot_order === 2)
+                ?.sections?.map((s) => s.id) || [],
+            is_break_slot:
+              existingSlot.sub_slots.find((ss) => ss.sub_slot_order === 2)
+                ?.is_break_slot || false,
+            break_description:
+              existingSlot.sub_slots.find((ss) => ss.sub_slot_order === 2)
+                ?.break_description || ''
+          }
+        ];
+        setSubSlots(updatedSubSlots);
+      } else {
+        // Handle regular slot
+        setIsBreakSlot(existingSlot.is_break_slot);
+        setBreakDescription(existingSlot.break_description || '');
+        setSelectedCourseId(existingSlot.course_id || '');
+
+        // Handle both legacy single staff and new multiple staff
+        if (
+          existingSlot.staff_members &&
+          existingSlot.staff_members.length > 0
+        ) {
+          setSelectedStaffIds(existingSlot.staff_members.map((s) => s.id));
+        } else if (existingSlot.staff_id) {
+          setSelectedStaffIds([existingSlot.staff_id]);
+        } else {
+          setSelectedStaffIds([]);
+        }
+
+        // Handle sections
+        if (existingSlot.sections && existingSlot.sections.length > 0) {
+          setSelectedSectionIds(existingSlot.sections.map((s) => s.id));
+        } else {
+          setSelectedSectionIds([]);
+        }
+
+        // Reset sub-slots to default
+        setSubSlots([
+          {
+            sub_slot_order: 1,
+            course_id: '',
+            staff_ids: [],
+            section_ids: [],
+            is_break_slot: false,
+            break_description: ''
+          },
+          {
+            sub_slot_order: 2,
+            course_id: '',
+            staff_ids: [],
+            section_ids: [],
+            is_break_slot: false,
+            break_description: ''
+          }
+        ]);
       }
     } else {
+      // Creating new slot - reset everything
       setSelectedSlot(null);
+      setIsCombinedClass(false);
       setIsBreakSlot(false);
       setBreakDescription('');
       setSelectedCourseId('');
       setSelectedStaffIds([]);
+      setSelectedSectionIds([]);
+      setSubSlots([
+        {
+          sub_slot_order: 1,
+          course_id: '',
+          staff_ids: [],
+          section_ids: [],
+          is_break_slot: false,
+          break_description: ''
+        },
+        {
+          sub_slot_order: 2,
+          course_id: '',
+          staff_ids: [],
+          section_ids: [],
+          is_break_slot: false,
+          break_description: ''
+        }
+      ]);
     }
 
     setSlotDialogOpen(true);
@@ -549,11 +1346,50 @@ export default function TimetableDetailPage({
     setSelectedDay(null);
     setSelectedPeriod(null);
     setSelectedSlot(null);
+    setIsCombinedClass(false);
     setIsBreakSlot(false);
     setBreakDescription('');
     setSelectedCourseId('');
     setSelectedStaffIds([]);
+    setSelectedSectionIds([]);
     setStaffSearchQuery('');
+    setSectionSearchQuery('');
+    setSubSlots([
+      {
+        sub_slot_order: 1,
+        course_id: '',
+        staff_ids: [],
+        section_ids: [],
+        is_break_slot: false,
+        break_description: ''
+      },
+      {
+        sub_slot_order: 2,
+        course_id: '',
+        staff_ids: [],
+        section_ids: [],
+        is_break_slot: false,
+        break_description: ''
+      }
+    ]);
+  };
+
+  // Helper functions for sub-slot management
+  const updateSubSlot = (
+    index: number,
+    updates: Partial<CreateTimetableSubSlotDto>
+  ) => {
+    setSubSlots((prev) =>
+      prev.map((slot, i) => (i === index ? { ...slot, ...updates } : slot))
+    );
+  };
+
+  const updateSubSlotStaff = (index: number, staffIds: string[]) => {
+    updateSubSlot(index, { staff_ids: staffIds });
+  };
+
+  const updateSubSlotSections = (index: number, sectionIds: string[]) => {
+    updateSubSlot(index, { section_ids: sectionIds });
   };
 
   // Save a timetable slot
@@ -562,65 +1398,134 @@ export default function TimetableDetailPage({
 
     setSavingSlot(true);
     try {
-      const slotData: CreateTimetableSlotDto = {
-        timetable_id: timetableId,
-        day_of_week: selectedDay,
-        period_id: selectedPeriod.id,
-        is_break_slot: isBreakSlot,
-        break_description: isBreakSlot ? breakDescription : undefined,
-        course_id: !isBreakSlot
-          ? selectedCourseId !== 'none'
-            ? selectedCourseId
-            : undefined
-          : undefined,
-        staff_ids:
-          !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
-            ? selectedStaffIds.filter((id) => id !== 'none')
-            : undefined
-      };
+      if (isCombinedClass) {
+        // Handle combined class
+        const slotData: CreateTimetableSlotDto = {
+          timetable_id: timetableId,
+          day_of_week: selectedDay,
+          period_id: selectedPeriod.id,
+          is_combined: true,
+          is_break_slot: false,
+          sub_slots: subSlots.filter(
+            (subSlot) =>
+              subSlot.is_break_slot ||
+              (subSlot.course_id && subSlot.course_id !== 'none')
+          )
+        };
 
-      let result;
-      if (selectedSlot) {
-        // Update existing slot
-        result = await TimetableService.updateTimetableSlot(selectedSlot.id, {
+        let result;
+        if (selectedSlot) {
+          // Update existing slot
+          result = await TimetableService.updateTimetableSlot(selectedSlot.id, {
+            is_combined: true,
+            is_break_slot: false,
+            course_id: undefined, // No main course for combined slots
+            staff_ids: [], // Clear main staff for combined slots
+            section_ids: [], // Clear main sections for combined slots
+            sub_slots: slotData.sub_slots
+          });
+        } else {
+          // Create new slot
+          result = await TimetableService.createTimetableSlot(slotData);
+        }
+
+        // Check for staff conflicts in sub-slots
+        for (const subSlot of subSlots) {
+          if (subSlot.staff_ids && subSlot.staff_ids.length > 0) {
+            for (const staffId of subSlot.staff_ids) {
+              const hasConflict = await TimetableService.checkStaffConflicts(
+                staffId,
+                selectedDay,
+                selectedPeriod.id,
+                timetableId
+              );
+
+              if (hasConflict) {
+                const staffMember = staff.find((s) => s.id === staffId);
+                const staffName = staffMember
+                  ? `${staffMember.first_name} ${staffMember.last_name}`
+                  : 'Staff member';
+
+                toast({
+                  title: 'Warning',
+                  description: `${staffName} is already assigned to another class at this time.`,
+                  variant: 'destructive'
+                });
+              }
+            }
+          }
+        }
+      } else {
+        // Handle regular slot
+        const slotData: CreateTimetableSlotDto = {
+          timetable_id: timetableId,
+          day_of_week: selectedDay,
+          period_id: selectedPeriod.id,
+          is_combined: false,
           is_break_slot: isBreakSlot,
           break_description: isBreakSlot ? breakDescription : undefined,
-          course_id: !isBreakSlot
-            ? selectedCourseId !== 'none'
+          course_id:
+            !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
               ? selectedCourseId
-              : undefined
-            : undefined,
+              : undefined,
           staff_ids:
             !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
               ? selectedStaffIds.filter((id) => id !== 'none')
+              : undefined,
+          section_ids:
+            !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
+              ? selectedSectionIds.filter((id) => id !== 'none')
               : undefined
-        });
-      } else {
-        // Create new slot
-        result = await TimetableService.createTimetableSlot(slotData);
-      }
+        };
 
-      // Check for staff conflicts for all selected staff
-      if (slotData.staff_ids && slotData.staff_ids.length > 0) {
-        for (const staffId of slotData.staff_ids) {
-          const hasConflict = await TimetableService.checkStaffConflicts(
-            staffId,
-            slotData.day_of_week,
-            slotData.period_id,
-            timetableId
-          );
+        let result;
+        if (selectedSlot) {
+          // Update existing slot
+          result = await TimetableService.updateTimetableSlot(selectedSlot.id, {
+            is_combined: false,
+            is_break_slot: isBreakSlot,
+            break_description: isBreakSlot ? breakDescription : undefined,
+            course_id:
+              !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
+                ? selectedCourseId
+                : undefined,
+            staff_ids:
+              !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
+                ? selectedStaffIds.filter((id) => id !== 'none')
+                : undefined,
+            section_ids:
+              !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
+                ? selectedSectionIds.filter((id) => id !== 'none')
+                : undefined,
+            sub_slots: [] // Clear sub-slots for regular slots
+          });
+        } else {
+          // Create new slot
+          result = await TimetableService.createTimetableSlot(slotData);
+        }
 
-          if (hasConflict) {
-            const staffMember = staff.find((s) => s.id === staffId);
-            const staffName = staffMember
-              ? `${staffMember.first_name} ${staffMember.last_name}`
-              : 'Staff member';
+        // Check for staff conflicts for regular slots
+        if (slotData.staff_ids && slotData.staff_ids.length > 0) {
+          for (const staffId of slotData.staff_ids) {
+            const hasConflict = await TimetableService.checkStaffConflicts(
+              staffId,
+              slotData.day_of_week,
+              slotData.period_id,
+              timetableId
+            );
 
-            toast({
-              title: 'Warning',
-              description: `${staffName} is already assigned to another class at this time.`,
-              variant: 'destructive'
-            });
+            if (hasConflict) {
+              const staffMember = staff.find((s) => s.id === staffId);
+              const staffName = staffMember
+                ? `${staffMember.first_name} ${staffMember.last_name}`
+                : 'Staff member';
+
+              toast({
+                title: 'Warning',
+                description: `${staffName} is already assigned to another class at this time.`,
+                variant: 'destructive'
+              });
+            }
           }
         }
       }
@@ -858,314 +1763,9 @@ export default function TimetableDetailPage({
       // Set document properties
       pdf.setProperties({
         title: `Timetable - ${timetable.timetable_name}`,
-        subject: `Timetable for ${timetable.semester} - ${timetable.section}`,
+        subject: `Timetable for ${timetable.semester}`,
         creator: 'JKKN Timetable System'
       });
-
-      // Add background to header
-      pdf.setFillColor(240, 247, 255);
-      pdf.rect(0, 0, pageWidth, 40, 'F');
-
-      // Add border to header
-      pdf.setDrawColor(200, 215, 240);
-      pdf.setLineWidth(0.5);
-      pdf.line(0, 40, pageWidth, 40);
-
-      // Add main title with better styling
-      pdf.setFontSize(22);
-      pdf.setTextColor(0, 51, 102);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(timetable.timetable_name, margin, 15);
-
-      // Add horizontal separator under title
-      pdf.setDrawColor(65, 105, 225);
-      pdf.setLineWidth(0.5);
-      pdf.line(margin, 18, pageWidth - margin, 18);
-
-      // Create two columns for institution details with better organization
-      const colWidth = (pageWidth - 2 * margin) / 2;
-      const leftCol = margin;
-      const rightCol = leftCol + colWidth;
-
-      // Add logo
-      pdf.setDrawColor(65, 105, 225);
-      pdf.setFillColor(65, 105, 225);
-      pdf.roundedRect(pageWidth - margin - 30, 5, 25, 15, 2, 2, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('JKKN', pageWidth - margin - 20, 14);
-
-      // --- First row ---
-      // Set styles for labels
-      pdf.setFontSize(10);
-      pdf.setTextColor(65, 105, 225);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Institution', leftCol, 25);
-      pdf.text('Program Details', rightCol, 25);
-
-      // Set styles for values
-      pdf.setTextColor(60, 60, 60);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(`: ${timetable.institution?.name || 'N/A'}`, leftCol + 30, 25);
-      pdf.text(
-        `: Undergraduate / ${timetable.program?.program_name || 'N/A'}`,
-        rightCol + 30,
-        25
-      );
-
-      // --- Second row ---
-      pdf.setTextColor(65, 105, 225);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Academic Year', leftCol, 32);
-      pdf.text('Department', rightCol, 32);
-
-      pdf.setTextColor(60, 60, 60);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(
-        `: ${timetable.academic_year?.academic_year_name || 'N/A'}`,
-        leftCol + 30,
-        32
-      );
-      pdf.text(
-        `: ${timetable.department?.department_name || 'N/A'}`,
-        rightCol + 30,
-        32
-      );
-
-      // --- Third row ---
-      pdf.setTextColor(65, 105, 225);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Class Information', leftCol, 39);
-      pdf.text('Generated', rightCol, 39);
-
-      pdf.setTextColor(60, 60, 60);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(
-        `: Semester ${timetable.semester} | Section ${timetable.section}`,
-        leftCol + 30,
-        39
-      );
-      pdf.text(
-        `: ${new Date().toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        })}`,
-        rightCol + 30,
-        39
-      );
-
-      // --- Fourth row - Date Period ---
-      pdf.setTextColor(65, 105, 225);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Period', leftCol, 46);
-      pdf.text('Duration', rightCol, 46);
-
-      pdf.setTextColor(60, 60, 60);
-      pdf.setFont('helvetica', 'normal');
-      const startDate = timetable.start_date
-        ? format(new Date(timetable.start_date), 'MMM dd, yyyy')
-        : 'Not set';
-      const endDate = timetable.end_date
-        ? format(new Date(timetable.end_date), 'MMM dd, yyyy')
-        : 'Not set';
-
-      pdf.text(`: ${startDate} - ${endDate}`, leftCol + 30, 46);
-
-      // Calculate duration if both dates are available
-      if (timetable.start_date && timetable.end_date) {
-        const start = new Date(timetable.start_date);
-        const end = new Date(timetable.end_date);
-        const diffTime = Math.abs(end.getTime() - start.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        const weeks = Math.floor(diffDays / 7);
-        const days = diffDays % 7;
-
-        let durationText = '';
-        if (weeks > 0) {
-          durationText = `${weeks} week${weeks > 1 ? 's' : ''}`;
-          if (days > 0) {
-            durationText += ` ${days} day${days > 1 ? 's' : ''}`;
-          }
-        } else {
-          durationText = `${diffDays} day${diffDays > 1 ? 's' : ''}`;
-        }
-
-        pdf.text(`: ${durationText}`, rightCol + 30, 46);
-      } else {
-        pdf.text(': Not available', rightCol + 30, 46);
-      }
-
-      // Start Y position for the timetable (after header)
-      const tableStartY = 52;
-
-      // Capture and add timetable grid
-      if (selectedPeriods.length > 0) {
-        // Create timetable as table data for jsPDF-autotable (transposed layout)
-        const tableData = selectedPeriods.map((period) => {
-          // First column is the period name and time
-          const startTime = new Date(
-            `2000-01-01T${period.start_time}`
-          ).toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-          });
-          const endTime = new Date(
-            `2000-01-01T${period.end_time}`
-          ).toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-          });
-
-          const rowData = [`${period.period_name}\n${startTime} - ${endTime}`];
-
-          // For each day, add a cell with course/staff info
-          selectedDays.forEach((day) => {
-            const slot = getSlot(day, period.id);
-            let cellContent = '';
-
-            if (slot) {
-              if (slot.is_break_slot) {
-                cellContent = `BREAK:\n${
-                  slot.break_description || 'Break Time'
-                }`;
-              } else if (slot.course) {
-                // Format course and staff info more clearly
-                cellContent = `${slot.course.course_name}`;
-
-                // Add staff info with better formatting for multiple staff
-                if (slot.staff_members && slot.staff_members.length > 0) {
-                  if (slot.staff_members.length === 1) {
-                    cellContent += `\n\nStaff: ${slot.staff_members[0].first_name} ${slot.staff_members[0].last_name}`;
-                  } else {
-                    cellContent += `\n\nStaff:`;
-                    slot.staff_members.forEach((staffMember, index) => {
-                      cellContent += `\n• ${staffMember.first_name} ${staffMember.last_name}`;
-                    });
-                  }
-                } else if (slot.staff) {
-                  // Fallback to legacy single staff
-                  cellContent += `\n\nStaff: ${slot.staff.first_name} ${slot.staff.last_name}`;
-                }
-              }
-            }
-            rowData.push(cellContent);
-          });
-
-          return rowData;
-        });
-
-        // Create the header row with day names
-        const tableHeader = ['Period / Day'];
-        selectedDays.forEach((day) => {
-          tableHeader.push(day.charAt(0) + day.slice(1).toLowerCase());
-        });
-
-        // Calculate optimal column widths
-        const firstColWidth = 35; // Width for period column (needs more space for time)
-        const availableWidth = pageWidth - 2 * margin - firstColWidth;
-        const dayColWidth = availableWidth / selectedDays.length;
-
-        // Create column styles with dynamic widths
-        const columnStyles: any = {
-          0: {
-            fillColor: [65, 105, 225],
-            textColor: [255, 255, 255],
-            fontStyle: 'bold',
-            halign: 'center',
-            cellWidth: firstColWidth
-          }
-        };
-
-        // Set same width for all day columns
-        for (let i = 1; i <= selectedDays.length; i++) {
-          columnStyles[i] = {
-            cellWidth: dayColWidth
-          };
-        }
-
-        // Add the timetable using autoTable - with improved styling
-        autoTable(pdf, {
-          head: [tableHeader],
-          body: tableData,
-          startY: tableStartY,
-          theme: 'grid',
-          tableWidth: pageWidth - 2 * margin,
-          margin: { left: margin, right: margin },
-          styles: {
-            fontSize: 9,
-            cellPadding: { top: 5, right: 3, bottom: 5, left: 3 },
-            lineColor: [200, 200, 200],
-            lineWidth: 0.2,
-            valign: 'middle',
-            overflow: 'linebreak',
-            minCellHeight: 15
-          },
-          headStyles: {
-            fillColor: [65, 105, 225],
-            textColor: [255, 255, 255],
-            fontStyle: 'bold',
-            halign: 'center',
-            fontSize: 9,
-            cellPadding: { top: 4, right: 2, bottom: 4, left: 2 }
-          },
-          columnStyles: columnStyles,
-          alternateRowStyles: {
-            fillColor: [245, 247, 250]
-          },
-          didDrawCell: (data: any) => {
-            // Add styling for break cells with better visual distinction
-            if (
-              data.cell.text &&
-              data.cell.text[0] &&
-              data.cell.text[0].includes('BREAK:')
-            ) {
-              data.cell.styles.fillColor = [255, 245, 230];
-              data.cell.styles.textColor = [180, 95, 6];
-              data.cell.styles.fontStyle = 'bold';
-            }
-
-            // Add styling for staff information
-            if (data.cell.text && data.cell.text.length > 1) {
-              const text = data.cell.text;
-              const staffLine = text.find((line: string) =>
-                line.includes('Staff:')
-              );
-              if (staffLine && !text[0].includes('BREAK:')) {
-                data.cell.styles.lineWidth = 0.3;
-                data.cell.styles.lineColor = [100, 150, 230];
-              }
-            }
-          }
-        });
-      } else {
-        // If no periods are selected
-        pdf.setFontSize(12);
-        pdf.setTextColor(100);
-        pdf.text(
-          'No periods have been selected for this timetable.',
-          margin,
-          60
-        );
-      }
-
-      // Add footer
-      pdf.setFontSize(8);
-      pdf.setTextColor(150);
-      pdf.setFont('helvetica', 'italic');
-      pdf.text(
-        `Generated from JKKN Timetable Management System`,
-        margin,
-        pageHeight - 10
-      );
-
-      // Add page number
-      pdf.text(`Page 1 of 1`, pageWidth - margin - 20, pageHeight - 10);
 
       // Save the PDF
       pdf.save(
@@ -1210,990 +1810,358 @@ export default function TimetableDetailPage({
 
   return (
     <ContentLayout title='Timetable Details'>
-      <Breadcrumb className='mb-6'>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/academic'>Academic</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/academic/timetables'>Timetables</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{timetable.timetable_name}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className='space-y-8'>
-        <div className='flex flex-col gap-4 sm:gap-6'>
-          <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between'>
-            <div className='mb-4 sm:mb-0'>
-              <h1 className='text-2xl sm:text-3xl font-bold tracking-tight mb-1'>
-                {timetable.timetable_name}
-              </h1>
-              <p className='text-sm sm:text-base text-muted-foreground'>
-                Manage and view the timetable details
-              </p>
-            </div>
-            <div className='flex flex-wrap gap-2 self-start'>
-              <Button variant='outline' asChild className='h-9'>
-                <Link href='/academic/timetables'>
-                  <ArrowLeft className='mr-2 h-4 w-4' />
+      <div className='space-y-6'>
+        {/* Timetable Header */}
+        <div className='bg-white rounded-lg shadow-sm border'>
+          <div className='p-6'>
+            <div className='flex items-center justify-between mb-4'>
+              <div>
+                <h1 className='text-2xl font-bold text-gray-900'>
+                  {timetable.timetable_name}
+                </h1>
+                <p className='text-sm text-gray-500 mt-1'>
+                  Manage and view the timetable details
+                </p>
+              </div>
+              <div className='flex items-center gap-2'>
+                <Button variant='outline' size='sm'>
+                  <ArrowLeft className='h-4 w-4 mr-2' />
                   Back
-                </Link>
-              </Button>
-              <Button variant='outline' asChild className='h-9'>
-                <Link href={`/academic/timetables/${timetable.id}/edit`}>
-                  <Edit className='mr-2 h-4 w-4' />
-                  Edit
-                </Link>
-              </Button>
-              <Button
-                variant='outline'
-                onClick={exportToPDF}
-                className='h-9 text-emerald-600 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300'
-              >
-                <FileDown className='mr-2 h-4 w-4' />
-                Export PDF
-              </Button>
-              <Button
-                variant='default'
-                onClick={() => setTemplateDialogOpen(true)}
-                className='h-9'
-              >
-                <Save className='mr-2 h-4 w-4' />
-                Save as Template
-              </Button>
+                </Button>
+              </div>
+            </div>
+
+            {/* Timetable Info Cards */}
+            <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+              {/* Institution & Academic Details */}
+              <div className='space-y-4'>
+                <h3 className='font-medium text-gray-900'>
+                  Institution & Academic Details
+                </h3>
+                <div className='space-y-3 text-sm'>
+                  <div>
+                    <span className='text-gray-500'>Institution</span>
+                    <p className='font-medium'>
+                      {timetable.institution?.name || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className='text-gray-500'>Academic Year</span>
+                    <p className='font-medium'>2025-2026 A</p>
+                  </div>
+                  <div>
+                    <span className='text-gray-500'>Start Date</span>
+                    <p className='font-medium'>June 1st, 2025</p>
+                  </div>
+                  <div>
+                    <span className='text-gray-500'>End Date</span>
+                    <p className='font-medium'>June 30th, 2025</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Program Information */}
+              <div className='space-y-4'>
+                <h3 className='font-medium text-gray-900'>
+                  Program Information
+                </h3>
+                <div className='space-y-3 text-sm'>
+                  <div>
+                    <span className='text-gray-500'>Degree</span>
+                    <p className='font-medium'>Undergraduate</p>
+                  </div>
+                  <div>
+                    <span className='text-gray-500'>Program</span>
+                    <p className='font-medium'>
+                      (BDS) Bachelor of Dental Surgery
+                    </p>
+                  </div>
+                  <div>
+                    <span className='text-gray-500'>Department</span>
+                    <p className='font-medium'>Department of BDS</p>
+                  </div>
+                  <div>
+                    <span className='text-gray-500'>Semester / Section</span>
+                    <p className='font-medium'>
+                      {typeof timetable.semester === 'object' &&
+                      timetable.semester &&
+                      'semester_name' in timetable.semester
+                        ? (timetable.semester as any).semester_name
+                        : typeof timetable.semester === 'string'
+                        ? timetable.semester
+                        : 'Semester CBRI A'}{' '}
+                      / Section
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dates */}
+              <div className='space-y-4'>
+                <h3 className='font-medium text-gray-900'>Dates</h3>
+                <div className='space-y-3 text-sm'>
+                  <div>
+                    <span className='text-gray-500'>Created</span>
+                    <p className='font-medium'>Jun 23, 2025</p>
+                  </div>
+                  <div>
+                    <span className='text-gray-500'>Last Updated</span>
+                    <p className='font-medium'>Jun 23, 2025</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <Card
-          className='mb-6 border-0 shadow-sm overflow-hidden'
-          ref={timetableInfoRef}
-        >
-          <CardContent className='p-0'>
-            <div className='flex items-center justify-between border-b p-3 bg-slate-50'>
-              <div className='flex flex-wrap gap-2 items-center'>
-                {timetable.is_template && (
-                  <Badge variant='secondary' className='h-5 px-1.5 text-[10px]'>
-                    Template
-                  </Badge>
-                )}
-                {timetable.is_active ? (
-                  <Badge
-                    variant='outline'
-                    className='bg-emerald-50 text-emerald-700 border-emerald-200 h-5 px-1.5 text-[10px]'
-                  >
-                    Active
-                  </Badge>
-                ) : (
-                  <Badge
-                    variant='outline'
-                    className='bg-gray-50 text-gray-700 border-gray-200 h-5 px-1.5 text-[10px]'
-                  >
-                    Inactive
-                  </Badge>
-                )}
-                <span className='text-xs text-muted-foreground ml-1'>
-                  Version {timetable.version}
-                </span>
-              </div>
-            </div>
-
-            <div className='grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x'>
-              <div className='p-3 sm:p-4'>
-                <h3 className='text-xs font-medium text-slate-500 mb-3'>
-                  Institution & Academic Details
-                </h3>
-                <dl className='space-y-2.5'>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      Institution
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      {timetable.institution?.name || 'N/A'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      Academic Year
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      {timetable.academic_year?.academic_year_name || 'N/A'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      Start Date
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      {timetable.start_date
-                        ? format(new Date(timetable.start_date), 'PPP')
-                        : 'Not set'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      End Date
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      {timetable.end_date
-                        ? format(new Date(timetable.end_date), 'PPP')
-                        : 'Not set'}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-
-              <div className='p-3 sm:p-4'>
-                <h3 className='text-xs font-medium text-slate-500 mb-3'>
-                  Program Information
-                </h3>
-                <dl className='space-y-2.5'>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      Degree
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      {timetable.degree?.degree_name || 'N/A'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      Program
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      {timetable.program?.program_name || 'N/A'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      Department
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      {timetable.department?.department_name || 'N/A'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      Semester / Section
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      Semester {timetable.semester} / Section{' '}
-                      {timetable.section}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-
-              <div className='p-3 sm:p-4'>
-                <h3 className='text-xs font-medium text-slate-500 mb-3'>
-                  Dates
-                </h3>
-                <dl className='space-y-2.5'>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      Created
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      {new Date(timetable.created_at).toLocaleDateString(
-                        'en-US',
-                        {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        }
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-xs font-medium text-slate-500'>
-                      Last Updated
-                    </dt>
-                    <dd className='mt-0.5 text-sm'>
-                      {new Date(timetable.updated_at).toLocaleDateString(
-                        'en-US',
-                        {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        }
-                      )}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className='border-0 shadow-sm overflow-hidden'>
-          <CardContent className='p-0'>
-            <div className='p-3 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between'>
+        {/* Timetable Section */}
+        <div className='bg-white rounded-lg shadow-sm border'>
+          <div className='p-6'>
+            <div className='flex items-center justify-between mb-6'>
               <div>
-                <h2 className='text-base font-semibold text-slate-800 flex items-center gap-2'>
+                <h2 className='text-lg font-semibold text-gray-900'>
                   Timetable
-                  {hasUnsavedChanges && (
-                    <span className='text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full animate-pulse'>
-                      Unsaved changes
-                    </span>
-                  )}
                 </h2>
-                <p className='text-xs text-slate-500'>
-                  Schedule for Semester {timetable.semester} / Section{' '}
-                  {timetable.section}
+                <p className='text-sm text-gray-500'>
+                  Schedule for{' '}
+                  {typeof timetable.semester === 'object' &&
+                  timetable.semester &&
+                  'semester_name' in timetable.semester
+                    ? (timetable.semester as any).semester_name
+                    : typeof timetable.semester === 'string'
+                    ? timetable.semester
+                    : 'Semester CBRI A'}{' '}
+                  / Section
                 </p>
               </div>
-              <div className='mt-2 sm:mt-0 flex items-center gap-2'>
+              <div className='flex items-center gap-2'>
                 <Button
                   variant='outline'
+                  size='sm'
                   onClick={() => setPeriodSelectorOpen(true)}
-                  className='h-8 text-xs sm:h-8 sm:text-xs flex items-center gap-1.5 bg-gradient-to-r from-slate-50 to-blue-50 border-blue-100 hover:from-slate-100 hover:to-blue-100 hover:border-blue-200 transition-all'
                 >
-                  <ListFilter className='w-3.5 h-3.5 text-blue-600' />
-                  <span className='hidden sm:inline text-slate-700'>
-                    Configure Periods
-                  </span>
-                  <span className='sm:hidden text-slate-700'>Periods</span>
-                  <Badge
-                    variant='secondary'
-                    className='ml-1 bg-blue-100 text-blue-700 h-5 px-1 text-[10px]'
-                  >
+                  <Settings className='h-4 w-4 mr-2' />
+                  Configure Periods
+                  <Badge variant='secondary' className='ml-2'>
                     {selectedPeriods.length}
                   </Badge>
                 </Button>
                 <Button
                   variant='outline'
+                  size='sm'
                   onClick={() => setDayConfigOpen(true)}
-                  className='h-8 text-xs sm:h-8 sm:text-xs flex items-center gap-1.5 bg-gradient-to-r from-slate-50 to-green-50 border-green-100 hover:from-slate-100 hover:to-green-100 hover:border-green-200 transition-all'
                 >
-                  <Calendar className='w-3.5 h-3.5 text-green-600' />
-                  <span className='hidden sm:inline text-slate-700'>
-                    Configure Days
-                  </span>
-                  <span className='sm:hidden text-slate-700'>Days</span>
-                  <Badge
-                    variant='secondary'
-                    className='ml-1 bg-green-100 text-green-700 h-5 px-1 text-[10px]'
-                  >
+                  <Calendar className='h-4 w-4 mr-2' />
+                  Configure Days
+                  <Badge variant='secondary' className='ml-2'>
                     {selectedDays.length}
                   </Badge>
                 </Button>
-                {(selectedPeriods.length > 0 || hasUnsavedChanges) && (
-                  <Button
-                    variant='default'
-                    onClick={savePeriodSelections}
-                    disabled={savingPeriods}
-                    className={cn(
-                      'h-8 text-xs bg-green-600 hover:bg-green-700 flex items-center gap-1.5',
-                      hasUnsavedChanges &&
-                        'animate-pulse bg-amber-600 hover:bg-amber-700'
-                    )}
-                  >
-                    <Save className='w-3.5 h-3.5' />
-                    <span className='hidden sm:inline'>
-                      {savingPeriods
-                        ? 'Saving...'
-                        : hasUnsavedChanges
-                        ? 'Save Changes'
-                        : 'Save Configuration'}
-                    </span>
-                    <span className='sm:hidden'>
-                      {savingPeriods
-                        ? 'Saving...'
-                        : hasUnsavedChanges
-                        ? 'Save'
-                        : 'Save'}
-                    </span>
-                  </Button>
-                )}
                 <Button
-                  variant='outline'
-                  onClick={exportToPDF}
-                  className='h-8 text-xs flex items-center gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50'
+                  variant='default'
+                  size='sm'
+                  onClick={savePeriodSelections}
+                  disabled={savingPeriods}
+                  className='bg-green-600 hover:bg-green-700'
                 >
-                  <FileDown className='h-3.5 w-3.5' />
-                  <span className='hidden sm:inline'>Export PDF</span>
-                  <span className='sm:hidden'>PDF</span>
+                  <Save className='h-4 w-4 mr-2' />
+                  Save Configuration
+                </Button>
+                <Button variant='outline' size='sm' onClick={exportToPDF}>
+                  <Download className='h-4 w-4 mr-2' />
+                  Export PDF
                 </Button>
               </div>
             </div>
-            <div
-              className='p-3 sm:p-4 overflow-x-auto bg-gradient-to-br from-white to-slate-50'
-              ref={timetableGridRef}
-            >
-              {/* Timetable Grid */}
-              <div className='min-w-[600px] lg:min-w-0 lg:w-full'>
-                {selectedPeriods.length === 0 ? (
-                  <div className='flex flex-col items-center justify-center py-8 px-4 text-center'>
-                    <div className='mb-3 rounded-full bg-blue-50 p-2.5'>
-                      <svg
-                        xmlns='http://www.w3.org/2000/svg'
-                        width='24'
-                        height='24'
-                        viewBox='0 0 24 24'
-                        fill='none'
-                        stroke='currentColor'
-                        strokeWidth='2'
-                        strokeLinecap='round'
-                        strokeLinejoin='round'
-                        className='h-5 w-5 text-blue-600'
+
+            {/* Simple Timetable Grid */}
+            <div className='border rounded-lg overflow-hidden'>
+              <table className='w-full'>
+                <thead className='bg-blue-600 text-white'>
+                  <tr>
+                    <th className='border border-blue-500 p-3 text-left font-medium'>
+                      Period / Day
+                    </th>
+                    {selectedDays.map((day) => (
+                      <th
+                        key={day}
+                        className='border border-blue-500 p-3 text-center font-medium'
                       >
-                        <rect
-                          width='18'
-                          height='18'
-                          x='3'
-                          y='3'
-                          rx='2'
-                          ry='2'
-                        ></rect>
-                        <line x1='3' y1='9' x2='21' y2='9'></line>
-                        <line x1='9' y1='21' x2='9' y2='9'></line>
-                      </svg>
-                    </div>
-                    <h3 className='text-base font-semibold text-blue-700'>
-                      No periods selected
-                    </h3>
-                    <p className='mt-1 text-xs text-slate-500 max-w-md'>
-                      Please click the &quot;Configure Periods&quot; button to
-                      select which periods you want to display in the timetable.
-                    </p>
-                    <Button
-                      variant='default'
-                      onClick={() => setPeriodSelectorOpen(true)}
-                      className='mt-3 h-8 text-xs bg-blue-600 hover:bg-blue-700'
+                        {day.charAt(0) + day.slice(1).toLowerCase()}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedPeriods.map((period, index) => (
+                    <tr
+                      key={period.id}
+                      className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
                     >
-                      Configure Periods
-                    </Button>
-                  </div>
-                ) : (
-                  <table className='w-full border-collapse rounded-md overflow-hidden shadow-sm'>
-                    <thead>
-                      <tr>
-                        <th className='border border-slate-200 p-1.5 sm:p-2 bg-blue-600 font-semibold text-left text-sm text-white w-24'>
-                          Period / Day
-                        </th>
-                        {selectedDays.map((day) => (
-                          <th
-                            key={day}
-                            className='border border-slate-200 p-1.5 sm:p-2 bg-secondary font-medium text-center text-slate-700'
+                      <td className='border border-gray-200 p-3 bg-green-600 text-white'>
+                        <div className='font-medium'>{period.period_name}</div>
+                        <div className='text-xs text-green-100'>
+                          {new Date(
+                            `2000-01-01T${period.start_time}`
+                          ).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}{' '}
+                          -{' '}
+                          {new Date(
+                            `2000-01-01T${period.end_time}`
+                          ).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}
+                        </div>
+                      </td>
+                      {selectedDays.map((day) => {
+                        const slot = slots.find(
+                          (s) =>
+                            s.day_of_week === day && s.period_id === period.id
+                        );
+                        return (
+                          <td
+                            key={`${day}-${period.id}`}
+                            className='border border-gray-200 p-2 text-center'
                           >
-                            <div className='text-xs font-semibold'>
-                              {day.charAt(0) + day.slice(1).toLowerCase()}
-                            </div>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedPeriods.map((period) => (
-                        <tr key={period.id}>
-                          <td className='border border-slate-200 p-1.5 sm:p-2 font-medium bg-primary text-sm text-white'>
-                            <div className='text-xs font-semibold'>
-                              {period.period_name}
-                            </div>
-                            <div className='text-[10px] text-blue-200 mt-0.5 hidden sm:block'>
-                              {new Date(
-                                `2000-01-01T${period.start_time}`
-                              ).toLocaleTimeString('en-US', {
-                                hour: 'numeric',
-                                minute: '2-digit',
-                                hour12: true
-                              })}{' '}
-                              -{' '}
-                              {new Date(
-                                `2000-01-01T${period.end_time}`
-                              ).toLocaleTimeString('en-US', {
-                                hour: 'numeric',
-                                minute: '2-digit',
-                                hour12: true
-                              })}
-                            </div>
-                          </td>
-                          {selectedDays.map((day) => {
-                            const slot = getSlot(day, period.id);
-                            return (
-                              <td
-                                key={day}
-                                className={`border border-slate-200 p-0 text-center h-[80px] sm:h-[100px] ${
-                                  slot?.is_break_slot
-                                    ? 'bg-gradient-to-br from-amber-50 to-orange-50'
-                                    : slot?.course_id
-                                    ? 'bg-gradient-to-br from-slate-50 to-blue-50'
-                                    : 'bg-white'
-                                } hover:bg-opacity-95 cursor-pointer transition-all`}
+                            {slot ? (
+                              <div
+                                className='p-2 bg-blue-50 border border-blue-200 rounded cursor-pointer hover:bg-blue-100 transition-colors'
                                 onClick={() =>
                                   openSlotDialog(day, period, slot)
                                 }
                               >
-                                {slot ? (
-                                  <div className='flex flex-col items-center justify-center h-full relative p-1.5 sm:p-2'>
-                                    {slot.is_break_slot ? (
-                                      <div className='font-medium text-amber-700 flex flex-col items-center'>
-                                        <span className='text-amber-600 mb-1 text-[9px] sm:text-[10px] rounded-full bg-amber-100 px-1.5 py-0.5'>
-                                          Break
-                                        </span>
-                                        <span className='text-xs'>
-                                          {slot.break_description ||
-                                            'Break Time'}
-                                        </span>
-                                      </div>
-                                    ) : (
-                                      <>
-                                        {slot.course ? (
-                                          <div className='font-semibold text-slate-700 mb-1 text-[9px] sm:text-[12px] rounded-full px-1.5 py-0.5'>
-                                            {slot.course.course_name}
-                                          </div>
-                                        ) : null}
-                                        {/* Display multiple staff members */}
-                                        {slot.staff_members &&
-                                        slot.staff_members.length > 0 ? (
-                                          <div className='space-y-0.5'>
-                                            {slot.staff_members.map(
-                                              (staffMember, index) => (
-                                                <div
-                                                  key={staffMember.id}
-                                                  className='text-[9px] sm:text-[10px] text-slate-600 flex items-center bg-white/70 rounded-md px-1.5 py-0.5 shadow-sm'
-                                                >
-                                                  <span className='inline-block w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-blue-400 mr-1'></span>
-                                                  <span className='truncate max-w-[80px] sm:max-w-none'>
-                                                    {staffMember.first_name}{' '}
-                                                    {staffMember.last_name}
-                                                  </span>
-                                                </div>
-                                              )
-                                            )}
-                                            {slot.staff_members.length > 1 && (
-                                              <div className='text-[8px] text-slate-500 text-center mt-0.5'>
-                                                {slot.staff_members.length}{' '}
-                                                staff members
+                                {slot.is_break_slot ? (
+                                  <div className='text-orange-600 font-medium'>
+                                    {slot.break_description || 'Break'}
+                                  </div>
+                                ) : slot.is_combined ? (
+                                  <div className='text-purple-600 text-xs'>
+                                    <div className='font-medium'>
+                                      Combined Class
+                                    </div>
+                                    {slot.sub_slots &&
+                                      slot.sub_slots.length > 0 && (
+                                        <div className='mt-1'>
+                                          {slot.sub_slots.map(
+                                            (subSlot, idx) => (
+                                              <div
+                                                key={idx}
+                                                className='text-xs'
+                                              >
+                                                {subSlot.course?.course_code ||
+                                                  'Course'}
                                               </div>
-                                            )}
-                                          </div>
-                                        ) : slot.staff ? (
-                                          // Fallback to legacy single staff display
-                                          <div className='text-[9px] sm:text-[10px] text-slate-600 flex items-center bg-white/70 rounded-md px-1.5 py-0.5 shadow-sm'>
-                                            <span className='inline-block w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-blue-400 mr-1'></span>
-                                            <span className='truncate max-w-[80px] sm:max-w-none'>
-                                              {slot.staff.first_name}{' '}
-                                              {slot.staff.last_name}
-                                            </span>
-                                          </div>
-                                        ) : null}
-                                      </>
-                                    )}
-                                    {slot && (
-                                      <button
-                                        className='absolute top-0.5 right-0.5 text-red-400 opacity-60 hover:opacity-100 hover:text-red-600 transition-opacity bg-white/80 rounded-full p-0.5 shadow-sm hover:bg-red-50'
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openDeleteDialog(slot);
-                                        }}
-                                        title='Remove this slot'
-                                      >
-                                        <Trash2 className='h-2.5 w-2.5 sm:h-3 sm:w-3' />
-                                      </button>
-                                    )}
+                                            )
+                                          )}
+                                        </div>
+                                      )}
                                   </div>
                                 ) : (
-                                  <div className='flex items-center justify-center h-full'>
-                                    <TooltipProvider>
-                                      <Tooltip>
-                                        <TooltipTrigger>
-                                          <div className='w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center group hover:bg-blue-100 hover:border-blue-200 transition-all shadow-sm'>
-                                            <Plus className='h-2.5 w-2.5 sm:h-3 sm:w-3 text-blue-500 group-hover:text-blue-600 transition-colors' />
-                                          </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                          <p className='text-xs'>
-                                            Click to add a class or break
-                                          </p>
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
+                                  <div className='text-blue-600 text-xs'>
+                                    <div className='font-medium'>
+                                      {slot.course?.course_code || 'Course'}
+                                    </div>
+                                    {slot.staff_members &&
+                                      slot.staff_members.length > 0 && (
+                                        <div className='text-gray-600'>
+                                          {slot.staff_members[0]?.first_name}{' '}
+                                          {slot.staff_members[0]?.last_name}
+                                        </div>
+                                      )}
                                   </div>
                                 )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-
-                      {/* Add Period Row */}
-                      {getAvailablePeriods().length > 0 && (
-                        <tr>
-                          <td className='border border-slate-200 p-1.5 sm:p-2 font-medium bg-gradient-to-r from-green-500 to-emerald-500 text-sm text-white'>
-                            <div
-                              className='flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 transition-opacity'
-                              onClick={() => setAddPeriodDialogOpen(true)}
-                            >
-                              <Plus className='h-4 w-4' />
-                              <span className='text-xs font-semibold'>
-                                Add Period
-                              </span>
-                            </div>
+                              </div>
+                            ) : (
+                              <Button
+                                variant='ghost'
+                                size='sm'
+                                className='w-full h-16 border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                                onClick={() => openSlotDialog(day, period)}
+                              >
+                                <Plus className='h-4 w-4' />
+                              </Button>
+                            )}
                           </td>
-                          {selectedDays.map((day) => (
-                            <td
-                              key={day}
-                              className='border border-slate-200 bg-gradient-to-br from-green-50 to-emerald-50 h-[60px]'
-                            ></td>
-                          ))}
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
 
-      {/* Template Dialog */}
-      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
-        <DialogContent className='sm:max-w-md'>
-          <DialogHeader>
-            <DialogTitle>Save as Template</DialogTitle>
-            <DialogDescription>
-              Templates allow you to reuse the same timetable structure for
-              other sections or future academic years.
-            </DialogDescription>
-          </DialogHeader>
-          <div className='space-y-4 py-4'>
-            <div className='space-y-2'>
-              <Label htmlFor='template-name'>Template Name</Label>
-              <Input
-                id='template-name'
-                placeholder='e.g., CSE Semester 3 Template'
-                value={templateName}
-                onChange={(e) => setTemplateName(e.target.value)}
-                className='w-full'
-              />
-              <p className='text-xs text-muted-foreground'>
-                Give your template a descriptive name that will help you
-                identify it later.
-              </p>
-            </div>
-          </div>
-          <DialogFooter className='sm:justify-end'>
-            <Button
-              variant='outline'
-              onClick={() => setTemplateDialogOpen(false)}
-              disabled={savingTemplate}
-              className='h-9'
-            >
-              Cancel
-            </Button>
-            <Button
-              variant='default'
-              onClick={handleSaveAsTemplate}
-              disabled={savingTemplate || !templateName.trim()}
-              className='h-9'
-            >
-              {savingTemplate ? (
-                <>
-                  <span className='mr-2'>Saving</span>
-                  <span className='h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
-                </>
-              ) : (
-                'Save Template'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Slot Dialog */}
-      <Dialog
-        open={slotDialogOpen}
-        onOpenChange={(open) => !savingSlot && setSlotDialogOpen(open)}
-      >
-        <DialogContent className='w-[95vw] max-w-lg max-h-[90vh] overflow-hidden flex flex-col'>
-          <DialogHeader className='flex-shrink-0 space-y-3 pb-4'>
-            <DialogTitle className='text-lg font-semibold'>
-              {selectedSlot ? 'Edit Slot' : 'Add Slot'}
-            </DialogTitle>
-            <DialogDescription className='text-sm text-muted-foreground'>
-              Configure the details for this timetable slot
-            </DialogDescription>
-            {selectedDay && selectedPeriod && (
-              <div className='mt-2 p-3 bg-slate-50 rounded-md border'>
-                <div className='flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2'>
-                  <span className='font-medium text-slate-900'>
-                    {selectedDay.charAt(0) + selectedDay.slice(1).toLowerCase()}
-                  </span>
-                  <span className='text-slate-600'>
-                    {selectedPeriod.period_name}
-                  </span>
-                  <span className='text-xs text-slate-500'>
-                    (
-                    {new Date(
-                      `2000-01-01T${selectedPeriod.start_time}`
-                    ).toLocaleTimeString('en-US', {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                      hour12: true
-                    })}{' '}
-                    -{' '}
-                    {new Date(
-                      `2000-01-01T${selectedPeriod.end_time}`
-                    ).toLocaleTimeString('en-US', {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                      hour12: true
-                    })}
-                    )
-                  </span>
-                </div>
-              </div>
-            )}
-          </DialogHeader>
-
-          {/* Scrollable Content Area */}
-          <div className='flex-1 overflow-y-auto space-y-5 px-1'>
-            <div className='flex items-center space-x-3 border p-3 rounded-md bg-muted/20'>
-              <Checkbox
-                id='is-break'
-                checked={isBreakSlot}
-                onCheckedChange={(checked) => {
-                  setIsBreakSlot(!!checked);
-                  if (checked) {
-                    setSelectedCourseId('');
-                    setSelectedStaffIds([]);
-                  } else {
-                    setBreakDescription('');
-                  }
-                }}
-              />
-              <Label htmlFor='is-break' className='font-medium text-sm'>
-                This is a break slot
-              </Label>
-            </div>
-
-            {isBreakSlot ? (
-              <div className='space-y-3'>
-                <div className='space-y-2'>
-                  <Label
-                    htmlFor='break-description'
-                    className='text-sm font-medium'
-                  >
-                    Break Description
-                  </Label>
-                  <Textarea
-                    id='break-description'
-                    placeholder='e.g., Lunch Break, Tea Break, Sports Hour'
-                    value={breakDescription}
-                    onChange={(e) => setBreakDescription(e.target.value)}
-                    className='w-full min-h-[80px] resize-none'
-                    rows={3}
-                  />
-                  <p className='text-xs text-muted-foreground'>
-                    Provide a short description of the break that will be
-                    displayed on the timetable.
+              {selectedPeriods.length === 0 && (
+                <div className='p-8 text-center text-gray-500'>
+                  <p>
+                    No periods configured. Please configure periods to see the
+                    timetable.
                   </p>
                 </div>
-              </div>
-            ) : (
-              <div className='space-y-5'>
-                <div className='space-y-2'>
-                  <Label htmlFor='course' className='text-sm font-medium'>
-                    Course
-                  </Label>
-                  <Select
-                    value={selectedCourseId}
-                    onValueChange={setSelectedCourseId}
-                    disabled={loadingCourses}
-                  >
-                    <SelectTrigger id='course' className='w-full'>
-                      <SelectValue placeholder='Select a course' />
-                    </SelectTrigger>
-                    <SelectContent className='max-h-60 overflow-y-auto'>
-                      <SelectItem value='none'>None</SelectItem>
-                      {courses.map((course) => (
-                        <SelectItem key={course.id} value={course.id}>
-                          {course.course_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              )}
+            </div>
 
-                {selectedCourseId && selectedCourseId !== 'none' && (
-                  <div className='space-y-3'>
-                    <div className='flex items-center justify-between'>
-                      <Label htmlFor='staff' className='text-sm font-medium'>
-                        Staff Members
-                      </Label>
-                      {selectedStaffIds.length > 0 && (
-                        <span className='text-xs text-muted-foreground bg-blue-50 px-2 py-1 rounded-md'>
-                          {selectedStaffIds.length} selected
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Scrollable Staff List */}
-                    <div className='border rounded-md bg-white'>
-                      {/* Search Input */}
-                      {staff.length > 5 && (
-                        <div className='p-3 border-b border-slate-200'>
-                          <Input
-                            placeholder='Search staff members...'
-                            value={staffSearchQuery}
-                            onChange={(e) =>
-                              setStaffSearchQuery(e.target.value)
-                            }
-                            className='h-8 text-sm'
-                          />
-                        </div>
-                      )}
-
-                      <div className='max-h-48 overflow-y-auto p-3 space-y-3'>
-                        {staff.length > 0 ? (
-                          (() => {
-                            const filteredStaff = staff.filter((member) =>
-                              staffSearchQuery
-                                ? `${member.first_name} ${member.last_name}`
-                                    .toLowerCase()
-                                    .includes(staffSearchQuery.toLowerCase())
-                                : true
-                            );
-
-                            if (
-                              filteredStaff.length === 0 &&
-                              staffSearchQuery
-                            ) {
-                              return (
-                                <div className='text-center py-6'>
-                                  <p className='text-sm text-muted-foreground'>
-                                    No staff members found matching &quot;
-                                    {staffSearchQuery}&quot;
-                                  </p>
-                                  <Button
-                                    variant='ghost'
-                                    size='sm'
-                                    onClick={() => setStaffSearchQuery('')}
-                                    className='mt-2 h-7 text-xs'
-                                  >
-                                    Clear search
-                                  </Button>
-                                </div>
-                              );
-                            }
-
-                            return (
-                              <>
-                                {/* Quick Actions for filtered results */}
-                                {filteredStaff.length > 1 && (
-                                  <div className='flex gap-2 pb-2 border-b border-slate-100'>
-                                    <Button
-                                      variant='outline'
-                                      size='sm'
-                                      onClick={() => {
-                                        const allFilteredIds =
-                                          filteredStaff.map((m) => m.id);
-                                        const newSelected = Array.from(
-                                          new Set([
-                                            ...selectedStaffIds,
-                                            ...allFilteredIds
-                                          ])
-                                        );
-                                        setSelectedStaffIds(newSelected);
-                                      }}
-                                      className='h-6 text-[10px] px-2'
-                                    >
-                                      Select All{' '}
-                                      {staffSearchQuery ? 'Found' : ''}
-                                    </Button>
-                                    <Button
-                                      variant='outline'
-                                      size='sm'
-                                      onClick={() => {
-                                        const filteredIds = filteredStaff.map(
-                                          (m) => m.id
-                                        );
-                                        setSelectedStaffIds((prev) =>
-                                          prev.filter(
-                                            (id) => !filteredIds.includes(id)
-                                          )
-                                        );
-                                      }}
-                                      className='h-6 text-[10px] px-2'
-                                    >
-                                      Clear All{' '}
-                                      {staffSearchQuery ? 'Found' : ''}
-                                    </Button>
-                                  </div>
-                                )}
-
-                                {filteredStaff.map((member) => (
-                                  <div
-                                    key={member.id}
-                                    className='flex items-center space-x-3 hover:bg-slate-50 p-2 rounded-md transition-colors'
-                                  >
-                                    <Checkbox
-                                      id={`staff-${member.id}`}
-                                      checked={selectedStaffIds.includes(
-                                        member.id
-                                      )}
-                                      onCheckedChange={(checked) => {
-                                        if (checked) {
-                                          setSelectedStaffIds((prev) => [
-                                            ...prev,
-                                            member.id
-                                          ]);
-                                        } else {
-                                          setSelectedStaffIds((prev) =>
-                                            prev.filter(
-                                              (id) => id !== member.id
-                                            )
-                                          );
-                                        }
-                                      }}
-                                      disabled={loadingStaff}
-                                    />
-                                    <Label
-                                      htmlFor={`staff-${member.id}`}
-                                      className='text-sm font-normal cursor-pointer flex-1'
-                                    >
-                                      {member.first_name} {member.last_name}
-                                    </Label>
-                                  </div>
-                                ))}
-                              </>
-                            );
-                          })()
-                        ) : (
-                          <div className='text-center py-4'>
-                            {loadingStaff ? (
-                              <p className='text-sm text-muted-foreground'>
-                                Loading staff members...
-                              </p>
-                            ) : (
-                              <p className='text-sm text-muted-foreground'>
-                                No staff members available
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {selectedStaffIds.length > 0 && (
-                      <div className='text-xs text-muted-foreground bg-slate-50 p-2 rounded-md'>
-                        <strong>{selectedStaffIds.length}</strong> staff member
-                        {selectedStaffIds.length === 1 ? '' : 's'} selected for
-                        this slot
-                      </div>
-                    )}
-                  </div>
-                )}
+            {/* Add Period Button */}
+            {getAvailablePeriods().length > 0 && (
+              <div className='mt-4'>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setAddPeriodDialogOpen(true)}
+                  className='bg-green-600 text-white hover:bg-green-700 border-green-600'
+                >
+                  <Plus className='h-4 w-4 mr-2' />
+                  Add Period
+                </Button>
               </div>
             )}
           </div>
+        </div>
+      </div>
 
-          {/* Fixed Footer */}
-          <DialogFooter className='flex-shrink-0 pt-4 border-t border-slate-200 bg-white mt-auto'>
-            <div className='flex flex-col-reverse sm:flex-row sm:justify-between w-full gap-3'>
-              {selectedSlot ? (
-                <Button
-                  variant='destructive'
-                  onClick={() => {
-                    openDeleteDialog(selectedSlot);
-                    closeSlotDialog();
-                  }}
-                  disabled={savingSlot}
-                  className='h-9 w-full sm:w-auto'
-                >
-                  <Trash2 className='mr-2 h-4 w-4' />
-                  Delete Slot
-                </Button>
-              ) : (
-                <div className='hidden sm:block' />
-              )}
-              <div className='flex gap-2 w-full sm:w-auto'>
-                <Button
-                  variant='outline'
-                  onClick={closeSlotDialog}
-                  disabled={savingSlot}
-                  className='h-9 flex-1 sm:flex-none'
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant='default'
-                  onClick={saveSlot}
-                  disabled={
-                    savingSlot ||
-                    (isBreakSlot && !breakDescription) ||
-                    (!isBreakSlot &&
-                      (!selectedCourseId || selectedCourseId === 'none'))
-                  }
-                  className='h-9 flex-1 sm:flex-none'
-                >
-                  {savingSlot ? (
-                    <>
-                      <span className='mr-2'>Saving</span>
-                      <span className='h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
-                    </>
-                  ) : selectedSlot ? (
-                    'Update'
-                  ) : (
-                    'Add'
-                  )}
-                </Button>
-              </div>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Slot Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className='sm:max-w-md'>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete this slot from the timetable. This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className='sm:justify-end'>
-            <AlertDialogCancel className='h-9'>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={deleteSlot}
-              className='h-9 bg-red-600 hover:bg-red-700 text-white'
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Keep existing dialogs */}
+      <SlotDialog
+        isOpen={slotDialogOpen}
+        onClose={closeSlotDialog}
+        day={selectedDay}
+        period={selectedPeriod}
+        existingSlot={editingSlot}
+        slotType={slotType}
+        setSlotType={setSlotType}
+        selectedCourse={selectedCourse}
+        setSelectedCourse={setSelectedCourse}
+        selectedStaff={selectedStaff}
+        setSelectedStaff={setSelectedStaff}
+        selectedSections={selectedSections}
+        setSelectedSections={setSelectedSections}
+        isCombinedClass={isCombinedClass}
+        setIsCombinedClass={setIsCombinedClass}
+        subSlots={subSlots}
+        updateSubSlot={updateSubSlot}
+        updateSubSlotStaff={updateSubSlotStaff}
+        updateSubSlotSections={updateSubSlotSections}
+        saving={savingSlot}
+        onSave={saveSlot}
+        onDelete={deleteSlot}
+        courses={courses}
+        staff={staff}
+        sections={sections}
+      />
 
       {/* Period Selector Dialog */}
       <Dialog open={periodSelectorOpen} onOpenChange={setPeriodSelectorOpen}>
-        <DialogContent className='sm:max-w-[500px] border-0 shadow-lg'>
+        <DialogContent className='sm:max-w-4xl max-h-[85vh] overflow-hidden border-0 shadow-xl'>
           <DialogHeader className='bg-gradient-to-r from-slate-50 to-blue-50 p-4 rounded-t-lg border-b border-slate-200'>
             <DialogTitle className='text-slate-800 text-lg'>
               Configure Timetable Periods
             </DialogTitle>
             <DialogDescription>
               <span className='text-slate-600'>
-                Select periods to display in your timetable, then drag to
-                arrange them or lock their positions.
+                Manage the periods for your timetable. You can add, remove, and
+                reorder periods to customize your schedule.
               </span>
             </DialogDescription>
             <div className='mt-2 text-xs bg-white/60 px-2.5 py-1 rounded-md border border-slate-200 inline-flex gap-1.5 items-center'>
@@ -2217,48 +2185,47 @@ export default function TimetableDetailPage({
             </div>
           </DialogHeader>
 
-          <div className='space-y-4 py-4 px-4 max-h-[60vh] overflow-y-auto bg-gradient-to-br from-white to-slate-50'>
-            <div className='flex items-center justify-between mb-1'>
-              <h3 className='text-xs font-medium flex items-center gap-1.5 text-slate-700'>
-                <span className='bg-blue-100 h-4 rounded-full flex items-center justify-center text-[10px] text-blue-700 font-bold'>
-                  1
-                </span>
-                Selected Periods
-                <span className='text-[10px] font-normal text-slate-500'>
-                  (Drag to reorder)
-                </span>
-              </h3>
-              <div className='flex items-center gap-2'>
-                {lockedPeriods.length > 0 && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Badge
-                          variant='outline'
-                          className='bg-blue-50 border-blue-200 text-blue-700 h-4 px-1 text-[10px] flex items-center gap-0.5 cursor-help'
-                        >
-                          <Lock className='h-2.5 w-2.5' />
-                          {lockedPeriods.length}
-                        </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent side='bottom'>
-                        <p className='text-[10px] max-w-[200px]'>
-                          Locked periods maintain their position and can&apos;t
-                          be reordered. This helps you create a consistent
-                          layout.
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
+          <div className='flex flex-col lg:flex-row gap-4 p-4 max-h-[calc(85vh-140px)] overflow-hidden'>
+            {/* Selected Periods Section */}
+            <div className='flex-1 min-h-0'>
+              <div className='flex items-center justify-between mb-3'>
+                <h3 className='text-sm font-medium flex items-center gap-1.5 text-slate-700'>
+                  <span className='bg-blue-100 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-blue-700 font-bold'>
+                    1
+                  </span>
+                  Selected Periods ({selectedPeriods.length})
+                </h3>
+                <div className='flex gap-1.5'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => {
+                      setSelectedPeriods(
+                        sortPeriodsByName(periods.filter((p) => !p.is_break))
+                      );
+                      setHasUnsavedChanges(true);
+                    }}
+                    className='h-6 text-[10px] text-green-600 border-green-200 hover:bg-green-50'
+                  >
+                    Add All Classes
+                  </Button>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => {
+                      setSelectedPeriods([]);
+                      setLockedPeriods([]);
+                      setHasUnsavedChanges(true);
+                    }}
+                    className='h-6 text-[10px] text-red-600 border-red-200 hover:bg-red-50'
+                  >
+                    Clear All
+                  </Button>
+                </div>
               </div>
-            </div>
 
-            {/* Selected Periods Section with drag handles */}
-            <div className='space-y-1 mb-3 bg-white p-1.5 rounded-md border border-slate-200 shadow-sm'>
-              {selectedPeriods.length > 0 ? (
+              <div className='h-full overflow-y-auto space-y-1.5 pr-1'>
                 <DndContext
-                  sensors={sensors}
                   collisionDetection={closestCenter}
                   onDragEnd={handleDragEnd}
                 >
@@ -2278,113 +2245,89 @@ export default function TimetableDetailPage({
                     ))}
                   </SortableContext>
                 </DndContext>
-              ) : (
-                <div className='flex flex-col items-center justify-center p-4 border border-dashed rounded-md bg-blue-50/50 text-center'>
-                  <p className='text-xs text-blue-600 mb-1'>
-                    No periods selected
-                  </p>
-                  <p className='text-[10px] text-slate-500'>
-                    Select periods from the list below
-                  </p>
-                </div>
-              )}
-            </div>
 
-            <div className='flex items-center justify-between mt-4 mb-1'>
-              <h3 className='text-xs font-medium flex items-center gap-1.5 text-slate-700'>
-                <span className='bg-blue-100 h-4 rounded-full flex items-center justify-center text-[10px] text-blue-700 font-bold'>
-                  2
-                </span>
-                Available Periods
-              </h3>
-              <div className='flex gap-1.5'>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => {
-                    setSelectedPeriods(sortPeriodsByName([...periods]));
-                    setHasUnsavedChanges(true);
-                  }}
-                  className='h-6 text-[10px] text-blue-600 border-blue-200 hover:bg-blue-50'
-                >
-                  Select All
-                </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => {
-                    setSelectedPeriods([]);
-                    setLockedPeriods([]);
-                    setHasUnsavedChanges(true);
-                  }}
-                  className='h-6 text-[10px] text-red-600 border-red-200 hover:bg-red-50'
-                >
-                  Clear All
-                </Button>
+                {selectedPeriods.length === 0 && (
+                  <div className='flex flex-col items-center justify-center p-8 border border-dashed rounded-md bg-slate-50 text-center'>
+                    <p className='text-sm text-slate-500 mb-2'>
+                      No periods selected
+                    </p>
+                    <p className='text-xs text-slate-400 mb-3'>
+                      Add periods from the available list to build your
+                      timetable
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Available Periods Section */}
-            <div className='grid grid-cols-1 sm:grid-cols-2 gap-1.5 p-1.5 rounded-md border border-slate-200 bg-white shadow-sm'>
-              {periods
-                .filter(
-                  (period) => !selectedPeriods.some((p) => p.id === period.id)
-                )
-                .map((period) => (
-                  <div
-                    key={period.id}
-                    className='flex items-center gap-2 border p-2 rounded-md bg-slate-50 hover:bg-blue-50/50 transition-colors'
-                  >
-                    <div className='flex-1'>
-                      <p className='font-medium text-xs text-slate-700'>
-                        {period.period_name}
-                      </p>
-                      <p className='text-[10px] text-slate-500'>
-                        {new Date(
-                          `2000-01-01T${period.start_time}`
-                        ).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                          hour12: true
-                        })}{' '}
-                        -{' '}
-                        {new Date(
-                          `2000-01-01T${period.end_time}`
-                        ).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                          hour12: true
-                        })}
-                        {period.is_break && ' (Break)'}
+            <div className='flex-1 min-h-0'>
+              <div className='flex items-center justify-between mb-3'>
+                <h3 className='text-sm font-medium flex items-center gap-1.5 text-slate-700'>
+                  <span className='bg-green-100 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-green-700 font-bold'>
+                    2
+                  </span>
+                  Available Periods ({getAvailablePeriods().length})
+                </h3>
+              </div>
+
+              <div className='h-full overflow-y-auto pr-1'>
+                <div className='grid grid-cols-1 gap-1.5'>
+                  {getAvailablePeriods().map((period) => (
+                    <div
+                      key={period.id}
+                      className='flex items-center gap-2 border p-2 rounded-md bg-slate-50 hover:bg-blue-50/50 transition-colors'
+                    >
+                      <div className='flex-1'>
+                        <p className='font-medium text-xs text-slate-700'>
+                          {period.period_name}
+                        </p>
+                        <p className='text-[10px] text-slate-500'>
+                          {new Date(
+                            `2000-01-01T${period.start_time}`
+                          ).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}{' '}
+                          -{' '}
+                          {new Date(
+                            `2000-01-01T${period.end_time}`
+                          ).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}
+                          {period.is_break && ' (Break)'}
+                        </p>
+                      </div>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='h-6 min-w-[50px] text-[10px] gap-1 text-blue-600 border-blue-200 hover:bg-blue-50 hover:border-blue-300'
+                        onClick={() => {
+                          setSelectedPeriods((prev) =>
+                            sortPeriodsByName([...prev, period])
+                          );
+                          setHasUnsavedChanges(true);
+                        }}
+                        title='Add period to timetable'
+                      >
+                        <Plus className='h-3 w-3' />
+                        Add
+                      </Button>
+                    </div>
+                  ))}
+
+                  {getAvailablePeriods().length === 0 && (
+                    <div className='flex flex-col items-center justify-center p-4 border border-dashed rounded-md bg-slate-50 text-center'>
+                      <p className='text-xs text-slate-500'>
+                        All periods are already selected
                       </p>
                     </div>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      className='h-6 min-w-[50px] text-[10px] gap-1 text-blue-600 border-blue-200 hover:bg-blue-50 hover:border-blue-300'
-                      onClick={() => {
-                        setSelectedPeriods((prev) =>
-                          sortPeriodsByName([...prev, period])
-                        );
-                        setHasUnsavedChanges(true);
-                      }}
-                      title='Add period to timetable'
-                    >
-                      <Plus className='h-3 w-3' />
-                      Add
-                    </Button>
-                  </div>
-                ))}
-
-              {periods.filter(
-                (period) => !selectedPeriods.some((p) => p.id === period.id)
-              ).length === 0 && (
-                <div className='flex flex-col items-center justify-center p-4 border border-dashed rounded-md bg-slate-50 text-center col-span-full'>
-                  <p className='text-xs text-slate-500'>
-                    All periods are already selected
-                  </p>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
 

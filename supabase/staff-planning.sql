@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS public.staff_plans (
     department_id UUID NOT NULL REFERENCES public.departments(id),
     program_id UUID NOT NULL REFERENCES public.programs(id),
     semester_id UUID NOT NULL REFERENCES public.semesters(id),
-    section VARCHAR(50) NOT NULL,
     academic_year_id UUID NOT NULL REFERENCES public.academic_years(id),
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
