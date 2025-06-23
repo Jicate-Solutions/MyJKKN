@@ -17,7 +17,8 @@ import {
   Unlock,
   ListFilter,
   FileDown,
-  Printer
+  Printer,
+  Calendar
 } from 'lucide-react';
 import {
   DndContext,
@@ -100,16 +101,17 @@ import {
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
 
-// Days of week in order
-const DAYS_OF_WEEK: DayOfWeek[] = [
+// All available days (Monday to Saturday - Sunday is holiday)
+const ALL_DAYS_OF_WEEK: DayOfWeek[] = [
   'MONDAY',
   'TUESDAY',
   'WEDNESDAY',
   'THURSDAY',
   'FRIDAY',
-  'SATURDAY',
-  'SUNDAY'
+  'SATURDAY'
 ];
 
 // Create a sortable period item component
@@ -275,6 +277,14 @@ export default function TimetableDetailPage({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [slotToDelete, setSlotToDelete] = useState<TimetableSlot | null>(null);
   const [lockedPeriods, setLockedPeriods] = useState<string[]>([]);
+  const [addPeriodDialogOpen, setAddPeriodDialogOpen] = useState(false);
+  const [savingPeriods, setSavingPeriods] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Day configuration state
+  const [selectedDays, setSelectedDays] =
+    useState<DayOfWeek[]>(ALL_DAYS_OF_WEEK);
+  const [dayConfigOpen, setDayConfigOpen] = useState(false);
 
   // Fetch courses and staff data
   const {
@@ -293,6 +303,45 @@ export default function TimetableDetailPage({
   } = useStaff({
     isActive: true
   });
+
+  // Helper function to sort periods by name naturally (Period 1, Period 2, etc.)
+  const sortPeriodsByName = (periods: Period[]): Period[] => {
+    return periods.sort((a, b) => {
+      const aName = a.period_name.toLowerCase();
+      const bName = b.period_name.toLowerCase();
+
+      // Extract numbers from period names for proper sorting
+      const aMatch = aName.match(/(\d+)/);
+      const bMatch = bName.match(/(\d+)/);
+
+      if (aMatch && bMatch) {
+        const aNumber = parseInt(aMatch[1]);
+        const bNumber = parseInt(bMatch[1]);
+        return aNumber - bNumber;
+      }
+
+      // Fallback to alphabetical sorting if no numbers found
+      return aName.localeCompare(bName);
+    });
+  };
+
+  // Handle unsaved changes warning
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue =
+          'You have unsaved changes. Are you sure you want to leave?';
+        return 'You have unsaved changes. Are you sure you want to leave?';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
 
   // Load selected periods from local storage
   useEffect(() => {
@@ -371,17 +420,33 @@ export default function TimetableDetailPage({
       const timetableData = await TimetableService.getTimetable(timetableId);
       setTimetable(timetableData);
 
-      // Fetch periods
-      const periodsResult = await PeriodService.getPeriods({ limit: 50 });
+      // Fetch periods filtered by institution
+      const periodsResult = await PeriodService.getPeriods({
+        limit: 50,
+        institution_id: timetableData.institution_id
+      });
       setPeriods(periodsResult.data);
 
-      // Initialize selected periods if empty - we only do this if no localStorage value exists
+      // Load selected periods from timetable_periods table
+      const timetablePeriods = await TimetableService.getTimetablePeriods(
+        timetableId
+      );
+      if (timetablePeriods.length > 0) {
+        const selectedPeriodsFromDB = timetablePeriods
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((tp) => tp.period)
+          .filter(Boolean);
+        setSelectedPeriods(selectedPeriodsFromDB);
+      }
+
+      // Load selected days from timetable data
       if (
-        selectedPeriods.length === 0 &&
-        typeof window !== 'undefined' &&
-        !localStorage.getItem(`selectedPeriods-${timetableId}`)
+        timetableData.selected_days &&
+        timetableData.selected_days.length > 0
       ) {
-        setSelectedPeriods(periodsResult.data);
+        setSelectedDays(timetableData.selected_days);
+      } else {
+        setSelectedDays(ALL_DAYS_OF_WEEK);
       }
 
       // Load related courses - fetch from course mappings for this program and semester
@@ -642,6 +707,7 @@ export default function TimetableDetailPage({
 
         return arrayMove(items, oldIndex, newIndex);
       });
+      setHasUnsavedChanges(true);
     }
   };
 
@@ -652,6 +718,7 @@ export default function TimetableDetailPage({
     if (lockedPeriods.includes(id)) {
       setLockedPeriods(lockedPeriods.filter((periodId) => periodId !== id));
     }
+    setHasUnsavedChanges(true);
   };
 
   // Toggle lock for a period
@@ -661,6 +728,101 @@ export default function TimetableDetailPage({
     } else {
       setLockedPeriods([...lockedPeriods, id]);
     }
+  };
+
+  // Add a period to the timetable
+  const addPeriod = (period: Period) => {
+    if (!selectedPeriods.some((p) => p.id === period.id)) {
+      setSelectedPeriods((prev) => sortPeriodsByName([...prev, period]));
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  // Save selected periods and days to database
+  const savePeriodSelections = async () => {
+    if (!timetable) return;
+
+    setSavingPeriods(true);
+    try {
+      // Save period selections to timetable_periods table
+      const currentPeriodIds = selectedPeriods.map((p) => p.id);
+      await TimetableService.saveTimetablePeriods(
+        timetableId,
+        currentPeriodIds
+      );
+
+      // Save day selections to timetables table
+      await TimetableService.saveTimetableDays(timetableId, selectedDays);
+
+      // Only remove slots for periods that are no longer selected OR days that are no longer selected
+      const slotsToDelete =
+        timetable.slots?.filter(
+          (slot) =>
+            (!currentPeriodIds.includes(slot.period_id) ||
+              !selectedDays.includes(slot.day_of_week)) &&
+            !slot.course_id && // Only delete empty slots
+            !slot.is_break_slot &&
+            !slot.break_description // Don't delete break slots with descriptions
+        ) || [];
+
+      // Delete slots for periods/days that are no longer selected
+      for (const slot of slotsToDelete) {
+        await TimetableService.deleteTimetableSlot(slot.id);
+      }
+
+      // Refresh timetable data
+      await fetchTimetableData();
+
+      // Clear unsaved changes flag after successful save
+      setHasUnsavedChanges(false);
+
+      toast({
+        title: 'Success',
+        description: `Timetable configuration saved successfully. All users can now see the same layout.`
+      });
+    } catch (err) {
+      console.error('Error saving timetable configuration:', err);
+      toast({
+        title: 'Error',
+        description:
+          'Failed to save timetable configuration. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setSavingPeriods(false);
+    }
+  };
+
+  // Get available periods (not already selected)
+  const getAvailablePeriods = () => {
+    return periods.filter(
+      (period) => !selectedPeriods.some((p) => p.id === period.id)
+    );
+  };
+
+  // Day management functions
+  const handleDayToggle = (day: DayOfWeek) => {
+    if (selectedDays.includes(day)) {
+      setSelectedDays(selectedDays.filter((d) => d !== day));
+    } else {
+      // Insert in correct order
+      const newDays = [...selectedDays, day];
+      const orderedDays = ALL_DAYS_OF_WEEK.filter((day) =>
+        newDays.includes(day)
+      );
+      setSelectedDays(orderedDays);
+    }
+    setHasUnsavedChanges(true);
+  };
+
+  const selectAllDays = () => {
+    setSelectedDays([...ALL_DAYS_OF_WEEK]);
+    setHasUnsavedChanges(true);
+  };
+
+  const clearAllDays = () => {
+    setSelectedDays([]);
+    setHasUnsavedChanges(true);
   };
 
   // Add PDF export function
@@ -783,18 +945,74 @@ export default function TimetableDetailPage({
         39
       );
 
+      // --- Fourth row - Date Period ---
+      pdf.setTextColor(65, 105, 225);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Period', leftCol, 46);
+      pdf.text('Duration', rightCol, 46);
+
+      pdf.setTextColor(60, 60, 60);
+      pdf.setFont('helvetica', 'normal');
+      const startDate = timetable.start_date
+        ? format(new Date(timetable.start_date), 'MMM dd, yyyy')
+        : 'Not set';
+      const endDate = timetable.end_date
+        ? format(new Date(timetable.end_date), 'MMM dd, yyyy')
+        : 'Not set';
+
+      pdf.text(`: ${startDate} - ${endDate}`, leftCol + 30, 46);
+
+      // Calculate duration if both dates are available
+      if (timetable.start_date && timetable.end_date) {
+        const start = new Date(timetable.start_date);
+        const end = new Date(timetable.end_date);
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const weeks = Math.floor(diffDays / 7);
+        const days = diffDays % 7;
+
+        let durationText = '';
+        if (weeks > 0) {
+          durationText = `${weeks} week${weeks > 1 ? 's' : ''}`;
+          if (days > 0) {
+            durationText += ` ${days} day${days > 1 ? 's' : ''}`;
+          }
+        } else {
+          durationText = `${diffDays} day${diffDays > 1 ? 's' : ''}`;
+        }
+
+        pdf.text(`: ${durationText}`, rightCol + 30, 46);
+      } else {
+        pdf.text(': Not available', rightCol + 30, 46);
+      }
+
       // Start Y position for the timetable (after header)
-      const tableStartY = 45;
+      const tableStartY = 52;
 
       // Capture and add timetable grid
       if (selectedPeriods.length > 0) {
-        // Create timetable as table data for jsPDF-autotable
-        const tableData = DAYS_OF_WEEK.map((day) => {
-          // First column is the day name
-          const rowData = [day.charAt(0) + day.slice(1).toLowerCase()];
+        // Create timetable as table data for jsPDF-autotable (transposed layout)
+        const tableData = selectedPeriods.map((period) => {
+          // First column is the period name and time
+          const startTime = new Date(
+            `2000-01-01T${period.start_time}`
+          ).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          });
+          const endTime = new Date(
+            `2000-01-01T${period.end_time}`
+          ).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          });
 
-          // For each period, add a cell with course/staff info
-          selectedPeriods.forEach((period) => {
+          const rowData = [`${period.period_name}\n${startTime} - ${endTime}`];
+
+          // For each day, add a cell with course/staff info
+          selectedDays.forEach((day) => {
             const slot = getSlot(day, period.id);
             let cellContent = '';
 
@@ -819,31 +1037,16 @@ export default function TimetableDetailPage({
           return rowData;
         });
 
-        // Create the header row with period names and times
-        const tableHeader = ['Day / Period'];
-        selectedPeriods.forEach((period) => {
-          const startTime = new Date(
-            `2000-01-01T${period.start_time}`
-          ).toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-          });
-          const endTime = new Date(
-            `2000-01-01T${period.end_time}`
-          ).toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-          });
-
-          tableHeader.push(`${period.period_name}\n${startTime} - ${endTime}`);
+        // Create the header row with day names
+        const tableHeader = ['Period / Day'];
+        selectedDays.forEach((day) => {
+          tableHeader.push(day.charAt(0) + day.slice(1).toLowerCase());
         });
 
         // Calculate optimal column widths
-        const firstColWidth = 25; // Width for day column
+        const firstColWidth = 35; // Width for period column (needs more space for time)
         const availableWidth = pageWidth - 2 * margin - firstColWidth;
-        const periodColWidth = availableWidth / selectedPeriods.length;
+        const dayColWidth = availableWidth / selectedDays.length;
 
         // Create column styles with dynamic widths
         const columnStyles: any = {
@@ -856,10 +1059,10 @@ export default function TimetableDetailPage({
           }
         };
 
-        // Set same width for all period columns
-        for (let i = 1; i <= selectedPeriods.length; i++) {
+        // Set same width for all day columns
+        for (let i = 1; i <= selectedDays.length; i++) {
           columnStyles[i] = {
-            cellWidth: periodColWidth
+            cellWidth: dayColWidth
           };
         }
 
@@ -1109,6 +1312,26 @@ export default function TimetableDetailPage({
                       {timetable.academic_year?.academic_year_name || 'N/A'}
                     </dd>
                   </div>
+                  <div>
+                    <dt className='text-xs font-medium text-slate-500'>
+                      Start Date
+                    </dt>
+                    <dd className='mt-0.5 text-sm'>
+                      {timetable.start_date
+                        ? format(new Date(timetable.start_date), 'PPP')
+                        : 'Not set'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className='text-xs font-medium text-slate-500'>
+                      End Date
+                    </dt>
+                    <dd className='mt-0.5 text-sm'>
+                      {timetable.end_date
+                        ? format(new Date(timetable.end_date), 'PPP')
+                        : 'Not set'}
+                    </dd>
+                  </div>
                 </dl>
               </div>
 
@@ -1141,14 +1364,6 @@ export default function TimetableDetailPage({
                       {timetable.department?.department_name || 'N/A'}
                     </dd>
                   </div>
-                </dl>
-              </div>
-
-              <div className='p-3 sm:p-4'>
-                <h3 className='text-xs font-medium text-slate-500 mb-3'>
-                  Class Details & Dates
-                </h3>
-                <dl className='space-y-2.5'>
                   <div>
                     <dt className='text-xs font-medium text-slate-500'>
                       Semester / Section
@@ -1158,6 +1373,14 @@ export default function TimetableDetailPage({
                       {timetable.section}
                     </dd>
                   </div>
+                </dl>
+              </div>
+
+              <div className='p-3 sm:p-4'>
+                <h3 className='text-xs font-medium text-slate-500 mb-3'>
+                  Dates
+                </h3>
+                <dl className='space-y-2.5'>
                   <div>
                     <dt className='text-xs font-medium text-slate-500'>
                       Created
@@ -1198,8 +1421,13 @@ export default function TimetableDetailPage({
           <CardContent className='p-0'>
             <div className='p-3 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between'>
               <div>
-                <h2 className='text-base font-semibold text-slate-800'>
+                <h2 className='text-base font-semibold text-slate-800 flex items-center gap-2'>
                   Timetable
+                  {hasUnsavedChanges && (
+                    <span className='text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full animate-pulse'>
+                      Unsaved changes
+                    </span>
+                  )}
                 </h2>
                 <p className='text-xs text-slate-500'>
                   Schedule for Semester {timetable.semester} / Section{' '}
@@ -1224,6 +1452,51 @@ export default function TimetableDetailPage({
                     {selectedPeriods.length}
                   </Badge>
                 </Button>
+                <Button
+                  variant='outline'
+                  onClick={() => setDayConfigOpen(true)}
+                  className='h-8 text-xs sm:h-8 sm:text-xs flex items-center gap-1.5 bg-gradient-to-r from-slate-50 to-green-50 border-green-100 hover:from-slate-100 hover:to-green-100 hover:border-green-200 transition-all'
+                >
+                  <Calendar className='w-3.5 h-3.5 text-green-600' />
+                  <span className='hidden sm:inline text-slate-700'>
+                    Configure Days
+                  </span>
+                  <span className='sm:hidden text-slate-700'>Days</span>
+                  <Badge
+                    variant='secondary'
+                    className='ml-1 bg-green-100 text-green-700 h-5 px-1 text-[10px]'
+                  >
+                    {selectedDays.length}
+                  </Badge>
+                </Button>
+                {(selectedPeriods.length > 0 || hasUnsavedChanges) && (
+                  <Button
+                    variant='default'
+                    onClick={savePeriodSelections}
+                    disabled={savingPeriods}
+                    className={cn(
+                      'h-8 text-xs bg-green-600 hover:bg-green-700 flex items-center gap-1.5',
+                      hasUnsavedChanges &&
+                        'animate-pulse bg-amber-600 hover:bg-amber-700'
+                    )}
+                  >
+                    <Save className='w-3.5 h-3.5' />
+                    <span className='hidden sm:inline'>
+                      {savingPeriods
+                        ? 'Saving...'
+                        : hasUnsavedChanges
+                        ? 'Save Changes'
+                        : 'Save Configuration'}
+                    </span>
+                    <span className='sm:hidden'>
+                      {savingPeriods
+                        ? 'Saving...'
+                        : hasUnsavedChanges
+                        ? 'Save'
+                        : 'Save'}
+                    </span>
+                  </Button>
+                )}
                 <Button
                   variant='outline'
                   onClick={exportToPDF}
@@ -1288,17 +1561,28 @@ export default function TimetableDetailPage({
                     <thead>
                       <tr>
                         <th className='border border-slate-200 p-1.5 sm:p-2 bg-blue-600 font-semibold text-left text-sm text-white w-24'>
-                          Day / Period
+                          Period / Day
                         </th>
-                        {selectedPeriods.map((period) => (
+                        {selectedDays.map((day) => (
                           <th
-                            key={period.id}
+                            key={day}
                             className='border border-slate-200 p-1.5 sm:p-2 bg-secondary font-medium text-center text-slate-700'
                           >
                             <div className='text-xs font-semibold'>
+                              {day.charAt(0) + day.slice(1).toLowerCase()}
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedPeriods.map((period) => (
+                        <tr key={period.id}>
+                          <td className='border border-slate-200 p-1.5 sm:p-2 font-medium bg-primary text-sm text-white'>
+                            <div className='text-xs font-semibold'>
                               {period.period_name}
                             </div>
-                            <div className='text-[10px] text-black mt-0.5 hidden sm:block'>
+                            <div className='text-[10px] text-blue-200 mt-0.5 hidden sm:block'>
                               {new Date(
                                 `2000-01-01T${period.start_time}`
                               ).toLocaleTimeString('en-US', {
@@ -1315,21 +1599,12 @@ export default function TimetableDetailPage({
                                 hour12: true
                               })}
                             </div>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {DAYS_OF_WEEK.map((day) => (
-                        <tr key={day}>
-                          <td className='border border-slate-200 p-1.5 sm:p-2 font-medium bg-primary text-sm text-white'>
-                            {day.charAt(0) + day.slice(1).toLowerCase()}
                           </td>
-                          {selectedPeriods.map((period) => {
+                          {selectedDays.map((day) => {
                             const slot = getSlot(day, period.id);
                             return (
                               <td
-                                key={period.id}
+                                key={day}
                                 className={`border border-slate-200 p-0 text-center h-[80px] sm:h-[100px] ${
                                   slot?.is_break_slot
                                     ? 'bg-gradient-to-br from-amber-50 to-orange-50'
@@ -1373,11 +1648,12 @@ export default function TimetableDetailPage({
                                     )}
                                     {slot && (
                                       <button
-                                        className='absolute top-0.5 right-0.5 text-red-400 opacity-0 hover:opacity-100 hover:text-red-600 transition-opacity'
+                                        className='absolute top-0.5 right-0.5 text-red-400 opacity-60 hover:opacity-100 hover:text-red-600 transition-opacity bg-white/80 rounded-full p-0.5 shadow-sm hover:bg-red-50'
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           openDeleteDialog(slot);
                                         }}
+                                        title='Remove this slot'
                                       >
                                         <Trash2 className='h-2.5 w-2.5 sm:h-3 sm:w-3' />
                                       </button>
@@ -1406,6 +1682,29 @@ export default function TimetableDetailPage({
                           })}
                         </tr>
                       ))}
+
+                      {/* Add Period Row */}
+                      {getAvailablePeriods().length > 0 && (
+                        <tr>
+                          <td className='border border-slate-200 p-1.5 sm:p-2 font-medium bg-gradient-to-r from-green-500 to-emerald-500 text-sm text-white'>
+                            <div
+                              className='flex items-center justify-center gap-2 cursor-pointer hover:opacity-90 transition-opacity'
+                              onClick={() => setAddPeriodDialogOpen(true)}
+                            >
+                              <Plus className='h-4 w-4' />
+                              <span className='text-xs font-semibold'>
+                                Add Period
+                              </span>
+                            </div>
+                          </td>
+                          {selectedDays.map((day) => (
+                            <td
+                              key={day}
+                              className='border border-slate-200 bg-gradient-to-br from-green-50 to-emerald-50 h-[60px]'
+                            ></td>
+                          ))}
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 )}
@@ -1589,37 +1888,55 @@ export default function TimetableDetailPage({
               </>
             )}
           </div>
-          <DialogFooter className='sm:justify-end'>
-            <Button
-              variant='outline'
-              onClick={closeSlotDialog}
-              disabled={savingSlot}
-              className='h-9'
-            >
-              Cancel
-            </Button>
-            <Button
-              variant='default'
-              onClick={saveSlot}
-              disabled={
-                savingSlot ||
-                (isBreakSlot && !breakDescription) ||
-                (!isBreakSlot &&
-                  (!selectedCourseId || selectedCourseId === 'none'))
-              }
-              className='h-9'
-            >
-              {savingSlot ? (
-                <>
-                  <span className='mr-2'>Saving</span>
-                  <span className='h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
-                </>
-              ) : selectedSlot ? (
-                'Update'
-              ) : (
-                'Add'
-              )}
-            </Button>
+          <DialogFooter className='sm:justify-between'>
+            {selectedSlot ? (
+              <Button
+                variant='destructive'
+                onClick={() => {
+                  openDeleteDialog(selectedSlot);
+                  closeSlotDialog();
+                }}
+                disabled={savingSlot}
+                className='h-9'
+              >
+                <Trash2 className='mr-2 h-4 w-4' />
+                Delete Slot
+              </Button>
+            ) : (
+              <div />
+            )}
+            <div className='flex gap-2'>
+              <Button
+                variant='outline'
+                onClick={closeSlotDialog}
+                disabled={savingSlot}
+                className='h-9'
+              >
+                Cancel
+              </Button>
+              <Button
+                variant='default'
+                onClick={saveSlot}
+                disabled={
+                  savingSlot ||
+                  (isBreakSlot && !breakDescription) ||
+                  (!isBreakSlot &&
+                    (!selectedCourseId || selectedCourseId === 'none'))
+                }
+                className='h-9'
+              >
+                {savingSlot ? (
+                  <>
+                    <span className='mr-2'>Saving</span>
+                    <span className='h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
+                  </>
+                ) : selectedSlot ? (
+                  'Update'
+                ) : (
+                  'Add'
+                )}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1669,13 +1986,21 @@ export default function TimetableDetailPage({
               <span className='text-slate-600'>
                 of {periods.length} periods selected
               </span>
+              {hasUnsavedChanges && (
+                <Badge
+                  variant='outline'
+                  className='bg-amber-100 text-amber-700 border-amber-200 h-4 px-1 animate-pulse'
+                >
+                  Unsaved
+                </Badge>
+              )}
             </div>
           </DialogHeader>
 
           <div className='space-y-4 py-4 px-4 max-h-[60vh] overflow-y-auto bg-gradient-to-br from-white to-slate-50'>
             <div className='flex items-center justify-between mb-1'>
               <h3 className='text-xs font-medium flex items-center gap-1.5 text-slate-700'>
-                <span className='bg-blue-100 h-4 w-4 rounded-full flex items-center justify-center text-[10px] text-blue-700 font-bold'>
+                <span className='bg-blue-100 h-4 rounded-full flex items-center justify-center text-[10px] text-blue-700 font-bold'>
                   1
                 </span>
                 Selected Periods
@@ -1747,7 +2072,7 @@ export default function TimetableDetailPage({
 
             <div className='flex items-center justify-between mt-4 mb-1'>
               <h3 className='text-xs font-medium flex items-center gap-1.5 text-slate-700'>
-                <span className='bg-blue-100 h-4 w-4 rounded-full flex items-center justify-center text-[10px] text-blue-700 font-bold'>
+                <span className='bg-blue-100 h-4 rounded-full flex items-center justify-center text-[10px] text-blue-700 font-bold'>
                   2
                 </span>
                 Available Periods
@@ -1757,13 +2082,8 @@ export default function TimetableDetailPage({
                   variant='outline'
                   size='sm'
                   onClick={() => {
-                    setSelectedPeriods(
-                      periods.sort(
-                        (a, b) =>
-                          new Date(`2000-01-01T${a.start_time}`).getTime() -
-                          new Date(`2000-01-01T${b.start_time}`).getTime()
-                      )
-                    );
+                    setSelectedPeriods(sortPeriodsByName([...periods]));
+                    setHasUnsavedChanges(true);
                   }}
                   className='h-6 text-[10px] text-blue-600 border-blue-200 hover:bg-blue-50'
                 >
@@ -1775,6 +2095,7 @@ export default function TimetableDetailPage({
                   onClick={() => {
                     setSelectedPeriods([]);
                     setLockedPeriods([]);
+                    setHasUnsavedChanges(true);
                   }}
                   className='h-6 text-[10px] text-red-600 border-red-200 hover:bg-red-50'
                 >
@@ -1823,12 +2144,9 @@ export default function TimetableDetailPage({
                       className='h-6 min-w-[50px] text-[10px] gap-1 text-blue-600 border-blue-200 hover:bg-blue-50 hover:border-blue-300'
                       onClick={() => {
                         setSelectedPeriods((prev) =>
-                          [...prev, period].sort(
-                            (a, b) =>
-                              new Date(`2000-01-01T${a.start_time}`).getTime() -
-                              new Date(`2000-01-01T${b.start_time}`).getTime()
-                          )
+                          sortPeriodsByName([...prev, period])
                         );
+                        setHasUnsavedChanges(true);
                       }}
                       title='Add period to timetable'
                     >
@@ -1855,16 +2173,270 @@ export default function TimetableDetailPage({
               variant='outline'
               onClick={() => setPeriodSelectorOpen(false)}
               className='h-8 text-xs text-slate-700 border-slate-300'
+              disabled={savingPeriods}
             >
               Cancel
             </Button>
             <Button
               variant='default'
-              onClick={() => setPeriodSelectorOpen(false)}
-              className='h-8 text-xs bg-blue-600 hover:bg-blue-700'
-              disabled={selectedPeriods.length === 0}
+              onClick={async () => {
+                await savePeriodSelections();
+                setPeriodSelectorOpen(false);
+              }}
+              className={cn(
+                'h-8 text-xs bg-blue-600 hover:bg-blue-700',
+                hasUnsavedChanges &&
+                  'animate-pulse bg-amber-600 hover:bg-amber-700'
+              )}
+              disabled={savingPeriods || selectedPeriods.length === 0}
             >
-              Apply Changes
+              {savingPeriods
+                ? 'Saving...'
+                : hasUnsavedChanges
+                ? 'Save Changes'
+                : 'Save Periods'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Period Dialog */}
+      <Dialog open={addPeriodDialogOpen} onOpenChange={setAddPeriodDialogOpen}>
+        <DialogContent className='sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle>Add Period to Timetable</DialogTitle>
+            <DialogDescription>
+              Select a period to add to your timetable. You can add one period
+              at a time.
+            </DialogDescription>
+          </DialogHeader>
+          <div className='space-y-4 py-4 max-h-[60vh] overflow-y-auto'>
+            {getAvailablePeriods().length > 0 ? (
+              <div className='space-y-2'>
+                {getAvailablePeriods().map((period) => (
+                  <div
+                    key={period.id}
+                    className='flex items-center justify-between p-3 border rounded-md hover:bg-slate-50 transition-colors cursor-pointer'
+                    onClick={() => {
+                      addPeriod(period);
+                      setAddPeriodDialogOpen(false);
+                      toast({
+                        title: 'Period Added',
+                        description: `${period.period_name} has been added to your timetable.`
+                      });
+                    }}
+                  >
+                    <div className='flex-1'>
+                      <div className='flex items-center gap-2'>
+                        <h4 className='font-medium text-sm'>
+                          {period.period_name}
+                        </h4>
+                        {period.is_break && (
+                          <Badge
+                            variant='outline'
+                            className='h-4 px-1 text-[10px] bg-amber-50 text-amber-600 border-amber-200'
+                          >
+                            Break
+                          </Badge>
+                        )}
+                      </div>
+                      <p className='text-xs text-slate-500 mt-1'>
+                        {new Date(
+                          `2000-01-01T${period.start_time}`
+                        ).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}{' '}
+                        -{' '}
+                        {new Date(
+                          `2000-01-01T${period.end_time}`
+                        ).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}
+                      </p>
+                    </div>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      className='h-8 w-8 p-0 rounded-full text-green-600 border-green-200 hover:bg-green-50'
+                    >
+                      <Plus className='h-4 w-4' />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className='text-center py-8'>
+                <p className='text-sm text-slate-500 mb-2'>
+                  No periods available to add
+                </p>
+                <p className='text-xs text-slate-400'>
+                  All periods have been added to the timetable
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setAddPeriodDialogOpen(false)}
+              className='h-9'
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Day Configuration Dialog */}
+      <Dialog open={dayConfigOpen} onOpenChange={setDayConfigOpen}>
+        <DialogContent className='sm:max-w-[400px] border-0 shadow-lg'>
+          <DialogHeader className='bg-gradient-to-r from-slate-50 to-green-50 p-4 rounded-t-lg border-b border-slate-200'>
+            <DialogTitle className='text-slate-800 text-lg'>
+              Configure Timetable Days
+            </DialogTitle>
+            <DialogDescription>
+              <span className='text-slate-600'>
+                Select which days to display in your timetable. You can
+                customize the schedule according to your needs.
+              </span>
+            </DialogDescription>
+            <div className='mt-2 text-xs bg-white/60 px-2.5 py-1 rounded-md border border-slate-200 inline-flex gap-1.5 items-center'>
+              <Badge
+                variant='outline'
+                className='bg-green-600 text-white border-0 h-4'
+              >
+                {selectedDays.length}
+              </Badge>
+              <span className='text-slate-600'>
+                of {ALL_DAYS_OF_WEEK.length} days selected
+              </span>
+              {hasUnsavedChanges && (
+                <Badge
+                  variant='outline'
+                  className='bg-amber-100 text-amber-700 border-amber-200 h-4 px-1 animate-pulse'
+                >
+                  Unsaved
+                </Badge>
+              )}
+            </div>
+          </DialogHeader>
+
+          <div className='space-y-4 py-4 px-4 max-h-[60vh] overflow-y-auto bg-gradient-to-br from-white to-slate-50'>
+            <div className='flex items-center justify-between mb-1'>
+              <h3 className='text-xs font-medium flex items-center gap-1.5 text-slate-700'>
+                <span className='bg-green-100 h-4 rounded-full flex items-center justify-center text-[10px] text-green-700 font-bold'>
+                  1
+                </span>
+                Working Days
+              </h3>
+              <div className='flex gap-1.5'>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={selectAllDays}
+                  className='h-6 text-[10px] text-green-600 border-green-200 hover:bg-green-50'
+                >
+                  Select All
+                </Button>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={clearAllDays}
+                  className='h-6 text-[10px] text-red-600 border-red-200 hover:bg-red-50'
+                >
+                  Clear All
+                </Button>
+              </div>
+            </div>
+
+            <div className='grid grid-cols-1 gap-2 p-2 rounded-md border border-slate-200 bg-white shadow-sm'>
+              {ALL_DAYS_OF_WEEK.map((day) => (
+                <div
+                  key={day}
+                  className={`flex items-center gap-3 p-3 rounded-md border transition-colors cursor-pointer ${
+                    selectedDays.includes(day)
+                      ? 'bg-green-50 border-green-200 hover:bg-green-100'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}
+                  onClick={() => handleDayToggle(day)}
+                >
+                  <Checkbox
+                    checked={selectedDays.includes(day)}
+                    onChange={() => handleDayToggle(day)}
+                    className={
+                      selectedDays.includes(day)
+                        ? 'data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600'
+                        : ''
+                    }
+                  />
+                  <div className='flex-1'>
+                    <div className='flex items-center gap-2'>
+                      <span className='font-medium text-sm text-slate-700'>
+                        {day.charAt(0) + day.slice(1).toLowerCase()}
+                      </span>
+                      {selectedDays.includes(day) && (
+                        <Badge
+                          variant='outline'
+                          className='h-4 px-1 text-[10px] bg-green-100 text-green-700 border-green-200'
+                        >
+                          Selected
+                        </Badge>
+                      )}
+                    </div>
+                    <p className='text-xs text-slate-500 mt-0.5'>
+                      {day === 'MONDAY' && 'Start of the work week'}
+                      {day === 'TUESDAY' && 'Second day of the week'}
+                      {day === 'WEDNESDAY' && 'Mid-week day'}
+                      {day === 'THURSDAY' && 'Fourth day of the week'}
+                      {day === 'FRIDAY' && 'Last working day'}
+                      {day === 'SATURDAY' && 'Weekend working day'}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {selectedDays.length === 0 && (
+              <div className='text-center py-4 text-amber-600 bg-amber-50 rounded-md border border-amber-200'>
+                <p className='text-sm font-medium'>No days selected</p>
+                <p className='text-xs mt-1'>
+                  Please select at least one day to display in the timetable
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className='p-3 border-t border-slate-200 bg-slate-50 gap-2'>
+            <Button
+              variant='outline'
+              onClick={() => setDayConfigOpen(false)}
+              className='h-8 text-xs text-slate-700 border-slate-300'
+              disabled={savingPeriods}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant='default'
+              onClick={async () => {
+                await savePeriodSelections();
+                setDayConfigOpen(false);
+              }}
+              className={cn(
+                'h-8 text-xs bg-green-600 hover:bg-green-700',
+                hasUnsavedChanges &&
+                  'animate-pulse bg-amber-600 hover:bg-amber-700'
+              )}
+              disabled={savingPeriods || selectedDays.length === 0}
+            >
+              {savingPeriods
+                ? 'Saving...'
+                : hasUnsavedChanges
+                ? 'Save Changes'
+                : 'Save Days'}
             </Button>
           </DialogFooter>
         </DialogContent>
