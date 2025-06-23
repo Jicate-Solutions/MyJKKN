@@ -28,17 +28,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { SectionService } from '@/lib/services/organization/section-service';
 
 interface StaffPlanDetailsProps {
   id: string;
   canEdit?: boolean;
   canDelete?: boolean;
-}
-
-interface Section {
-  id: string;
-  section_name: string;
 }
 
 export function StaffPlanDetailsPage({
@@ -51,7 +45,6 @@ export function StaffPlanDetailsPage({
   const [courses, setCourses] = useState<StaffPlanCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sectionData, setSectionData] = useState<Section | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -62,23 +55,6 @@ export function StaffPlanDetailsPage({
         try {
           const planData = await StaffPlanService.getStaffPlan(id);
           setStaffPlan(planData);
-
-          // Fetch section data if we have semester ID and section name
-          if (planData.semester_id && planData.section) {
-            try {
-              const sections = await SectionService.getSectionsBySemester(
-                planData.semester_id
-              );
-              const matchingSection = sections.find(
-                (s) => s.section_name === planData.section
-              );
-              if (matchingSection) {
-                setSectionData(matchingSection);
-              }
-            } catch (sectionError) {
-              console.error('Error loading section data:', sectionError);
-            }
-          }
         } catch (planError) {
           console.error('Error loading staff plan:', planError);
           setError('Failed to load staff plan details');
@@ -204,16 +180,6 @@ export function StaffPlanDetailsPage({
                 <p className='font-medium'>Semester</p>
                 <p className='text-muted-foreground'>
                   {staffPlan.semester?.semester_name}
-                </p>
-              </div>
-              <div>
-                <p className='font-medium'>Section</p>
-                <p className='text-muted-foreground'>
-                  {sectionData ? (
-                    <>{sectionData.section_name}</>
-                  ) : (
-                    staffPlan?.section || 'N/A'
-                  )}
                 </p>
               </div>
             </CardContent>

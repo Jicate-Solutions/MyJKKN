@@ -110,7 +110,7 @@ export interface Timetable {
   program_id: string;
   department_id: string;
   semester: string | number;
-  section: string;
+  section?: string;
   timetable_name: string;
   version: number;
   is_active: boolean;
@@ -146,6 +146,34 @@ export interface Timetable {
   slots?: TimetableSlot[];
 }
 
+// Sub-slot for combined classes
+export interface TimetableSubSlot {
+  id: string;
+  parent_slot_id: string;
+  sub_slot_order: 1 | 2; // First or second sub-slot
+  course_id?: string;
+  is_break_slot: boolean;
+  break_description?: string;
+  created_at: string;
+  updated_at: string;
+  // Include related data
+  course?: {
+    id: string;
+    course_name: string;
+    course_code: string;
+  };
+  // Staff and sections for this sub-slot
+  staff_members?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+  }[];
+  sections?: {
+    id: string;
+    section_name: string;
+  }[];
+}
+
 export interface TimetableSlot {
   id: string;
   timetable_id: string;
@@ -155,6 +183,7 @@ export interface TimetableSlot {
   staff_id?: string; // Kept for backward compatibility
   is_break_slot: boolean;
   break_description?: string;
+  is_combined: boolean; // New field for combined classes
   created_at: string;
   updated_at: string;
   // Include related data
@@ -175,6 +204,13 @@ export interface TimetableSlot {
     first_name: string;
     last_name: string;
   }[];
+  // New field for sections (used when not combined)
+  sections?: {
+    id: string;
+    section_name: string;
+  }[];
+  // New field for sub-slots (used when combined)
+  sub_slots?: TimetableSubSlot[];
 }
 
 export interface CreateTimetableDto {
@@ -184,7 +220,7 @@ export interface CreateTimetableDto {
   program_id: string;
   department_id: string;
   semester: string | number;
-  section: string;
+  section?: string; // Made optional
   timetable_name: string;
   is_active?: boolean;
   is_template?: boolean;
@@ -202,6 +238,19 @@ export interface CreateTimetableSlotDto {
   course_id?: string;
   staff_id?: string; // Kept for backward compatibility
   staff_ids?: string[]; // New field for multiple staff support
+  section_ids?: string[]; // New field for multiple section support
+  is_break_slot?: boolean;
+  break_description?: string;
+  is_combined?: boolean; // New field for combined classes
+  sub_slots?: CreateTimetableSubSlotDto[]; // New field for sub-slots
+}
+
+// Sub-slot creation DTO
+export interface CreateTimetableSubSlotDto {
+  sub_slot_order: 1 | 2;
+  course_id?: string;
+  staff_ids?: string[];
+  section_ids?: string[];
   is_break_slot?: boolean;
   break_description?: string;
 }
@@ -242,5 +291,5 @@ export interface TimetableContextType {
   program_id: string | null;
   department_id: string | null;
   semester: string | number | null;
-  section: string | null;
+  section?: string | null; // Made optional
 }

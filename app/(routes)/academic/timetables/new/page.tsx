@@ -50,7 +50,7 @@ import { useDegrees } from '@/hooks/organization/use-degrees';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
-import { useSections } from '@/hooks/organization/use-sections';
+// Sections removed - timetables are now semester-wise
 import Loading from '@/components/Loading/Loading';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
@@ -79,9 +79,7 @@ const timetableFormSchema = z
     semester: z.string().min(1, {
       message: 'Please select a semester.'
     }),
-    section: z.string().min(1, {
-      message: 'Please select a section.'
-    }),
+    // section field removed - timetables are now semester-wise
     start_date: z.date().optional(),
     end_date: z.date().optional(),
     is_active: z.boolean().default(true),
@@ -137,7 +135,7 @@ export default function NewTimetablePage() {
     fetchSemesters
   } = useSemesters();
 
-  const { sections, loading: loadingSections, fetchSections } = useSections();
+  // Sections hook removed - timetables are now semester-wise
 
   // State for form submission and selected values
   const [loading, setLoading] = useState(false);
@@ -158,7 +156,7 @@ export default function NewTimetablePage() {
       program_id: '',
       department_id: '',
       semester: '',
-      section: '',
+      // section field removed - timetables are now semester-wise
       is_active: true,
       is_template: false,
       template_name: '',
@@ -192,7 +190,6 @@ export default function NewTimetablePage() {
       form.setValue('program_id', '');
       form.setValue('department_id', '');
       form.setValue('semester', '');
-      form.setValue('section', '');
     }
   }, [watchInstitutionId, selectedInstitutionId, fetchDegrees, form]);
 
@@ -206,7 +203,6 @@ export default function NewTimetablePage() {
       form.setValue('program_id', '');
       form.setValue('department_id', '');
       form.setValue('semester', '');
-      form.setValue('section', '');
     }
   }, [watchDegreeId, selectedDegreeId, fetchPrograms, form]);
 
@@ -220,7 +216,6 @@ export default function NewTimetablePage() {
       // Reset dependent fields
       form.setValue('department_id', '');
       form.setValue('semester', '');
-      form.setValue('section', '');
     }
   }, [
     watchProgramId,
@@ -231,24 +226,13 @@ export default function NewTimetablePage() {
     selectedDegreeId
   ]);
 
-  // Update state and fetch sections when department changes
+  // Update state when department changes
   useEffect(() => {
     if (watchDepartmentId && watchDepartmentId !== selectedDepartmentId) {
       setSelectedDepartmentId(watchDepartmentId);
-
-      // Only fetch sections if both program and department are selected
-      if (selectedProgramId && watchDepartmentId) {
-        fetchSections({
-          isActive: true
-        });
-      }
+      // Note: Sections no longer needed as timetables are semester-wise
     }
-  }, [
-    watchDepartmentId,
-    selectedDepartmentId,
-    selectedProgramId,
-    fetchSections
-  ]);
+  }, [watchDepartmentId, selectedDepartmentId]);
 
   // Form submission handler
   const onSubmit = async (values: TimetableFormValues) => {
@@ -302,8 +286,7 @@ export default function NewTimetablePage() {
     loadingDegrees ||
     loadingPrograms ||
     loadingDepartments ||
-    loadingSemesters ||
-    loadingSections;
+    loadingSemesters;
 
   if (isLoading && !institutions.length) {
     return <Loading title='Loading academic data...' />;
@@ -578,44 +561,7 @@ export default function NewTimetablePage() {
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name='section'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Section</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={
-                            loadingSections ||
-                            !selectedProgramId ||
-                            !selectedDepartmentId
-                          }
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder='Select section' />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent className='max-h-60 overflow-y-auto'>
-                            {sections.map((section) => (
-                              <SelectItem
-                                key={section.id}
-                                value={section.section_name}
-                              >
-                                {section.section_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          The section for this timetable
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {/* Section field removed - timetables are now semester-wise */}
                 </div>
 
                 {/* Date Fields */}

@@ -245,27 +245,112 @@ export class TimetableService {
 
       if (slotsError) throw slotsError;
 
-      // Get staff members for each slot from the junction table
+      // Get related data for each slot (staff, sections, sub-slots)
       if (slots && slots.length > 0) {
         for (const slot of slots) {
-          const { data: slotStaff, error: staffError } = await this.supabase
-            .from('timetable_slot_staff')
-            .select(
+          if (slot.is_combined) {
+            // For combined slots, get sub-slots with their staff and sections
+            const { data: subSlots, error: subSlotsError } = await this.supabase
+              .from('timetable_sub_slots')
+              .select(
+                `
+                *,
+                course:course_id(id, course_name, course_code)
               `
-              staff_id,
-              staff:staff_id(id, first_name, last_name)
-            `
-            )
-            .eq('timetable_slot_id', slot.id);
+              )
+              .eq('parent_slot_id', slot.id)
+              .order('sub_slot_order');
 
-          if (staffError) {
-            console.error('Error fetching slot staff:', staffError);
-            continue;
+            if (subSlotsError) {
+              console.error('Error fetching sub-slots:', subSlotsError);
+            } else if (subSlots) {
+              // Get staff and sections for each sub-slot
+              for (const subSlot of subSlots) {
+                // Get staff for this sub-slot
+                const { data: subSlotStaff, error: staffError } =
+                  await this.supabase
+                    .from('timetable_sub_slot_staff')
+                    .select(
+                      `
+                    staff_id,
+                    staff:staff_id(id, first_name, last_name)
+                  `
+                    )
+                    .eq('sub_slot_id', subSlot.id);
+
+                if (staffError) {
+                  console.error('Error fetching sub-slot staff:', staffError);
+                } else {
+                  subSlot.staff_members =
+                    subSlotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
+                }
+
+                // Get sections for this sub-slot
+                const { data: subSlotSections, error: sectionsError } =
+                  await this.supabase
+                    .from('timetable_sub_slot_sections')
+                    .select(
+                      `
+                    section_id,
+                    sections:section_id(id, section_name)
+                  `
+                    )
+                    .eq('sub_slot_id', subSlot.id);
+
+                if (sectionsError) {
+                  console.error(
+                    'Error fetching sub-slot sections:',
+                    sectionsError
+                  );
+                } else {
+                  subSlot.sections =
+                    subSlotSections?.map((ss) => ss.sections).filter(Boolean) ||
+                    [];
+                }
+              }
+
+              slot.sub_slots = subSlots;
+            }
+          } else {
+            // For regular slots, get staff and sections
+
+            // Get staff members from the junction table
+            const { data: slotStaff, error: staffError } = await this.supabase
+              .from('timetable_slot_staff')
+              .select(
+                `
+                staff_id,
+                staff:staff_id(id, first_name, last_name)
+              `
+              )
+              .eq('timetable_slot_id', slot.id);
+
+            if (staffError) {
+              console.error('Error fetching slot staff:', staffError);
+            } else {
+              slot.staff_members =
+                slotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
+            }
+
+            // Get sections from the junction table
+            const { data: slotSections, error: sectionsError } =
+              await this.supabase
+                .from('timetable_slot_sections')
+                .select(
+                  `
+                section_id,
+                sections:section_id(id, section_name)
+              `
+                )
+                .eq('timetable_slot_id', slot.id);
+
+            if (sectionsError) {
+              console.error('Error fetching slot sections:', sectionsError);
+            } else {
+              slot.sections =
+                slotSections?.map((ss) => ss.sections).filter(Boolean) || [];
+            }
           }
-
-          // Add staff_members array to slot
-          slot.staff_members =
-            slotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
         }
       }
 
@@ -461,20 +546,24 @@ export class TimetableService {
           course_id: data.course_id,
           staff_id: data.staff_id,
           staff_ids: data.staff_ids,
+          section_ids: data.section_ids,
           is_break_slot: data.is_break_slot,
-          break_description: data.break_description
+          break_description: data.break_description,
+          is_combined: data.is_combined,
+          sub_slots: data.sub_slots
         });
       }
 
-      // Prepare slot data for insertion (exclude staff_ids for the main table)
+      // Prepare slot data for insertion
       const slotData = {
         timetable_id: data.timetable_id,
         day_of_week: data.day_of_week,
         period_id: data.period_id,
-        course_id: data.course_id,
+        course_id: data.is_combined ? null : data.course_id, // No main course for combined slots
         staff_id: data.staff_id, // Keep for backward compatibility
-        is_break_slot: data.is_break_slot,
-        break_description: data.break_description
+        is_break_slot: data.is_break_slot || false,
+        break_description: data.break_description,
+        is_combined: data.is_combined || false
       };
 
       // Insert a new slot
@@ -493,27 +582,115 @@ export class TimetableService {
 
       if (error) throw error;
 
-      // Handle multiple staff assignments
-      if (data.staff_ids && data.staff_ids.length > 0) {
-        const staffAssignments = data.staff_ids.map((staffId) => ({
-          timetable_slot_id: slot.id,
-          staff_id: staffId
-        }));
+      // Handle combined class with sub-slots
+      if (data.is_combined && data.sub_slots && data.sub_slots.length > 0) {
+        for (const subSlotData of data.sub_slots) {
+          await this.createSubSlot(slot.id, subSlotData);
+        }
+      } else {
+        // Handle regular slot assignments (non-combined)
 
-        const { error: staffError } = await this.supabase
-          .from('timetable_slot_staff')
-          .insert(staffAssignments);
+        // Handle multiple staff assignments
+        if (data.staff_ids && data.staff_ids.length > 0) {
+          const staffAssignments = data.staff_ids.map((staffId) => ({
+            timetable_slot_id: slot.id,
+            staff_id: staffId
+          }));
 
-        if (staffError) {
-          console.error('Error assigning staff to slot:', staffError);
-          // Don't throw error here to avoid breaking the slot creation
+          const { error: staffError } = await this.supabase
+            .from('timetable_slot_staff')
+            .insert(staffAssignments);
+
+          if (staffError) {
+            console.error('Error assigning staff to slot:', staffError);
+          }
+        }
+
+        // Handle multiple section assignments
+        if (data.section_ids && data.section_ids.length > 0) {
+          const sectionAssignments = data.section_ids.map((sectionId) => ({
+            timetable_slot_id: slot.id,
+            section_id: sectionId
+          }));
+
+          const { error: sectionError } = await this.supabase
+            .from('timetable_slot_sections')
+            .insert(sectionAssignments);
+
+          if (sectionError) {
+            console.error('Error assigning sections to slot:', sectionError);
+          }
         }
       }
 
-      // Fetch the complete slot with staff members
+      // Fetch the complete slot with all relations
       return this.getSlotWithStaff(slot.id);
     } catch (error) {
       console.error('Error creating timetable slot:', error);
+      throw error;
+    }
+  }
+
+  // Create a sub-slot for combined classes
+  static async createSubSlot(
+    parentSlotId: string,
+    subSlotData: any
+  ): Promise<void> {
+    try {
+      // Insert the sub-slot
+      const { data: subSlot, error } = await this.supabase
+        .from('timetable_sub_slots')
+        .insert([
+          {
+            parent_slot_id: parentSlotId,
+            sub_slot_order: subSlotData.sub_slot_order,
+            course_id: subSlotData.course_id,
+            is_break_slot: subSlotData.is_break_slot || false,
+            break_description: subSlotData.break_description
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Handle staff assignments for this sub-slot
+      if (subSlotData.staff_ids && subSlotData.staff_ids.length > 0) {
+        const staffAssignments = subSlotData.staff_ids.map(
+          (staffId: string) => ({
+            sub_slot_id: subSlot.id,
+            staff_id: staffId
+          })
+        );
+
+        const { error: staffError } = await this.supabase
+          .from('timetable_sub_slot_staff')
+          .insert(staffAssignments);
+
+        if (staffError) {
+          console.error('Error assigning staff to sub-slot:', staffError);
+        }
+      }
+
+      // Handle section assignments for this sub-slot
+      if (subSlotData.section_ids && subSlotData.section_ids.length > 0) {
+        const sectionAssignments = subSlotData.section_ids.map(
+          (sectionId: string) => ({
+            sub_slot_id: subSlot.id,
+            section_id: sectionId
+          })
+        );
+
+        const { error: sectionError } = await this.supabase
+          .from('timetable_sub_slot_sections')
+          .insert(sectionAssignments);
+
+        if (sectionError) {
+          console.error('Error assigning sections to sub-slot:', sectionError);
+        }
+      }
+    } catch (error) {
+      console.error('Error creating sub-slot:', error);
       throw error;
     }
   }
@@ -536,24 +713,104 @@ export class TimetableService {
 
       if (error) throw error;
 
-      // Get staff members from the junction table
-      const { data: slotStaff, error: staffError } = await this.supabase
-        .from('timetable_slot_staff')
-        .select(
+      if (slot.is_combined) {
+        // For combined slots, get sub-slots with their staff and sections
+        const { data: subSlots, error: subSlotsError } = await this.supabase
+          .from('timetable_sub_slots')
+          .select(
+            `
+            *,
+            course:course_id(id, course_name, course_code)
           `
-          staff_id,
-          staff:staff_id(id, first_name, last_name)
-        `
-        )
-        .eq('timetable_slot_id', slotId);
+          )
+          .eq('parent_slot_id', slotId)
+          .order('sub_slot_order');
 
-      if (staffError) {
-        console.error('Error fetching slot staff:', staffError);
+        if (subSlotsError) {
+          console.error('Error fetching sub-slots:', subSlotsError);
+        } else if (subSlots) {
+          // Get staff and sections for each sub-slot
+          for (const subSlot of subSlots) {
+            // Get staff for this sub-slot
+            const { data: subSlotStaff, error: staffError } =
+              await this.supabase
+                .from('timetable_sub_slot_staff')
+                .select(
+                  `
+                staff_id,
+                staff:staff_id(id, first_name, last_name)
+              `
+                )
+                .eq('sub_slot_id', subSlot.id);
+
+            if (staffError) {
+              console.error('Error fetching sub-slot staff:', staffError);
+            } else {
+              subSlot.staff_members =
+                subSlotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
+            }
+
+            // Get sections for this sub-slot
+            const { data: subSlotSections, error: sectionsError } =
+              await this.supabase
+                .from('timetable_sub_slot_sections')
+                .select(
+                  `
+                section_id,
+                sections:section_id(id, section_name)
+              `
+                )
+                .eq('sub_slot_id', subSlot.id);
+
+            if (sectionsError) {
+              console.error('Error fetching sub-slot sections:', sectionsError);
+            } else {
+              subSlot.sections =
+                subSlotSections?.map((ss) => ss.sections).filter(Boolean) || [];
+            }
+          }
+
+          slot.sub_slots = subSlots;
+        }
+      } else {
+        // For regular slots, get staff and sections
+
+        // Get staff members from the junction table
+        const { data: slotStaff, error: staffError } = await this.supabase
+          .from('timetable_slot_staff')
+          .select(
+            `
+            staff_id,
+            staff:staff_id(id, first_name, last_name)
+          `
+          )
+          .eq('timetable_slot_id', slotId);
+
+        if (staffError) {
+          console.error('Error fetching slot staff:', staffError);
+        } else {
+          slot.staff_members =
+            slotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
+        }
+
+        // Get sections from the junction table
+        const { data: slotSections, error: sectionsError } = await this.supabase
+          .from('timetable_slot_sections')
+          .select(
+            `
+            section_id,
+            sections:section_id(id, section_name)
+          `
+          )
+          .eq('timetable_slot_id', slotId);
+
+        if (sectionsError) {
+          console.error('Error fetching slot sections:', sectionsError);
+        } else {
+          slot.sections =
+            slotSections?.map((ss) => ss.sections).filter(Boolean) || [];
+        }
       }
-
-      // Add staff_members array to slot
-      slot.staff_members =
-        slotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
 
       return slot;
     } catch (error) {
@@ -567,8 +824,8 @@ export class TimetableService {
     data: UpdateTimetableSlotDto
   ): Promise<TimetableSlot> {
     try {
-      // Prepare update data (exclude staff_ids from main table update)
-      const { staff_ids, ...slotUpdateData } = data;
+      // Prepare update data (exclude complex fields from main table update)
+      const { staff_ids, section_ids, sub_slots, ...slotUpdateData } = data;
 
       const { data: slot, error } = await this.supabase
         .from('timetable_slots')
@@ -589,42 +846,100 @@ export class TimetableService {
 
       if (error) throw error;
 
-      // Handle multiple staff assignments if provided
-      if (staff_ids !== undefined) {
-        // First, delete existing staff assignments
-        const { error: deleteError } = await this.supabase
-          .from('timetable_slot_staff')
+      // Handle combined class updates
+      if (data.is_combined && sub_slots) {
+        // Delete existing sub-slots (CASCADE will handle related records)
+        const { error: deleteSubSlotsError } = await this.supabase
+          .from('timetable_sub_slots')
           .delete()
-          .eq('timetable_slot_id', id);
+          .eq('parent_slot_id', id);
 
-        if (deleteError) {
+        if (deleteSubSlotsError) {
           console.error(
-            'Error deleting existing staff assignments:',
-            deleteError
+            'Error deleting existing sub-slots:',
+            deleteSubSlotsError
           );
         }
 
-        // Then, insert new staff assignments
-        if (staff_ids.length > 0) {
-          const staffAssignments = staff_ids.map((staffId) => ({
-            timetable_slot_id: id,
-            staff_id: staffId
-          }));
+        // Create new sub-slots
+        for (const subSlotData of sub_slots) {
+          await this.createSubSlot(id, subSlotData);
+        }
+      } else {
+        // Handle regular slot updates (non-combined)
 
-          const { error: insertError } = await this.supabase
+        // Handle multiple staff assignments if provided
+        if (staff_ids !== undefined) {
+          // First, delete existing staff assignments
+          const { error: deleteError } = await this.supabase
             .from('timetable_slot_staff')
-            .insert(staffAssignments);
+            .delete()
+            .eq('timetable_slot_id', id);
 
-          if (insertError) {
+          if (deleteError) {
             console.error(
-              'Error inserting new staff assignments:',
-              insertError
+              'Error deleting existing staff assignments:',
+              deleteError
             );
+          }
+
+          // Then, insert new staff assignments
+          if (staff_ids.length > 0) {
+            const staffAssignments = staff_ids.map((staffId) => ({
+              timetable_slot_id: id,
+              staff_id: staffId
+            }));
+
+            const { error: insertError } = await this.supabase
+              .from('timetable_slot_staff')
+              .insert(staffAssignments);
+
+            if (insertError) {
+              console.error(
+                'Error inserting new staff assignments:',
+                insertError
+              );
+            }
+          }
+        }
+
+        // Handle multiple section assignments if provided
+        if (section_ids !== undefined) {
+          // First, delete existing section assignments
+          const { error: deleteError } = await this.supabase
+            .from('timetable_slot_sections')
+            .delete()
+            .eq('timetable_slot_id', id);
+
+          if (deleteError) {
+            console.error(
+              'Error deleting existing section assignments:',
+              deleteError
+            );
+          }
+
+          // Then, insert new section assignments
+          if (section_ids.length > 0) {
+            const sectionAssignments = section_ids.map((sectionId) => ({
+              timetable_slot_id: id,
+              section_id: sectionId
+            }));
+
+            const { error: insertError } = await this.supabase
+              .from('timetable_slot_sections')
+              .insert(sectionAssignments);
+
+            if (insertError) {
+              console.error(
+                'Error inserting new section assignments:',
+                insertError
+              );
+            }
           }
         }
       }
 
-      // Return the complete slot with staff members
+      // Return the complete slot with all relations
       return this.getSlotWithStaff(id);
     } catch (error) {
       console.error('Error updating timetable slot:', error);
@@ -634,7 +949,7 @@ export class TimetableService {
 
   static async deleteTimetableSlot(id: string): Promise<void> {
     try {
-      // First delete staff assignments (CASCADE should handle this, but let's be explicit)
+      // Delete staff assignments (CASCADE should handle this, but let's be explicit)
       const { error: staffError } = await this.supabase
         .from('timetable_slot_staff')
         .delete()
@@ -642,9 +957,29 @@ export class TimetableService {
 
       if (staffError) {
         console.error('Error deleting staff assignments:', staffError);
-        // Continue with slot deletion even if staff deletion fails
       }
 
+      // Delete section assignments
+      const { error: sectionError } = await this.supabase
+        .from('timetable_slot_sections')
+        .delete()
+        .eq('timetable_slot_id', id);
+
+      if (sectionError) {
+        console.error('Error deleting section assignments:', sectionError);
+      }
+
+      // Delete sub-slots (CASCADE will handle sub-slot staff and sections)
+      const { error: subSlotsError } = await this.supabase
+        .from('timetable_sub_slots')
+        .delete()
+        .eq('parent_slot_id', id);
+
+      if (subSlotsError) {
+        console.error('Error deleting sub-slots:', subSlotsError);
+      }
+
+      // Finally delete the main slot
       const { error } = await this.supabase
         .from('timetable_slots')
         .delete()
