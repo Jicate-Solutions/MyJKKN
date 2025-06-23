@@ -245,6 +245,30 @@ export class TimetableService {
 
       if (slotsError) throw slotsError;
 
+      // Get staff members for each slot from the junction table
+      if (slots && slots.length > 0) {
+        for (const slot of slots) {
+          const { data: slotStaff, error: staffError } = await this.supabase
+            .from('timetable_slot_staff')
+            .select(
+              `
+              staff_id,
+              staff:staff_id(id, first_name, last_name)
+            `
+            )
+            .eq('timetable_slot_id', slot.id);
+
+          if (staffError) {
+            console.error('Error fetching slot staff:', staffError);
+            continue;
+          }
+
+          // Add staff_members array to slot
+          slot.staff_members =
+            slotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
+        }
+      }
+
       // Sort slots by period start time after fetching
       const sortedSlots = slots
         ? [...slots].sort((a, b) => {
@@ -436,15 +460,27 @@ export class TimetableService {
         return this.updateTimetableSlot(existing.id, {
           course_id: data.course_id,
           staff_id: data.staff_id,
+          staff_ids: data.staff_ids,
           is_break_slot: data.is_break_slot,
           break_description: data.break_description
         });
       }
 
+      // Prepare slot data for insertion (exclude staff_ids for the main table)
+      const slotData = {
+        timetable_id: data.timetable_id,
+        day_of_week: data.day_of_week,
+        period_id: data.period_id,
+        course_id: data.course_id,
+        staff_id: data.staff_id, // Keep for backward compatibility
+        is_break_slot: data.is_break_slot,
+        break_description: data.break_description
+      };
+
       // Insert a new slot
       const { data: slot, error } = await this.supabase
         .from('timetable_slots')
-        .insert([data])
+        .insert([slotData])
         .select(
           `
           *,
@@ -457,9 +493,71 @@ export class TimetableService {
 
       if (error) throw error;
 
-      return slot;
+      // Handle multiple staff assignments
+      if (data.staff_ids && data.staff_ids.length > 0) {
+        const staffAssignments = data.staff_ids.map((staffId) => ({
+          timetable_slot_id: slot.id,
+          staff_id: staffId
+        }));
+
+        const { error: staffError } = await this.supabase
+          .from('timetable_slot_staff')
+          .insert(staffAssignments);
+
+        if (staffError) {
+          console.error('Error assigning staff to slot:', staffError);
+          // Don't throw error here to avoid breaking the slot creation
+        }
+      }
+
+      // Fetch the complete slot with staff members
+      return this.getSlotWithStaff(slot.id);
     } catch (error) {
       console.error('Error creating timetable slot:', error);
+      throw error;
+    }
+  }
+
+  static async getSlotWithStaff(slotId: string): Promise<TimetableSlot> {
+    try {
+      // Get the slot with basic relations
+      const { data: slot, error } = await this.supabase
+        .from('timetable_slots')
+        .select(
+          `
+          *,
+          period:period_id(*),
+          course:course_id(id, course_name, course_code),
+          staff:staff_id(id, first_name, last_name)
+        `
+        )
+        .eq('id', slotId)
+        .single();
+
+      if (error) throw error;
+
+      // Get staff members from the junction table
+      const { data: slotStaff, error: staffError } = await this.supabase
+        .from('timetable_slot_staff')
+        .select(
+          `
+          staff_id,
+          staff:staff_id(id, first_name, last_name)
+        `
+        )
+        .eq('timetable_slot_id', slotId);
+
+      if (staffError) {
+        console.error('Error fetching slot staff:', staffError);
+      }
+
+      // Add staff_members array to slot
+      slot.staff_members =
+        slotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
+
+      return slot;
+    } catch (error) {
+      console.error('Error fetching slot with staff:', error);
       throw error;
     }
   }
@@ -469,10 +567,13 @@ export class TimetableService {
     data: UpdateTimetableSlotDto
   ): Promise<TimetableSlot> {
     try {
+      // Prepare update data (exclude staff_ids from main table update)
+      const { staff_ids, ...slotUpdateData } = data;
+
       const { data: slot, error } = await this.supabase
         .from('timetable_slots')
         .update({
-          ...data,
+          ...slotUpdateData,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -488,7 +589,43 @@ export class TimetableService {
 
       if (error) throw error;
 
-      return slot;
+      // Handle multiple staff assignments if provided
+      if (staff_ids !== undefined) {
+        // First, delete existing staff assignments
+        const { error: deleteError } = await this.supabase
+          .from('timetable_slot_staff')
+          .delete()
+          .eq('timetable_slot_id', id);
+
+        if (deleteError) {
+          console.error(
+            'Error deleting existing staff assignments:',
+            deleteError
+          );
+        }
+
+        // Then, insert new staff assignments
+        if (staff_ids.length > 0) {
+          const staffAssignments = staff_ids.map((staffId) => ({
+            timetable_slot_id: id,
+            staff_id: staffId
+          }));
+
+          const { error: insertError } = await this.supabase
+            .from('timetable_slot_staff')
+            .insert(staffAssignments);
+
+          if (insertError) {
+            console.error(
+              'Error inserting new staff assignments:',
+              insertError
+            );
+          }
+        }
+      }
+
+      // Return the complete slot with staff members
+      return this.getSlotWithStaff(id);
     } catch (error) {
       console.error('Error updating timetable slot:', error);
       throw error;
@@ -497,6 +634,17 @@ export class TimetableService {
 
   static async deleteTimetableSlot(id: string): Promise<void> {
     try {
+      // First delete staff assignments (CASCADE should handle this, but let's be explicit)
+      const { error: staffError } = await this.supabase
+        .from('timetable_slot_staff')
+        .delete()
+        .eq('timetable_slot_id', id);
+
+      if (staffError) {
+        console.error('Error deleting staff assignments:', staffError);
+        // Continue with slot deletion even if staff deletion fails
+      }
+
       const { error } = await this.supabase
         .from('timetable_slots')
         .delete()
@@ -545,7 +693,8 @@ export class TimetableService {
     timetableId?: string
   ): Promise<boolean> {
     try {
-      let query = this.supabase
+      // Check conflicts in the legacy staff_id field (backward compatibility)
+      let legacyQuery = this.supabase
         .from('timetable_slots')
         .select('id')
         .eq('staff_id', staffId)
@@ -554,15 +703,49 @@ export class TimetableService {
 
       // Exclude current timetable if provided
       if (timetableId) {
-        query = query.neq('timetable_id', timetableId);
+        legacyQuery = legacyQuery.neq('timetable_id', timetableId);
       }
 
-      const { data, error } = await query;
+      const { data: legacyConflicts, error: legacyError } = await legacyQuery;
 
-      if (error) throw error;
+      if (legacyError) throw legacyError;
 
-      // Return true if conflicts exist
-      return data && data.length > 0;
+      // Check conflicts in the new many-to-many staff assignments
+      let staffAssignmentQuery = this.supabase
+        .from('timetable_slot_staff')
+        .select(
+          `
+          timetable_slot_id,
+          timetable_slots!inner(
+            id,
+            timetable_id,
+            day_of_week,
+            period_id
+          )
+        `
+        )
+        .eq('staff_id', staffId)
+        .eq('timetable_slots.day_of_week', dayOfWeek)
+        .eq('timetable_slots.period_id', periodId);
+
+      // Exclude current timetable if provided
+      if (timetableId) {
+        staffAssignmentQuery = staffAssignmentQuery.neq(
+          'timetable_slots.timetable_id',
+          timetableId
+        );
+      }
+
+      const { data: staffConflicts, error: staffError } =
+        await staffAssignmentQuery;
+
+      if (staffError) throw staffError;
+
+      // Return true if conflicts exist in either check
+      const hasLegacyConflicts = legacyConflicts && legacyConflicts.length > 0;
+      const hasStaffConflicts = staffConflicts && staffConflicts.length > 0;
+
+      return hasLegacyConflicts || hasStaffConflicts;
     } catch (error) {
       console.error('Error checking staff conflicts:', error);
       throw error;

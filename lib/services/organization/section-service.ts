@@ -84,6 +84,23 @@ export class SectionService {
             id,
             name,
             counselling_code
+          ),
+          degree:degrees!degree_id(
+            id,
+            degree_name
+          ),
+          department:departments!department_id(
+            id,
+            department_name
+          ),
+          program:programs!program_id(
+            id,
+            program_name
+          ),
+          semester:semesters!semester_id(
+            id,
+            semester_name,
+            semester_code
           )
         `,
         { count: 'exact' }
@@ -91,11 +108,27 @@ export class SectionService {
 
       // Apply filters
       if (filters.search) {
-        query = query.ilike('section_name', `%${filters.search}%`);
+        query = query.or(`section_name.ilike.%${filters.search}%`);
       }
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
+      }
+
+      if (filters.degree_id) {
+        query = query.eq('degree_id', filters.degree_id);
+      }
+
+      if (filters.department_id) {
+        query = query.eq('department_id', filters.department_id);
+      }
+
+      if (filters.program_id) {
+        query = query.eq('program_id', filters.program_id);
+      }
+
+      if (filters.semester_id) {
+        query = query.eq('semester_id', filters.semester_id);
       }
 
       if (filters.isActive !== undefined) {
@@ -140,6 +173,23 @@ export class SectionService {
             id,
             name,
             counselling_code
+          ),
+          degree:degrees!degree_id(
+            id,
+            degree_name
+          ),
+          department:departments!department_id(
+            id,
+            department_name
+          ),
+          program:programs!program_id(
+            id,
+            program_name
+          ),
+          semester:semesters!semester_id(
+            id,
+            semester_name,
+            semester_code
           )
         `
         )
@@ -166,9 +216,27 @@ export class SectionService {
             id,
             name,
             counselling_code
+          ),
+          degree:degrees!degree_id(
+            id,
+            degree_name
+          ),
+          department:departments!department_id(
+            id,
+            department_name
+          ),
+          program:programs!program_id(
+            id,
+            program_name
+          ),
+          semester:semesters!semester_id(
+            id,
+            semester_name,
+            semester_code
           )
         `
         )
+        .eq('semester_id', semesterId)
         .eq('is_active', true)
         .order('section_name');
 
@@ -195,9 +263,27 @@ export class SectionService {
             id,
             name,
             counselling_code
+          ),
+          degree:degrees!degree_id(
+            id,
+            degree_name
+          ),
+          department:departments!department_id(
+            id,
+            department_name
+          ),
+          program:programs!program_id(
+            id,
+            program_name
+          ),
+          semester:semesters!semester_id(
+            id,
+            semester_name,
+            semester_code
           )
         `
         )
+        .eq('semester_id', semesterId)
         .eq('institution_id', institutionId)
         .eq('is_active', true)
         .order('section_name');
@@ -227,6 +313,23 @@ export class SectionService {
             id,
             name,
             counselling_code
+          ),
+          degree:degrees!degree_id(
+            id,
+            degree_name
+          ),
+          department:departments!department_id(
+            id,
+            department_name
+          ),
+          program:programs!program_id(
+            id,
+            program_name
+          ),
+          semester:semesters!semester_id(
+            id,
+            semester_name,
+            semester_code
           )
         `
         )
@@ -239,6 +342,97 @@ export class SectionService {
       return sections || [];
     } catch (error) {
       console.error('Error fetching sections by institution:', error);
+      throw error;
+    }
+  }
+
+  // Add new methods for getting sections by various hierarchy levels
+  static async getSectionsByProgram(programId: string): Promise<Section[]> {
+    try {
+      const { data: sections, error } = await this.supabase
+        .from('sections')
+        .select(
+          `
+          *,
+          institution:institutions!institution_id(
+            id,
+            name,
+            counselling_code
+          ),
+          degree:degrees!degree_id(
+            id,
+            degree_name
+          ),
+          department:departments!department_id(
+            id,
+            department_name
+          ),
+          program:programs!program_id(
+            id,
+            program_name
+          ),
+          semester:semesters!semester_id(
+            id,
+            semester_name,
+            semester_code
+          )
+        `
+        )
+        .eq('program_id', programId)
+        .eq('is_active', true)
+        .order('section_name');
+
+      if (error) throw error;
+
+      return sections || [];
+    } catch (error) {
+      console.error('Error fetching sections by program:', error);
+      throw error;
+    }
+  }
+
+  static async getSectionsByDepartment(
+    departmentId: string
+  ): Promise<Section[]> {
+    try {
+      const { data: sections, error } = await this.supabase
+        .from('sections')
+        .select(
+          `
+          *,
+          institution:institutions!institution_id(
+            id,
+            name,
+            counselling_code
+          ),
+          degree:degrees!degree_id(
+            id,
+            degree_name
+          ),
+          department:departments!department_id(
+            id,
+            department_name
+          ),
+          program:programs!program_id(
+            id,
+            program_name
+          ),
+          semester:semesters!semester_id(
+            id,
+            semester_name,
+            semester_code
+          )
+        `
+        )
+        .eq('department_id', departmentId)
+        .eq('is_active', true)
+        .order('section_name');
+
+      if (error) throw error;
+
+      return sections || [];
+    } catch (error) {
+      console.error('Error fetching sections by department:', error);
       throw error;
     }
   }

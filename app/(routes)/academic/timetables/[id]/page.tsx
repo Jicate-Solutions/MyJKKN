@@ -84,6 +84,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import Loading from '@/components/Loading/Loading';
 import { useToast } from '@/hooks/use-toast';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
@@ -272,7 +273,8 @@ export default function TimetableDetailPage({
   const [isBreakSlot, setIsBreakSlot] = useState(false);
   const [breakDescription, setBreakDescription] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState('');
-  const [selectedStaffId, setSelectedStaffId] = useState('');
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
+  const [staffSearchQuery, setStaffSearchQuery] = useState('');
   const [savingSlot, setSavingSlot] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [slotToDelete, setSlotToDelete] = useState<TimetableSlot | null>(null);
@@ -521,13 +523,21 @@ export default function TimetableDetailPage({
       setIsBreakSlot(existingSlot.is_break_slot);
       setBreakDescription(existingSlot.break_description || '');
       setSelectedCourseId(existingSlot.course_id || '');
-      setSelectedStaffId(existingSlot.staff_id || '');
+
+      // Handle both legacy single staff and new multiple staff
+      if (existingSlot.staff_members && existingSlot.staff_members.length > 0) {
+        setSelectedStaffIds(existingSlot.staff_members.map((s) => s.id));
+      } else if (existingSlot.staff_id) {
+        setSelectedStaffIds([existingSlot.staff_id]);
+      } else {
+        setSelectedStaffIds([]);
+      }
     } else {
       setSelectedSlot(null);
       setIsBreakSlot(false);
       setBreakDescription('');
       setSelectedCourseId('');
-      setSelectedStaffId('');
+      setSelectedStaffIds([]);
     }
 
     setSlotDialogOpen(true);
@@ -542,7 +552,8 @@ export default function TimetableDetailPage({
     setIsBreakSlot(false);
     setBreakDescription('');
     setSelectedCourseId('');
-    setSelectedStaffId('');
+    setSelectedStaffIds([]);
+    setStaffSearchQuery('');
   };
 
   // Save a timetable slot
@@ -562,11 +573,9 @@ export default function TimetableDetailPage({
             ? selectedCourseId
             : undefined
           : undefined,
-        staff_id:
+        staff_ids:
           !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
-            ? selectedStaffId !== 'none'
-              ? selectedStaffId
-              : undefined
+            ? selectedStaffIds.filter((id) => id !== 'none')
             : undefined
       };
 
@@ -581,11 +590,9 @@ export default function TimetableDetailPage({
               ? selectedCourseId
               : undefined
             : undefined,
-          staff_id:
+          staff_ids:
             !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
-              ? selectedStaffId !== 'none'
-                ? selectedStaffId
-                : undefined
+              ? selectedStaffIds.filter((id) => id !== 'none')
               : undefined
         });
       } else {
@@ -593,22 +600,28 @@ export default function TimetableDetailPage({
         result = await TimetableService.createTimetableSlot(slotData);
       }
 
-      // Check for staff conflicts
-      if (slotData.staff_id) {
-        const hasConflict = await TimetableService.checkStaffConflicts(
-          slotData.staff_id,
-          slotData.day_of_week,
-          slotData.period_id,
-          timetableId
-        );
+      // Check for staff conflicts for all selected staff
+      if (slotData.staff_ids && slotData.staff_ids.length > 0) {
+        for (const staffId of slotData.staff_ids) {
+          const hasConflict = await TimetableService.checkStaffConflicts(
+            staffId,
+            slotData.day_of_week,
+            slotData.period_id,
+            timetableId
+          );
 
-        if (hasConflict) {
-          toast({
-            title: 'Warning',
-            description:
-              'Staff member is already assigned to another class at this time.',
-            variant: 'destructive'
-          });
+          if (hasConflict) {
+            const staffMember = staff.find((s) => s.id === staffId);
+            const staffName = staffMember
+              ? `${staffMember.first_name} ${staffMember.last_name}`
+              : 'Staff member';
+
+            toast({
+              title: 'Warning',
+              description: `${staffName} is already assigned to another class at this time.`,
+              variant: 'destructive'
+            });
+          }
         }
       }
 
@@ -1025,8 +1038,18 @@ export default function TimetableDetailPage({
                 // Format course and staff info more clearly
                 cellContent = `${slot.course.course_name}`;
 
-                // Add staff info with better formatting
-                if (slot.staff) {
+                // Add staff info with better formatting for multiple staff
+                if (slot.staff_members && slot.staff_members.length > 0) {
+                  if (slot.staff_members.length === 1) {
+                    cellContent += `\n\nStaff: ${slot.staff_members[0].first_name} ${slot.staff_members[0].last_name}`;
+                  } else {
+                    cellContent += `\n\nStaff:`;
+                    slot.staff_members.forEach((staffMember, index) => {
+                      cellContent += `\n• ${staffMember.first_name} ${staffMember.last_name}`;
+                    });
+                  }
+                } else if (slot.staff) {
+                  // Fallback to legacy single staff
                   cellContent += `\n\nStaff: ${slot.staff.first_name} ${slot.staff.last_name}`;
                 }
               }
@@ -1635,7 +1658,33 @@ export default function TimetableDetailPage({
                                             {slot.course.course_name}
                                           </div>
                                         ) : null}
-                                        {slot.staff ? (
+                                        {/* Display multiple staff members */}
+                                        {slot.staff_members &&
+                                        slot.staff_members.length > 0 ? (
+                                          <div className='space-y-0.5'>
+                                            {slot.staff_members.map(
+                                              (staffMember, index) => (
+                                                <div
+                                                  key={staffMember.id}
+                                                  className='text-[9px] sm:text-[10px] text-slate-600 flex items-center bg-white/70 rounded-md px-1.5 py-0.5 shadow-sm'
+                                                >
+                                                  <span className='inline-block w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-blue-400 mr-1'></span>
+                                                  <span className='truncate max-w-[80px] sm:max-w-none'>
+                                                    {staffMember.first_name}{' '}
+                                                    {staffMember.last_name}
+                                                  </span>
+                                                </div>
+                                              )
+                                            )}
+                                            {slot.staff_members.length > 1 && (
+                                              <div className='text-[8px] text-slate-500 text-center mt-0.5'>
+                                                {slot.staff_members.length}{' '}
+                                                staff members
+                                              </div>
+                                            )}
+                                          </div>
+                                        ) : slot.staff ? (
+                                          // Fallback to legacy single staff display
                                           <div className='text-[9px] sm:text-[10px] text-slate-600 flex items-center bg-white/70 rounded-md px-1.5 py-0.5 shadow-sm'>
                                             <span className='inline-block w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-blue-400 mr-1'></span>
                                             <span className='truncate max-w-[80px] sm:max-w-none'>
@@ -1773,17 +1822,25 @@ export default function TimetableDetailPage({
         open={slotDialogOpen}
         onOpenChange={(open) => !savingSlot && setSlotDialogOpen(open)}
       >
-        <DialogContent className='sm:max-w-md'>
-          <DialogHeader>
-            <DialogTitle>{selectedSlot ? 'Edit Slot' : 'Add Slot'}</DialogTitle>
-            <DialogDescription>
-              {selectedDay && selectedPeriod && (
-                <span className='mt-1 block'>
-                  <span className='font-medium'>
-                    {selectedDay.charAt(0) + selectedDay.slice(1).toLowerCase()}{' '}
+        <DialogContent className='w-[95vw] max-w-lg max-h-[90vh] overflow-hidden flex flex-col'>
+          <DialogHeader className='flex-shrink-0 space-y-3 pb-4'>
+            <DialogTitle className='text-lg font-semibold'>
+              {selectedSlot ? 'Edit Slot' : 'Add Slot'}
+            </DialogTitle>
+            <DialogDescription className='text-sm text-muted-foreground'>
+              Configure the details for this timetable slot
+            </DialogDescription>
+            {selectedDay && selectedPeriod && (
+              <div className='mt-2 p-3 bg-slate-50 rounded-md border'>
+                <div className='flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2'>
+                  <span className='font-medium text-slate-900'>
+                    {selectedDay.charAt(0) + selectedDay.slice(1).toLowerCase()}
                   </span>
-                  <span className='text-muted-foreground'>
-                    {selectedPeriod.period_name} (
+                  <span className='text-slate-600'>
+                    {selectedPeriod.period_name}
+                  </span>
+                  <span className='text-xs text-slate-500'>
+                    (
                     {new Date(
                       `2000-01-01T${selectedPeriod.start_time}`
                     ).toLocaleTimeString('en-US', {
@@ -1801,11 +1858,13 @@ export default function TimetableDetailPage({
                     })}
                     )
                   </span>
-                </span>
-              )}
-            </DialogDescription>
+                </div>
+              </div>
+            )}
           </DialogHeader>
-          <div className='space-y-5 py-4'>
+
+          {/* Scrollable Content Area */}
+          <div className='flex-1 overflow-y-auto space-y-5 px-1'>
             <div className='flex items-center space-x-3 border p-3 rounded-md bg-muted/20'>
               <Checkbox
                 id='is-break'
@@ -1814,36 +1873,46 @@ export default function TimetableDetailPage({
                   setIsBreakSlot(!!checked);
                   if (checked) {
                     setSelectedCourseId('');
-                    setSelectedStaffId('');
+                    setSelectedStaffIds([]);
                   } else {
                     setBreakDescription('');
                   }
                 }}
               />
-              <Label htmlFor='is-break' className='font-medium'>
+              <Label htmlFor='is-break' className='font-medium text-sm'>
                 This is a break slot
               </Label>
             </div>
 
             {isBreakSlot ? (
-              <div className='space-y-2'>
-                <Label htmlFor='break-description'>Break Description</Label>
-                <Input
-                  id='break-description'
-                  placeholder='e.g., Lunch Break, Tea Break'
-                  value={breakDescription}
-                  onChange={(e) => setBreakDescription(e.target.value)}
-                  className='w-full'
-                />
-                <p className='text-xs text-muted-foreground'>
-                  Provide a short description of the break that will be
-                  displayed on the timetable.
-                </p>
+              <div className='space-y-3'>
+                <div className='space-y-2'>
+                  <Label
+                    htmlFor='break-description'
+                    className='text-sm font-medium'
+                  >
+                    Break Description
+                  </Label>
+                  <Textarea
+                    id='break-description'
+                    placeholder='e.g., Lunch Break, Tea Break, Sports Hour'
+                    value={breakDescription}
+                    onChange={(e) => setBreakDescription(e.target.value)}
+                    className='w-full min-h-[80px] resize-none'
+                    rows={3}
+                  />
+                  <p className='text-xs text-muted-foreground'>
+                    Provide a short description of the break that will be
+                    displayed on the timetable.
+                  </p>
+                </div>
               </div>
             ) : (
-              <>
+              <div className='space-y-5'>
                 <div className='space-y-2'>
-                  <Label htmlFor='course'>Course</Label>
+                  <Label htmlFor='course' className='text-sm font-medium'>
+                    Course
+                  </Label>
                   <Select
                     value={selectedCourseId}
                     onValueChange={setSelectedCourseId}
@@ -1864,78 +1933,229 @@ export default function TimetableDetailPage({
                 </div>
 
                 {selectedCourseId && selectedCourseId !== 'none' && (
-                  <div className='space-y-2'>
-                    <Label htmlFor='staff'>Staff</Label>
-                    <Select
-                      value={selectedStaffId}
-                      onValueChange={setSelectedStaffId}
-                      disabled={loadingStaff}
-                    >
-                      <SelectTrigger id='staff' className='w-full'>
-                        <SelectValue placeholder='Select staff member' />
-                      </SelectTrigger>
-                      <SelectContent className='max-h-60 overflow-y-auto'>
-                        <SelectItem value='none'>None</SelectItem>
-                        {staff.map((member) => (
-                          <SelectItem key={member.id} value={member.id}>
-                            {member.first_name} {member.last_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className='space-y-3'>
+                    <div className='flex items-center justify-between'>
+                      <Label htmlFor='staff' className='text-sm font-medium'>
+                        Staff Members
+                      </Label>
+                      {selectedStaffIds.length > 0 && (
+                        <span className='text-xs text-muted-foreground bg-blue-50 px-2 py-1 rounded-md'>
+                          {selectedStaffIds.length} selected
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Scrollable Staff List */}
+                    <div className='border rounded-md bg-white'>
+                      {/* Search Input */}
+                      {staff.length > 5 && (
+                        <div className='p-3 border-b border-slate-200'>
+                          <Input
+                            placeholder='Search staff members...'
+                            value={staffSearchQuery}
+                            onChange={(e) =>
+                              setStaffSearchQuery(e.target.value)
+                            }
+                            className='h-8 text-sm'
+                          />
+                        </div>
+                      )}
+
+                      <div className='max-h-48 overflow-y-auto p-3 space-y-3'>
+                        {staff.length > 0 ? (
+                          (() => {
+                            const filteredStaff = staff.filter((member) =>
+                              staffSearchQuery
+                                ? `${member.first_name} ${member.last_name}`
+                                    .toLowerCase()
+                                    .includes(staffSearchQuery.toLowerCase())
+                                : true
+                            );
+
+                            if (
+                              filteredStaff.length === 0 &&
+                              staffSearchQuery
+                            ) {
+                              return (
+                                <div className='text-center py-6'>
+                                  <p className='text-sm text-muted-foreground'>
+                                    No staff members found matching &quot;
+                                    {staffSearchQuery}&quot;
+                                  </p>
+                                  <Button
+                                    variant='ghost'
+                                    size='sm'
+                                    onClick={() => setStaffSearchQuery('')}
+                                    className='mt-2 h-7 text-xs'
+                                  >
+                                    Clear search
+                                  </Button>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <>
+                                {/* Quick Actions for filtered results */}
+                                {filteredStaff.length > 1 && (
+                                  <div className='flex gap-2 pb-2 border-b border-slate-100'>
+                                    <Button
+                                      variant='outline'
+                                      size='sm'
+                                      onClick={() => {
+                                        const allFilteredIds =
+                                          filteredStaff.map((m) => m.id);
+                                        const newSelected = Array.from(
+                                          new Set([
+                                            ...selectedStaffIds,
+                                            ...allFilteredIds
+                                          ])
+                                        );
+                                        setSelectedStaffIds(newSelected);
+                                      }}
+                                      className='h-6 text-[10px] px-2'
+                                    >
+                                      Select All{' '}
+                                      {staffSearchQuery ? 'Found' : ''}
+                                    </Button>
+                                    <Button
+                                      variant='outline'
+                                      size='sm'
+                                      onClick={() => {
+                                        const filteredIds = filteredStaff.map(
+                                          (m) => m.id
+                                        );
+                                        setSelectedStaffIds((prev) =>
+                                          prev.filter(
+                                            (id) => !filteredIds.includes(id)
+                                          )
+                                        );
+                                      }}
+                                      className='h-6 text-[10px] px-2'
+                                    >
+                                      Clear All{' '}
+                                      {staffSearchQuery ? 'Found' : ''}
+                                    </Button>
+                                  </div>
+                                )}
+
+                                {filteredStaff.map((member) => (
+                                  <div
+                                    key={member.id}
+                                    className='flex items-center space-x-3 hover:bg-slate-50 p-2 rounded-md transition-colors'
+                                  >
+                                    <Checkbox
+                                      id={`staff-${member.id}`}
+                                      checked={selectedStaffIds.includes(
+                                        member.id
+                                      )}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          setSelectedStaffIds((prev) => [
+                                            ...prev,
+                                            member.id
+                                          ]);
+                                        } else {
+                                          setSelectedStaffIds((prev) =>
+                                            prev.filter(
+                                              (id) => id !== member.id
+                                            )
+                                          );
+                                        }
+                                      }}
+                                      disabled={loadingStaff}
+                                    />
+                                    <Label
+                                      htmlFor={`staff-${member.id}`}
+                                      className='text-sm font-normal cursor-pointer flex-1'
+                                    >
+                                      {member.first_name} {member.last_name}
+                                    </Label>
+                                  </div>
+                                ))}
+                              </>
+                            );
+                          })()
+                        ) : (
+                          <div className='text-center py-4'>
+                            {loadingStaff ? (
+                              <p className='text-sm text-muted-foreground'>
+                                Loading staff members...
+                              </p>
+                            ) : (
+                              <p className='text-sm text-muted-foreground'>
+                                No staff members available
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedStaffIds.length > 0 && (
+                      <div className='text-xs text-muted-foreground bg-slate-50 p-2 rounded-md'>
+                        <strong>{selectedStaffIds.length}</strong> staff member
+                        {selectedStaffIds.length === 1 ? '' : 's'} selected for
+                        this slot
+                      </div>
+                    )}
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
-          <DialogFooter className='sm:justify-between'>
-            {selectedSlot ? (
-              <Button
-                variant='destructive'
-                onClick={() => {
-                  openDeleteDialog(selectedSlot);
-                  closeSlotDialog();
-                }}
-                disabled={savingSlot}
-                className='h-9'
-              >
-                <Trash2 className='mr-2 h-4 w-4' />
-                Delete Slot
-              </Button>
-            ) : (
-              <div />
-            )}
-            <div className='flex gap-2'>
-              <Button
-                variant='outline'
-                onClick={closeSlotDialog}
-                disabled={savingSlot}
-                className='h-9'
-              >
-                Cancel
-              </Button>
-              <Button
-                variant='default'
-                onClick={saveSlot}
-                disabled={
-                  savingSlot ||
-                  (isBreakSlot && !breakDescription) ||
-                  (!isBreakSlot &&
-                    (!selectedCourseId || selectedCourseId === 'none'))
-                }
-                className='h-9'
-              >
-                {savingSlot ? (
-                  <>
-                    <span className='mr-2'>Saving</span>
-                    <span className='h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
-                  </>
-                ) : selectedSlot ? (
-                  'Update'
-                ) : (
-                  'Add'
-                )}
-              </Button>
+
+          {/* Fixed Footer */}
+          <DialogFooter className='flex-shrink-0 pt-4 border-t border-slate-200 bg-white mt-auto'>
+            <div className='flex flex-col-reverse sm:flex-row sm:justify-between w-full gap-3'>
+              {selectedSlot ? (
+                <Button
+                  variant='destructive'
+                  onClick={() => {
+                    openDeleteDialog(selectedSlot);
+                    closeSlotDialog();
+                  }}
+                  disabled={savingSlot}
+                  className='h-9 w-full sm:w-auto'
+                >
+                  <Trash2 className='mr-2 h-4 w-4' />
+                  Delete Slot
+                </Button>
+              ) : (
+                <div className='hidden sm:block' />
+              )}
+              <div className='flex gap-2 w-full sm:w-auto'>
+                <Button
+                  variant='outline'
+                  onClick={closeSlotDialog}
+                  disabled={savingSlot}
+                  className='h-9 flex-1 sm:flex-none'
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant='default'
+                  onClick={saveSlot}
+                  disabled={
+                    savingSlot ||
+                    (isBreakSlot && !breakDescription) ||
+                    (!isBreakSlot &&
+                      (!selectedCourseId || selectedCourseId === 'none'))
+                  }
+                  className='h-9 flex-1 sm:flex-none'
+                >
+                  {savingSlot ? (
+                    <>
+                      <span className='mr-2'>Saving</span>
+                      <span className='h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
+                    </>
+                  ) : selectedSlot ? (
+                    'Update'
+                  ) : (
+                    'Add'
+                  )}
+                </Button>
+              </div>
             </div>
           </DialogFooter>
         </DialogContent>

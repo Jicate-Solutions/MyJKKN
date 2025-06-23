@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { MoreVertical, Edit, Trash2, Eye, Plus } from 'lucide-react';
@@ -17,6 +17,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { toast } from 'react-hot-toast';
 
@@ -44,6 +54,19 @@ export function SectionList({
 }: SectionListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
+  // State for confirmation dialogs
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    type: 'single' | 'bulk';
+    section?: Section;
+    sections?: Section[];
+    isDeleting: boolean;
+  }>({
+    isOpen: false,
+    type: 'single',
+    isDeleting: false
+  });
+
   const canViewSections =
     isSuperAdmin || canAccess('organizations.sections', 'view');
   const canEditSections =
@@ -51,41 +74,75 @@ export function SectionList({
   const canDeleteSections =
     isSuperAdmin || canAccess('organizations.sections', 'delete');
 
-  // Handle bulk delete
-  const handleBulkDelete = async (selectedRows: Section[]) => {
+  // Handle bulk delete confirmation
+  const handleBulkDeleteConfirm = async (selectedRows: Section[]) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      type: 'bulk',
+      sections: selectedRows,
+      isDeleting: false
+    });
+  };
+
+  // Handle single delete confirmation
+  const handleSingleDeleteConfirm = (section: Section) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      type: 'single',
+      section: section,
+      isDeleting: false
+    });
+  };
+
+  // Execute the actual delete operation
+  const executeDelete = async () => {
+    if (!deleteConfirmation.section && !deleteConfirmation.sections) return;
+
     try {
-      // Process deletions sequentially to handle potential storage cleanup properly
-      for (const section of selectedRows) {
-        await SectionService.deleteSection(section.id);
+      setDeleteConfirmation((prev) => ({ ...prev, isDeleting: true }));
+
+      if (deleteConfirmation.type === 'bulk' && deleteConfirmation.sections) {
+        // Process bulk deletions sequentially
+        for (const section of deleteConfirmation.sections) {
+          await SectionService.deleteSection(section.id);
+        }
+        toast.success(
+          `${deleteConfirmation.sections.length} sections deleted successfully`
+        );
+      } else if (
+        deleteConfirmation.type === 'single' &&
+        deleteConfirmation.section
+      ) {
+        // Process single deletion
+        await SectionService.deleteSection(deleteConfirmation.section.id);
+        toast.success('Section deleted successfully');
       }
 
-      toast.success(`${selectedRows.length} sections deleted successfully`);
+      // Close dialog and refresh data
+      setDeleteConfirmation({
+        isOpen: false,
+        type: 'single',
+        isDeleting: false
+      });
       onRefresh();
     } catch (error) {
-      console.error('Error deleting sections:', error);
+      console.error('Error deleting section(s):', error);
       toast.error(
-        error instanceof Error ? error.message : 'Failed to delete sections'
+        error instanceof Error ? error.message : 'Failed to delete section(s)'
       );
-      throw error; // Re-throw to let DataTable handle the error state
+      setDeleteConfirmation((prev) => ({ ...prev, isDeleting: false }));
     }
   };
 
-  // Handle single delete
-  const handleSingleDelete = useCallback(
-    async (section: Section) => {
-      try {
-        await SectionService.deleteSection(section.id);
-        toast.success('Section deleted successfully');
-        onRefresh();
-      } catch (error) {
-        console.error('Error deleting section:', error);
-        toast.error(
-          error instanceof Error ? error.message : 'Failed to delete section'
-        );
-      }
-    },
-    [onRefresh]
-  );
+  // Cancel delete operation
+  const cancelDelete = () => {
+    if (deleteConfirmation.isDeleting) return; // Prevent closing while deleting
+    setDeleteConfirmation({
+      isOpen: false,
+      type: 'single',
+      isDeleting: false
+    });
+  };
 
   // Format date helper
   const formatDate = (date: string) => {
@@ -96,9 +153,8 @@ export function SectionList({
   const columns: PermissionColumnDef<Section, any>[] = useMemo(
     () => [
       {
-        id: 'section_name',
-        accessorKey: 'section_name',
-        header: 'Section Name',
+        id: 'section_info',
+        header: 'Section',
         cell: ({ row }) => {
           const section = row.original;
           return canViewSections ? (
@@ -126,6 +182,38 @@ export function SectionList({
               {section.institution?.counselling_code && (
                 <span className='text-sm text-muted-foreground'>
                   {section.institution.counselling_code}
+                </span>
+              )}
+            </div>
+          );
+        }
+      },
+
+      {
+        id: 'program',
+        header: 'Program',
+        cell: ({ row }) => {
+          const section = row.original;
+          return (
+            <div className='text-sm'>
+              {section.program?.program_name || 'N/A'}
+            </div>
+          );
+        }
+      },
+      {
+        id: 'semester',
+        header: 'Semester',
+        cell: ({ row }) => {
+          const section = row.original;
+          return (
+            <div className='flex flex-col'>
+              <span className='text-sm font-medium'>
+                {section.semester?.semester_name || 'N/A'}
+              </span>
+              {section.semester?.semester_code && (
+                <span className='text-xs text-muted-foreground'>
+                  {section.semester.semester_code}
                 </span>
               )}
             </div>
@@ -213,7 +301,7 @@ export function SectionList({
                 <DropdownMenuItem
                   onClick={
                     canDeleteSections
-                      ? () => handleSingleDelete(section)
+                      ? () => handleSingleDeleteConfirm(section)
                       : undefined
                   }
                   disabled={!canDeleteSections}
@@ -235,7 +323,12 @@ export function SectionList({
         enableHiding: false
       }
     ],
-    [canViewSections, canEditSections, canDeleteSections, handleSingleDelete]
+    [
+      canViewSections,
+      canEditSections,
+      canDeleteSections,
+      handleSingleDeleteConfirm
+    ]
   );
 
   // Create table tools (action buttons)
@@ -262,35 +355,93 @@ export function SectionList({
   );
 
   return (
-    <DataTable
-      columns={columns}
-      data={sections}
-      searchPlaceholder='Search sections...'
-      filterColumn='section_name'
-      permissions={{
-        module: 'organizations.sections',
-        actions: {
-          view: true,
-          delete: true
-        },
-        showPermissionError: true
-      }}
-      tableTools={tableTools}
-      onDeleteSelected={canDeleteSections ? handleBulkDelete : undefined}
-      getRowId={(row) => row.id}
-      onRefresh={onRefresh}
-      showRefresh={true}
-      serverSidePagination={{
-        currentPage: metadata.page,
-        totalPages: metadata.totalPages,
-        pageSize: metadata.limit,
-        totalItems: metadata.total,
-        hasNextPage: metadata.page < metadata.totalPages,
-        hasPreviousPage: metadata.page > 1,
-        onPageChange: onPageChange,
-        onPageSizeChange: onPageSizeChange,
-        isLoading: paginationLoading
-      }}
-    />
+    <>
+      <DataTable
+        columns={columns}
+        data={sections}
+        searchPlaceholder='Search sections...'
+        filterColumn='section_info'
+        permissions={{
+          module: 'organizations.sections',
+          actions: {
+            view: true,
+            delete: true
+          },
+          showPermissionError: true
+        }}
+        tableTools={tableTools}
+        onDeleteSelected={
+          canDeleteSections ? handleBulkDeleteConfirm : undefined
+        }
+        getRowId={(row) => row.id}
+        onRefresh={onRefresh}
+        showRefresh={true}
+        serverSidePagination={{
+          currentPage: metadata.page,
+          totalPages: metadata.totalPages,
+          pageSize: metadata.limit,
+          totalItems: metadata.total,
+          hasNextPage: metadata.page < metadata.totalPages,
+          hasPreviousPage: metadata.page > 1,
+          onPageChange: onPageChange,
+          onPageSizeChange: onPageSizeChange,
+          isLoading: paginationLoading
+        }}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={deleteConfirmation.isOpen}
+        onOpenChange={() => !deleteConfirmation.isDeleting && cancelDelete()}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteConfirmation.type === 'bulk'
+                ? 'Delete Sections'
+                : 'Delete Section'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirmation.type === 'bulk' ? (
+                <>
+                  Are you sure you want to delete{' '}
+                  <strong>{deleteConfirmation.sections?.length}</strong>{' '}
+                  selected section(s)? This action cannot be undone and will
+                  permanently remove the section(s) from the system.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete the section{' '}
+                  <strong>
+                    &ldquo;{deleteConfirmation.section?.section_name}&rdquo;
+                  </strong>
+                  ? This action cannot be undone and will permanently remove the
+                  section from the system.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteConfirmation.isDeleting}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={executeDelete}
+              disabled={deleteConfirmation.isDeleting}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {deleteConfirmation.isDeleting ? (
+                <>
+                  <div className='mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent'></div>
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

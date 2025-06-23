@@ -346,6 +346,10 @@ export interface SemesterListResponse {
 export interface Section {
   id: string;
   institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  semester_id: string;
   section_name: string;
   is_active: boolean;
   created_at: string;
@@ -356,10 +360,31 @@ export interface Section {
     name: string;
     counselling_code: string;
   };
+  degree?: {
+    id: string;
+    degree_name: string;
+  };
+  department?: {
+    id: string;
+    department_name: string;
+  };
+  program?: {
+    id: string;
+    program_name: string;
+  };
+  semester?: {
+    id: string;
+    semester_name: string;
+    semester_code: string;
+  };
 }
 
 export interface CreateSectionDto {
   institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  semester_id: string;
   section_name: string;
   is_active?: boolean;
 }
@@ -369,6 +394,10 @@ export interface UpdateSectionDto extends Partial<CreateSectionDto> {}
 export interface SectionFilters {
   search?: string;
   institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
   isActive?: boolean;
   page?: number;
   limit?: number;
