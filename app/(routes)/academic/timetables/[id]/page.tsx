@@ -138,7 +138,6 @@ export default function TimetableDetailPage({
 
   // Add ref for timetable grid capture
   const timetableGridRef = useRef<HTMLDivElement>(null);
-  const timetableInfoRef = useRef<HTMLDivElement>(null);
 
   // States
   const [timetable, setTimetable] = useState<Timetable | null>(null);
@@ -1117,10 +1116,44 @@ export default function TimetableDetailPage({
     setHasUnsavedChanges(true);
   };
 
+  // Get unique courses from current timetable slots for reference
+  const getCoursesInTimetable = () => {
+    const uniqueCourses = new Map();
+
+    slots.forEach((slot) => {
+      if (slot.course && !slot.is_break_slot) {
+        uniqueCourses.set(slot.course.id, slot.course);
+      }
+
+      // Also check sub-slots for combined classes
+      if (slot.sub_slots && slot.sub_slots.length > 0) {
+        slot.sub_slots.forEach((subSlot) => {
+          if (subSlot.course && !subSlot.is_break_slot) {
+            uniqueCourses.set(subSlot.course.id, subSlot.course);
+          }
+        });
+      }
+    });
+
+    return Array.from(uniqueCourses.values()).sort((a, b) =>
+      a.course_code.localeCompare(b.course_code)
+    );
+  };
+
   // Add PDF export function
   const exportToPDF = async () => {
-    if (!timetable || !timetableGridRef.current || !timetableInfoRef.current)
+    if (
+      !timetable ||
+      selectedPeriods.length === 0 ||
+      selectedDays.length === 0
+    ) {
+      toast({
+        title: 'Error',
+        description: 'No timetable data available to export.',
+        variant: 'destructive'
+      });
       return;
+    }
 
     try {
       // Show loading toast
@@ -1141,9 +1174,270 @@ export default function TimetableDetailPage({
         creator: 'JKKN Timetable System'
       });
 
+      // Add header
+      pdf.setFontSize(20);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('JKKN TIMETABLE', pageWidth / 2, 25, { align: 'center' });
+
+      // Add timetable info
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'normal');
+      let yPosition = 40;
+
+      pdf.text(`Timetable: ${timetable.timetable_name}`, margin, yPosition);
+      yPosition += 7;
+
+      if (timetable.institution?.name) {
+        pdf.text(
+          `Institution: ${timetable.institution.name}`,
+          margin,
+          yPosition
+        );
+        yPosition += 7;
+      }
+
+      if (timetable.semester) {
+        const semesterName =
+          typeof timetable.semester === 'string'
+            ? timetable.semester
+            : 'Semester';
+        pdf.text(`Semester: ${semesterName}`, margin, yPosition);
+        yPosition += 7;
+      }
+
+      if (timetable.department?.department_name) {
+        pdf.text(
+          `Department: ${timetable.department.department_name}`,
+          margin,
+          yPosition
+        );
+        yPosition += 7;
+      }
+
+      pdf.text(`Generated on: ${format(new Date(), 'PPP')}`, margin, yPosition);
+      yPosition += 15;
+
+      // Prepare table data
+      const tableColumns = [
+        'Period',
+        ...selectedDays.map((day) => day.charAt(0) + day.slice(1).toLowerCase())
+      ];
+
+      const tableRows = selectedPeriods.map((period) => {
+        const row = [
+          `${period.period_name}\n${new Date(
+            `2000-01-01T${period.start_time}`
+          ).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          })} - ${new Date(`2000-01-01T${period.end_time}`).toLocaleTimeString(
+            'en-US',
+            {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            }
+          )}`
+        ];
+
+        selectedDays.forEach((day) => {
+          const slot = slots.find(
+            (s) => s.day_of_week === day && s.period_id === period.id
+          );
+
+          if (!slot) {
+            row.push('---');
+          } else if (slot.is_break_slot) {
+            row.push(`BREAK\n${slot.break_description || 'Break Time'}`);
+          } else if (
+            slot.is_combined &&
+            slot.sub_slots &&
+            slot.sub_slots.length > 0
+          ) {
+            const subSlotTexts = slot.sub_slots.map((subSlot) => {
+              if (subSlot.is_break_slot) {
+                return `Break: ${subSlot.break_description || 'Break'}`;
+              }
+
+              const courseCode = subSlot.course?.course_code || 'Course';
+              const staffName =
+                subSlot.staff_members && subSlot.staff_members.length > 0
+                  ? `${subSlot.staff_members[0]?.first_name || ''} ${
+                      subSlot.staff_members[0]?.last_name || ''
+                    }`
+                  : 'Staff';
+              const sectionNames =
+                subSlot.sections?.map((s) => s.section_name).join(', ') ||
+                'Section';
+
+              return `${courseCode}\n${staffName}\n${sectionNames}`;
+            });
+            row.push(`COMBINED:\n${subSlotTexts.join('\n---\n')}`);
+          } else {
+            // Regular slot
+            const courseCode = slot.course?.course_code || 'Course';
+            const staffNames =
+              slot.staff_members
+                ?.map((s) => `${s.first_name} ${s.last_name}`)
+                .join(', ') || 'Staff';
+            const sectionNames =
+              slot.sections?.map((s) => s.section_name).join(', ') || 'Section';
+
+            row.push(`${courseCode}\n${staffNames}\n${sectionNames}`);
+          }
+        });
+
+        return row;
+      });
+
+      // Generate table using autoTable
+      autoTable(pdf, {
+        head: [tableColumns],
+        body: tableRows,
+        startY: yPosition,
+        margin: { left: margin, right: margin },
+        styles: {
+          fontSize: 9,
+          cellPadding: 4,
+          overflow: 'linebreak',
+          halign: 'center',
+          valign: 'middle',
+          lineColor: [0, 0, 0],
+          lineWidth: 0.1
+        },
+        headStyles: {
+          fillColor: [37, 99, 235], // Blue
+          textColor: 255,
+          fontSize: 10,
+          fontStyle: 'bold',
+          halign: 'center',
+          valign: 'middle'
+        },
+        columnStyles: {
+          0: {
+            fillColor: [34, 197, 94], // Green
+            textColor: 255,
+            fontStyle: 'bold',
+            halign: 'center',
+            cellWidth: 30
+          }
+        },
+        alternateRowStyles: {
+          fillColor: [249, 250, 251] // Light gray
+        },
+        tableLineColor: [0, 0, 0],
+        tableLineWidth: 0.1,
+        didParseCell: function (data) {
+          // Adjust row height for multi-line content
+          if (data.cell.text.length > 1) {
+            data.cell.styles.minCellHeight = Math.max(
+              20,
+              data.cell.text.length * 6
+            );
+          }
+
+          // Color coding for different slot types
+          if (
+            data.column.index > 0 &&
+            data.cell.text.join('\n').includes('BREAK')
+          ) {
+            data.cell.styles.fillColor = [255, 237, 213]; // Orange tint
+            data.cell.styles.textColor = [194, 65, 12]; // Orange text
+          } else if (
+            data.column.index > 0 &&
+            data.cell.text.join('\n').includes('COMBINED')
+          ) {
+            data.cell.styles.fillColor = [243, 232, 255]; // Purple tint
+            data.cell.styles.textColor = [126, 34, 206]; // Purple text
+          } else if (
+            data.column.index > 0 &&
+            !data.cell.text.join('\n').includes('---')
+          ) {
+            data.cell.styles.fillColor = [239, 246, 255]; // Blue tint
+            data.cell.styles.textColor = [37, 99, 235]; // Blue text
+          }
+        }
+      });
+
+      // Add course reference section
+      const coursesInTimetable = getCoursesInTimetable();
+      let finalY = (pdf as any).lastAutoTable.finalY || yPosition + 100;
+
+      if (coursesInTimetable.length > 0) {
+        finalY += 15; // Space before course reference
+
+        // Course reference header
+        pdf.setFontSize(12);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(
+          `Course Reference (${coursesInTimetable.length} courses)`,
+          margin,
+          finalY
+        );
+        finalY += 8;
+
+        // Course reference table
+        const courseTableData = coursesInTimetable.map((course) => [
+          course.course_code,
+          course.course_name
+        ]);
+
+        autoTable(pdf, {
+          head: [['Course Code', 'Course Name']],
+          body: courseTableData,
+          startY: finalY,
+          margin: { left: margin, right: margin },
+          styles: {
+            fontSize: 9,
+            cellPadding: 3,
+            overflow: 'linebreak',
+            lineColor: [0, 0, 0],
+            lineWidth: 0.1
+          },
+          headStyles: {
+            fillColor: [75, 85, 99], // Gray
+            textColor: 255,
+            fontSize: 10,
+            fontStyle: 'bold',
+            halign: 'center'
+          },
+          columnStyles: {
+            0: {
+              halign: 'center',
+              cellWidth: 30,
+              fontStyle: 'bold',
+              fillColor: [249, 250, 251] // Light gray background for codes
+            },
+            1: {
+              halign: 'left',
+              cellWidth: 'auto'
+            }
+          },
+          alternateRowStyles: {
+            fillColor: [255, 255, 255] // White
+          }
+        });
+
+        finalY = (pdf as any).lastAutoTable.finalY + 10;
+      }
+
+      // Add footer
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'italic');
+      pdf.text(
+        'Generated by JKKN Timetable Management System',
+        pageWidth / 2,
+        pageHeight - 10,
+        { align: 'center' }
+      );
+
       // Save the PDF
       pdf.save(
-        `Timetable_${timetable.timetable_name.replace(/\s+/g, '_')}.pdf`
+        `Timetable_${timetable.timetable_name.replace(/\s+/g, '_')}_${format(
+          new Date(),
+          'yyyy-MM-dd'
+        )}.pdf`
       );
 
       // Success toast
@@ -1251,6 +1545,7 @@ export default function TimetableDetailPage({
             </div>
 
             <TimetableGrid
+              ref={timetableGridRef}
               selectedDays={selectedDays}
               selectedPeriods={selectedPeriods}
               slots={slots}
@@ -1270,6 +1565,30 @@ export default function TimetableDetailPage({
                   <Plus className='h-4 w-4 mr-2' />
                   Add Period
                 </Button>
+              </div>
+            )}
+
+            {/* Course Reference Section */}
+            {getCoursesInTimetable().length > 0 && (
+              <div className='mt-6 border-t pt-4'>
+                <h3 className='text-sm font-medium text-gray-600 mb-3'>
+                  Course Reference ({getCoursesInTimetable().length})
+                </h3>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2'>
+                  {getCoursesInTimetable().map((course) => (
+                    <div
+                      key={course.id}
+                      className='flex items-center gap-3 text-sm'
+                    >
+                      <span className='font-mono bg-gray-100 px-2 py-1 rounded text-xs font-medium min-w-16 text-center'>
+                        {course.course_code}
+                      </span>
+                      <span className='text-gray-700 flex-1'>
+                        {course.course_name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
