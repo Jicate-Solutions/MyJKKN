@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Check, ChevronsUpDown, X, Search, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -30,19 +30,13 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import type { StaffAssignment } from '@/types/staff-planning';
 
 interface StaffMember {
   id: string;
   first_name: string;
   last_name: string;
   designation?: string;
-}
-
-interface StaffAssignment {
-  staff_id: string;
-  hours_allocated: number;
-  is_coordinator: boolean;
-  staff_type: string;
 }
 
 interface StaffSearchSelectorProps {
@@ -52,6 +46,10 @@ interface StaffSearchSelectorProps {
   placeholder?: string;
   className?: string;
   courseName?: string;
+}
+
+function generateAssignmentId(): string {
+  return `assignment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
 export function StaffSearchSelector({
@@ -64,7 +62,41 @@ export function StaffSearchSelector({
 }: StaffSearchSelectorProps) {
   const [open, setOpen] = useState(false);
 
-  const selectedStaffIds = value.map((assignment) => assignment.staff_id);
+  const assignmentsWithIds = useMemo(() => {
+    return value.map((assignment) => ({
+      ...assignment,
+      assignment_id: assignment.assignment_id || generateAssignmentId()
+    }));
+  }, [value]);
+
+  const uniqueAssignments = useMemo(() => {
+    const seenStaffIds = new Set<string>();
+    const uniqueList = assignmentsWithIds.filter((assignment) => {
+      if (seenStaffIds.has(assignment.staff_id)) {
+        console.warn(
+          `Duplicate staff assignment detected for staff_id: ${assignment.staff_id} in course: ${courseName}`
+        );
+        return false;
+      }
+      seenStaffIds.add(assignment.staff_id);
+      return true;
+    });
+
+    return uniqueList;
+  }, [assignmentsWithIds, courseName]);
+
+  useEffect(() => {
+    if (
+      uniqueAssignments.length !== value.length ||
+      uniqueAssignments.some((ua, index) => !value[index]?.assignment_id)
+    ) {
+      onChange(uniqueAssignments);
+    }
+  }, [uniqueAssignments, value, onChange]);
+
+  const selectedStaffIds = uniqueAssignments.map(
+    (assignment) => assignment.staff_id
+  );
 
   const addStaffAssignment = (staffId: string) => {
     if (!selectedStaffIds.includes(staffId)) {
@@ -72,26 +104,27 @@ export function StaffSearchSelector({
         staff_id: staffId,
         hours_allocated: 0,
         is_coordinator: false,
-        staff_type: ''
+        staff_type: '',
+        assignment_id: generateAssignmentId()
       };
-      onChange([...value, newAssignment]);
+      onChange([...uniqueAssignments, newAssignment]);
     }
     setOpen(false);
   };
 
-  const removeStaffAssignment = (staffId: string) => {
-    const updatedAssignments = value.filter(
-      (assignment) => assignment.staff_id !== staffId
+  const removeStaffAssignment = (assignmentId: string) => {
+    const updatedAssignments = uniqueAssignments.filter(
+      (assignment) => assignment.assignment_id !== assignmentId
     );
     onChange(updatedAssignments);
   };
 
   const updateStaffAssignment = (
-    staffId: string,
+    assignmentId: string,
     updates: Partial<StaffAssignment>
   ) => {
-    const updatedAssignments = value.map((assignment) =>
-      assignment.staff_id === staffId
+    const updatedAssignments = uniqueAssignments.map((assignment) =>
+      assignment.assignment_id === assignmentId
         ? { ...assignment, ...updates }
         : assignment
     );
@@ -108,27 +141,24 @@ export function StaffSearchSelector({
     return staff?.designation || '';
   };
 
-  const handleCoordinatorToggle = (staffId: string, checked: boolean) => {
+  const handleCoordinatorToggle = (assignmentId: string, checked: boolean) => {
     if (checked) {
-      // Remove coordinator status from all others when setting one as coordinator
-      const updatedAssignments = value.map((assignment) => ({
+      const updatedAssignments = uniqueAssignments.map((assignment) => ({
         ...assignment,
-        is_coordinator: assignment.staff_id === staffId
+        is_coordinator: assignment.assignment_id === assignmentId
       }));
       onChange(updatedAssignments);
     } else {
-      // Just remove coordinator status from this staff member
-      updateStaffAssignment(staffId, { is_coordinator: false });
+      updateStaffAssignment(assignmentId, { is_coordinator: false });
     }
   };
 
-  const coordinatorStaff = value.find(
+  const coordinatorAssignment = uniqueAssignments.find(
     (assignment) => assignment.is_coordinator
   );
 
   return (
     <div className={cn('space-y-4', className)}>
-      {/* Course Header */}
       {courseName && (
         <div className='flex items-center justify-between'>
           <div>
@@ -136,20 +166,20 @@ export function StaffSearchSelector({
               {courseName}
             </h4>
             <p className='text-xs text-muted-foreground'>
-              {value.length === 0
+              {uniqueAssignments.length === 0
                 ? 'No staff assigned'
-                : `${value.length} staff member${
-                    value.length === 1 ? '' : 's'
+                : `${uniqueAssignments.length} staff member${
+                    uniqueAssignments.length === 1 ? '' : 's'
                   } assigned`}
             </p>
           </div>
-          {value.length > 0 && (
+          {uniqueAssignments.length > 0 && (
             <div className='flex flex-wrap gap-1'>
-              {value.map((assignment) => {
+              {uniqueAssignments.map((assignment) => {
                 const staffName = getStaffName(assignment.staff_id);
                 return (
                   <Badge
-                    key={assignment.staff_id}
+                    key={`header-badge-${assignment.assignment_id}`}
                     variant={
                       assignment.is_coordinator ? 'default' : 'secondary'
                     }
@@ -170,13 +200,12 @@ export function StaffSearchSelector({
         </div>
       )}
 
-      {/* Staff Search and Add */}
       <div className='space-y-2'>
         <div className='flex items-center justify-between'>
           <Label className='text-sm'>Staff Members</Label>
-          {coordinatorStaff && (
+          {coordinatorAssignment && (
             <Badge variant='outline' className='text-xs'>
-              Coordinator: {getStaffName(coordinatorStaff.staff_id)}
+              Coordinator: {getStaffName(coordinatorAssignment.staff_id)}
             </Badge>
           )}
         </div>
@@ -236,24 +265,23 @@ export function StaffSearchSelector({
         </Popover>
       </div>
 
-      {/* Selected Staff Assignments */}
-      {value.length > 0 && (
+      {uniqueAssignments.length > 0 && (
         <div className='space-y-3'>
           <div className='flex items-center gap-2'>
             <Label className='text-sm'>Staff Assignments</Label>
             <Badge variant='secondary' className='text-xs'>
-              {value.length}
+              {uniqueAssignments.length}
             </Badge>
           </div>
 
           <div className='space-y-3'>
-            {value.map((assignment) => {
+            {uniqueAssignments.map((assignment) => {
               const staffName = getStaffName(assignment.staff_id);
               const staffDesignation = getStaffDesignation(assignment.staff_id);
 
               return (
                 <Card
-                  key={assignment.staff_id}
+                  key={`assignment-card-${assignment.assignment_id}`}
                   className='border border-border/50'
                 >
                   <CardHeader className='pb-3'>
@@ -279,7 +307,7 @@ export function StaffSearchSelector({
                         variant='ghost'
                         size='sm'
                         onClick={() =>
-                          removeStaffAssignment(assignment.staff_id)
+                          removeStaffAssignment(assignment.assignment_id!)
                         }
                         className='h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive'
                       >
@@ -290,7 +318,6 @@ export function StaffSearchSelector({
 
                   <CardContent className='pt-0'>
                     <div className='grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'>
-                      {/* Hours Allocated */}
                       <div className='space-y-2'>
                         <Label className='text-xs'>Hours Allocated</Label>
                         <Input
@@ -306,7 +333,7 @@ export function StaffSearchSelector({
                                     0,
                                     Math.min(100, parseInt(e.target.value))
                                   );
-                            updateStaffAssignment(assignment.staff_id, {
+                            updateStaffAssignment(assignment.assignment_id!, {
                               hours_allocated: value
                             });
                           }}
@@ -315,13 +342,12 @@ export function StaffSearchSelector({
                         />
                       </div>
 
-                      {/* Staff Type */}
                       <div className='space-y-2'>
                         <Label className='text-xs'>Staff Type</Label>
                         <Select
                           value={assignment.staff_type}
                           onValueChange={(value) =>
-                            updateStaffAssignment(assignment.staff_id, {
+                            updateStaffAssignment(assignment.assignment_id!, {
                               staff_type: value
                             })
                           }
@@ -342,7 +368,6 @@ export function StaffSearchSelector({
                         </Select>
                       </div>
 
-                      {/* Course Coordinator */}
                       <div className='space-y-2'>
                         <Label className='text-xs'>Course Coordinator</Label>
                         <div className='flex items-center space-x-2'>
@@ -350,7 +375,7 @@ export function StaffSearchSelector({
                             checked={assignment.is_coordinator}
                             onCheckedChange={(checked) =>
                               handleCoordinatorToggle(
-                                assignment.staff_id,
+                                assignment.assignment_id!,
                                 checked
                               )
                             }
@@ -363,7 +388,6 @@ export function StaffSearchSelector({
                       </div>
                     </div>
 
-                    {/* Validation warnings */}
                     {(!assignment.hours_allocated ||
                       assignment.hours_allocated === 0) && (
                       <div className='mt-3 text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200'>
@@ -384,17 +408,16 @@ export function StaffSearchSelector({
         </div>
       )}
 
-      {/* Summary */}
-      {value.length > 0 && (
+      {uniqueAssignments.length > 0 && (
         <>
           <Separator />
           <div className='flex flex-wrap gap-2'>
             <Label className='text-xs text-muted-foreground'>Summary:</Label>
-            {value.map((assignment) => {
+            {uniqueAssignments.map((assignment) => {
               const staffName = getStaffName(assignment.staff_id);
               return (
                 <Badge
-                  key={assignment.staff_id}
+                  key={`summary-badge-${assignment.assignment_id}`}
                   variant='outline'
                   className='text-xs'
                 >

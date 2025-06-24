@@ -410,4 +410,139 @@ export class StaffPlanService {
 
     return { success, failed };
   }
+
+  /**
+   * Get staff members assigned to a specific course across all staff plans
+   * This method is useful for timetable slot assignment to show only relevant staff
+   * @param courseId Course ID to find assigned staff for
+   * @param filters Optional filters like institution, semester, etc.
+   * @returns Array of staff members with their assignment details
+   */
+  static async getStaffAssignedToCourse(
+    courseId: string,
+    filters?: {
+      institution_id?: string;
+      semester_id?: string;
+      department_id?: string;
+      program_id?: string;
+      is_active?: boolean;
+    }
+  ): Promise<
+    Array<{
+      id: string;
+      first_name: string;
+      last_name: string;
+      staff_id: string;
+      designation?: string;
+      hours_allocated: number;
+      is_coordinator: boolean;
+      staff_type: string;
+      staff_plan_id: string;
+    }>
+  > {
+    try {
+      let query = this.supabase
+        .from('staff_plan_courses')
+        .select(
+          `
+          hours_allocated,
+          is_coordinator,
+          staff_type,
+          staff_plan_id,
+          staff:staff (
+            id,
+            first_name,
+            last_name,
+            staff_id,
+            designation
+          ),
+          staff_plan:staff_plans (
+            id,
+            institution_id,
+            semester_id,
+            department_id,
+            program_id,
+            is_active
+          )
+        `
+        )
+        .eq('course_id', courseId);
+
+      // Apply filters if provided
+      if (filters?.is_active !== undefined) {
+        query = query.eq('staff_plan.is_active', filters.is_active);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      // Transform and filter the data
+      const result: Array<{
+        id: string;
+        first_name: string;
+        last_name: string;
+        staff_id: string;
+        designation?: string;
+        hours_allocated: number;
+        is_coordinator: boolean;
+        staff_type: string;
+        staff_plan_id: string;
+      }> = [];
+
+      const seenStaffIds = new Set<string>();
+
+      (data || []).forEach((assignment: any) => {
+        if (
+          assignment.staff &&
+          assignment.staff_plan &&
+          !seenStaffIds.has(assignment.staff.id)
+        ) {
+          // Apply additional filters
+          if (
+            filters?.institution_id &&
+            assignment.staff_plan.institution_id !== filters.institution_id
+          ) {
+            return;
+          }
+          if (
+            filters?.semester_id &&
+            assignment.staff_plan.semester_id !== filters.semester_id
+          ) {
+            return;
+          }
+          if (
+            filters?.department_id &&
+            assignment.staff_plan.department_id !== filters.department_id
+          ) {
+            return;
+          }
+          if (
+            filters?.program_id &&
+            assignment.staff_plan.program_id !== filters.program_id
+          ) {
+            return;
+          }
+
+          seenStaffIds.add(assignment.staff.id);
+          result.push({
+            id: assignment.staff.id,
+            first_name: assignment.staff.first_name,
+            last_name: assignment.staff.last_name,
+            staff_id: assignment.staff.staff_id,
+            designation: assignment.staff.designation,
+            hours_allocated: assignment.hours_allocated,
+            is_coordinator: assignment.is_coordinator,
+            staff_type: assignment.staff_type,
+            staff_plan_id: assignment.staff_plan_id
+          });
+        }
+      });
+
+      return result;
+    } catch (error) {
+      console.error('Error fetching staff assigned to course:', error);
+      throw error;
+    }
+  }
 }

@@ -316,7 +316,6 @@ export default function EditTimetablePage({
                       <p className='font-medium mb-1'>Semester</p>
                       <p className='text-muted-foreground text-sm'>
                         {timetable.semester}
-                        {timetable.section && ` / ${timetable.section}`}
                       </p>
                     </div>
                     <div>
