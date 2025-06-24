@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
@@ -63,7 +63,8 @@ const staffPlanSchema = z.object({
             staff_id: z.string().min(1, 'Staff member is required'),
             hours_allocated: z.number().min(1, 'Hours must be at least 1'),
             is_coordinator: z.boolean().default(false),
-            staff_type: z.string().min(1, 'Staff type is required')
+            staff_type: z.string().min(1, 'Staff type is required'),
+            assignment_id: z.string().optional() // Optional for React key management
           })
         )
         .min(1, 'At least one staff member must be assigned'),
@@ -126,6 +127,11 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       courses: [],
       is_active: true
     }
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: 'courses'
   });
 
   // Watch form fields for dependent dropdowns
@@ -197,14 +203,22 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           setSemesters(semestersData);
           setAcademicYears(academicYearsData.data);
           // Format courses to have the expected structure
+          const uniqueCourses = Array.from(
+            new Map(
+              coursesData.map((course: any) => [course.id, course])
+            ).values()
+          );
           setCourses(
-            coursesData.map((course: any) => ({
+            uniqueCourses.map((course: any) => ({
               id: course.id,
               course_name: course.course_name,
               course_code: course.course_code
             }))
           );
-          setStaffMembers(staffData.data);
+          const uniqueStaff = Array.from(
+            new Map(staffData.data.map((item: any) => [item.id, item])).values()
+          );
+          setStaffMembers(uniqueStaff);
 
           // Set form values
           form.reset({
@@ -258,7 +272,12 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
               ]);
             setInstitutions(institutionsData);
             setAcademicYears(academicYearsData.data);
-            setStaffMembers(staffData.data);
+            const uniqueStaff = Array.from(
+              new Map(
+                staffData.data.map((item: any) => [item.id, item])
+              ).values()
+            );
+            setStaffMembers(uniqueStaff);
           } catch (error) {
             console.error('Error loading initial data:', error);
             toast.error('Failed to load form data');
@@ -341,9 +360,14 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
           setSemesters(semestersData);
 
-          // Format courses to have the expected structure
+          // Format courses to have the expected structure and remove duplicates
+          const uniqueCourses = Array.from(
+            new Map(
+              coursesData.map((course: any) => [course.id, course])
+            ).values()
+          );
           setCourses(
-            coursesData.map((course) => ({
+            uniqueCourses.map((course: any) => ({
               id: course.id,
               course_name: course.course_name,
               course_code: course.course_code
@@ -690,14 +714,11 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 <Button
                   type='button'
                   onClick={() =>
-                    form.setValue('courses', [
-                      ...form.getValues('courses'),
-                      {
-                        course_id: '',
-                        staff_assignments: [],
-                        is_combined: false
-                      }
-                    ])
+                    append({
+                      course_id: '',
+                      staff_assignments: [],
+                      is_combined: false
+                    })
                   }
                 >
                   <Plus className='mr-2 h-4 w-4' />
@@ -706,7 +727,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
               </div>
 
               {/* Dynamic Course Assignment Fields */}
-              {form.watch('courses').map((courseAssignment, index) => {
+              {fields.map((field, index) => {
+                const courseAssignment = form.watch(`courses.${index}`);
                 const selectedCourse = courses.find(
                   (c) => c.id === courseAssignment.course_id
                 );
@@ -715,7 +737,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                   : 'Select a course';
 
                 return (
-                  <Card key={index} className='p-6'>
+                  <Card key={field.id} className='p-6'>
                     <div className='space-y-6'>
                       {/* Course Selection */}
                       <div className='flex items-center justify-between'>
@@ -784,11 +806,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                             type='button'
                             variant='outline'
                             size='sm'
-                            onClick={() => {
-                              const courses = form.getValues('courses');
-                              courses.splice(index, 1);
-                              form.setValue('courses', courses);
-                            }}
+                            onClick={() => remove(index)}
                             className='text-destructive hover:text-destructive'
                           >
                             <Trash2 className='h-4 w-4' />
@@ -826,7 +844,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 );
               })}
 
-              {form.watch('courses').length === 0 && (
+              {fields.length === 0 && (
                 <div className='text-center py-8 text-muted-foreground border border-dashed border-border rounded-lg'>
                   No courses added yet. Click &quot;Add Course&quot; to get
                   started.
