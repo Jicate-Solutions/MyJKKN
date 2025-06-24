@@ -152,7 +152,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
         <table className='w-full border-collapse'>
           <thead className='bg-gradient-to-r from-blue-600 to-blue-700 text-white'>
             <tr>
-              <th className='border border-blue-500 p-2 text-left font-semibold text-xs w-24 sticky left-0 bg-blue-600 z-10'>
+              <th className='border border-blue-500 p-2 text-left font-semibold text-xs w-24 sticky left-0 bg-blue-600'>
                 <div className='flex items-center gap-1'>
                   <Calendar className='h-3 w-3' />
                   <span>Period</span>
