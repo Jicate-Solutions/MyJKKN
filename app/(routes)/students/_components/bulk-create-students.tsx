@@ -182,7 +182,7 @@ const parseAndNormalizeDate = (dateString: string): string | null => {
  */
 
 // Define the Zod schema for validating a NEW student row with user-friendly separate fields
-// This accepts separate marks columns and will be transformed into JSON for the database
+// This accepts both UUID and name-based fields for easier user input
 const newStudentSchema = z
   .object({
     // Personal Info
@@ -246,23 +246,34 @@ const newStudentSchema = z
       .optional()
       .nullable(),
 
-    // Course Info
+    // Course Info - Enhanced to accept both UUID and name-based inputs
     quota: z.string().optional().nullable(),
     category: z.string().optional().nullable(),
-    institution_id: z
-      .string()
-      .uuid('Institution ID must be a valid UUID. Check Reference Data sheet.'),
-    degree_id: z
-      .string()
-      .uuid('Degree ID must be a valid UUID. Check Reference Data sheet.')
-      .optional()
-      .nullable(),
-    department_id: z
-      .string()
-      .uuid('Department ID must be a valid UUID. Check Reference Data sheet.'),
-    program_id: z
-      .string()
-      .uuid('Program ID must be a valid UUID. Check Reference Data sheet.'),
+
+    // Institution - Accept either UUID or name
+    institution_id: z.string().optional().nullable(),
+    institution_name: z.string().optional().nullable(),
+
+    // Degree - Accept either UUID or name
+    degree_id: z.string().optional().nullable(),
+    degree_name: z.string().optional().nullable(),
+
+    // Department - Accept either UUID or name
+    department_id: z.string().optional().nullable(),
+    department_name: z.string().optional().nullable(),
+
+    // Program - Accept either UUID or name
+    program_id: z.string().optional().nullable(),
+    program_name: z.string().optional().nullable(),
+
+    // Semester - Accept either UUID or name
+    semester_id: z.string().optional().nullable(),
+    semester_name: z.string().optional().nullable(),
+
+    // Section - Accept either UUID or name
+    section_id: z.string().optional().nullable(),
+    section_name: z.string().optional().nullable(),
+
     entry_type: z.string().optional().nullable(),
 
     // Contact Info
@@ -322,9 +333,307 @@ const newStudentSchema = z
       .optional()
       .nullable()
   })
-  .strict(); // Use strict to prevent unexpected extra fields
+  .strict() // Use strict to prevent unexpected extra fields
+  .refine(
+    (data) => {
+      // Either institution_id or institution_name must be provided
+      return data.institution_id || data.institution_name;
+    },
+    {
+      message: 'Either institution_id or institution_name must be provided',
+      path: ['institution_id']
+    }
+  )
+  .refine(
+    (data) => {
+      // Either department_id or department_name must be provided
+      return data.department_id || data.department_name;
+    },
+    {
+      message: 'Either department_id or department_name must be provided',
+      path: ['department_id']
+    }
+  )
+  .refine(
+    (data) => {
+      // Either program_id or program_name must be provided
+      return data.program_id || data.program_name;
+    },
+    {
+      message: 'Either program_id or program_name must be provided',
+      path: ['program_id']
+    }
+  );
 
 type NewStudentData = z.infer<typeof newStudentSchema>;
+
+// Name resolution functions to convert names to UUIDs
+const resolveInstitutionName = async (name: string): Promise<string | null> => {
+  try {
+    const { createClientSupabaseClient } = await import(
+      '@/lib/supabase/client'
+    );
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await supabase
+      .from('institutions')
+      .select('id')
+      .ilike('name', name.trim())
+      .limit(1)
+      .single();
+
+    if (error || !data) return null;
+    return data.id;
+  } catch (error) {
+    console.error('Error resolving institution name:', error);
+    return null;
+  }
+};
+
+const resolveDegreeName = async (
+  name: string,
+  institutionId: string
+): Promise<string | null> => {
+  try {
+    const { createClientSupabaseClient } = await import(
+      '@/lib/supabase/client'
+    );
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await supabase
+      .from('degrees')
+      .select('id')
+      .ilike('degree_name', name.trim())
+      .eq('institution_id', institutionId)
+      .limit(1)
+      .single();
+
+    if (error || !data) return null;
+    return data.id;
+  } catch (error) {
+    console.error('Error resolving degree name:', error);
+    return null;
+  }
+};
+
+const resolveDepartmentName = async (
+  name: string,
+  institutionId: string
+): Promise<string | null> => {
+  try {
+    const { createClientSupabaseClient } = await import(
+      '@/lib/supabase/client'
+    );
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await supabase
+      .from('departments')
+      .select('id')
+      .ilike('department_name', name.trim())
+      .eq('institution_id', institutionId)
+      .limit(1)
+      .single();
+
+    if (error || !data) return null;
+    return data.id;
+  } catch (error) {
+    console.error('Error resolving department name:', error);
+    return null;
+  }
+};
+
+const resolveProgramName = async (
+  name: string,
+  departmentId: string
+): Promise<string | null> => {
+  try {
+    const { createClientSupabaseClient } = await import(
+      '@/lib/supabase/client'
+    );
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await supabase
+      .from('programs')
+      .select('id')
+      .ilike('program_name', name.trim())
+      .eq('department_id', departmentId)
+      .limit(1)
+      .single();
+
+    if (error || !data) return null;
+    return data.id;
+  } catch (error) {
+    console.error('Error resolving program name:', error);
+    return null;
+  }
+};
+
+const resolveSemesterName = async (
+  name: string,
+  institutionId: string
+): Promise<string | null> => {
+  try {
+    const { createClientSupabaseClient } = await import(
+      '@/lib/supabase/client'
+    );
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await supabase
+      .from('semesters')
+      .select('id')
+      .ilike('semester_name', name.trim())
+      .eq('institution_id', institutionId)
+      .limit(1)
+      .single();
+
+    if (error || !data) return null;
+    return data.id;
+  } catch (error) {
+    console.error('Error resolving semester name:', error);
+    return null;
+  }
+};
+
+const resolveSectionName = async (
+  name: string,
+  semesterId: string
+): Promise<string | null> => {
+  try {
+    const { createClientSupabaseClient } = await import(
+      '@/lib/supabase/client'
+    );
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await supabase
+      .from('sections')
+      .select('id')
+      .ilike('section_name', name.trim())
+      .eq('semester_id', semesterId)
+      .limit(1)
+      .single();
+
+    if (error || !data) return null;
+    return data.id;
+  } catch (error) {
+    console.error('Error resolving section name:', error);
+    return null;
+  }
+};
+
+// Enhanced name resolution function that resolves all name-based fields to IDs
+const resolveNameFields = async (
+  data: NewStudentData
+): Promise<{
+  resolved: any;
+  errors: string[];
+}> => {
+  const resolved = { ...data };
+  const errors: string[] = [];
+
+  try {
+    // 1. Resolve Institution
+    if (data.institution_name && !data.institution_id) {
+      const institutionId = await resolveInstitutionName(data.institution_name);
+      if (institutionId) {
+        resolved.institution_id = institutionId;
+      } else {
+        errors.push(`Institution "${data.institution_name}" not found`);
+      }
+    }
+
+    // Ensure we have institution_id for subsequent resolutions
+    const institutionId = resolved.institution_id;
+    if (!institutionId && !errors.some((e) => e.includes('Institution'))) {
+      errors.push('Institution ID is required for further resolutions');
+      return { resolved, errors };
+    }
+
+    // 2. Resolve Degree (optional)
+    if (data.degree_name && !data.degree_id && institutionId) {
+      const degreeId = await resolveDegreeName(data.degree_name, institutionId);
+      if (degreeId) {
+        resolved.degree_id = degreeId;
+      } else {
+        errors.push(
+          `Degree "${data.degree_name}" not found in the specified institution`
+        );
+      }
+    }
+
+    // 3. Resolve Department
+    if (data.department_name && !data.department_id && institutionId) {
+      const departmentId = await resolveDepartmentName(
+        data.department_name,
+        institutionId
+      );
+      if (departmentId) {
+        resolved.department_id = departmentId;
+      } else {
+        errors.push(
+          `Department "${data.department_name}" not found in the specified institution`
+        );
+      }
+    }
+
+    // Ensure we have department_id for program resolution
+    const departmentId = resolved.department_id;
+    if (!departmentId && !errors.some((e) => e.includes('Department'))) {
+      errors.push('Department ID is required for program resolution');
+      return { resolved, errors };
+    }
+
+    // 4. Resolve Program
+    if (data.program_name && !data.program_id && departmentId) {
+      const programId = await resolveProgramName(
+        data.program_name,
+        departmentId
+      );
+      if (programId) {
+        resolved.program_id = programId;
+      } else {
+        errors.push(
+          `Program "${data.program_name}" not found in the specified department`
+        );
+      }
+    }
+
+    // 5. Resolve Semester (optional)
+    if (data.semester_name && !data.semester_id && institutionId) {
+      const semesterId = await resolveSemesterName(
+        data.semester_name,
+        institutionId
+      );
+      if (semesterId) {
+        resolved.semester_id = semesterId;
+      } else {
+        errors.push(
+          `Semester "${data.semester_name}" not found in the specified institution`
+        );
+      }
+    }
+
+    // 6. Resolve Section (optional)
+    if (data.section_name && !data.section_id && resolved.semester_id) {
+      const sectionId = await resolveSectionName(
+        data.section_name,
+        resolved.semester_id
+      );
+      if (sectionId) {
+        resolved.section_id = sectionId;
+      } else {
+        errors.push(
+          `Section "${data.section_name}" not found in the specified semester`
+        );
+      }
+    }
+
+    return { resolved, errors };
+  } catch (error) {
+    console.error('Error in name resolution:', error);
+    errors.push('Failed to resolve entity names to IDs');
+    return { resolved, errors };
+  }
+};
 
 type ValidationError = {
   row: number;
@@ -534,16 +843,49 @@ export function BulkCreateStudents() {
             h.replace(/\s*\*\s*$/, '').trim()
           );
 
-          const requiredSchemaFields = Object.entries(newStudentSchema.shape)
-            .filter(
-              ([_, schemaType]) =>
-                !(schemaType.isOptional() || schemaType.isNullable())
-            )
-            .map(([key, _]) => key);
+          // Check for required headers (hardcoded list of required fields)
+          const requiredFields = [
+            'student_name',
+            'father_name',
+            'mother_name',
+            'mother_mobile',
+            'date_of_birth',
+            'gender',
+            'religion',
+            'community',
+            'permanent_address_street',
+            'permanent_address_district',
+            'permanent_address_pin_code',
+            'permanent_address_state',
+            'student_mobile',
+            'student_email',
+            'accommodation_type'
+          ];
 
-          const actualMissingHeaders = requiredSchemaFields.filter(
+          const actualMissingHeaders = requiredFields.filter(
             (h) => !cleanHeaders.includes(h)
           );
+
+          // Check that at least one institution identifier is provided
+          const hasInstitution =
+            cleanHeaders.includes('institution_id') ||
+            cleanHeaders.includes('institution_name');
+          const hasDepartment =
+            cleanHeaders.includes('department_id') ||
+            cleanHeaders.includes('department_name');
+          const hasProgram =
+            cleanHeaders.includes('program_id') ||
+            cleanHeaders.includes('program_name');
+
+          if (!hasInstitution) {
+            actualMissingHeaders.push('institution_id or institution_name');
+          }
+          if (!hasDepartment) {
+            actualMissingHeaders.push('department_id or department_name');
+          }
+          if (!hasProgram) {
+            actualMissingHeaders.push('program_id or program_name');
+          }
 
           if (actualMissingHeaders.length > 0) {
             toast.error(
@@ -575,20 +917,35 @@ export function BulkCreateStudents() {
                 }
               );
 
-              // Step 1: Validate with Zod schema
-              const result = newStudentSchema.safeParse(processedRow);
-              if (!result.success) {
+              // Step 1: Validate with Zod schema (basic validation)
+              const basicResult = newStudentSchema.safeParse(processedRow);
+              if (!basicResult.success) {
                 errors.push({
                   row: index + 2,
-                  errors: result.error.flatten().fieldErrors,
+                  errors: basicResult.error.flatten().fieldErrors,
                   rowData: row
                 });
                 continue; // Skip to next row
               }
 
-              const validData = result.data;
+              const basicData = basicResult.data;
 
-              // Step 2: Check for duplicates
+              // Step 2: Resolve name fields to IDs
+              const { resolved: validData, errors: nameErrors } =
+                await resolveNameFields(basicData);
+
+              if (nameErrors.length > 0) {
+                errors.push({
+                  row: index + 2,
+                  errors: {
+                    name_resolution: nameErrors
+                  },
+                  rowData: row
+                });
+                continue; // Skip to next row
+              }
+
+              // Step 3: Check for duplicates
               const duplicateCheck = await checkForDuplicateStudent(validData);
               if (duplicateCheck.isDuplicate) {
                 duplicateErrors.push({
@@ -603,7 +960,7 @@ export function BulkCreateStudents() {
                 continue; // Skip to next row
               }
 
-              // Step 3: Transform data (marks JSON conversion)
+              // Step 4: Transform data (marks JSON conversion)
               try {
                 // Transform separate marks fields into JSON format (only if data exists)
                 let tenthMarksJson = null;
