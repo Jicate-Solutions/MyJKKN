@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import {
-  Check,
   EyeIcon,
   FileEdit,
   Loader2,
@@ -16,7 +15,6 @@ import {
   ChevronDown,
   ChevronUp,
   CalendarIcon,
-  MoreHorizontal,
   Trash,
   RefreshCw,
   AlertCircle
@@ -24,28 +22,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import {
   Card,
@@ -54,18 +36,10 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious
-} from '@/components/ui/pagination';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useStudents } from '@/hooks/student/use-students';
-import { StudentFilters } from '@/types/student';
+import { StudentFilters, Student } from '@/types/student';
 import { Calendar } from '@/components/ui/calendar';
 import {
   Popover,
@@ -96,6 +70,7 @@ import {
   CanView,
   CanDelete
 } from '@/components/auth/permission-guard';
+import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import toast from 'react-hot-toast';
 
 // Define the DateRange type
@@ -121,9 +96,6 @@ export default function StudentsPage() {
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [deleteStudentId, setDeleteStudentId] = useState<string | null>(null);
-  const [deleteStudentName, setDeleteStudentName] = useState<string>('');
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // State for institution/program filters
   const [institutions, setInstitutions] = useState<
@@ -249,30 +221,26 @@ export default function StudentsPage() {
     }
   };
 
-  // Handle initiating the delete process
-  const handleDeleteClick = (studentId: string, studentName: string) => {
-    setDeleteStudentId(studentId);
-    setDeleteStudentName(studentName);
-    setShowDeleteDialog(true);
-  };
+  // Handle bulk delete operation
+  const handleBulkDelete = async (students: Student[]) => {
+    if (students.length === 0) return;
 
-  // Handle the actual deletion
-  const handleConfirmDelete = async () => {
-    if (!deleteStudentId) return;
-
-    setIsDeleting(true);
     try {
-      await StudentService.deleteStudent(deleteStudentId);
-      toast.success(`Student ${deleteStudentName} deleted successfully`);
-      refetch(); // Refresh the list after deletion
+      // Delete students one by one (could be optimized with bulk API)
+      const promises = students.map((student) =>
+        StudentService.deleteStudent(student.id)
+      );
+
+      await Promise.all(promises);
+
+      // Refresh the data
+      await refetch();
+
+      toast.success(`Successfully deleted ${students.length} student(s)`);
     } catch (error) {
-      console.error('Error deleting student:', error);
-      toast.error('Failed to delete student');
-    } finally {
-      setIsDeleting(false);
-      setShowDeleteDialog(false);
-      setDeleteStudentId(null);
-      setDeleteStudentName('');
+      console.error('Error deleting students:', error);
+      toast.error('Failed to delete students');
+      throw error; // Re-throw to let DataTable handle the error state
     }
   };
 
@@ -485,11 +453,117 @@ export default function StudentsPage() {
     ) : null;
   };
 
-  const metadata = {
-    currentPage,
-    totalPages: studentsData?.metadata.totalPages || 1,
-    pageSize: studentsData?.metadata.limit || 10,
-    totalCount: studentsData?.metadata.total || 0
+  // Define columns for the DataTable
+  const columns: PermissionColumnDef<Student, any>[] = [
+    {
+      id: 'serial',
+      header: 'S.No',
+      cell: ({ row, table }) => {
+        const currentPage =
+          Math.floor(row.index / (studentsData?.metadata.limit || 10)) + 1;
+        const pageSize = studentsData?.metadata.limit || 10;
+        return (currentPage - 1) * pageSize + (row.index % pageSize) + 1;
+      },
+      enableSorting: false
+    },
+    {
+      id: 'student_name',
+      header: 'Student Name',
+      cell: ({ row }) => (
+        <Link
+          href={`/students/${row.original.id}`}
+          className='hover:underline hover:text-primary font-medium'
+        >
+          {row.original.student_name}
+        </Link>
+      ),
+      enableSorting: true
+    },
+    {
+      id: 'roll_number',
+      header: 'Roll Number',
+      cell: ({ row }) =>
+        row.original.roll_number || (
+          <span className='text-muted-foreground italic'>Not assigned</span>
+        ),
+      enableSorting: true
+    },
+    {
+      id: 'program',
+      header: 'Program',
+      cell: ({ row }) => row.original.program?.program_name || 'N/A',
+      enableSorting: false
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      cell: ({ row }) => (
+        <Badge
+          variant='default'
+          className={cn(
+            row.original.status === 'active' && 'bg-green-100 text-green-800',
+            row.original.status === 'inactive' && 'bg-gray-100 text-gray-800',
+            row.original.status === 'pending' &&
+              'bg-yellow-100 text-yellow-800',
+            row.original.status === 'exited' && 'bg-red-100 text-red-800',
+            row.original.status === 'graduated' && 'bg-blue-100 text-blue-800'
+          )}
+        >
+          {row.original.status.charAt(0).toUpperCase() +
+            row.original.status.slice(1)}
+        </Badge>
+      ),
+      enableSorting: true
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => (
+        <div className='flex items-center gap-2'>
+          <Button size='icon' variant='ghost' asChild>
+            <Link href={`/students/${row.original.id}`}>
+              <EyeIcon className='h-4 w-4' />
+              <span className='sr-only'>View student</span>
+            </Link>
+          </Button>
+          <Button size='icon' variant='ghost' asChild>
+            <Link href={`/students/${row.original.id}/edit`}>
+              <FileEdit className='h-4 w-4' />
+              <span className='sr-only'>Edit student</span>
+            </Link>
+          </Button>
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+      requiredPermission: {
+        module: 'students',
+        action: 'view'
+      }
+    }
+  ];
+
+  const metadata = studentsData?.metadata || {
+    page: 1,
+    totalPages: 1,
+    limit: 10,
+    total: 0
+  };
+
+  // Server-side pagination configuration
+  const serverSidePagination = {
+    currentPage: metadata.page || 1,
+    totalPages: metadata.totalPages || 1,
+    pageSize: metadata.limit || 10,
+    totalItems: metadata.total || 0,
+    hasNextPage: (metadata.page || 1) < (metadata.totalPages || 1),
+    hasPreviousPage: (metadata.page || 1) > 1,
+    onPageChange: handlePageChange,
+    onPageSizeChange: (pageSize: number) => {
+      setFilters((prev) => ({ ...prev, limit: pageSize, page: 1 }));
+      setCurrentPage(1);
+    },
+    isLoading: isLoading
   };
 
   return (
@@ -528,18 +602,10 @@ export default function StudentsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {/* Basic search */}
+            {/* Basic search and profile status filter */}
             <div className='flex flex-col md:flex-row gap-4 mb-4'>
-              <div className='flex-1 relative'>
-                <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-                <Input
-                  placeholder='Search students...'
-                  value={filters.search || ''}
-                  onChange={(e) =>
-                    handleFilterChange({ search: e.target.value })
-                  }
-                  className='w-full pl-9'
-                />
+              <div className='flex-1'>
+                {/* Search is handled by DataTable component */}
               </div>
               <Select
                 value={
@@ -575,18 +641,6 @@ export default function StudentsPage() {
                 ) : (
                   <ChevronDown className='h-4 w-4 ml-2' />
                 )}
-              </Button>
-              <Button
-                variant='outline'
-                className='md:w-auto'
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-                title='Refresh student data'
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`}
-                />
-                <span className='sr-only'>Refresh</span>
               </Button>
             </div>
 
@@ -836,306 +890,31 @@ export default function StudentsPage() {
             {/* Active filter chips */}
             {renderFilterChips()}
 
-            {isLoading ? (
-              <div className='flex flex-col items-center justify-center py-10'>
-                <Loader2 className='h-8 w-8 animate-spin text-primary mb-4' />
-                <p className='text-muted-foreground'>
-                  Loading student records...
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className='border rounded-md'>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>S.No</TableHead>
-                        <TableHead>Student Name</TableHead>
-                        <TableHead>Roll Number</TableHead>
-                        <TableHead>Program</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className='text-right'>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {studentsData?.data && studentsData.data.length > 0 ? (
-                        studentsData.data.map((student, index) => (
-                          <TableRow key={student.id}>
-                            <TableCell className='font-medium'>
-                              {(currentPage - 1) * metadata.pageSize +
-                                index +
-                                1}
-                            </TableCell>
-                            <TableCell className='font-medium'>
-                              <Link
-                                href={`/students/${student.id}`}
-                                className='hover:underline hover:text-primary'
-                              >
-                                {student.student_name}
-                              </Link>
-                            </TableCell>
-                            <TableCell>
-                              {student.roll_number || (
-                                <span className='text-muted-foreground italic'>
-                                  Not assigned
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {student.program?.program_name || 'N/A'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant='default'
-                                className={cn(
-                                  student.status === 'active' &&
-                                    'bg-green-100 text-green-800',
-                                  student.status === 'inactive' &&
-                                    'bg-gray-100 text-gray-800',
-                                  student.status === 'pending' &&
-                                    'bg-yellow-100 text-yellow-800',
-                                  student.status === 'exited' &&
-                                    'bg-red-100 text-red-800',
-                                  student.status === 'graduated' &&
-                                    'bg-blue-100 text-blue-800'
-                                )}
-                              >
-                                {student.status.charAt(0).toUpperCase() +
-                                  student.status.slice(1)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className='text-right'>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant='ghost'
-                                    className='h-8 w-8 p-0'
-                                  >
-                                    <span className='sr-only'>Open menu</span>
-                                    <MoreHorizontal className='h-4 w-4' />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align='end'>
-                                  <DropdownMenuItem asChild>
-                                    <Link
-                                      href={`/students/${student.id}`}
-                                      className='cursor-pointer'
-                                      aria-disabled={
-                                        !isSuperAdmin &&
-                                        !canAccess('students', 'view')
-                                      }
-                                      tabIndex={
-                                        isSuperAdmin ||
-                                        canAccess('students', 'view')
-                                          ? 0
-                                          : -1
-                                      }
-                                      style={{
-                                        opacity:
-                                          isSuperAdmin ||
-                                          canAccess('students', 'view')
-                                            ? 1
-                                            : 0.5,
-                                        pointerEvents:
-                                          isSuperAdmin ||
-                                          canAccess('students', 'view')
-                                            ? 'auto'
-                                            : 'none'
-                                      }}
-                                    >
-                                      <EyeIcon className='mr-2 h-4 w-4' />
-                                      <span>View Details</span>
-                                    </Link>
-                                  </DropdownMenuItem>
-
-                                  <DropdownMenuItem asChild>
-                                    <Link
-                                      href={`/students/${student.id}/edit`}
-                                      className='cursor-pointer'
-                                      aria-disabled={
-                                        !isSuperAdmin &&
-                                        !canAccess('students', 'edit')
-                                      }
-                                      tabIndex={
-                                        isSuperAdmin ||
-                                        canAccess('students', 'edit')
-                                          ? 0
-                                          : -1
-                                      }
-                                      style={{
-                                        opacity:
-                                          isSuperAdmin ||
-                                          canAccess('students', 'edit')
-                                            ? 1
-                                            : 0.5,
-                                        pointerEvents:
-                                          isSuperAdmin ||
-                                          canAccess('students', 'edit')
-                                            ? 'auto'
-                                            : 'none'
-                                      }}
-                                    >
-                                      <FileEdit className='mr-2 h-4 w-4' />
-                                      <span>Edit Student</span>
-                                    </Link>
-                                  </DropdownMenuItem>
-
-                                  {/* Add more actions as needed with permission checks */}
-                                  <DropdownMenuSeparator />
-
-                                  <DropdownMenuItem
-                                    className='text-destructive'
-                                    onClick={() =>
-                                      handleDeleteClick(
-                                        student.id,
-                                        student.student_name
-                                      )
-                                    }
-                                    disabled={
-                                      !isSuperAdmin &&
-                                      !canAccess('students', 'delete')
-                                    }
-                                  >
-                                    <Trash className='mr-2 h-4 w-4' />
-                                    <span>Delete</span>
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={6} className='h-24 text-center'>
-                            No student records found.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                {studentsData?.data && studentsData.data.length > 0 && (
-                  <div className='flex items-center justify-end space-x-2 py-4'>
-                    <div className='text-sm text-muted-foreground'>
-                      Showing{' '}
-                      <span className='font-medium'>
-                        {(currentPage - 1) * metadata.pageSize + 1}
-                      </span>{' '}
-                      to{' '}
-                      <span className='font-medium'>
-                        {Math.min(
-                          currentPage * metadata.pageSize,
-                          metadata.totalCount
-                        )}
-                      </span>{' '}
-                      of{' '}
-                      <span className='font-medium'>{metadata.totalCount}</span>{' '}
-                      results
-                    </div>
-                    <Pagination>
-                      <PaginationContent>
-                        <PaginationItem>
-                          <PaginationPrevious
-                            onClick={() => {
-                              if (currentPage > 1) {
-                                handlePageChange(currentPage - 1);
-                              }
-                            }}
-                            className={
-                              currentPage <= 1
-                                ? 'pointer-events-none opacity-50'
-                                : ''
-                            }
-                          />
-                        </PaginationItem>
-                        {Array.from(
-                          { length: metadata.totalPages },
-                          (_, i) => i + 1
-                        )
-                          .filter(
-                            (page) =>
-                              page === 1 ||
-                              page === metadata.totalPages ||
-                              Math.abs(page - currentPage) <= 1
-                          )
-                          .map((page, i, array) => {
-                            const showEllipsis =
-                              i > 0 && page - array[i - 1] > 1;
-                            return (
-                              <div key={page} className='flex items-center'>
-                                {showEllipsis && (
-                                  <PaginationItem>
-                                    <span className='px-4'>...</span>
-                                  </PaginationItem>
-                                )}
-                                <PaginationItem>
-                                  <PaginationLink
-                                    onClick={() => handlePageChange(page)}
-                                    isActive={page === currentPage}
-                                  >
-                                    {page}
-                                  </PaginationLink>
-                                </PaginationItem>
-                              </div>
-                            );
-                          })}
-                        <PaginationItem>
-                          <PaginationNext
-                            onClick={() => {
-                              if (currentPage < metadata.totalPages) {
-                                handlePageChange(currentPage + 1);
-                              }
-                            }}
-                            className={
-                              currentPage >= metadata.totalPages
-                                ? 'pointer-events-none opacity-50'
-                                : ''
-                            }
-                          />
-                        </PaginationItem>
-                      </PaginationContent>
-                    </Pagination>
-                  </div>
-                )}
-              </>
-            )}
+            {/* DataTable component */}
+            <DataTable
+              columns={columns}
+              data={studentsData?.data || []}
+              searchPlaceholder='Search students...'
+              filterColumn='student_name'
+              permissions={{
+                module: 'students',
+                actions: {
+                  view: true,
+                  create: true,
+                  edit: true,
+                  delete: true
+                },
+                showPermissionError: true
+              }}
+              onDeleteSelected={handleBulkDelete}
+              getRowId={(row) => row.id}
+              onRefresh={handleRefresh}
+              showRefresh={true}
+              serverSidePagination={serverSidePagination}
+            />
           </CardContent>
         </Card>
       </div>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete {deleteStudentName}&apos;s record and
-              all associated data. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                handleConfirmDelete();
-              }}
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-              disabled={isDeleting}
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  Deleting...
-                </>
-              ) : (
-                <>Delete</>
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </ContentLayout>
   );
 }

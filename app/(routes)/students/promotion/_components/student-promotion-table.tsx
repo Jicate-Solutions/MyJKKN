@@ -5,24 +5,9 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import {
-  CheckSquare,
-  Square,
-  MoreVertical,
-  ArrowUp,
-  ChevronLeft,
-  ChevronRight
-} from 'lucide-react';
+import { ArrowUp, MoreVertical } from 'lucide-react';
 import { Student } from '@/types/student';
 import { Button } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
 import {
   Dialog,
   DialogContent,
@@ -57,7 +42,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
-import { PaginationWithControls } from '@/components/ui/pagination';
+import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 
 interface StudentPromotionTableProps {
   students: Student[];
@@ -90,9 +75,11 @@ export function StudentPromotionTable({
   canEdit,
   onBulkPromote
 }: StudentPromotionTableProps) {
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showPromotionDialog, setShowPromotionDialog] = useState(false);
   const [singleStudentId, setSingleStudentId] = useState<string | null>(null);
+  const [bulkPromotionStudents, setBulkPromotionStudents] = useState<Student[]>(
+    []
+  );
   const [isPromoting, setIsPromoting] = useState(false);
 
   // State for semesters and sections
@@ -128,15 +115,15 @@ export function StudentPromotionTable({
       }
 
       // Get unique program IDs and institution IDs from selected students (or the single student)
-      const selectedStudents = studentId
+      const studentsToCheck = studentId
         ? students.filter((s) => s.id === studentId)
-        : students.filter((s) => selectedIds.includes(s.id));
+        : bulkPromotionStudents;
 
       const uniqueProgramIds = [
-        ...new Set(selectedStudents.map((s) => s.program_id))
+        ...new Set(studentsToCheck.map((s) => s.program_id))
       ];
       const uniqueInstitutionIds = [
-        ...new Set(selectedStudents.map((s) => s.institution_id))
+        ...new Set(studentsToCheck.map((s) => s.institution_id))
       ];
 
       if (uniqueProgramIds.length > 1) {
@@ -181,16 +168,16 @@ export function StudentPromotionTable({
   const loadSections = async (semesterId: string) => {
     try {
       // Get the institution ID from selected students
-      const selectedStudents = singleStudentId
+      const studentsToCheck = singleStudentId
         ? students.filter((s) => s.id === singleStudentId)
-        : students.filter((s) => selectedIds.includes(s.id));
+        : bulkPromotionStudents;
 
-      if (selectedStudents.length === 0) {
+      if (studentsToCheck.length === 0) {
         setSections([]);
         return;
       }
 
-      const institutionId = selectedStudents[0]?.institution_id;
+      const institutionId = studentsToCheck[0]?.institution_id;
       if (!institutionId) {
         console.log('No institution_id found for selected students');
         setSections([]);
@@ -218,7 +205,7 @@ export function StudentPromotionTable({
       // Get the list of student IDs to promote
       const studentsToPromote = singleStudentId
         ? [singleStudentId]
-        : selectedIds;
+        : bulkPromotionStudents.map((s) => s.id);
 
       if (studentsToPromote.length === 0) {
         toast.error('No students selected for promotion');
@@ -239,7 +226,7 @@ export function StudentPromotionTable({
           }`
         );
         setShowPromotionDialog(false);
-        setSelectedIds([]);
+        setBulkPromotionStudents([]);
         setSingleStudentId(null);
       }
     } catch (error) {
@@ -250,158 +237,122 @@ export function StudentPromotionTable({
     }
   };
 
-  // Toggle select all
-  const toggleSelectAll = () => {
-    if (selectedIds.length === students.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(students.map((s) => s.id));
+  // Handle bulk promotion - repurpose the delete function for promotion
+  const handleBulkPromotion = async (selectedStudents: Student[]) => {
+    if (selectedStudents.length > 0 && canEdit) {
+      setBulkPromotionStudents(selectedStudents);
+      await handleOpenPromotionDialog();
     }
   };
 
-  // Toggle select individual student
-  const toggleSelectStudent = (id: string) => {
-    if (selectedIds.includes(id)) {
-      setSelectedIds(selectedIds.filter((studentId) => studentId !== id));
-    } else {
-      setSelectedIds([...selectedIds, id]);
+  // Define columns for the DataTable
+  const columns: PermissionColumnDef<Student, any>[] = [
+    {
+      id: 'student_name',
+      header: 'Student Name',
+      cell: ({ row }) => (
+        <Link
+          href={`/students/${row.original.id}`}
+          className='font-medium hover:underline hover:text-primary'
+        >
+          {row.original.student_name}
+        </Link>
+      ),
+      enableSorting: true
+    },
+    {
+      id: 'roll_number',
+      header: 'Roll Number',
+      cell: ({ row }) => row.original.roll_number || 'N/A',
+      enableSorting: true
+    },
+    {
+      id: 'program',
+      header: 'Program',
+      cell: ({ row }) => row.original.program?.program_name || 'N/A',
+      enableSorting: false
+    },
+    {
+      id: 'current_semester',
+      header: 'Current Semester',
+      cell: ({ row }) => row.original.semester?.semester_name || 'N/A',
+      enableSorting: false
+    },
+    {
+      id: 'current_section',
+      header: 'Current Section',
+      cell: ({ row }) => row.original.section?.section_name || 'N/A',
+      enableSorting: false
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant='ghost' className='h-8 w-8 p-0'>
+              <span className='sr-only'>Open menu</span>
+              <MoreVertical className='h-4 w-4' />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='end'>
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuItem asChild>
+              <Link href={`/students/${row.original.id}`}>View Profile</Link>
+            </DropdownMenuItem>
+            {canEdit && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => handleOpenPromotionDialog(row.original.id)}
+                >
+                  Promote Student
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+      enableSorting: false,
+      enableHiding: false
     }
+  ];
+
+  // Server-side pagination configuration
+  const serverSidePagination = {
+    currentPage: metadata.page,
+    totalPages: metadata.totalPages,
+    pageSize: metadata.limit,
+    totalItems: metadata.total,
+    hasNextPage: metadata.page < metadata.totalPages,
+    hasPreviousPage: metadata.page > 1,
+    onPageChange: onPageChange,
+    onPageSizeChange: () => {
+      // Page size change is handled by the parent component through filters
+    },
+    isLoading: false
   };
 
   return (
     <>
-      {/* Bulk Action Button */}
-      {selectedIds.length > 0 && canEdit && (
-        <div className='flex justify-between mb-4'>
-          <Button
-            onClick={() => handleOpenPromotionDialog()}
-            className='flex items-center'
-          >
-            <ArrowUp className='mr-2 h-4 w-4' />
-            Promote Selected ({selectedIds.length})
-          </Button>
-        </div>
-      )}
-
-      {/* Students Table */}
-      <div className='rounded-md border'>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className='w-12'>
-                <div
-                  className='flex items-center cursor-pointer'
-                  onClick={toggleSelectAll}
-                >
-                  {selectedIds.length === students.length &&
-                  students.length > 0 ? (
-                    <CheckSquare className='h-4 w-4' />
-                  ) : (
-                    <Square className='h-4 w-4' />
-                  )}
-                </div>
-              </TableHead>
-              <TableHead>Student Name</TableHead>
-              <TableHead>Roll Number</TableHead>
-              <TableHead>Program</TableHead>
-              <TableHead>Current Semester</TableHead>
-              <TableHead>Current Section</TableHead>
-              <TableHead className='text-right'>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {students.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className='text-center h-24'>
-                  No students found
-                </TableCell>
-              </TableRow>
-            ) : (
-              students.map((student) => (
-                <TableRow key={student.id}>
-                  <TableCell>
-                    <div
-                      className='flex items-center cursor-pointer'
-                      onClick={() => toggleSelectStudent(student.id)}
-                    >
-                      {selectedIds.includes(student.id) ? (
-                        <CheckSquare className='h-4 w-4' />
-                      ) : (
-                        <Square className='h-4 w-4' />
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Link
-                      href={`/students/${student.id}`}
-                      className='font-medium hover:underline'
-                    >
-                      {student.student_name}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{student.roll_number}</TableCell>
-                  <TableCell>
-                    {student.program?.program_name || 'N/A'}
-                  </TableCell>
-                  <TableCell>
-                    {student.semester?.semester_name || 'N/A'}
-                  </TableCell>
-                  <TableCell>
-                    {student.section?.section_name || 'N/A'}
-                  </TableCell>
-                  <TableCell className='text-right'>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant='ghost' className='h-8 w-8 p-0'>
-                          <span className='sr-only'>Open menu</span>
-                          <MoreVertical className='h-4 w-4' />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/students/${student.id}`}>
-                            View Profile
-                          </Link>
-                        </DropdownMenuItem>
-                        {canEdit && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() =>
-                                handleOpenPromotionDialog(student.id)
-                              }
-                            >
-                              Promote Student
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Pagination Controls */}
-      {metadata.totalPages > 1 && (
-        <div className='flex items-center justify-between px-2 mt-4'>
-          <div className='text-sm text-muted-foreground'>
-            Showing {(metadata.page - 1) * metadata.limit + 1} to{' '}
-            {Math.min(metadata.page * metadata.limit, metadata.total)} of{' '}
-            {metadata.total} entries
-          </div>
-
-          <PaginationWithControls
-            currentPage={metadata.page}
-            totalPages={metadata.totalPages}
-            onPageChange={onPageChange}
-          />
-        </div>
-      )}
+      {/* DataTable with promotion functionality */}
+      <DataTable
+        columns={columns}
+        data={students}
+        searchPlaceholder='Search students...'
+        filterColumn='student_name'
+        getRowId={(row) => row.id}
+        serverSidePagination={serverSidePagination}
+        onDeleteSelected={canEdit ? handleBulkPromotion : undefined}
+        permissions={{
+          module: 'students.promotion',
+          actions: {
+            view: true,
+            edit: canEdit,
+            delete: canEdit
+          }
+        }}
+      />
 
       {/* Promotion Dialog */}
       <Dialog
@@ -410,6 +361,7 @@ export function StudentPromotionTable({
           if (!open) {
             setShowPromotionDialog(false);
             setSingleStudentId(null);
+            setBulkPromotionStudents([]);
           }
         }}
       >
@@ -417,7 +369,9 @@ export function StudentPromotionTable({
           <DialogHeader>
             <DialogTitle>
               Promote{' '}
-              {singleStudentId ? 'Student' : `${selectedIds.length} Students`}
+              {singleStudentId
+                ? 'Student'
+                : `${bulkPromotionStudents.length} Students`}
             </DialogTitle>
             <DialogDescription>
               Select the new semester and section for the student(s).
