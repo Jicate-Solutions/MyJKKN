@@ -4,9 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
@@ -30,6 +28,7 @@ import { Info } from 'lucide-react';
 
 export default function StaffPage() {
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const [paginationLoading, setPaginationLoading] = useState(false);
 
   const {
     staff,
@@ -39,7 +38,8 @@ export default function StaffPage() {
     filters,
     updateFilters,
     changePage,
-    fetchStaff
+    fetchStaff,
+    updateLimit
   } = useStaff();
 
   // Use waitForLoad to ensure permissions are fully loaded before making decisions
@@ -75,6 +75,31 @@ export default function StaffPage() {
     }
   }, [permissionsLoaded, isSuperAdmin, canAccess, fetchStaff]);
 
+  // Handle page change with loading state
+  const handlePageChange = async (page: number) => {
+    setPaginationLoading(true);
+    try {
+      await changePage(page);
+    } finally {
+      setPaginationLoading(false);
+    }
+  };
+
+  // Handle page size change
+  const handlePageSizeChange = async (pageSize: number) => {
+    setPaginationLoading(true);
+    try {
+      await updateLimit(pageSize);
+    } finally {
+      setPaginationLoading(false);
+    }
+  };
+
+  // Handle refresh
+  const handleRefresh = async () => {
+    await fetchStaff();
+  };
+
   // Show loading state while permissions are loading
   if (permissionsLoading) {
     return (
@@ -91,14 +116,6 @@ export default function StaffPage() {
       <ContentLayout title='Staff List'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchStaff()}
-            className='mt-4'
-            disabled={!canViewStaff}
-          >
-            Try Again
-          </Button>
         </div>
       </ContentLayout>
     );
@@ -128,30 +145,15 @@ export default function StaffPage() {
               Manage staff members
             </p>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2 sm:items-end'>
+
+          {/* Additional Tools Row */}
+          <div className='flex flex-col sm:flex-row gap-2 sm:items-end w-full'>
             {canEditStaff && <DownloadStaffTemplateButton />}
             {isSuperAdmin && <ExportStaff />}
             {(isSuperAdmin || canAccess('user', 'create')) && (
               <CreateMissingProfilesButton />
             )}
             {canEditStaff && <BulkUploadStaff />}
-            {canCreateStaff ? (
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/staff/list/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Add Staff
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Add Staff
-              </Button>
-            )}
           </div>
         </div>
 
@@ -159,21 +161,19 @@ export default function StaffPage() {
           <CardContent className='p-6'>
             <StaffFilters filters={filters} onFilterChange={updateFilters} />
 
-            {loading ? (
+            {loading && !paginationLoading ? (
               <div className='flex justify-center items-center p-8'>
                 <BeatLoader color='#00e902' />
-              </div>
-            ) : staff.length === 0 ? (
-              <div className='text-center py-8 text-muted-foreground'>
-                No staff members found
               </div>
             ) : (
               <StaffList
                 staff={staff}
                 metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchStaff}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+                onRefresh={handleRefresh}
                 canEdit={canEditStaff}
+                paginationLoading={paginationLoading}
               />
             )}
           </CardContent>

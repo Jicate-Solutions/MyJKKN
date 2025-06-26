@@ -62,6 +62,19 @@ export function useStaff(initialFilters: StaffFilters = {}) {
     [filters, fetchStaff]
   );
 
+  const updateLimit = useCallback(
+    (limit: number) => {
+      const updatedFilters = {
+        ...filters,
+        limit,
+        page: 1 // Reset to first page when limit changes
+      };
+      setFilters(updatedFilters);
+      fetchStaff(updatedFilters);
+    },
+    [filters, fetchStaff]
+  );
+
   return {
     staff,
     loading,
@@ -70,6 +83,7 @@ export function useStaff(initialFilters: StaffFilters = {}) {
     filters,
     updateFilters,
     changePage,
+    updateLimit,
     fetchStaff
   };
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -140,6 +140,35 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const watchedDepartmentId = form.watch('department_id');
   const watchedProgramId = form.watch('program_id');
 
+  // Fetch staff members based on institution and department
+  const fetchStaffMembers = useCallback(
+    async (institutionId?: string, departmentId?: string) => {
+      try {
+        // Only fetch staff if both institution and department are selected
+        if (!institutionId || !departmentId) {
+          setStaffMembers([]);
+          return;
+        }
+
+        const staffResult = await StaffService.getStaff({
+          isActive: true,
+          institution_id: institutionId,
+          department_id: departmentId,
+          limit: 1000 // Set a high limit to get all staff for this institution/department
+        });
+
+        const uniqueStaff = Array.from(
+          new Map(staffResult.data.map((item: any) => [item.id, item])).values()
+        );
+        setStaffMembers(uniqueStaff);
+      } catch (error) {
+        console.error('Error fetching staff members:', error);
+        setStaffMembers([]);
+      }
+    },
+    []
+  );
+
   // Load staff plan data for editing
   useEffect(() => {
     async function loadStaffPlan() {
@@ -179,8 +208,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             programsData,
             semestersData,
             academicYearsData,
-            coursesData,
-            staffData
+            coursesData
           ] = await Promise.all([
             OrganizationService.getInstitutionNames(true),
             DegreeService.getDegreesByInstitution(staffPlan.institution_id),
@@ -191,8 +219,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             CourseService.getCoursesByMapping(
               staffPlan.program_id,
               staffPlan.semester_id
-            ),
-            StaffService.getStaff({ isActive: true })
+            )
           ]);
 
           // Set all dropdown options
@@ -215,10 +242,12 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
               course_code: course.course_code
             }))
           );
-          const uniqueStaff = Array.from(
-            new Map(staffData.data.map((item: any) => [item.id, item])).values()
+
+          // Fetch staff members for the selected institution and department
+          await fetchStaffMembers(
+            staffPlan.institution_id,
+            staffPlan.department_id
           );
-          setStaffMembers(uniqueStaff);
 
           // Set form values
           form.reset({
@@ -264,20 +293,14 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         // Load only institutions and academic years for new form
         const loadInitialData = async () => {
           try {
-            const [institutionsData, academicYearsData, staffData] =
-              await Promise.all([
-                OrganizationService.getInstitutionNames(true),
-                AcademicYearService.getAcademicYears({ isActive: true }),
-                StaffService.getStaff({ isActive: true })
-              ]);
+            const [institutionsData, academicYearsData] = await Promise.all([
+              OrganizationService.getInstitutionNames(true),
+              AcademicYearService.getAcademicYears({ isActive: true })
+            ]);
             setInstitutions(institutionsData);
             setAcademicYears(academicYearsData.data);
-            const uniqueStaff = Array.from(
-              new Map(
-                staffData.data.map((item: any) => [item.id, item])
-              ).values()
-            );
-            setStaffMembers(uniqueStaff);
+            // Don't load staff initially - wait for institution and department selection
+            setStaffMembers([]);
           } catch (error) {
             console.error('Error loading initial data:', error);
             toast.error('Failed to load form data');
@@ -288,7 +311,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     }
 
     loadInitialEditData();
-  }, [staffPlan, form]);
+  }, [staffPlan, form, fetchStaffMembers]);
+
+  // Fetch staff when institution or department changes (for new forms)
+  useEffect(() => {
+    if (!isEditing && watchedInstitutionId && watchedDepartmentId) {
+      fetchStaffMembers(watchedInstitutionId, watchedDepartmentId);
+    } else if (!isEditing && (!watchedInstitutionId || !watchedDepartmentId)) {
+      // Clear staff when institution or department is not selected
+      setStaffMembers([]);
+    }
+  }, [watchedInstitutionId, watchedDepartmentId, isEditing, fetchStaffMembers]);
 
   // Cascading dropdowns
   useEffect(() => {
