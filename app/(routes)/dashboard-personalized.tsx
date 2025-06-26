@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
@@ -31,202 +31,10 @@ import {
   BarChart3,
   TrendingUp,
   Table,
-  Activity,
-  Sparkles
+  Activity
 } from 'lucide-react';
 import { DashboardWidgetType } from '@/types/dashboard';
 import { toast } from 'react-hot-toast';
-import { BentoGrid, BentoGridItem } from '@/components/ui/bento-grid';
-import AnalogClock3D from '@/components/ui/analog-digital-3d-clock';
-import AIChip from '@/components/ui/ai-chip';
-import WeatherCard from '@/components/ui/weather-card';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
-
-// Helper function to get greeting based on time of day
-const getGreeting = (): string => {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good Morning';
-  if (hour < 18) return 'Good Afternoon';
-  return 'Good Evening';
-};
-
-// BentoGrid Demo Component
-function BentoGridSecondDemo({
-  currentUser,
-  currentDate,
-  greeting
-}: {
-  currentUser: string | null;
-  currentDate: Date;
-  greeting: string;
-}) {
-  return (
-    <BentoGrid className='max-w-7xl mx-auto md:auto-rows-[20rem]'>
-      {items.map((item, i) => (
-        <BentoGridItem
-          key={i}
-          title={item.title}
-          description={item.description}
-          header={
-            typeof item.header === 'function'
-              ? item.header({ currentUser, currentDate, greeting })
-              : item.header
-          }
-          className={item.className}
-        />
-      ))}
-    </BentoGrid>
-  );
-}
-
-const items = [
-  {
-    header: ({
-      currentUser,
-      currentDate,
-      greeting
-    }: {
-      currentUser: string | null;
-      currentDate: Date;
-      greeting: string;
-    }) => (
-      <motion.div
-        className='w-full h-full flex flex-col justify-center p-6 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl relative overflow-hidden'
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-      >
-        {/* Enhanced background animations - confetti effect */}
-        {Array.from({ length: 12 }).map((_, i) => (
-          <motion.div
-            key={i}
-            className={`absolute rounded-full opacity-${
-              Math.random() > 0.5 ? '30' : '20'
-            } blur-sm`}
-            style={{
-              width: `${Math.random() * 20 + 10}px`,
-              height: `${Math.random() * 20 + 10}px`,
-              top: `${Math.random() * 100}%`,
-              left: `${Math.random() * 100}%`,
-              backgroundColor: [
-                '#10b981',
-                '#059669',
-                '#047857',
-                '#065f46',
-                '#6ee7b7'
-              ][Math.floor(Math.random() * 5)]
-            }}
-            animate={{
-              y: [0, Math.random() * -100 - 50],
-              x: [0, (Math.random() - 0.5) * 100],
-              opacity: [0.7, 0],
-              scale: [0, 1, 0.5]
-            }}
-            transition={{
-              duration: Math.random() * 10 + 10,
-              repeat: Infinity,
-              ease: 'easeInOut',
-              repeatDelay: Math.random() * 5
-            }}
-          />
-        ))}
-
-        <motion.div
-          className='absolute top-0 right-0 w-32 h-32 bg-green-300 rounded-full opacity-20 blur-3xl'
-          animate={{
-            scale: [1, 1.2, 1],
-            x: [0, 10, 0],
-            y: [0, -10, 0]
-          }}
-          transition={{
-            duration: 8,
-            repeat: Infinity,
-            repeatType: 'reverse'
-          }}
-        />
-        <motion.div
-          className='absolute bottom-10 left-10 w-24 h-24 bg-emerald-400 rounded-full opacity-20 blur-3xl'
-          animate={{
-            scale: [1, 1.3, 1],
-            x: [0, -15, 0],
-            y: [0, 15, 0]
-          }}
-          transition={{
-            duration: 10,
-            repeat: Infinity,
-            repeatType: 'reverse'
-          }}
-        />
-
-        <motion.div
-          initial={{ opacity: 0, x: -30 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.3, duration: 0.8 }}
-        >
-          <motion.h1
-            className='text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-green-500 mb-2'
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{
-              delay: 0.4,
-              duration: 0.8,
-              type: 'spring',
-              stiffness: 100
-            }}
-          >
-            {greeting}, {currentUser || 'User'}!
-          </motion.h1>
-
-          {/* Animated color underline effect */}
-          <motion.div
-            className='h-1 bg-gradient-to-r from-green-500 via-green-500 to-green-500 rounded-full'
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: '40%', opacity: 1 }}
-            transition={{ delay: 0.8, duration: 0.6 }}
-          />
-        </motion.div>
-
-        <motion.p
-          className='mt-4 text-sm text-gray-600 max-w-md'
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.9, duration: 0.5 }}
-        >
-          Explore the birth of groundbreaking ideas and innovations in your
-          dashboard today.
-        </motion.p>
-
-        <motion.div
-          className='mt-4'
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.1, duration: 0.5 }}
-        >
-          <Button
-            size='sm'
-            className='bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 shadow-md hover:shadow-lg transition-all'
-          >
-            <Sparkles className='mr-2 h-4 w-4' />
-            Explore Dashboard
-          </Button>
-        </motion.div>
-      </motion.div>
-    ),
-    className: 'md:col-span-2',
-    title: '',
-    description: ''
-  },
-  {
-    title: 'AI Intelligence',
-    description: "India's first AI Empowered college management system",
-    header: (
-      <div className='w-full h-full flex items-center justify-center rounded-xl overflow-hidden'>
-        <AIChip embedded={true} />
-      </div>
-    ),
-    className: 'md:col-span-1'
-  }
-];
 
 // Widget category icons
 const getCategoryIcon = (category: string) => {
@@ -314,7 +122,7 @@ function WidgetSelectionDialog({
   );
 }
 
-export default function DashboardPage() {
+export default function PersonalizedDashboardPage() {
   const {
     configurations,
     currentConfiguration,
@@ -322,61 +130,12 @@ export default function DashboardPage() {
     error,
     switchConfiguration,
     addWidget,
-    removeWidget,
-    updateWidget,
     getWidgetTypesByCategory,
     refreshDashboard
   } = useDashboard();
 
   const [isEditing, setIsEditing] = useState(false);
   const [showWidgetDialog, setShowWidgetDialog] = useState(false);
-
-  // User and time-related state
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [greeting, setGreeting] = useState<string>(getGreeting());
-
-  // Fetch current user
-  useEffect(() => {
-    const fetchCurrentUser = async () => {
-      try {
-        const supabase = createClientSupabaseClient();
-        const {
-          data: { user },
-          error
-        } = await supabase.auth.getUser();
-
-        if (user) {
-          // Get user profile to get full name
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', user.id)
-            .single();
-
-          setCurrentUser(
-            profile?.full_name || user.email?.split('@')[0] || 'User'
-          );
-        }
-      } catch (error) {
-        console.error('Error fetching user:', error);
-        setCurrentUser('User');
-      }
-    };
-
-    fetchCurrentUser();
-  }, []);
-
-  // Update time every minute
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date();
-      setCurrentDate(now);
-      setGreeting(getGreeting());
-    }, 60000);
-
-    return () => clearInterval(timer);
-  }, []);
 
   // Handle widget addition
   const handleAddWidget = async (widgetTypeId: string) => {
@@ -438,23 +197,10 @@ export default function DashboardPage() {
   return (
     <ContentLayout title='Dashboard'>
       <div className='space-y-6'>
-        {/* Default BentoGrid Layout - Always visible */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-        >
-          <BentoGridSecondDemo
-            currentUser={currentUser}
-            currentDate={currentDate}
-            greeting={greeting}
-          />
-        </motion.div>
-
         {/* Dashboard Controls */}
         <div className='flex items-center justify-between'>
           <div className='flex items-center gap-4'>
-            <h1 className='text-2xl font-bold'>Analytics & Insights</h1>
+            <h1 className='text-2xl font-bold'>Personal Dashboard</h1>
 
             {configurations.length > 1 && (
               <Select
@@ -490,11 +236,11 @@ export default function DashboardPage() {
           </Button>
         </div>
 
-        {/* Configurable Dashboard Widgets */}
+        {/* Dashboard Layout */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.6 }}
+          transition={{ duration: 0.6 }}
         >
           <DashboardLayout
             configuration={currentConfiguration}
@@ -503,8 +249,6 @@ export default function DashboardPage() {
             onSave={handleSaveDashboard}
             onCancel={handleCancelEdit}
             onAddWidget={() => setShowWidgetDialog(true)}
-            onRemoveWidget={removeWidget}
-            onUpdateWidget={updateWidget}
           />
         </motion.div>
 

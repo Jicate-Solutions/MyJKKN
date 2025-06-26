@@ -41,18 +41,21 @@ interface WeatherData {
 interface WeatherCardProps {
   className?: string;
   embedded?: boolean;
+  showDetails?: boolean;
+  location?: string;
 }
 
 const WeatherCard: React.FC<WeatherCardProps> = ({
   className,
-  embedded = false
+  embedded = false,
+  showDetails = true,
+  location = 'Chennai'
 }) => {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const API_KEY = process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY;
-  const CITY = 'Erode,IN';
 
   const getTimeOfDay = (): 'dawn' | 'day' | 'dusk' | 'night' => {
     const hour = new Date().getHours();
@@ -73,7 +76,7 @@ const WeatherCard: React.FC<WeatherCardProps> = ({
       }
 
       const response = await fetch(
-        `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&appid=${API_KEY}&units=metric`
+        `https://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${API_KEY}&units=metric`
       );
 
       if (!response.ok) {
@@ -164,7 +167,7 @@ const WeatherCard: React.FC<WeatherCardProps> = ({
     fetchWeather();
     const interval = setInterval(fetchWeather, 600000);
     return () => clearInterval(interval);
-  }, []);
+  }, [location]);
 
   const getWeatherIcon = (weatherType: string, isDay: boolean = true) => {
     const iconSize = embedded ? 'w-12 h-12' : 'w-16 h-16';
