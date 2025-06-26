@@ -21,7 +21,8 @@ import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import {
   INSTITUTION_TYPES,
-  INSTITUTION_CATEGORIES
+  INSTITUTION_CATEGORIES,
+  TIMETABLE_TYPES
 } from '@/lib/constants/institutions';
 
 interface InstitutionDetailsPageProps {
@@ -110,6 +111,10 @@ export default function InstitutionDetailsPage({
     );
   };
 
+  const getTimetableTypeLabel = (value: string) => {
+    return TIMETABLE_TYPES.find((type) => type.value === value)?.label || value;
+  };
+
   return (
     <ContentLayout title='Institution Details'>
       <Breadcrumb>
@@ -191,6 +196,12 @@ export default function InstitutionDetailsPage({
                   <p className='text-base text-muted-foreground'>
                     <span className='font-medium text-black'>Category: </span>
                     {getInstitutionCategoryLabel(institution.category)}
+                  </p>
+                  <p className='text-base text-muted-foreground'>
+                    <span className='font-medium text-black'>
+                      Timetable Type:{' '}
+                    </span>
+                    {getTimetableTypeLabel(institution.timetable_type)}
                   </p>
                   <p className='text-base text-muted-foreground'>
                     <span className='font-medium text-black'>

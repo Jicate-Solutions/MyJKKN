@@ -18,6 +18,7 @@ export interface InstitutionDepartments {
 
 export type InstitutionType = 'self' | 'autonomous' | 'aided';
 export type InstitutionCategory = 'ug' | 'pg' | 'ug_pg';
+export type TimetableType = 'day_order' | 'week_order';
 
 export interface Institution {
   id: string;
@@ -25,6 +26,7 @@ export interface Institution {
   counselling_code: string;
   institution_type: InstitutionType;
   category: InstitutionCategory;
+  timetable_type: TimetableType;
   accredited_by: string;
   address_line1: string;
   address_line2?: string;

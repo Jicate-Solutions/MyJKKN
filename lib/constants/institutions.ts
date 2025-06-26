@@ -12,6 +12,11 @@ export const INSTITUTION_CATEGORIES = [
   { value: 'ug_pg', label: 'UG & PG' }
 ] as const;
 
+export const TIMETABLE_TYPES = [
+  { value: 'day_order', label: 'Day Order' },
+  { value: 'week_order', label: 'Week Order' }
+] as const;
+
 export const DEPARTMENT_TYPES = [
   'transportation',
   'administration',

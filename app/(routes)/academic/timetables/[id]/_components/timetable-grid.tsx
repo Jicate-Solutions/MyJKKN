@@ -174,7 +174,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                 key={period.id}
                 className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
               >
-                <td className='border border-gray-200 p-2 bg-gradient-to-r from-green-600 to-green-700 text-white sticky left-0 z-10'>
+                <td className='border border-gray-200 p-2 bg-gradient-to-r from-green-600 to-green-700 text-white sticky left-0'>
                   <div className='flex items-center gap-1'>
                     {lockedPeriods.includes(period.id) && (
                       <Lock className='h-2 w-2 text-green-200' />
