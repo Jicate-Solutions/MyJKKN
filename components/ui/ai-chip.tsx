@@ -6,9 +6,16 @@ import { cn } from '@/lib/utils';
 interface AIChipProps {
   className?: string;
   embedded?: boolean;
+  showDescription?: boolean;
+  animated?: boolean;
 }
 
-const AIChip: React.FC<AIChipProps> = ({ className, embedded = false }) => {
+const AIChip: React.FC<AIChipProps> = ({
+  className,
+  embedded = false,
+  showDescription = true,
+  animated = true
+}) => {
   return (
     <div
       className={cn(

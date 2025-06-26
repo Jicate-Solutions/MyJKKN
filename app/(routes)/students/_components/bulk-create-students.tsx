@@ -159,9 +159,8 @@ const parseAndNormalizeDate = (dateString: string): string | null => {
  *    - Handles headers with asterisks (required field markers)
  *    - Transforms user-friendly input into database-compatible format
  *
- * 5. **Required Fields for Profile Completion**:
- *    - Basic creation: student_name, father_name, mother_name, mother_mobile, date_of_birth,
- *      gender, religion, community, academic info, course info, contact info, accommodation_type
+ * 5. **No Required Fields - All Optional**:
+ *    - ALL FIELDS ARE OPTIONAL - users can upload with any available data
  *    - Profile completion (optional): roll_number, college_email, semester_id, section_id
  *    - When college_email is provided, user accounts are automatically created
  *
@@ -183,20 +182,23 @@ const parseAndNormalizeDate = (dateString: string): string | null => {
 
 // Define the Zod schema for validating a NEW student row with user-friendly separate fields
 // This accepts both UUID and name-based fields for easier user input
+// ALL FIELDS ARE NOW OPTIONAL - NO REQUIRED FIELDS
 const newStudentSchema = z
   .object({
-    // Personal Info
-    student_name: z.string().min(1, 'Student name is required'),
-    father_name: z.string().min(1, 'Father name is required'),
+    // Personal Info - All optional
+    student_name: z.string().optional().nullable(),
+    father_name: z.string().optional().nullable(),
     father_occupation: z.string().optional().nullable(),
     father_mobile: z.string().optional().nullable(),
-    mother_name: z.string().min(1, 'Mother name is required'),
+    mother_name: z.string().optional().nullable(),
     mother_occupation: z.string().optional().nullable(),
-    mother_mobile: z.string().min(1, 'Mother mobile is required'),
+    mother_mobile: z.string().optional().nullable(),
     date_of_birth: z
       .string()
-      .min(1, 'Date of birth is required')
+      .optional()
+      .nullable()
       .transform((val) => {
+        if (!val || typeof val !== 'string') return null;
         const normalized = parseAndNormalizeDate(val);
         if (!normalized) {
           throw new Error(
@@ -205,22 +207,22 @@ const newStudentSchema = z
         }
         return normalized;
       }),
-    gender: z.string().min(1, 'Gender is required'),
-    religion: z.string().min(1, 'Religion is required'),
-    community: z.string().min(1, 'Community is required'),
+    gender: z.string().optional().nullable(),
+    religion: z.string().optional().nullable(),
+    community: z.string().optional().nullable(),
     caste: z.string().optional().nullable(),
     annual_income: z.string().optional().nullable(),
 
-    // Academic Info - Separate fields for easier user input (now optional)
+    // Academic Info - Separate fields for easier user input (optional)
     last_school: z.string().optional().nullable(),
     board_of_study: z.string().optional().nullable(),
 
-    // 10th marks - separate fields (now optional)
+    // 10th marks - separate fields (optional)
     tenth_marks_max_marks: z.string().optional().nullable(),
     tenth_marks_obtained_marks: z.string().optional().nullable(),
     tenth_marks_percentage: z.string().optional().nullable(),
 
-    // 12th marks - separate fields (now optional)
+    // 12th marks - separate fields (optional)
     twelfth_marks_group: z.string().optional().nullable(),
     twelfth_marks_max_marks: z.string().optional().nullable(),
     twelfth_marks_obtained_marks: z.string().optional().nullable(),
@@ -246,67 +248,71 @@ const newStudentSchema = z
       .optional()
       .nullable(),
 
-    // Course Info - Enhanced to accept both UUID and name-based inputs
+    // Course Info - Enhanced to accept both UUID and name-based inputs (all optional)
     quota: z.string().optional().nullable(),
     category: z.string().optional().nullable(),
 
-    // Institution - Accept either UUID or name
+    // Institution - Accept either UUID or name (optional)
     institution_id: z.string().optional().nullable(),
     institution_name: z.string().optional().nullable(),
 
-    // Degree - Accept either UUID or name
+    // Degree - Accept either UUID or name (optional)
     degree_id: z.string().optional().nullable(),
     degree_name: z.string().optional().nullable(),
 
-    // Department - Accept either UUID or name
+    // Department - Accept either UUID or name (optional)
     department_id: z.string().optional().nullable(),
     department_name: z.string().optional().nullable(),
 
-    // Program - Accept either UUID or name
+    // Program - Accept either UUID or name (optional)
     program_id: z.string().optional().nullable(),
     program_name: z.string().optional().nullable(),
 
-    // Semester - Accept either UUID or name
+    // Semester - Accept either UUID or name (optional)
     semester_id: z.string().optional().nullable(),
     semester_name: z.string().optional().nullable(),
 
-    // Section - Accept either UUID or name
+    // Section - Accept either UUID or name (optional)
     section_id: z.string().optional().nullable(),
     section_name: z.string().optional().nullable(),
 
     entry_type: z.string().optional().nullable(),
 
-    // Contact Info
-    permanent_address_street: z
-      .string()
-      .min(1, 'Permanent address street is required'),
+    // Contact Info - All optional
+    permanent_address_street: z.string().optional().nullable(),
     permanent_address_taluk: z.string().optional().nullable(),
-    permanent_address_district: z
-      .string()
-      .min(1, 'Permanent address district is required'),
+    permanent_address_district: z.string().optional().nullable(),
     permanent_address_pin_code: z
       .string()
-      .regex(/^\d{6}$/, 'PIN code must be exactly 6 digits (e.g., 637001)'),
-    permanent_address_state: z
-      .string()
-      .min(1, 'Permanent address state is required'),
+      .optional()
+      .nullable()
+      .refine(
+        (val) => !val || (typeof val === 'string' && /^\d{6}$/.test(val)),
+        'PIN code must be exactly 6 digits (e.g., 637001) if provided'
+      ),
+    permanent_address_state: z.string().optional().nullable(),
     student_mobile: z
       .string()
-      .min(10, 'Student mobile must be at least 10 digits')
-      .regex(
-        /^\d{10,15}$/,
-        'Student mobile must contain only digits (10-15 characters)'
+      .optional()
+      .nullable()
+      .refine(
+        (val) => !val || (typeof val === 'string' && /^\d{10,15}$/.test(val)),
+        'Student mobile must contain only digits (10-15 characters) if provided'
       ),
     student_email: z
       .string()
-      .email(
-        'Student email must be a valid email address (e.g., student@domain.com)'
+      .optional()
+      .nullable()
+      .refine(
+        (val) =>
+          !val ||
+          (typeof val === 'string' &&
+            z.string().email().safeParse(val).success),
+        'Student email must be a valid email address (e.g., student@domain.com) if provided'
       ),
 
-    // Accommodation Info
-    accommodation_type: z
-      .string()
-      .min(1, 'Accommodation type is required (e.g., DAY SCHOLAR, HOSTEL)'),
+    // Accommodation Info - All optional
+    accommodation_type: z.string().optional().nullable(),
     hostel_type: z.string().optional().nullable(),
     bus_required: z
       .preprocess((val) => {
@@ -318,7 +324,7 @@ const newStudentSchema = z
     bus_route: z.string().optional().nullable(),
     bus_pickup_location: z.string().optional().nullable(),
 
-    // Reference Info
+    // Reference Info - All optional
     reference_type: z.string().optional().nullable(),
     reference_name: z.string().optional().nullable(),
     reference_contact: z.string().optional().nullable(),
@@ -327,43 +333,17 @@ const newStudentSchema = z
     roll_number: z.string().optional().nullable(),
     college_email: z
       .string()
-      .email(
-        'College email must be a valid email address (e.g., student@college.edu)'
-      )
       .optional()
       .nullable()
+      .refine(
+        (val) =>
+          !val ||
+          (typeof val === 'string' &&
+            z.string().email().safeParse(val).success),
+        'College email must be a valid email address (e.g., student@college.edu) if provided'
+      )
   })
-  .strict() // Use strict to prevent unexpected extra fields
-  .refine(
-    (data) => {
-      // Either institution_id or institution_name must be provided
-      return data.institution_id || data.institution_name;
-    },
-    {
-      message: 'Either institution_id or institution_name must be provided',
-      path: ['institution_id']
-    }
-  )
-  .refine(
-    (data) => {
-      // Either department_id or department_name must be provided
-      return data.department_id || data.department_name;
-    },
-    {
-      message: 'Either department_id or department_name must be provided',
-      path: ['department_id']
-    }
-  )
-  .refine(
-    (data) => {
-      // Either program_id or program_name must be provided
-      return data.program_id || data.program_name;
-    },
-    {
-      message: 'Either program_id or program_name must be provided',
-      path: ['program_id']
-    }
-  );
+  .strict(); // Use strict to prevent unexpected extra fields
 
 type NewStudentData = z.infer<typeof newStudentSchema>;
 
@@ -838,64 +818,12 @@ export function BulkCreateStudents() {
           const duplicateErrors: ValidationError[] = [];
           const headers = Object.keys(parsedData[0] || {});
 
-          // Clean header names to remove potential asterisks from required field markers
+          // Clean header names to remove potential asterisks from field markers
           const cleanHeaders = headers.map((h) =>
             h.replace(/\s*\*\s*$/, '').trim()
           );
 
-          // Check for required headers (hardcoded list of required fields)
-          const requiredFields = [
-            'student_name',
-            'father_name',
-            'mother_name',
-            'mother_mobile',
-            'date_of_birth',
-            'gender',
-            'religion',
-            'community',
-            'permanent_address_street',
-            'permanent_address_district',
-            'permanent_address_pin_code',
-            'permanent_address_state',
-            'student_mobile',
-            'student_email',
-            'accommodation_type'
-          ];
-
-          const actualMissingHeaders = requiredFields.filter(
-            (h) => !cleanHeaders.includes(h)
-          );
-
-          // Check that at least one institution identifier is provided
-          const hasInstitution =
-            cleanHeaders.includes('institution_id') ||
-            cleanHeaders.includes('institution_name');
-          const hasDepartment =
-            cleanHeaders.includes('department_id') ||
-            cleanHeaders.includes('department_name');
-          const hasProgram =
-            cleanHeaders.includes('program_id') ||
-            cleanHeaders.includes('program_name');
-
-          if (!hasInstitution) {
-            actualMissingHeaders.push('institution_id or institution_name');
-          }
-          if (!hasDepartment) {
-            actualMissingHeaders.push('department_id or department_name');
-          }
-          if (!hasProgram) {
-            actualMissingHeaders.push('program_id or program_name');
-          }
-
-          if (actualMissingHeaders.length > 0) {
-            toast.error(
-              `Missing required columns in the file: ${actualMissingHeaders.join(
-                ', '
-              )}`
-            );
-            resetState(true);
-            return;
-          }
+          // No required fields check - all fields are optional now
           // Process each row with validation and duplicate checking
           for (let index = 0; index < parsedData.length; index++) {
             const row = parsedData[index];
@@ -1252,8 +1180,8 @@ export function BulkCreateStudents() {
             if (row.college_email) {
               userCreationResults.push({
                 student_id: 'failed',
-                student_name: row.student_name,
-                email: row.college_email,
+                student_name: row.student_name ?? 'Unknown',
+                email: row.college_email ?? 'Unknown',
                 success: false,
                 message: errorMessage
               });

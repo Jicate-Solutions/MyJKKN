@@ -12,21 +12,18 @@ import * as XLSX from 'xlsx';
 import { toast } from 'react-hot-toast';
 
 // Define field categories for ID-based template
+// ALL FIELDS ARE NOW OPTIONAL - NO REQUIRED FIELDS
 const ID_BASED_FIELD_CATEGORIES = {
-  // REQUIRED FIELDS - Section 1: Personal Information
-  personal_required: [
-    'student_name', // Required
-    'father_name', // Required
-    'mother_name', // Required
-    'mother_mobile', // Required
-    'date_of_birth', // Required (Format: YYYY-MM-DD)
-    'gender', // Required
-    'religion', // Required
-    'community' // Required
-  ],
-
   // OPTIONAL FIELDS - Section 1: Personal Information
   personal_optional: [
+    'student_name',
+    'father_name',
+    'mother_name',
+    'mother_mobile',
+    'date_of_birth',
+    'gender',
+    'religion',
+    'community',
     'father_occupation',
     'father_mobile',
     'mother_occupation',
@@ -59,36 +56,28 @@ const ID_BASED_FIELD_CATEGORIES = {
     'first_graduate'
   ],
 
-  // REQUIRED FIELDS - Section 3: Course Information (ID-based)
-  course_required: [
-    'institution_id', // Required (UUID)
-    'department_id', // Required (UUID)
-    'program_id' // Required (UUID)
-  ],
-
   // OPTIONAL FIELDS - Section 3: Course Information (ID-based)
   course_optional: [
-    'degree_id', // Optional (UUID)
-    'semester_id', // Optional (UUID)
-    'section_id', // Optional (UUID)
+    'institution_id',
+    'department_id',
+    'program_id',
+    'degree_id',
+    'semester_id',
+    'section_id',
     'entry_type',
     'quota',
     'category'
   ],
 
-  // REQUIRED FIELDS - Section 4: Contact Information
-  contact_required: [
+  // OPTIONAL FIELDS - Section 4: Contact Information
+  contact_optional: [
     'permanent_address_street',
     'permanent_address_district',
     'permanent_address_pin_code',
     'permanent_address_state',
     'student_mobile',
     'student_email',
-    'accommodation_type'
-  ],
-
-  // OPTIONAL FIELDS - Section 4: Contact Information
-  contact_optional: [
+    'accommodation_type',
     'permanent_address_taluk',
     'hostel_type',
     'bus_required',
@@ -107,38 +96,33 @@ const ID_BASED_FIELD_CATEGORIES = {
 };
 
 // Define field categories for name-based template
+// ALL FIELDS ARE NOW OPTIONAL - NO REQUIRED FIELDS
 const NAME_BASED_FIELD_CATEGORIES = {
   // Same personal and academic fields
-  personal_required: [...ID_BASED_FIELD_CATEGORIES.personal_required],
   personal_optional: [...ID_BASED_FIELD_CATEGORIES.personal_optional],
   academic_optional: [...ID_BASED_FIELD_CATEGORIES.academic_optional],
 
-  // REQUIRED FIELDS - Section 3: Course Information (Name-based)
-  course_required: [
-    'institution_name', // Required (Name)
-    'department_name', // Required (Name)
-    'program_name' // Required (Name)
-  ],
-
   // OPTIONAL FIELDS - Section 3: Course Information (Name-based)
   course_optional: [
-    'degree_name', // Optional (Name)
-    'semester_name', // Optional (Name)
-    'section_name', // Optional (Name)
+    'institution_name',
+    'department_name',
+    'program_name',
+    'degree_name',
+    'semester_name',
+    'section_name',
     'entry_type',
     'quota',
     'category'
   ],
 
   // Same contact and reference fields
-  contact_required: [...ID_BASED_FIELD_CATEGORIES.contact_required],
   contact_optional: [...ID_BASED_FIELD_CATEGORIES.contact_optional],
   reference_optional: [...ID_BASED_FIELD_CATEGORIES.reference_optional]
 };
 
 // ID-based sample data
 const ID_BASED_SAMPLE_DATA = {
-  // Personal Information - Required
+  // Personal Information - All Optional
   student_name: 'John Doe',
   father_name: 'Robert Doe',
   mother_name: 'Mary Doe',
@@ -147,15 +131,13 @@ const ID_BASED_SAMPLE_DATA = {
   gender: 'Male',
   religion: 'Hindu',
   community: 'BC',
-
-  // Personal Information - Optional
   father_occupation: 'Business',
   father_mobile: '9876543211',
   mother_occupation: 'Teacher',
   caste: 'Some Caste',
   annual_income: '500000',
 
-  // Academic Information - Optional
+  // Academic Information - All Optional
   last_school: 'ABC Higher Secondary School',
   board_of_study: 'State Board',
   tenth_marks_max_marks: '500',
@@ -178,7 +160,7 @@ const ID_BASED_SAMPLE_DATA = {
   counseling_number: 'C12345',
   first_graduate: 'false',
 
-  // Course Information - ID-based
+  // Course Information - All Optional
   institution_id: '9c1554e8-12a2-4b76-a9d6-8242bb05eba1',
   degree_id: '28827de0-70ad-4082-8320-d9f0ae6920c5',
   department_id: '7646521a-a252-4756-bd8f-ba7c1d36ff56',
@@ -189,7 +171,7 @@ const ID_BASED_SAMPLE_DATA = {
   quota: 'General',
   category: 'OC',
 
-  // Contact Information - Required
+  // Contact Information - All Optional
   permanent_address_street: '123 Main Street, Gandhi Nagar',
   permanent_address_district: 'Namakkal',
   permanent_address_pin_code: '637001',
@@ -197,15 +179,13 @@ const ID_BASED_SAMPLE_DATA = {
   student_mobile: '9988776655',
   student_email: 'john.doe@personal.com',
   accommodation_type: 'HOSTEL',
-
-  // Contact Information - Optional
   permanent_address_taluk: 'Namakkal',
   hostel_type: 'Boys Hostel A',
   bus_required: 'false',
   bus_route: '',
   bus_pickup_location: '',
 
-  // Reference & Onboarding - Optional
+  // Reference & Onboarding - All Optional
   reference_type: 'Educational Consultant',
   reference_name: 'ABC Consultancy',
   reference_contact: '9001122334',
@@ -215,7 +195,7 @@ const ID_BASED_SAMPLE_DATA = {
 
 // Name-based sample data
 const NAME_BASED_SAMPLE_DATA = {
-  // Personal Information - Required
+  // Personal Information - All Optional
   student_name: 'John Doe',
   father_name: 'Robert Doe',
   mother_name: 'Mary Doe',
@@ -224,15 +204,13 @@ const NAME_BASED_SAMPLE_DATA = {
   gender: 'Male',
   religion: 'Hindu',
   community: 'BC',
-
-  // Personal Information - Optional
   father_occupation: 'Business',
   father_mobile: '9876543211',
   mother_occupation: 'Teacher',
   caste: 'Some Caste',
   annual_income: '500000',
 
-  // Academic Information - Optional
+  // Academic Information - All Optional
   last_school: 'ABC Higher Secondary School',
   board_of_study: 'State Board',
   tenth_marks_max_marks: '500',
@@ -255,7 +233,7 @@ const NAME_BASED_SAMPLE_DATA = {
   counseling_number: 'C12345',
   first_graduate: 'false',
 
-  // Course Information - Name-based
+  // Course Information - All Optional
   institution_name: 'JKKN College of Allied Health Sciences',
   degree_name: 'Undergraduate',
   department_name: 'Department of AHS',
@@ -266,7 +244,7 @@ const NAME_BASED_SAMPLE_DATA = {
   quota: 'General',
   category: 'OC',
 
-  // Contact Information - Required
+  // Contact Information - All Optional
   permanent_address_street: '123 Main Street, Gandhi Nagar',
   permanent_address_district: 'Namakkal',
   permanent_address_pin_code: '637001',
@@ -274,15 +252,13 @@ const NAME_BASED_SAMPLE_DATA = {
   student_mobile: '9988776655',
   student_email: 'john.doe@personal.com',
   accommodation_type: 'HOSTEL',
-
-  // Contact Information - Optional
   permanent_address_taluk: 'Namakkal',
   hostel_type: 'Boys Hostel A',
   bus_required: 'false',
   bus_route: '',
   bus_pickup_location: '',
 
-  // Reference & Onboarding - Optional
+  // Reference & Onboarding - All Optional
   reference_type: 'Educational Consultant',
   reference_name: 'ABC Consultancy',
   reference_contact: '9001122334',
@@ -295,12 +271,12 @@ const ID_BASED_INSTRUCTIONS = [
   ['ID-BASED STUDENT BULK UPLOAD INSTRUCTIONS'],
   [''],
   ['IMPORTANT NOTES:'],
-  ['• Fields marked with * in headers are REQUIRED'],
+  ['• ALL FIELDS ARE OPTIONAL - Fill only the data you have available'],
   ['• All UUIDs can be found in the "Reference Data" sheet'],
   ['• Date formats accepted: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY'],
   ['• Boolean fields must be "true" or "false" (lowercase)'],
-  ['• PIN codes must be exactly 6 digits'],
-  ['• Email addresses must be valid format'],
+  ['• PIN codes must be exactly 6 digits if provided'],
+  ['• Email addresses must be valid format if provided'],
   ['• System automatically checks for duplicate students before upload'],
   [
     '• Duplicates are detected by: email, college email, roll number, or mobile+name combination'
@@ -308,9 +284,9 @@ const ID_BASED_INSTRUCTIONS = [
   [''],
   ['FIELD SECTIONS:'],
   [''],
-  ['1. PERSONAL INFORMATION (Required fields marked with *)'],
+  ['1. PERSONAL INFORMATION - ALL OPTIONAL'],
   ['   - Basic student and family details'],
-  ['   - All required fields must be filled'],
+  ['   - Fill only the data you have available'],
   [''],
   ['2. ACADEMIC INFORMATION (10th and 12th marks breakdown) - ALL OPTIONAL'],
   ['   - Instead of complex JSON, use separate columns for marks'],
@@ -318,34 +294,30 @@ const ID_BASED_INSTRUCTIONS = [
   ['   - All academic fields are optional - can be left empty'],
   ['   - Subject-wise marks are optional but recommended'],
   [''],
-  ['3. COURSE INFORMATION (Institution, Department, Program required)'],
-  ['   - Required: institution_id, department_id, program_id (UUIDs)'],
+  ['3. COURSE INFORMATION - ALL OPTIONAL'],
+  ['   - Optional: institution_id, department_id, program_id (UUIDs)'],
   ['   - Optional: degree_id, semester_id, section_id (UUIDs)'],
-  ['   - All IDs must be valid UUIDs from Reference Data sheet'],
+  ['   - All IDs must be valid UUIDs from Reference Data sheet if provided'],
   ['   - Copy UUIDs exactly from the reference lists'],
   [''],
-  ['4. CONTACT INFORMATION'],
+  ['4. CONTACT INFORMATION - ALL OPTIONAL'],
   ['   - Complete address and contact details'],
-  ['   - PIN code must be exactly 6 digits'],
+  ['   - PIN code must be exactly 6 digits if provided'],
   [''],
-  ['5. REFERENCE & ONBOARDING (All optional)'],
+  ['5. REFERENCE & ONBOARDING - ALL OPTIONAL'],
   ['   - roll_number and college_email are usually assigned later'],
   ['   - When college_email is provided, user account will be auto-created'],
   [''],
   ['VALIDATION RULES:'],
-  ['• student_name: Minimum 1 character (Required)'],
-  ['• father_name: Minimum 1 character (Required)'],
-  ['• mother_name: Minimum 1 character (Required)'],
-  ['• mother_mobile: Required field'],
-  ['• date_of_birth: Must be valid date format (Required)'],
-  ['• gender, religion, community: Required fields'],
+  ['• All fields are optional - upload with any available data'],
+  ['• date_of_birth: Must be valid date format if provided'],
+  ['• permanent_address_pin_code: Must be exactly 6 digits if provided'],
+  ['• student_email: Must be valid email format if provided'],
+  ['• college_email: Must be valid email format if provided'],
   [
-    '• institution_id, department_id, program_id: Must be valid UUIDs (Required)'
+    '• institution_id, department_id, program_id: Must be valid UUIDs if provided'
   ],
-  ['• permanent_address_pin_code: Must be exactly 6 digits (Required)'],
-  ['• student_email: Must be valid email format (Required)'],
-  ['• accommodation_type: Required field'],
-  ['• Academic and degree info: All optional'],
+  ['• student_mobile: Must contain only digits (10-15 characters) if provided'],
   [''],
   ['COMMON VALUES:'],
   ['gender: Male, Female, Other'],
@@ -362,12 +334,14 @@ const NAME_BASED_INSTRUCTIONS = [
   ['NAME-BASED STUDENT BULK UPLOAD INSTRUCTIONS'],
   [''],
   ['IMPORTANT NOTES:'],
-  ['• Fields marked with * in headers are REQUIRED'],
-  ['• Names must match EXACTLY with database records (case-insensitive)'],
+  ['• ALL FIELDS ARE OPTIONAL - Fill only the data you have available'],
+  [
+    '• Names must match EXACTLY with database records (case-insensitive) if provided'
+  ],
   ['• Date formats accepted: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY'],
   ['• Boolean fields must be "true" or "false" (lowercase)'],
-  ['• PIN codes must be exactly 6 digits'],
-  ['• Email addresses must be valid format'],
+  ['• PIN codes must be exactly 6 digits if provided'],
+  ['• Email addresses must be valid format if provided'],
   ['• System automatically checks for duplicate students before upload'],
   [
     '• Duplicates are detected by: email, college email, roll number, or mobile+name combination'
@@ -375,9 +349,9 @@ const NAME_BASED_INSTRUCTIONS = [
   [''],
   ['FIELD SECTIONS:'],
   [''],
-  ['1. PERSONAL INFORMATION (Required fields marked with *)'],
+  ['1. PERSONAL INFORMATION - ALL OPTIONAL'],
   ['   - Basic student and family details'],
-  ['   - All required fields must be filled'],
+  ['   - Fill only the data you have available'],
   [''],
   ['2. ACADEMIC INFORMATION (10th and 12th marks breakdown) - ALL OPTIONAL'],
   ['   - Instead of complex JSON, use separate columns for marks'],
@@ -385,35 +359,31 @@ const NAME_BASED_INSTRUCTIONS = [
   ['   - All academic fields are optional - can be left empty'],
   ['   - Subject-wise marks are optional but recommended'],
   [''],
-  ['3. COURSE INFORMATION (Institution, Department, Program required)'],
-  ['   - Required: institution_name, department_name, program_name'],
+  ['3. COURSE INFORMATION - ALL OPTIONAL'],
+  ['   - Optional: institution_name, department_name, program_name'],
   ['   - Optional: degree_name, semester_name, section_name'],
-  ['   - Names must match exactly with database records'],
+  ['   - Names must match exactly with database records if provided'],
   ['   - Copy names exactly from the reference lists'],
   ['   - System will automatically resolve names to IDs during upload'],
   [''],
-  ['4. CONTACT INFORMATION'],
+  ['4. CONTACT INFORMATION - ALL OPTIONAL'],
   ['   - Complete address and contact details'],
-  ['   - PIN code must be exactly 6 digits'],
+  ['   - PIN code must be exactly 6 digits if provided'],
   [''],
-  ['5. REFERENCE & ONBOARDING (All optional)'],
+  ['5. REFERENCE & ONBOARDING - ALL OPTIONAL'],
   ['   - roll_number and college_email are usually assigned later'],
   ['   - When college_email is provided, user account will be auto-created'],
   [''],
   ['VALIDATION RULES:'],
-  ['• student_name: Minimum 1 character (Required)'],
-  ['• father_name: Minimum 1 character (Required)'],
-  ['• mother_name: Minimum 1 character (Required)'],
-  ['• mother_mobile: Required field'],
-  ['• date_of_birth: Must be valid date format (Required)'],
-  ['• gender, religion, community: Required fields'],
+  ['• All fields are optional - upload with any available data'],
+  ['• date_of_birth: Must be valid date format if provided'],
+  ['• permanent_address_pin_code: Must be exactly 6 digits if provided'],
+  ['• student_email: Must be valid email format if provided'],
+  ['• college_email: Must be valid email format if provided'],
   [
-    '• institution_name, department_name, program_name: Must match exactly (Required)'
+    '• institution_name, department_name, program_name: Must match exactly if provided'
   ],
-  ['• permanent_address_pin_code: Must be exactly 6 digits (Required)'],
-  ['• student_email: Must be valid email format (Required)'],
-  ['• accommodation_type: Required field'],
-  ['• Academic and degree info: All optional'],
+  ['• student_mobile: Must contain only digits (10-15 characters) if provided'],
   [''],
   ['NAME MATCHING RULES:'],
   ['• Names are matched case-insensitively'],
@@ -441,12 +411,9 @@ const getAllHeaders = (templateType: 'id' | 'name') => {
       : NAME_BASED_FIELD_CATEGORIES;
 
   return [
-    ...fieldCategories.personal_required,
     ...fieldCategories.personal_optional,
     ...fieldCategories.academic_optional,
-    ...fieldCategories.course_required,
     ...fieldCategories.course_optional,
-    ...fieldCategories.contact_required,
     ...fieldCategories.contact_optional,
     ...fieldCategories.reference_optional
   ];
@@ -465,31 +432,8 @@ export function DownloadNewStudentTemplateButton() {
       const instructions =
         templateType === 'id' ? ID_BASED_INSTRUCTIONS : NAME_BASED_INSTRUCTIONS;
 
-      // Create template headers with required field markers
-      const templateHeaders = allHeaders.map((header) => {
-        const isRequired = [
-          'student_name',
-          'father_name',
-          'mother_name',
-          'mother_mobile',
-          'date_of_birth',
-          'gender',
-          'religion',
-          'community',
-          ...(templateType === 'id'
-            ? ['institution_id', 'department_id', 'program_id']
-            : ['institution_name', 'department_name', 'program_name']),
-          'permanent_address_street',
-          'permanent_address_district',
-          'permanent_address_pin_code',
-          'permanent_address_state',
-          'student_mobile',
-          'student_email',
-          'accommodation_type'
-        ].includes(header);
-
-        return isRequired ? `${header} *` : header;
-      });
+      // Create template headers - all fields are optional now
+      const templateHeaders = allHeaders;
 
       const templateData = [
         templateHeaders,
