@@ -3,12 +3,16 @@ import { toast } from 'react-hot-toast';
 import type {
   Timetable,
   TimetableSlot,
+  TimetableSlotWithLeave,
   CreateTimetableDto,
   UpdateTimetableDto,
   TimetableFilters,
   TimetableListResponse,
   CreateTimetableSlotDto,
-  UpdateTimetableSlotDto
+  UpdateTimetableSlotDto,
+  DayOrderShiftConfig,
+  DayLeaveStatus,
+  DayOfWeek
 } from '@/types/academics';
 
 export class TimetableService {
@@ -1160,6 +1164,247 @@ export class TimetableService {
       if (error) throw error;
     } catch (error) {
       console.error('Error saving timetable days:', error);
+      throw error;
+    }
+  }
+
+  // Leave-Aware Timetable Methods
+  static async getTimetableWithLeaves(
+    id: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<Timetable & { slots_with_leaves: TimetableSlotWithLeave[] }> {
+    try {
+      // Get basic timetable data
+      const timetable = await this.getTimetable(id);
+
+      // Get institution timetable type
+      const { data: institutionData, error: institutionError } =
+        await this.supabase
+          .from('timetables')
+          .select(
+            `
+          institution:institution_id(
+            timetable_type
+          )
+        `
+          )
+          .eq('id', id)
+          .single();
+
+      if (institutionError) throw institutionError;
+
+      const timetableType =
+        (institutionData as any)?.institution?.timetable_type || 'week_order';
+
+      // Get leaves for the specified date range or current month
+      const now = new Date();
+      const searchStartDate =
+        startDate ||
+        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+          2,
+          '0'
+        )}-01`;
+      const searchEndDate =
+        endDate ||
+        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+          2,
+          '0'
+        )}-${new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()}`;
+
+      const { data: leaves, error: leavesError } = await this.supabase
+        .from('timetable_leaves')
+        .select('*')
+        .eq('timetable_id', id)
+        .eq('is_active', true)
+        .gte('leave_date', searchStartDate)
+        .lte('leave_date', searchEndDate);
+
+      if (leavesError) throw leavesError;
+
+      // Get day order shifts if applicable
+      let dayOrderShifts: DayOrderShiftConfig[] = [];
+      if (timetableType === 'day_order') {
+        const { data: shifts, error: shiftsError } = await this.supabase
+          .from('timetable_day_order_shifts')
+          .select('*')
+          .eq('timetable_id', id)
+          .gte('original_date', searchStartDate)
+          .lte('shifted_date', searchEndDate);
+
+        if (shiftsError) throw shiftsError;
+        dayOrderShifts = shifts || [];
+      }
+
+      // Process slots with leave information
+      const slotsWithLeaves: TimetableSlotWithLeave[] = (
+        timetable.slots || []
+      ).map((slot) => {
+        const slotWithLeave: TimetableSlotWithLeave = {
+          ...slot,
+          original_day_of_week: slot.day_of_week,
+          is_shifted: false,
+          shift_reason: undefined
+        };
+
+        // For day_order institutions, check if this slot is affected by shifts
+        if (timetableType === 'day_order') {
+          const relevantShift = dayOrderShifts.find(
+            (shift) =>
+              this.dayOfWeekToDate(slot.day_of_week, searchStartDate) ===
+                shift.original_date ||
+              this.dayOfWeekToDate(slot.day_of_week, searchStartDate) ===
+                shift.shifted_date
+          );
+
+          if (relevantShift) {
+            slotWithLeave.is_shifted = true;
+            slotWithLeave.shift_reason = relevantShift.reason;
+
+            // If this is a shifted slot, update the day
+            if (
+              this.dayOfWeekToDate(slot.day_of_week, searchStartDate) ===
+              relevantShift.shifted_date
+            ) {
+              slotWithLeave.original_day_of_week = this.dateToDayOfWeek(
+                relevantShift.original_date
+              );
+            }
+          }
+        }
+
+        return slotWithLeave;
+      });
+
+      return {
+        ...timetable,
+        slots_with_leaves: slotsWithLeaves
+      };
+    } catch (error) {
+      console.error('Error fetching timetable with leaves:', error);
+      throw error;
+    }
+  }
+
+  static async getLeaveStatus(
+    timetableId: string,
+    startDate: string,
+    endDate: string
+  ): Promise<DayLeaveStatus[]> {
+    try {
+      const { data: leaves, error } = await this.supabase
+        .from('timetable_leaves')
+        .select('*')
+        .eq('timetable_id', timetableId)
+        .eq('is_active', true)
+        .gte('leave_date', startDate)
+        .lte('leave_date', endDate)
+        .order('leave_date');
+
+      if (error) throw error;
+
+      // Convert to DayLeaveStatus array
+      const leaveStatuses: DayLeaveStatus[] = [];
+      const currentDate = new Date(startDate);
+      const endDateObj = new Date(endDate);
+
+      while (currentDate <= endDateObj) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        const leave = leaves?.find((l) => l.leave_date === dateStr);
+
+        leaveStatuses.push({
+          date: dateStr,
+          is_leave: !!leave,
+          leave_type: leave?.leave_type,
+          reason: leave?.reason,
+          leave_id: leave?.id
+        });
+
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      return leaveStatuses;
+    } catch (error) {
+      console.error('Error fetching leave status:', error);
+      throw error;
+    }
+  }
+
+  // Helper methods for date/day conversions
+  private static dayOfWeekToDate(dayOfWeek: string, baseDate: string): string {
+    const days = [
+      'SUNDAY',
+      'MONDAY',
+      'TUESDAY',
+      'WEDNESDAY',
+      'THURSDAY',
+      'FRIDAY',
+      'SATURDAY'
+    ];
+    const targetDay = days.indexOf(dayOfWeek.toUpperCase());
+
+    const date = new Date(baseDate);
+    const currentDay = date.getDay();
+    const diff = targetDay - currentDay;
+
+    date.setDate(date.getDate() + diff);
+    return date.toISOString().split('T')[0];
+  }
+
+  private static dateToDayOfWeek(dateStr: string): DayOfWeek {
+    const days: DayOfWeek[] = [
+      'SUNDAY',
+      'MONDAY',
+      'TUESDAY',
+      'WEDNESDAY',
+      'THURSDAY',
+      'FRIDAY',
+      'SATURDAY'
+    ];
+    const date = new Date(dateStr);
+    return days[date.getDay()];
+  }
+
+  static async getInstitutionTimetableType(
+    timetableId: string
+  ): Promise<'day_order' | 'week_order'> {
+    try {
+      const { data, error } = await this.supabase
+        .from('timetables')
+        .select(
+          `
+          institution:institution_id(
+            timetable_type
+          )
+        `
+        )
+        .eq('id', timetableId)
+        .single();
+
+      if (error) throw error;
+
+      return (data as any)?.institution?.timetable_type || 'week_order';
+    } catch (error) {
+      console.error('Error fetching institution timetable type:', error);
+      return 'week_order'; // Default fallback
+    }
+  }
+
+  static async getDayOrderShifts(
+    timetableId: string
+  ): Promise<DayOrderShiftConfig[]> {
+    try {
+      const { data: shifts, error } = await this.supabase
+        .from('timetable_day_order_shifts')
+        .select('*')
+        .eq('timetable_id', timetableId)
+        .order('original_date');
+
+      if (error) throw error;
+
+      return shifts || [];
+    } catch (error) {
+      console.error('Error fetching day order shifts:', error);
       throw error;
     }
   }

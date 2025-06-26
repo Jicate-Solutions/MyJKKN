@@ -47,15 +47,36 @@ export function TimetableHeader({ timetable, onBack }: TimetableHeaderProps) {
               </div>
               <div>
                 <span className='text-gray-500'>Academic Year</span>
-                <p className='font-medium'>2025-2026 A</p>
+                <p className='font-medium'>
+                  {timetable.academic_year?.academic_year_name || 'N/A'}
+                </p>
               </div>
               <div>
                 <span className='text-gray-500'>Start Date</span>
-                <p className='font-medium'>June 1st, 2025</p>
+                <p className='font-medium'>
+                  {timetable.start_date
+                    ? new Date(timetable.start_date).toLocaleDateString(
+                        'en-US',
+                        {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        }
+                      )
+                    : 'N/A'}
+                </p>
               </div>
               <div>
                 <span className='text-gray-500'>End Date</span>
-                <p className='font-medium'>June 30th, 2025</p>
+                <p className='font-medium'>
+                  {timetable.end_date
+                    ? new Date(timetable.end_date).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })
+                    : 'N/A'}
+                </p>
               </div>
             </div>
           </div>
@@ -66,15 +87,21 @@ export function TimetableHeader({ timetable, onBack }: TimetableHeaderProps) {
             <div className='space-y-3 text-sm'>
               <div>
                 <span className='text-gray-500'>Degree</span>
-                <p className='font-medium'>Undergraduate</p>
+                <p className='font-medium'>
+                  {timetable.degree?.degree_name || 'N/A'}
+                </p>
               </div>
               <div>
                 <span className='text-gray-500'>Program</span>
-                <p className='font-medium'>(BDS) Bachelor of Dental Surgery</p>
+                <p className='font-medium'>
+                  {timetable.program?.program_name || 'N/A'}
+                </p>
               </div>
               <div>
                 <span className='text-gray-500'>Department</span>
-                <p className='font-medium'>Department of BDS</p>
+                <p className='font-medium'>
+                  {timetable.department?.department_name || 'N/A'}
+                </p>
               </div>
               <div>
                 <span className='text-gray-500'>Semester</span>
@@ -97,11 +124,23 @@ export function TimetableHeader({ timetable, onBack }: TimetableHeaderProps) {
             <div className='space-y-3 text-sm'>
               <div>
                 <span className='text-gray-500'>Created</span>
-                <p className='font-medium'>Jun 23, 2025</p>
+                <p className='font-medium'>
+                  {new Date(timetable.created_at).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                  })}
+                </p>
               </div>
               <div>
                 <span className='text-gray-500'>Last Updated</span>
-                <p className='font-medium'>Jun 23, 2025</p>
+                <p className='font-medium'>
+                  {new Date(timetable.updated_at).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                  })}
+                </p>
               </div>
             </div>
           </div>

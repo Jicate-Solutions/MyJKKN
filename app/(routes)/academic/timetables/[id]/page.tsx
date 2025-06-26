@@ -104,6 +104,7 @@ import { TimetableGrid } from './_components/timetable-grid';
 import { SlotDialog } from './_components/slot-dialog';
 import { PeriodConfiguration } from './_components/period-configuration';
 import { SortablePeriodItem } from './_components/sortable-period-item';
+import { LeaveCalendar } from './_components/leave-calendar';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
@@ -1591,6 +1592,13 @@ export default function TimetableDetailPage({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Leave Management Section */}
+        <div className='bg-white rounded-lg shadow-sm border'>
+          <div className='p-6'>
+            <LeaveCalendar timetableId={timetableId} />
           </div>
         </div>
       </div>

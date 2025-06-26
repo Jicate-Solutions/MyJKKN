@@ -12,7 +12,8 @@ import { Institution } from '@/types/organizations';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import {
   INSTITUTION_TYPES,
-  INSTITUTION_CATEGORIES
+  INSTITUTION_CATEGORIES,
+  TIMETABLE_TYPES
 } from '@/lib/constants/institutions';
 import { Button } from '@/components/ui/button';
 import {
@@ -63,6 +64,7 @@ const institutionSchema = z.object({
     .transform((val) => val.toUpperCase()),
   institution_type: z.enum(['self', 'autonomous', 'aided']),
   category: z.enum(['ug', 'pg', 'ug_pg']),
+  timetable_type: z.enum(['day_order', 'week_order']),
   accredited_by: z.string().min(1, 'Accreditation info is required'),
   address_line1: z.string().min(1, 'Address is required'),
   address_line2: z.string().optional(),
@@ -110,6 +112,7 @@ export function InstitutionForm({
       counselling_code: institution?.counselling_code || '',
       institution_type: institution?.institution_type || 'self',
       category: institution?.category || 'ug',
+      timetable_type: institution?.timetable_type || 'day_order',
       accredited_by: institution?.accredited_by || '',
       address_line1: institution?.address_line1 || '',
       address_line2: institution?.address_line2 || '',
@@ -269,6 +272,31 @@ export function InstitutionForm({
                             value={category.value}
                           >
                             {category.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='timetable_type'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Timetable Type</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select timetable type' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {TIMETABLE_TYPES.map((type) => (
+                          <SelectItem key={type.value} value={type.value}>
+                            {type.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
