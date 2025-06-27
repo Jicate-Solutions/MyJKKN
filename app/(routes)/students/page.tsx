@@ -64,6 +64,7 @@ import { StudentService } from '@/lib/services/student/student-service';
 import { DownloadNewStudentTemplateButton } from './_components/download-new-student-template-button';
 import { BulkCreateStudents } from './_components/bulk-create-students';
 import { ExportStudents } from './_components/export-students';
+import { CreateMissingStudentProfilesButton } from './_components/create-missing-profiles-button';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   CanCreate,
@@ -576,7 +577,7 @@ export default function StudentsPage() {
             { label: 'Student Management' }
           ]}
         />
-        <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
+        <div className='flex flex-col items-start gap-4'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>Students</h1>
             <p className='text-muted-foreground'>
@@ -588,6 +589,9 @@ export default function StudentsPage() {
               <DownloadNewStudentTemplateButton />
             </CanCreate>
             {isSuperAdmin && <ExportStudents />}
+            {(isSuperAdmin || canAccess('user', 'create')) && (
+              <CreateMissingStudentProfilesButton />
+            )}
             <CanCreate module='students' fallback={null}>
               <BulkCreateStudents />
             </CanCreate>
