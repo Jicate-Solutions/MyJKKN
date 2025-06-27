@@ -198,7 +198,9 @@ const newStudentSchema = z
       .optional()
       .nullable()
       .transform((val) => {
-        if (!val || typeof val !== 'string') return null;
+        // If no value provided, use a default placeholder date to satisfy NOT NULL constraint
+        if (!val || typeof val !== 'string') return '1900-01-01';
+
         const normalized = parseAndNormalizeDate(val);
         if (!normalized) {
           throw new Error(
@@ -1101,7 +1103,7 @@ export function BulkCreateStudents() {
                 ? JSON.parse(rowData.twelfth_marks_json)
                 : rowData.twelfth_marks_json;
 
-            // Create a new object without the separate marks fields and _json fields
+            // Create a new object without the separate marks fields, _json fields, and name fields
             const {
               tenth_marks_json,
               twelfth_marks_json,
@@ -1118,6 +1120,13 @@ export function BulkCreateStudents() {
               twelfth_marks_biology,
               twelfth_marks_computer_science,
               twelfth_marks_other_subject,
+              // Exclude name fields that don't exist in database table
+              institution_name,
+              degree_name,
+              department_name,
+              program_name,
+              semester_name,
+              section_name,
               ...restData
             } = rowData;
 
@@ -1126,8 +1135,31 @@ export function BulkCreateStudents() {
             // We've already validated this data with Zod earlier
             const processedData = {
               ...restData,
-              tenth_marks: tenthMarks,
-              twelfth_marks: twelfthMarks,
+              // Provide defaults for NOT NULL fields in database
+              student_name: restData.student_name || 'Unknown Student',
+              father_name: restData.father_name || 'Unknown',
+              mother_name: restData.mother_name || 'Unknown',
+              mother_mobile: restData.mother_mobile || '0000000000',
+              gender: restData.gender || 'Not Specified',
+              religion: restData.religion || 'Not Specified',
+              community: restData.community || 'Not Specified',
+              last_school: restData.last_school || 'Unknown School',
+              board_of_study: restData.board_of_study || 'Not Specified',
+              entry_type: restData.entry_type || 'FIRST YEAR',
+              // Handle JSONB fields with proper defaults
+              tenth_marks: tenthMarks || {
+                max_marks: '',
+                obtained_marks: '',
+                percentage: ''
+              },
+              twelfth_marks: twelfthMarks || {
+                group: '',
+                max_marks: '',
+                obtained_marks: '',
+                percentage: '',
+                subjects: {}
+              },
+              // Other required fields
               status: 'active',
               admission_id: null, // Use null instead of empty string for UUID field
               is_profile_complete: false,
