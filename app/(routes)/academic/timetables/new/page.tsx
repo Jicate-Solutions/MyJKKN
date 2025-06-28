@@ -50,6 +50,7 @@ import { useDegrees } from '@/hooks/organization/use-degrees';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
+import { usePermissions } from '@/hooks/use-permissions';
 // Sections removed - timetables are now semester-wise
 import Loading from '@/components/Loading/Loading';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -105,11 +106,13 @@ export default function NewTimetablePage() {
   const router = useRouter();
   const { toast } = useToast();
   const { createTimetable } = useTimetables();
+  const { isSuperAdmin, userProfile } = usePermissions();
 
   // Organization hooks for real data
   const {
     academicYears,
     loading: loadingYears,
+    updateFilters,
     fetchAcademicYears
   } = useAcademicYears();
 
@@ -183,15 +186,26 @@ export default function NewTimetablePage() {
   useEffect(() => {
     if (watchInstitutionId && watchInstitutionId !== selectedInstitutionId) {
       setSelectedInstitutionId(watchInstitutionId);
+
+      // Filter academic years by selected institution
+      updateFilters({ institution_id: watchInstitutionId, isActive: true });
+
       fetchDegrees({ institution_id: watchInstitutionId, isActive: true });
 
-      // Reset dependent fields
+      // Reset dependent fields including academic year
+      form.setValue('academic_year_id', '');
       form.setValue('degree_id', '');
       form.setValue('program_id', '');
       form.setValue('department_id', '');
       form.setValue('semester', '');
     }
-  }, [watchInstitutionId, selectedInstitutionId, fetchDegrees, form]);
+  }, [
+    watchInstitutionId,
+    selectedInstitutionId,
+    updateFilters,
+    fetchDegrees,
+    form
+  ]);
 
   // Update state and fetch dependent data when degree changes
   useEffect(() => {

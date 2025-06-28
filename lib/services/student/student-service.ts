@@ -165,7 +165,6 @@ export class StudentService {
               console.warn(
                 `User with email ${userPayload.email} already exists. Skipping automatic creation.`
               );
-              toast(`User account for ${userPayload.email} already exists`);
             } else {
               // Handle other errors
               console.error(
@@ -177,7 +176,7 @@ export class StudentService {
                 'Status:',
                 userResponse.status
               );
-              toast(
+              console.warn(
                 `Student created, but failed to create user account: ${
                   userData.error || userData.details || userData.message
                 }`
@@ -187,13 +186,13 @@ export class StudentService {
             console.log(
               `Successfully created user for student ${student.id} with email ${student.college_email}`
             );
-            toast.success(
-              `Student user account created with email ${student.college_email}`
+            console.log(
+              `Successfully created user account for student with email ${student.college_email}`
             );
           }
         } catch (apiError) {
           console.error('Error calling user creation API:', apiError);
-          toast(
+          console.warn(
             'Student created, but encountered an error creating user account.'
           );
         }
@@ -201,11 +200,10 @@ export class StudentService {
         console.log('No college_email provided, skipping user creation');
       }
 
-      toast.success('Student record created successfully');
+      // Note: Success/error messages are handled by calling components
       return student;
     } catch (error) {
       console.error('Error creating student:', error);
-      toast.error('Failed to create student');
       throw error;
     }
   }
@@ -353,14 +351,28 @@ export class StudentService {
 
   static async deleteStudent(id: string): Promise<void> {
     try {
-      // First, get the student to find out if they have a college_email
+      // First, get the student to find out if they have a college_email and photo
       const { data: student, error: fetchError } = await this.supabase
         .from('students')
-        .select('college_email')
+        .select('college_email, student_photo_url')
         .eq('id', id)
         .single();
 
       if (fetchError) throw fetchError;
+
+      // Delete student photo from storage if it exists
+      if (student?.student_photo_url) {
+        try {
+          const { StorageService } = await import(
+            '@/lib/storage/storage-service'
+          );
+          await StorageService.deleteStudentPhoto(id);
+          console.log(`Successfully deleted student photo for student ${id}`);
+        } catch (photoError) {
+          console.warn('Error deleting student photo:', photoError);
+          // Continue with student deletion even if photo deletion fails
+        }
+      }
 
       // If there is a college_email, try to delete the associated profile
       if (student?.college_email) {
@@ -409,11 +421,11 @@ export class StudentService {
 
       if (error) throw error;
 
-      toast.success('Student record deleted successfully');
+      // Note: Toast messages are handled by the calling component
+      console.log(`Successfully deleted student record: ${id}`);
     } catch (error) {
       console.error('Error deleting student record:', error);
-      toast.error('Failed to delete student record');
-      throw error;
+      throw error; // Re-throw to let calling component handle the error toast
     }
   }
 
@@ -496,7 +508,6 @@ export class StudentService {
       };
     } catch (error) {
       console.error('Error fetching students:', error);
-      toast.error('Failed to fetch student records');
       throw error;
     }
   }

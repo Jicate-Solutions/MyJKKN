@@ -15,33 +15,12 @@ import {
   ChevronUp,
   Filter,
   CalendarIcon,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Trash2,
+  MoreHorizontal
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from '@/components/ui/card';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious
-} from '@/components/ui/pagination';
 import {
   Select,
   SelectContent,
@@ -50,13 +29,37 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { DatePicker } from '@/components/ui/date-picker';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useStudents } from '@/hooks/student/use-students';
-import { StudentFilters } from '@/types/student';
+import { StudentFilters, Student } from '@/types/student';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
@@ -76,7 +79,10 @@ import { BulkStudentUpdate } from './_components/bulk-student-update';
 import { DownloadStudentTemplateButton } from './_components/download-student-template-button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Section } from '@/types/organizations';
-import StudentonboardingTable from './_components/student-onboarding-table';
+import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
+import { StudentService } from '@/lib/services/student/student-service';
+import toast from 'react-hot-toast';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // Define the DateRange type
 type DateRange = {
@@ -84,8 +90,9 @@ type DateRange = {
   to?: Date | undefined;
 };
 
-export default function StudentonboardingPage() {
+export default function StudentOnboardingPage() {
   const router = useRouter();
+  const supabase = createClientSupabaseClient();
   const [filters, setFilters] = useState<StudentFilters>({
     search: '',
     is_profile_complete: false,
@@ -94,14 +101,18 @@ export default function StudentonboardingPage() {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
-  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { canAccess, isSuperAdmin } = usePermissions();
 
-  const canViewonboarding =
+  const canViewOnboarding =
     isSuperAdmin || canAccess('students.onboarding', 'view');
-  const canEditonboarding =
+  const canEditOnboarding =
     isSuperAdmin || canAccess('students.onboarding', 'edit');
+  const canDeleteOnboarding =
+    isSuperAdmin || canAccess('students.onboarding', 'delete');
 
   // State for institution/program/semester/section filters
   const [institutions, setInstitutions] = useState<
@@ -131,8 +142,7 @@ export default function StudentonboardingPage() {
     isError
   } = useStudents({
     ...filters,
-    page: currentPage,
-    limit: 10
+    page: currentPage
   });
 
   // Load institutions on mount
@@ -227,15 +237,6 @@ export default function StudentonboardingPage() {
     }
   }, [filters.semester, filters.institution]);
 
-  const handleSearchChange = (searchTerm: string) => {
-    setFilters({
-      ...filters,
-      search: searchTerm,
-      page: 1
-    });
-    setCurrentPage(1);
-  };
-
   const handleFilterChange = (newFilters: Partial<StudentFilters>) => {
     setFilters({
       ...filters,
@@ -251,6 +252,175 @@ export default function StudentonboardingPage() {
       ...filters,
       page
     });
+  };
+
+  // Handle bulk delete operation - suppress service-level toasts
+  const handleBulkDelete = async (students: Student[]) => {
+    if (students.length === 0) return;
+
+    try {
+      // Delete students one by one with error handling
+      const results = await Promise.allSettled(
+        students.map(async (student) => {
+          try {
+            // Create a custom delete function that bypasses service toasts
+            const { data: studentData, error: fetchError } = await supabase
+              .from('students')
+              .select('college_email, student_photo_url')
+              .eq('id', student.id)
+              .single();
+
+            if (fetchError) throw fetchError;
+
+            // Delete student photo from storage if it exists
+            if (studentData?.student_photo_url) {
+              try {
+                const { StorageService } = await import(
+                  '@/lib/storage/storage-service'
+                );
+                await StorageService.deleteStudentPhoto(student.id);
+              } catch (photoError) {
+                console.warn('Error deleting student photo:', photoError);
+              }
+            }
+
+            // Delete associated user profile if exists
+            if (studentData?.college_email) {
+              try {
+                const { data: profile } = await supabase
+                  .from('profiles')
+                  .select('id')
+                  .eq('email', studentData.college_email)
+                  .single();
+
+                if (profile) {
+                  await fetch(`/api/users/${profile.id}`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' }
+                  });
+                }
+              } catch (profileError) {
+                console.warn('Error deleting student profile:', profileError);
+              }
+            }
+
+            // Delete the student record
+            const { error: deleteError } = await supabase
+              .from('students')
+              .delete()
+              .eq('id', student.id);
+
+            if (deleteError) throw deleteError;
+
+            return { success: true, id: student.id };
+          } catch (error) {
+            console.error(`Error deleting student ${student.id}:`, error);
+            return { success: false, id: student.id, error };
+          }
+        })
+      );
+
+      // Count successful deletions
+      const successful = results.filter(
+        (result) => result.status === 'fulfilled' && result.value.success
+      ).length;
+
+      const failed = results.length - successful;
+
+      // Refresh the data
+      await refetch();
+
+      // Handle results - only throw if all failed
+      if (failed === results.length) {
+        throw new Error('All deletions failed');
+      } else if (failed > 0) {
+        console.warn(`${failed} out of ${results.length} deletions failed`);
+      }
+
+      // Don't show any additional toasts - let DataTable handle it
+    } catch (error) {
+      console.error('Error in bulk delete operation:', error);
+      throw error; // Re-throw to let DataTable handle the error toast
+    }
+  };
+
+  // Handle single student delete
+  const handleSingleDelete = async (student: Student) => {
+    setStudentToDelete(student);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmSingleDelete = async () => {
+    if (!studentToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      // Use the same deletion logic as bulk delete for consistency
+      const { data: studentData, error: fetchError } = await supabase
+        .from('students')
+        .select('college_email, student_photo_url')
+        .eq('id', studentToDelete.id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Delete student photo from storage if it exists
+      if (studentData?.student_photo_url) {
+        try {
+          const { StorageService } = await import(
+            '@/lib/storage/storage-service'
+          );
+          await StorageService.deleteStudentPhoto(studentToDelete.id);
+        } catch (photoError) {
+          console.warn('Error deleting student photo:', photoError);
+        }
+      }
+
+      // Delete associated user profile if exists
+      if (studentData?.college_email) {
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', studentData.college_email)
+            .single();
+
+          if (profile) {
+            await fetch(`/api/users/${profile.id}`, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+        } catch (profileError) {
+          console.warn('Error deleting student profile:', profileError);
+        }
+      }
+
+      // Delete the student record
+      const { error: deleteError } = await supabase
+        .from('students')
+        .delete()
+        .eq('id', studentToDelete.id);
+
+      if (deleteError) throw deleteError;
+
+      // Refresh the data
+      await refetch();
+
+      // Show success message
+      toast.success(
+        `Successfully deleted student: ${studentToDelete.student_name}`
+      );
+
+      // Close dialog and reset state
+      setDeleteDialogOpen(false);
+      setStudentToDelete(null);
+    } catch (error) {
+      console.error('Error deleting student:', error);
+      toast.error('Failed to delete student');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // Remove a specific filter
@@ -280,59 +450,6 @@ export default function StudentonboardingPage() {
       limit: 10
     });
     setCurrentPage(1);
-  };
-
-  const renderPagination = () => {
-    if (!studentsData || !studentsData.metadata.totalPages) return null;
-
-    const { totalPages, page, total } = studentsData.metadata;
-
-    if (totalPages <= 1) return null;
-
-    const currentPage = page;
-
-    return (
-      <Pagination className='mt-4'>
-        <PaginationContent>
-          <PaginationItem>
-            <PaginationPrevious
-              onClick={() =>
-                currentPage > 1 && handlePageChange(currentPage - 1)
-              }
-              className={
-                currentPage <= 1 ? 'pointer-events-none opacity-50' : ''
-              }
-            />
-          </PaginationItem>
-
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-            (pageNum) => (
-              <PaginationItem key={pageNum}>
-                <PaginationLink
-                  onClick={() => handlePageChange(pageNum)}
-                  isActive={pageNum === currentPage}
-                >
-                  {pageNum}
-                </PaginationLink>
-              </PaginationItem>
-            )
-          )}
-
-          <PaginationItem>
-            <PaginationNext
-              onClick={() =>
-                currentPage < totalPages && handlePageChange(currentPage + 1)
-              }
-              className={
-                currentPage >= totalPages
-                  ? 'pointer-events-none opacity-50'
-                  : ''
-              }
-            />
-          </PaginationItem>
-        </PaginationContent>
-      </Pagination>
-    );
   };
 
   // Render active filter chips
@@ -523,105 +640,195 @@ export default function StudentonboardingPage() {
     ) : null;
   };
 
-  const renderActiveFilters = () => {
-    const activeFilters: { key: string; label: string; value: string }[] = [];
-
-    if (filters.institution) {
-      const institutionName =
-        institutions.find((i) => i.id === filters.institution)?.name ||
-        filters.institution;
-      activeFilters.push({
-        key: 'institution',
-        label: 'Institution',
-        value: institutionName
-      });
-    }
-
-    if (filters.department) {
-      const departmentName =
-        departments.find((d) => d.id === filters.department)?.department_name ||
-        filters.department;
-      activeFilters.push({
-        key: 'department',
-        label: 'Department',
-        value: departmentName
-      });
-    }
-
-    if (filters.program) {
-      const programName =
-        programs.find((p) => p.id === filters.program)?.program_name ||
-        filters.program;
-      activeFilters.push({
-        key: 'program',
-        label: 'Program',
-        value: programName
-      });
-    }
-
-    if (activeFilters.length === 0) return null;
-
-    return (
-      <div className='flex flex-wrap gap-2 mt-4'>
-        {activeFilters.map((filter) => (
-          <Badge
-            key={filter.key}
-            variant='outline'
-            className='flex items-center gap-1'
-          >
-            <span className='text-muted-foreground'>{filter.label}:</span>{' '}
-            {filter.value}
-            <X
-              className='h-3 w-3 ml-1 cursor-pointer'
-              onClick={() => {
-                if (
-                  filter.key === 'created_from' ||
-                  filter.key === 'created_to'
-                ) {
-                  handleFilterChange({ [filter.key]: undefined });
-                } else if (filter.key === 'is_active') {
-                  handleFilterChange({ is_active: undefined });
-                } else {
-                  handleFilterChange({ [filter.key]: undefined });
-                }
-              }}
-            />
-          </Badge>
-        ))}
-
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={() => {
-            setFilters({
-              is_profile_complete: false,
-              page: 1,
-              limit: 10
-            });
-          }}
-          className='text-xs h-6'
+  // Define columns for the DataTable
+  const columns: PermissionColumnDef<Student, any>[] = [
+    {
+      id: 'serial',
+      header: 'S.No',
+      cell: ({ row }) => {
+        const currentPage = metadata.page || 1;
+        const pageSize = metadata.limit || 10;
+        return (currentPage - 1) * pageSize + row.index + 1;
+      },
+      enableSorting: false,
+      enableHiding: false
+    },
+    {
+      id: 'student_name',
+      header: 'Student Name',
+      cell: ({ row }) => (
+        <Link
+          href={`/students/${row.original.id}`}
+          className='hover:underline hover:text-primary font-medium'
         >
-          Clear All
-        </Button>
-      </div>
-    );
+          {row.original.student_name}
+        </Link>
+      ),
+      enableSorting: true,
+      requiredPermission: {
+        module: 'students',
+        action: 'view'
+      }
+    },
+    {
+      id: 'student_mobile',
+      header: 'Mobile',
+      cell: ({ row }) => row.original.student_mobile || 'Not provided',
+      enableSorting: true
+    },
+    {
+      id: 'program',
+      header: 'Program',
+      cell: ({ row }) => row.original.program?.program_name || 'Not assigned',
+      enableSorting: false
+    },
+    {
+      id: 'missing_info',
+      header: 'Missing Info',
+      cell: ({ row }) => {
+        const student = row.original;
+        const missingFields = [];
+
+        if (!student.roll_number) missingFields.push('Roll Number');
+        if (!student.college_email) missingFields.push('College Email');
+        if (!student.student_photo_url) missingFields.push('Photo');
+        if (!student.semester_id) missingFields.push('Semester');
+        if (!student.section_id) missingFields.push('Section');
+
+        return (
+          <div className='flex flex-wrap gap-1'>
+            {missingFields.map((field) => (
+              <Badge
+                key={field}
+                variant='outline'
+                className='bg-red-50 text-red-700 border-red-200'
+              >
+                {field}
+              </Badge>
+            ))}
+          </div>
+        );
+      },
+      enableSorting: false,
+      enableHiding: false
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      cell: ({ row }) => (
+        <Badge
+          variant={row.original.status === 'active' ? 'default' : 'secondary'}
+        >
+          {row.original.status.charAt(0).toUpperCase() +
+            row.original.status.slice(1)}
+        </Badge>
+      ),
+      enableSorting: true
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => {
+        const student = row.original;
+        const canView = isSuperAdmin || canAccess('students', 'view');
+        const canEdit = isSuperAdmin || canAccess('students', 'edit');
+        const canDelete = isSuperAdmin || canDeleteOnboarding;
+
+        return (
+          <div className='flex justify-end'>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant='ghost' className='h-8 w-8 p-0'>
+                  <span className='sr-only'>Open menu</span>
+                  <MoreHorizontal className='h-4 w-4' />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                {canView && (
+                  <DropdownMenuItem asChild>
+                    <Link
+                      href={`/students/${student.id}`}
+                      className='flex items-center'
+                    >
+                      <EyeIcon className='mr-2 h-4 w-4' />
+                      View Details
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {canEdit && (
+                  <DropdownMenuItem asChild>
+                    <Link
+                      href={`/students/onboarding/edit?id=${student.id}&returnTo=/students/onboarding`}
+                      className='flex items-center'
+                    >
+                      <FileEdit className='mr-2 h-4 w-4' />
+                      Complete Profile
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {canDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => handleSingleDelete(student)}
+                      className='flex items-center text-destructive focus:text-destructive'
+                    >
+                      <Trash2 className='mr-2 h-4 w-4' />
+                      Delete Student
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
+      enableSorting: false,
+      enableHiding: false
+    }
+  ];
+
+  // Handle page size change
+  const handlePageSizeChange = (pageSize: number) => {
+    setFilters((prev) => ({ ...prev, limit: pageSize, page: 1 }));
+    setCurrentPage(1);
+  };
+
+  const metadata = studentsData?.metadata || {
+    page: 1,
+    totalPages: 1,
+    limit: 10,
+    total: 0
+  };
+
+  // Server-side pagination configuration
+  const serverSidePagination = {
+    currentPage: metadata.page || 1,
+    totalPages: metadata.totalPages || 1,
+    pageSize: metadata.limit || 10,
+    totalItems: metadata.total || 0,
+    hasNextPage: (metadata.page || 1) < (metadata.totalPages || 1),
+    hasPreviousPage: (metadata.page || 1) > 1,
+    onPageChange: handlePageChange,
+    onPageSizeChange: handlePageSizeChange,
+    isLoading: isLoading
   };
 
   return (
-    <ContentLayout title='Student onboarding'>
+    <ContentLayout title='Student Onboarding'>
       <div className='space-y-6'>
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
             { label: 'Students', href: '/students' },
-            { label: 'Student onboarding' }
+            { label: 'Student Onboarding' }
           ]}
         />
 
         <div className='flex flex-col sm:flex-row justify-between items-start gap-4'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>
-              Student onboarding
+              Student Onboarding
             </h1>
             <p className='text-muted-foreground'>
               Complete student profiles to promote them to the main student list
@@ -630,12 +837,12 @@ export default function StudentonboardingPage() {
           <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
             {isSuperAdmin && <DownloadStudentTemplateButton />}
             {isSuperAdmin && <BulkStudentUpdate />}
-            {canViewonboarding && (
+            {canViewOnboarding && (
               <Button
                 variant='default'
                 onClick={() => router.push('/students')}
                 className='w-full sm:w-auto'
-                disabled={!canViewonboarding}
+                disabled={!canViewOnboarding}
               >
                 View All Students
               </Button>
@@ -654,7 +861,7 @@ export default function StudentonboardingPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Students Pending onboarding</CardTitle>
+            <CardTitle>Students Pending Onboarding</CardTitle>
             <CardDescription>
               Students with incomplete profile information
             </CardDescription>
@@ -662,13 +869,7 @@ export default function StudentonboardingPage() {
           <CardContent>
             <div className='flex flex-col md:flex-row gap-4 mb-4'>
               <div className='flex-1 relative'>
-                <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-                <Input
-                  placeholder='Search students...'
-                  value={filters.search || ''}
-                  onChange={(e) => handleSearchChange(e.target.value)}
-                  className='w-full pl-9'
-                />
+                {/* Search is now handled by DataTable */}
               </div>
               <Button
                 variant='outline'
@@ -977,40 +1178,71 @@ export default function StudentonboardingPage() {
 
             {renderFilterChips()}
 
-            {isLoading ? (
-              <div className='flex flex-col items-center justify-center py-10'>
-                <Loader2 className='h-8 w-8 animate-spin text-primary mb-4' />
-                <p className='text-muted-foreground'>
-                  Loading student records...
-                </p>
-              </div>
-            ) : isError ? (
-              <div className='py-10 text-center'>
-                <p className='text-destructive font-medium'>
-                  Failed to load students
-                </p>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  className='mt-2'
-                  onClick={() => refetch()}
-                >
-                  Try Again
-                </Button>
-              </div>
-            ) : (
-              <>
-                <StudentonboardingTable
-                  students={studentsData?.data || []}
-                  isLoading={isLoading}
-                  onRefresh={refetch}
-                />
-                {renderPagination()}
-              </>
-            )}
+            {/* DataTable component replaces the custom table */}
+            <DataTable
+              columns={columns}
+              data={studentsData?.data || []}
+              searchPlaceholder='Search students...'
+              filterColumn='student_name'
+              permissions={{
+                module: 'students.onboarding',
+                actions: {
+                  view: true,
+                  edit: canEditOnboarding,
+                  delete: canDeleteOnboarding
+                },
+                showPermissionError: true
+              }}
+              onDeleteSelected={
+                canDeleteOnboarding ? handleBulkDelete : undefined
+              }
+              getRowId={(row) => row.id}
+              onRefresh={refetch}
+              showRefresh={true}
+              serverSidePagination={serverSidePagination}
+            />
           </CardContent>
         </Card>
       </div>
+
+      {/* Single Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Student</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the student &ldquo;
+              <span className='font-semibold'>
+                {studentToDelete?.student_name}
+              </span>
+              &rdquo;? This action cannot be undone and will permanently remove:
+              <ul className='list-disc list-inside mt-2 space-y-1'>
+                <li>Student profile and data</li>
+                <li>Associated user account (if exists)</li>
+                <li>Student photo (if uploaded)</li>
+                <li>All related records</li>
+              </ul>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmSingleDelete}
+              disabled={isDeleting}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Student'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }
