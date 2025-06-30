@@ -248,13 +248,21 @@ export function SlotDialog({
 
               {/* Course Selection */}
               <div className='space-y-2'>
-                <Label>Course</Label>
+                <Label>
+                  Course <span className='text-red-500'>*</span>
+                </Label>
                 <Select
                   value={selectedCourse}
                   onValueChange={setSelectedCourse}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder='Select a course' />
+                  <SelectTrigger
+                    className={
+                      !selectedCourse || selectedCourse === 'none'
+                        ? 'border-red-300'
+                        : ''
+                    }
+                  >
+                    <SelectValue placeholder='Select a course (required)' />
                   </SelectTrigger>
                   <SelectContent>
                     {courses?.map((course: any) => (
@@ -269,129 +277,108 @@ export function SlotDialog({
               {/* Staff Selection */}
               <div className='space-y-2'>
                 <div className='flex items-center justify-between'>
-                  <Label>Staff (Multiple selection allowed)</Label>
-                  {selectedCourse && !isBreakSlot && (
-                    <div className='flex items-center gap-2'>
-                      {loadingCourseStaff ? (
-                        <Badge variant='secondary' className='text-xs'>
-                          Loading...
-                        </Badge>
-                      ) : courseAssignedStaff.length > 0 ? (
-                        <Badge variant='default' className='text-xs'>
-                          {showAllStaff
-                            ? 'All Staff'
-                            : `Course Staff (${courseAssignedStaff.length})`}
-                        </Badge>
-                      ) : (
-                        <Badge variant='secondary' className='text-xs'>
-                          All Staff
-                        </Badge>
-                      )}
-                      {courseAssignedStaff.length > 0 && (
-                        <Button
-                          type='button'
-                          variant='outline'
-                          size='sm'
-                          className='h-6 px-2 text-xs'
-                          onClick={() => setShowAllStaff(!showAllStaff)}
-                        >
-                          {showAllStaff
-                            ? 'Show Course Staff'
-                            : 'Show All Staff'}
-                        </Button>
-                      )}
-                    </div>
-                  )}
+                  <Label>
+                    Staff <span className='text-red-500'>*</span>
+                  </Label>
+                  {/* Show all staff toggle */}
+                  <div className='flex items-center space-x-2'>
+                    <Checkbox
+                      id='showAllStaff'
+                      checked={showAllStaff}
+                      onCheckedChange={(checked) =>
+                        setShowAllStaff(checked === true)
+                      }
+                    />
+                    <Label htmlFor='showAllStaff' className='text-sm'>
+                      Show all staff
+                    </Label>
+                  </div>
                 </div>
 
-                {courseStaffError && (
-                  <div className='text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1'>
-                    {courseStaffError}
-                  </div>
-                )}
-
-                <div className='border rounded-md p-2 max-h-32 overflow-y-auto'>
-                  {displayStaff?.map((member: any) => (
+                <div
+                  className={`border rounded-md p-3 max-h-32 overflow-y-auto ${
+                    !selectedStaff ||
+                    selectedStaff.length === 0 ||
+                    selectedStaff.every((id) => id === 'none')
+                      ? 'border-red-300 bg-red-50'
+                      : ''
+                  }`}
+                >
+                  {displayStaff?.map((staffMember: any) => (
                     <div
-                      key={member.id}
+                      key={staffMember.id}
                       className='flex items-center space-x-2 py-1'
                     >
                       <Checkbox
-                        id={`staff-${member.id}`}
-                        checked={selectedStaff.includes(member.id)}
+                        id={`staff-${staffMember.id}`}
+                        checked={selectedStaff.includes(staffMember.id)}
                         onCheckedChange={(checked) => {
                           if (checked) {
-                            setSelectedStaff([...selectedStaff, member.id]);
+                            setSelectedStaff([
+                              ...selectedStaff,
+                              staffMember.id
+                            ]);
                           } else {
                             setSelectedStaff(
                               selectedStaff.filter(
-                                (id: string) => id !== member.id
+                                (id: string) => id !== staffMember.id
                               )
                             );
                           }
                         }}
                       />
                       <Label
-                        htmlFor={`staff-${member.id}`}
+                        htmlFor={`staff-${staffMember.id}`}
                         className='text-sm flex items-center gap-2'
                       >
-                        {member.first_name} {member.last_name}
-                        {!showAllStaff &&
-                          courseAssignedStaff.some(
-                            (cs) => cs.id === member.id
-                          ) && (
-                            <Badge
-                              variant='outline'
-                              className='text-xs bg-green-50 text-green-700 border-green-200'
-                            >
-                              Course Assigned
-                            </Badge>
-                          )}
-                        {member.designation && (
-                          <span className='text-xs text-gray-500'>
-                            ({member.designation})
-                          </span>
-                        )}
+                        {staffMember.first_name} {staffMember.last_name}
+                        <Badge
+                          variant='outline'
+                          className='text-xs bg-green-50 text-green-700 border-green-200'
+                        >
+                          {staffMember.staff_id}
+                        </Badge>
                       </Label>
                     </div>
                   ))}
 
-                  {displayStaff?.length === 0 && !loadingCourseStaff && (
+                  {displayStaff?.length === 0 && (
                     <div className='text-center py-4 text-gray-500 text-sm'>
-                      {selectedCourse && !showAllStaff
-                        ? 'No staff assigned to this course'
-                        : 'No staff available'}
+                      <div className='mb-2'>No staff available</div>
+                      <div className='text-xs text-gray-400'>
+                        Please assign staff to the selected course first
+                      </div>
                     </div>
                   )}
                 </div>
+                {(!selectedStaff ||
+                  selectedStaff.length === 0 ||
+                  selectedStaff.every((id) => id === 'none')) && (
+                  <p className='text-sm text-red-600'>
+                    At least one staff member is required
+                  </p>
+                )}
               </div>
 
               {/* Section Selection */}
               <div className='space-y-2'>
                 <div className='flex items-center justify-between'>
-                  <Label>Sections (Multiple selection allowed)</Label>
-                  <div className='flex items-center gap-2'>
-                    {loadingFilteredSections ? (
-                      <Badge variant='secondary' className='text-xs'>
-                        Loading sections...
-                      </Badge>
-                    ) : filteredSections?.length > 0 ? (
-                      <Badge variant='default' className='text-xs'>
-                        {timetable?.semester} Sections (
-                        {filteredSections.length})
-                      </Badge>
-                    ) : (
-                      <Badge
-                        variant='outline'
-                        className='text-xs border-orange-200 text-orange-700'
-                      >
-                        No {timetable?.semester} sections found
-                      </Badge>
-                    )}
-                  </div>
+                  <Label>
+                    Sections <span className='text-red-500'>*</span>
+                  </Label>
+                  <Badge variant='secondary' className='text-xs'>
+                    Semester ({filteredSections?.length || 0})
+                  </Badge>
                 </div>
-
-                <div className='border rounded-md p-2 max-h-32 overflow-y-auto'>
+                <div
+                  className={`border rounded-md p-2 max-h-32 overflow-y-auto ${
+                    !selectedSections ||
+                    selectedSections.length === 0 ||
+                    selectedSections.every((id) => id === 'none')
+                      ? 'border-red-300 bg-red-50'
+                      : ''
+                  }`}
+                >
                   {filteredSections?.map((section: any) => (
                     <div
                       key={section.id}
@@ -420,12 +407,6 @@ export function SlotDialog({
                         className='text-sm flex items-center gap-2'
                       >
                         {section.section_name}
-                        <Badge
-                          variant='outline'
-                          className='text-xs bg-blue-50 text-blue-700 border-blue-200'
-                        >
-                          Semester Section
-                        </Badge>
                       </Label>
                     </div>
                   ))}
@@ -442,6 +423,13 @@ export function SlotDialog({
                       </div>
                     )}
                 </div>
+                {(!selectedSections ||
+                  selectedSections.length === 0 ||
+                  selectedSections.every((id) => id === 'none')) && (
+                  <p className='text-sm text-red-600'>
+                    At least one section is required
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -491,15 +479,23 @@ export function SlotDialog({
                     <div className='space-y-4'>
                       {/* Course Selection */}
                       <div className='space-y-2'>
-                        <Label>Course</Label>
+                        <Label>
+                          Course <span className='text-red-500'>*</span>
+                        </Label>
                         <Select
                           value={subSlot.course_id || ''}
                           onValueChange={(value) =>
                             updateSubSlot(index, { course_id: value })
                           }
                         >
-                          <SelectTrigger>
-                            <SelectValue placeholder='Select a course' />
+                          <SelectTrigger
+                            className={
+                              !subSlot.course_id || subSlot.course_id === 'none'
+                                ? 'border-red-300'
+                                : ''
+                            }
+                          >
+                            <SelectValue placeholder='Select a course (required)' />
                           </SelectTrigger>
                           <SelectContent>
                             {courses?.map((course: any) => (
@@ -509,28 +505,39 @@ export function SlotDialog({
                             ))}
                           </SelectContent>
                         </Select>
+                        {(!subSlot.course_id ||
+                          subSlot.course_id === 'none') && (
+                          <p className='text-sm text-red-600'>
+                            Course is required
+                          </p>
+                        )}
                       </div>
 
                       {/* Staff Selection */}
                       <div className='space-y-2'>
-                        <div className='flex items-center justify-between'>
-                          <Label>Staff</Label>
-                          {subSlot.course_id && (
-                            <Badge variant='secondary' className='text-xs'>
-                              {showAllStaff ? 'All Staff' : 'Course Staff'}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className='border rounded-md p-2 max-h-24 overflow-y-auto'>
-                          {displayStaff?.map((member: any) => (
+                        <Label>
+                          Staff <span className='text-red-500'>*</span>
+                        </Label>
+                        <div
+                          className={`border rounded-md p-2 max-h-24 overflow-y-auto ${
+                            !subSlot.staff_ids ||
+                            subSlot.staff_ids.length === 0 ||
+                            subSlot.staff_ids.every(
+                              (id: string) => id === 'none'
+                            )
+                              ? 'border-red-300 bg-red-50'
+                              : ''
+                          }`}
+                        >
+                          {staff?.map((staffMember: any) => (
                             <div
-                              key={member.id}
+                              key={staffMember.id}
                               className='flex items-center space-x-2 py-1'
                             >
                               <Checkbox
-                                id={`subSlotStaff-${index}-${member.id}`}
+                                id={`subSlotStaff-${index}-${staffMember.id}`}
                                 checked={
-                                  subSlot.staff_ids?.includes(member.id) ||
+                                  subSlot.staff_ids?.includes(staffMember.id) ||
                                   false
                                 }
                                 onCheckedChange={(checked) => {
@@ -538,55 +545,71 @@ export function SlotDialog({
                                   if (checked) {
                                     updateSubSlotStaff(index, [
                                       ...currentStaff,
-                                      member.id
+                                      staffMember.id
                                     ]);
                                   } else {
                                     updateSubSlotStaff(
                                       index,
                                       currentStaff.filter(
-                                        (id: string) => id !== member.id
+                                        (id: string) => id !== staffMember.id
                                       )
                                     );
                                   }
                                 }}
                               />
                               <Label
-                                htmlFor={`subSlotStaff-${index}-${member.id}`}
+                                htmlFor={`subSlotStaff-${index}-${staffMember.id}`}
                                 className='text-xs flex items-center gap-1'
                               >
-                                {member.first_name} {member.last_name}
-                                {!showAllStaff &&
-                                  courseAssignedStaff.some(
-                                    (cs) => cs.id === member.id
-                                  ) && (
-                                    <Badge
-                                      variant='outline'
-                                      className='text-xs bg-green-50 text-green-700 border-green-200'
-                                    >
-                                      Assigned
-                                    </Badge>
-                                  )}
+                                {staffMember.first_name} {staffMember.last_name}
+                                <Badge
+                                  variant='outline'
+                                  className='text-xs bg-green-50 text-green-700 border-green-200'
+                                >
+                                  {staffMember.staff_id}
+                                </Badge>
                               </Label>
                             </div>
                           ))}
 
-                          {displayStaff?.length === 0 && (
+                          {staff?.length === 0 && (
                             <div className='text-center py-2 text-gray-500 text-xs'>
                               No staff available
                             </div>
                           )}
                         </div>
+                        {(!subSlot.staff_ids ||
+                          subSlot.staff_ids.length === 0 ||
+                          subSlot.staff_ids.every(
+                            (id: string) => id === 'none'
+                          )) && (
+                          <p className='text-sm text-red-600'>
+                            At least one staff member is required
+                          </p>
+                        )}
                       </div>
 
                       {/* Section Selection */}
                       <div className='space-y-2'>
                         <div className='flex items-center justify-between'>
-                          <Label>Sections</Label>
+                          <Label>
+                            Sections <span className='text-red-500'>*</span>
+                          </Label>
                           <Badge variant='secondary' className='text-xs'>
                             Semester ({filteredSections?.length || 0})
                           </Badge>
                         </div>
-                        <div className='border rounded-md p-2 max-h-24 overflow-y-auto'>
+                        <div
+                          className={`border rounded-md p-2 max-h-24 overflow-y-auto ${
+                            !subSlot.section_ids ||
+                            subSlot.section_ids.length === 0 ||
+                            subSlot.section_ids.every(
+                              (id: string) => id === 'none'
+                            )
+                              ? 'border-red-300 bg-red-50'
+                              : ''
+                          }`}
+                        >
                           {filteredSections?.map((section: any) => (
                             <div
                               key={section.id}
@@ -616,18 +639,6 @@ export function SlotDialog({
                                   }
                                 }}
                               />
-                              <Label
-                                htmlFor={`subSlotSection-${index}-${section.id}`}
-                                className='text-xs flex items-center gap-1'
-                              >
-                                {section.section_name}
-                                <Badge
-                                  variant='outline'
-                                  className='text-xs bg-blue-50 text-blue-700 border-blue-200'
-                                >
-                                  Semester
-                                </Badge>
-                              </Label>
                             </div>
                           ))}
 
@@ -642,6 +653,15 @@ export function SlotDialog({
                             </div>
                           )}
                         </div>
+                        {(!subSlot.section_ids ||
+                          subSlot.section_ids.length === 0 ||
+                          subSlot.section_ids.every(
+                            (id: string) => id === 'none'
+                          )) && (
+                          <p className='text-sm text-red-600'>
+                            At least one section is required
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}

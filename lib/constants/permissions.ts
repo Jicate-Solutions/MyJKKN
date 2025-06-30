@@ -268,7 +268,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.timetables.view', label: 'View Timetables' },
       { key: 'academic.timetables.create', label: 'Create Timetables' },
       { key: 'academic.timetables.edit', label: 'Edit Timetables' },
-      { key: 'academic.timetables.delete', label: 'Delete Timetables' }
+      { key: 'academic.timetables.delete', label: 'Delete Timetables' },
+      { key: 'academic.attendance.view', label: 'View Attendance' },
+      { key: 'academic.attendance.mark', label: 'Mark Attendance' },
+      { key: 'academic.attendance.edit', label: 'Edit Attendance' },
+      { key: 'academic.attendance.reports', label: 'View Attendance Reports' }
     ]
   },
   {

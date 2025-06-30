@@ -125,6 +125,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/staff-planning': 'academic.staff.planning.view',
   '/academic/timetables': 'academic.timetables.view',
   '/academic/periods': 'academic.periods.view',
+  '/academic/attendance': 'academic.attendance.view',
 
   // Resource Management
 
@@ -437,6 +438,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Timetables',
           active: pathname === '/academic/timetables',
           icon: CalendarClock,
+          submenus: []
+        },
+        {
+          href: '/academic/attendance',
+          label: 'Attendance',
+          active: pathname === '/academic/attendance',
+          icon: ClipboardCheck,
           submenus: []
         }
       ]

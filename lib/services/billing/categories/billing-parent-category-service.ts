@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { UserInstitutionAccessService } from '@/lib/services/users/user-institution-access-service';
 import type {
   BillingParentCategory,
   CreateBillingParentCategoryDto,
@@ -243,6 +244,102 @@ export class BillingParentCategoryService {
       };
     } catch (error) {
       console.error('Error fetching billing parent categories:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get billing parent categories with user institution access control
+   */
+  static async getBillingParentCategoriesForUser(
+    userId: string,
+    filters: BillingParentCategoryFilters = {}
+  ): Promise<BillingParentCategoryListResponse> {
+    try {
+      // Get user's accessible institutions
+      const accessibleInstitutions =
+        await UserInstitutionAccessService.getUserAccessibleInstitutions(
+          userId
+        );
+      const accessibleInstitutionIds = accessibleInstitutions.map(
+        (inst) => inst.institution_id
+      );
+
+      // If user has no accessible institutions, return empty result
+      if (accessibleInstitutionIds.length === 0) {
+        return {
+          data: [],
+          metadata: {
+            total: 0,
+            page: filters.page || 1,
+            limit: filters.limit || 10,
+            totalPages: 0
+          }
+        };
+      }
+
+      const {
+        search,
+        institution_id,
+        isActive,
+        page = 1,
+        limit = 10
+      } = filters;
+
+      let query = this.supabase.from('billing_parent_categories').select(
+        `
+          *,
+          institution:institutions(
+            id,
+            name,
+            counselling_code
+          )
+        `,
+        { count: 'exact' }
+      );
+
+      // Apply institution access filter
+      query = query.in('institution_id', accessibleInstitutionIds);
+
+      // Apply other filters
+      if (search) {
+        query = query.ilike('parent_category_name', `%${search}%`);
+      }
+
+      if (institution_id && accessibleInstitutionIds.includes(institution_id)) {
+        query = query.eq('institution_id', institution_id);
+      }
+
+      if (isActive !== undefined) {
+        query = query.eq('is_active', isActive);
+      }
+
+      // Apply pagination
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+      query = query.range(from, to);
+
+      // Order by created_at descending
+      query = query.order('created_at', { ascending: false });
+
+      const { data, count, error } = await query;
+
+      if (error) throw error;
+
+      return {
+        data: data || [],
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: count ? Math.ceil(count / limit) : 0
+        }
+      };
+    } catch (error) {
+      console.error(
+        'Error fetching billing parent categories for user:',
+        error
+      );
       throw error;
     }
   }

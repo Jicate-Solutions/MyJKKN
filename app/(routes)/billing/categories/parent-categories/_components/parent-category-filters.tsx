@@ -12,9 +12,9 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { BillingParentCategoryFilters } from '@/types/billing';
-import type { Institution } from '@/types/organizations';
 
 interface ParentCategoryFiltersProps {
   filters: BillingParentCategoryFilters;
@@ -25,26 +25,9 @@ export function ParentCategoryFilters({
   filters,
   onFilterChange
 }: ParentCategoryFiltersProps) {
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(true);
-
-  useEffect(() => {
-    loadInstitutions();
-  }, []);
-
-  const loadInstitutions = async () => {
-    try {
-      setIsLoadingInstitutions(true);
-      const institutionNames = await OrganizationService.getInstitutionNames(
-        true
-      );
-      setInstitutions(institutionNames as Institution[]);
-    } catch (error) {
-      console.error('Error loading institutions:', error);
-    } finally {
-      setIsLoadingInstitutions(false);
-    }
-  };
+  const { institutions, loading: isLoadingInstitutions } =
+    useUserInstitutionAccess();
+  const { isSuperAdmin } = usePermissions();
 
   const handleClearFilters = () => {
     onFilterChange({
@@ -114,8 +97,12 @@ export function ParentCategoryFilters({
             <SelectContent>
               <SelectItem value='all'>All institutions</SelectItem>
               {institutions.map((institution) => (
-                <SelectItem key={institution.id} value={institution.id}>
-                  {institution.name} ({institution.counselling_code})
+                <SelectItem
+                  key={institution.institution_id}
+                  value={institution.institution_id}
+                >
+                  {institution.institution_name} ({institution.counselling_code}
+                  )
                 </SelectItem>
               ))}
             </SelectContent>

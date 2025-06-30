@@ -4,6 +4,8 @@ import type {
   BillingParentCategoryFilters
 } from '@/types/billing';
 import { BillingParentCategoryService } from '@/lib/services/billing/categories/billing-parent-category-service';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export function useBillingParentCategories(
   initialFilters: BillingParentCategoryFilters = {}
@@ -20,17 +22,31 @@ export function useBillingParentCategories(
     totalPages: 0
   });
 
+  const { user } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+
   const fetchCategories = useCallback(
     async (newFilters?: BillingParentCategoryFilters) => {
+      if (!user?.id) {
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setError(null);
         const currentFilters = newFilters || filters;
 
-        const result =
-          await BillingParentCategoryService.getBillingParentCategories(
-            currentFilters
-          );
+        // Use user-aware service for non-super-admin users
+        const result = isSuperAdmin
+          ? await BillingParentCategoryService.getBillingParentCategories(
+              currentFilters
+            )
+          : await BillingParentCategoryService.getBillingParentCategoriesForUser(
+              user.id,
+              currentFilters
+            );
+
         setCategories(result.data);
         setMetadata(result.metadata);
 
@@ -44,7 +60,7 @@ export function useBillingParentCategories(
         setLoading(false);
       }
     },
-    [filters]
+    [filters, user?.id, isSuperAdmin]
   );
 
   const updateFilters = useCallback(
