@@ -744,6 +744,94 @@ export default function TimetableDetailPage({
   const saveSlot = async () => {
     if (!selectedDay || !selectedPeriod) return;
 
+    // Validation for mandatory fields
+    if (!isBreakSlot) {
+      if (isCombinedClass) {
+        // Validate combined class sub-slots
+        const invalidSubSlots = [];
+        for (let i = 0; i < subSlots.length; i++) {
+          const subSlot = subSlots[i];
+          if (!subSlot.is_break_slot) {
+            if (!subSlot.course_id || subSlot.course_id === 'none') {
+              invalidSubSlots.push(`Sub-slot ${i + 1}: Course is required`);
+            }
+            if (
+              !subSlot.staff_ids ||
+              subSlot.staff_ids.length === 0 ||
+              subSlot.staff_ids.every((id) => id === 'none')
+            ) {
+              invalidSubSlots.push(
+                `Sub-slot ${i + 1}: At least one staff member is required`
+              );
+            }
+            if (
+              !subSlot.section_ids ||
+              subSlot.section_ids.length === 0 ||
+              subSlot.section_ids.every((id) => id === 'none')
+            ) {
+              invalidSubSlots.push(
+                `Sub-slot ${i + 1}: At least one section is required`
+              );
+            }
+          }
+        }
+
+        if (invalidSubSlots.length > 0) {
+          toast({
+            title: 'Validation Error',
+            description: (
+              <div className='space-y-1'>
+                <div>
+                  Cannot create slot. Please fill in the required fields:
+                </div>
+                {invalidSubSlots.map((error, index) => (
+                  <div key={index} className='text-sm'>
+                    • {error}
+                  </div>
+                ))}
+              </div>
+            ),
+            variant: 'destructive'
+          });
+          return;
+        }
+      } else {
+        // Validate regular slot
+        const missingFields = [];
+
+        if (!selectedCourseId || selectedCourseId === 'none') {
+          missingFields.push('Course');
+        }
+
+        if (
+          !selectedStaffIds ||
+          selectedStaffIds.length === 0 ||
+          selectedStaffIds.every((id) => id === 'none')
+        ) {
+          missingFields.push('Staff');
+        }
+
+        if (
+          !selectedSectionIds ||
+          selectedSectionIds.length === 0 ||
+          selectedSectionIds.every((id) => id === 'none')
+        ) {
+          missingFields.push('Sections');
+        }
+
+        if (missingFields.length > 0) {
+          toast({
+            title: 'Validation Error',
+            description: `Cannot create slot. The following fields are required: ${missingFields.join(
+              ', '
+            )}`,
+            variant: 'destructive'
+          });
+          return;
+        }
+      }
+    }
+
     try {
       if (isCombinedClass) {
         // Handle combined class

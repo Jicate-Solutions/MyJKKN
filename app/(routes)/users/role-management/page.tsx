@@ -6,7 +6,14 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
-import { ArrowUp, PlusCircle, AlertCircle } from 'lucide-react';
+import {
+  ArrowUp,
+  PlusCircle,
+  AlertCircle,
+  Users,
+  GraduationCap,
+  Building2
+} from 'lucide-react';
 import { RoleManagementList } from './_components/role-management-list';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { UserService } from '@/lib/services/users/user-service';
@@ -17,6 +24,9 @@ import { CreateRoleDialog } from './_components/create-role-dialog';
 import { PageBreadcrumb } from '@/components/navigation';
 import { AuthService } from '@/lib/auth/auth-service';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScholarshipPermissionManager } from '@/app/(routes)/billing/discounts/_components/scholarship-permission-manager';
+import { UserInstitutionAccessManager } from './_components/user-institution-access-manager';
 
 export default function RoleManagementPage() {
   const router = useRouter();
@@ -26,6 +36,7 @@ export default function RoleManagementPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
+  const [activeTab, setActiveTab] = useState('roles');
 
   // Check permissions and fetch roles
   useEffect(() => {
@@ -185,23 +196,8 @@ export default function RoleManagementPage() {
           />
           <h2 className='text-2xl font-bold'>Role Management</h2>
           <p className='text-sm text-muted-foreground'>
-            Create, view and manage roles
+            Create, view and manage roles and permissions
           </p>
-        </div>
-        <div className='flex items-center gap-4'>
-          <Button
-            variant='outline'
-            onClick={handleMigratePermissions}
-            disabled={isMigrating}
-            className='flex items-center gap-2'
-          >
-            <ArrowUp className='h-4 w-4' />
-            {isMigrating ? 'Migrating...' : 'Migrate Permissions'}
-          </Button>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <PlusCircle className='mr-2 h-4 w-4' />
-            Create Role
-          </Button>
         </div>
 
         <Alert className='mb-6 border-blue-500 bg-blue-50'>
@@ -214,23 +210,72 @@ export default function RoleManagementPage() {
           </AlertDescription>
         </Alert>
 
-        {isLoading ? (
-          <div className='flex justify-center items-center min-h-[400px]'>
-            <BeatLoader color='#00e902' />
-          </div>
-        ) : error ? (
-          <Card>
-            <CardContent className='p-6'>
-              <div className='text-center text-red-500'>{error}</div>
-            </CardContent>
-          </Card>
-        ) : (
-          <RoleManagementList
-            roles={roles}
-            onUpdateRole={handleUpdateRole}
-            onDeleteRole={handleDeleteRole}
-          />
-        )}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
+          <TabsList className='grid w-full grid-cols-3'>
+            <TabsTrigger value='roles' className='flex items-center gap-2'>
+              <Users className='h-4 w-4' />
+              Role Management
+            </TabsTrigger>
+            <TabsTrigger
+              value='scholarships'
+              className='flex items-center gap-2'
+            >
+              <GraduationCap className='h-4 w-4' />
+              Scholarship Permissions
+            </TabsTrigger>
+            <TabsTrigger
+              value='institutions'
+              className='flex items-center gap-2'
+            >
+              <Building2 className='h-4 w-4' />
+              Institution Access
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value='roles' className='space-y-6'>
+            <div className='flex items-center gap-4'>
+              <Button
+                variant='outline'
+                onClick={handleMigratePermissions}
+                disabled={isMigrating}
+                className='flex items-center gap-2'
+              >
+                <ArrowUp className='h-4 w-4' />
+                {isMigrating ? 'Migrating...' : 'Migrate Permissions'}
+              </Button>
+              <Button onClick={() => setShowCreateDialog(true)}>
+                <PlusCircle className='mr-2 h-4 w-4' />
+                Create Role
+              </Button>
+            </div>
+
+            {isLoading ? (
+              <div className='flex justify-center items-center min-h-[400px]'>
+                <BeatLoader color='#00e902' />
+              </div>
+            ) : error ? (
+              <Card>
+                <CardContent className='p-6'>
+                  <div className='text-center text-red-500'>{error}</div>
+                </CardContent>
+              </Card>
+            ) : (
+              <RoleManagementList
+                roles={roles}
+                onUpdateRole={handleUpdateRole}
+                onDeleteRole={handleDeleteRole}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value='scholarships' className='space-y-6'>
+            <ScholarshipPermissionManager />
+          </TabsContent>
+
+          <TabsContent value='institutions' className='space-y-6'>
+            <UserInstitutionAccessManager />
+          </TabsContent>
+        </Tabs>
       </div>
 
       <CreateRoleDialog
