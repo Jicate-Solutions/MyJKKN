@@ -229,6 +229,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'students.create', label: 'Create Students' },
       { key: 'students.edit', label: 'Edit Students' },
       { key: 'students.delete', label: 'Delete Students' },
+      {
+        key: 'students.dashboard.view',
+        label: 'View Student Analytics Dashboard'
+      },
       { key: 'students.onboarding.view', label: 'View Student Onboarding' },
       { key: 'students.onboarding.edit', label: 'Edit Student Onboarding' },
       { key: 'students.promotion.view', label: 'View Student Promotion' },
