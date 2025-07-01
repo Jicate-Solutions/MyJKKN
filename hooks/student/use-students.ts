@@ -20,7 +20,9 @@ export const studentKeys = {
   detail: (id: string) => [...studentKeys.details(), id] as const,
   byAdmission: (admissionId: string) =>
     [...studentKeys.all, 'byAdmission', admissionId] as const,
-  stats: () => [...studentKeys.all, 'stats'] as const
+  stats: () => [...studentKeys.all, 'stats'] as const,
+  dashboardStats: (filters?: any) =>
+    [...studentKeys.all, 'dashboard-stats', filters] as const
 };
 
 // Get a list of students with filters
@@ -133,6 +135,16 @@ export const useStudentStats = () => {
   return useQuery({
     queryKey: studentKeys.stats(),
     queryFn: () => StudentService.getStudentStats()
+  });
+};
+
+// Get student dashboard statistics
+export const useStudentDashboardStats = (filters?: any) => {
+  return useQuery({
+    queryKey: studentKeys.dashboardStats(filters),
+    queryFn: () => StudentService.getDashboardStats(filters),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false
   });
 };
 

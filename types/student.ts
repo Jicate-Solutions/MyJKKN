@@ -166,3 +166,133 @@ export interface StudentListResponse {
     totalPages: number;
   };
 }
+
+// Dashboard Types
+export interface StudentDashboardStats {
+  overview: {
+    totalStudents: number;
+    activeStudents: number;
+    inactiveStudents: number;
+    pendingStudents: number;
+    exitedStudents: number;
+    graduatedStudents: number;
+    profileCompletionRate: number;
+    completeProfiles: number;
+    incompleteProfiles: number;
+  };
+  registrationTrends: Array<{
+    date: string;
+    count: number;
+    cumulative: number;
+  }>;
+  institutionStats: Array<{
+    id: string;
+    name: string;
+    studentCount: number;
+    percentage: number;
+  }>;
+  departmentStats: Array<{
+    id: string;
+    name: string;
+    studentCount: number;
+    percentage: number;
+    institutionName: string;
+  }>;
+  programStats: Array<{
+    id: string;
+    name: string;
+    studentCount: number;
+    percentage: number;
+    departmentName: string;
+  }>;
+  semesterStats: Array<{
+    id: string;
+    name: string;
+    studentCount: number;
+    percentage: number;
+  }>;
+  sectionStats: Array<{
+    id: string;
+    name: string;
+    studentCount: number;
+    percentage: number;
+    semesterName: string;
+  }>;
+  demographicStats: {
+    gender: Array<{
+      gender: string;
+      count: number;
+      percentage: number;
+    }>;
+    entryType: Array<{
+      type: string;
+      count: number;
+      percentage: number;
+    }>;
+    accommodationType: Array<{
+      type: string;
+      count: number;
+      percentage: number;
+    }>;
+    religion: Array<{
+      religion: string;
+      count: number;
+      percentage: number;
+    }>;
+    community: Array<{
+      community: string;
+      count: number;
+      percentage: number;
+    }>;
+    ageGroups: Array<{
+      ageGroup: string;
+      count: number;
+      percentage: number;
+    }>;
+  };
+  geographicStats: Array<{
+    state: string;
+    district: string;
+    count: number;
+    percentage: number;
+  }>;
+  onboardingStats: {
+    profileCompletionFunnel: Array<{
+      step: string;
+      completed: number;
+      total: number;
+      percentage: number;
+    }>;
+    missingFields: Array<{
+      field: string;
+      missingCount: number;
+      percentage: number;
+    }>;
+    timeToComplete: {
+      average: number;
+      median: number;
+      distribution: Array<{
+        range: string;
+        count: number;
+        percentage: number;
+      }>;
+    };
+  };
+  statusTransitions: Array<{
+    date: string;
+    fromStatus: string;
+    toStatus: string;
+    count: number;
+  }>;
+}
+
+export interface DashboardFilters {
+  dateRange?: {
+    from: Date;
+    to: Date;
+  };
+  institutionId?: string;
+  departmentId?: string;
+  programId?: string;
+  status?: string[];
+}

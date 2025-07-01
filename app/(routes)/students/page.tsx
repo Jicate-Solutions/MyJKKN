@@ -17,7 +17,8 @@ import {
   CalendarIcon,
   Trash,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  BarChart3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -577,23 +578,30 @@ export default function StudentsPage() {
             { label: 'Student Management' }
           ]}
         />
-        <div className='flex flex-col items-start gap-4'>
+        <div className='flex items-center justify-between'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>Students</h1>
             <p className='text-muted-foreground'>
-              Manage enrolled student records
+              Manage and view all student records
             </p>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
-            <CanCreate module='students' fallback={null}>
-              <DownloadNewStudentTemplateButton />
+          <div className='flex items-center gap-2'>
+            <Link href='/students/dashboard'>
+              <Button variant='outline' size='sm'>
+                <BarChart3 className='h-4 w-4 mr-2' />
+                Analytics Dashboard
+              </Button>
+            </Link>
+            <CanCreate module='students'>
+              <Link href='/students/onboarding'>
+                <Button variant='outline' size='sm'>
+                  <UserCheck className='h-4 w-4 mr-2' />
+                  Onboarding
+                </Button>
+              </Link>
             </CanCreate>
-            {isSuperAdmin && <ExportStudents />}
-            {(isSuperAdmin || canAccess('user', 'create')) && (
+            <CanCreate module='students'>
               <CreateMissingStudentProfilesButton />
-            )}
-            <CanCreate module='students' fallback={null}>
-              <BulkCreateStudents />
             </CanCreate>
           </div>
         </div>

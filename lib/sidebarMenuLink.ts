@@ -108,6 +108,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   //student management
   '/students': 'students.view',
+  '/students/dashboard': 'students.dashboard.view',
   '/students/new': 'students.create',
   '/students/[id]': 'students.view',
   '/students/[id]/edit': 'students.edit',
@@ -368,6 +369,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/students'),
           icon: Users,
           submenus: [
+            {
+              href: '/students/dashboard',
+              label: 'Analytics Dashboard',
+              active: pathname === '/students/dashboard'
+            },
             {
               href: '/students/onboarding',
               label: 'Learners Onboarding',
