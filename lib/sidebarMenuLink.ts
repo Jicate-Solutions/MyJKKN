@@ -120,6 +120,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Staff Management
   '/staff/category': 'staff.categories.view',
   '/staff/list': 'staff.view',
+  '/staff/dashboard': 'staff.dashboard.view',
 
   // Academic Management
   '/academic/years': 'academic.years.view',
@@ -399,6 +400,13 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Facilitators Management',
       menus: [
+        {
+          href: '/staff/dashboard',
+          label: 'Analytics Dashboard',
+          active: pathname === '/staff/dashboard',
+          icon: BarChart,
+          submenus: []
+        },
         {
           href: '/staff/category',
           label: 'Facilitators Category',

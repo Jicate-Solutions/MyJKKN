@@ -144,3 +144,147 @@ export interface StaffListResponse {
     totalPages: number;
   };
 }
+
+// Staff Dashboard Analytics Types
+
+export interface StaffDashboardFilters {
+  dateRange?: {
+    from: Date | undefined;
+    to: Date | undefined;
+  };
+  institutionId?: string;
+  departmentId?: string;
+  categoryId?: string;
+  status?: string[];
+}
+
+export interface StaffOverviewStats {
+  totalStaff: number;
+  activeStaff: number;
+  inactiveStaff: number;
+  newHires: number; // Staff hired in the current month
+  profileCompletionRate: number;
+  averageTenure: number; // Average years of service
+  staffWithProfiles: number;
+  staffWithoutProfiles: number;
+}
+
+export interface StaffRegistrationTrend {
+  date: string;
+  count: number;
+  cumulative: number;
+}
+
+export interface StaffInstitutionStats {
+  id: string;
+  name: string;
+  staffCount: number;
+  percentage: number;
+  activeCount: number;
+  inactiveCount: number;
+}
+
+export interface StaffDepartmentStats {
+  id: string;
+  name: string;
+  institutionId: string;
+  institutionName: string;
+  staffCount: number;
+  percentage: number;
+  activeCount: number;
+  inactiveCount: number;
+}
+
+export interface StaffCategoryStats {
+  id: string;
+  name: string;
+  staffCount: number;
+  percentage: number;
+  activeCount: number;
+  inactiveCount: number;
+  averageTenure: number;
+}
+
+export interface StaffGeographicStats {
+  stateDistribution: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+  districtDistribution: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+}
+
+export interface StaffDemographicStats {
+  genderDistribution: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+  maritalStatusDistribution: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+  ageGroups: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+}
+
+export interface StaffTenureAnalytics {
+  tenureDistribution: Array<{
+    range: string; // e.g., "0-1 years", "1-5 years", etc.
+    count: number;
+    percentage: number;
+  }>;
+  averageTenureByCategory: Array<{
+    categoryName: string;
+    averageTenure: number;
+  }>;
+  averageTenureByDepartment: Array<{
+    departmentName: string;
+    institutionName: string;
+    averageTenure: number;
+  }>;
+  newHiresTrend: Array<{
+    month: string;
+    count: number;
+  }>;
+}
+
+export interface StaffProfileAnalytics {
+  profileCompletionBreakdown: Array<{
+    field: string;
+    completedCount: number;
+    totalCount: number;
+    percentage: number;
+  }>;
+  profileCompletionByCategory: Array<{
+    categoryName: string;
+    completedCount: number;
+    totalCount: number;
+    percentage: number;
+  }>;
+  missingFields: Array<{
+    field: string;
+    missingCount: number;
+    percentage: number;
+  }>;
+}
+
+export interface StaffDashboardStats {
+  overview: StaffOverviewStats;
+  registrationTrends: StaffRegistrationTrend[];
+  institutionStats: StaffInstitutionStats[];
+  departmentStats: StaffDepartmentStats[];
+  categoryStats: StaffCategoryStats[];
+  geographicStats: StaffGeographicStats;
+  demographicStats: StaffDemographicStats;
+  tenureAnalytics: StaffTenureAnalytics;
+  profileAnalytics: StaffProfileAnalytics;
+}

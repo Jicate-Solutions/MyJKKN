@@ -75,14 +75,14 @@ import {
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
-import { BulkStudentUpdate } from './_components/bulk-student-update';
-import { DownloadStudentTemplateButton } from './_components/download-student-template-button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Section } from '@/types/organizations';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { StudentService } from '@/lib/services/student/student-service';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { DownloadNewStudentTemplateButton } from '../_components/download-new-student-template-button';
+import { BulkCreateStudents } from '../_components/bulk-create-students';
 
 // Define the DateRange type
 type DateRange = {
@@ -835,8 +835,8 @@ export default function StudentOnboardingPage() {
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
-            {isSuperAdmin && <DownloadStudentTemplateButton />}
-            {isSuperAdmin && <BulkStudentUpdate />}
+            {isSuperAdmin && <DownloadNewStudentTemplateButton />}
+            {isSuperAdmin && <BulkCreateStudents />}
             {canViewOnboarding && (
               <Button
                 variant='default'

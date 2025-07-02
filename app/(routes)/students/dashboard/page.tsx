@@ -18,7 +18,9 @@ import {
   BarChart3,
   PieChart,
   MapPin,
-  CheckCircle
+  CheckCircle,
+  FileEdit,
+  AlertCircle
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -183,20 +185,475 @@ export default function StudentDashboardPage() {
           </TabsList>
 
           {/* Overview Tab */}
-          <TabsContent value='overview' className='space-y-6'>
-            <OverviewStats
-              data={dashboardStats?.overview}
-              isLoading={isLoading}
-            />
-            <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
-              <RegistrationTrends
-                data={dashboardStats?.registrationTrends}
-                isLoading={isLoading}
-              />
-              <ProfileCompletionStats
+          <TabsContent value='overview' className='space-y-8'>
+            {/* Hero Section */}
+            <div className='relative overflow-hidden rounded-lg bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 text-white'>
+              <div className='absolute inset-0 bg-black/20'></div>
+              <div className='relative px-8 py-12'>
+                <div className='flex items-center justify-between'>
+                  <div className='space-y-4'>
+                    <div className='flex items-center gap-3'>
+                      <div className='p-3 bg-white/20 rounded-lg backdrop-blur-sm'>
+                        <BarChart3 className='h-8 w-8 text-white' />
+                      </div>
+                      <div>
+                        <h2 className='text-3xl font-bold'>
+                          Student Overview Dashboard
+                        </h2>
+                        <p className='text-blue-100 mt-1'>
+                          Comprehensive insights into student enrollment and
+                          engagement
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className='flex items-center gap-4'>
+                    <div className='text-right'>
+                      <div className='text-sm text-blue-100'>Last Updated</div>
+                      <div className='text-lg font-semibold'>
+                        {new Date().toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                    </div>
+                    <div className='flex items-center gap-2'>
+                      <Badge
+                        variant='secondary'
+                        className='bg-white/20 text-white border-white/30'
+                      >
+                        <RefreshCw className='h-3 w-3 mr-1' />
+                        Live Data
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Key Performance Indicators */}
+            <div className='space-y-6'>
+              <div className='flex items-center justify-between'>
+                <div className='flex items-center gap-3'>
+                  <div className='h-8 w-1 bg-blue-600 rounded-full'></div>
+                  <div>
+                    <h3 className='text-2xl font-bold'>
+                      Key Performance Indicators
+                    </h3>
+                    <p className='text-muted-foreground'>
+                      Real-time overview of student enrollment and engagement
+                      metrics
+                    </p>
+                  </div>
+                </div>
+                <Button variant='outline' size='sm'>
+                  <Download className='h-4 w-4 mr-2' />
+                  Export KPIs
+                </Button>
+              </div>
+
+              <OverviewStats
                 data={dashboardStats?.overview}
                 isLoading={isLoading}
               />
+            </div>
+
+            <Separator className='my-8' />
+
+            {/* Student Status Overview */}
+            <div className='space-y-6'>
+              <div className='flex items-center gap-3'>
+                <div className='h-8 w-1 bg-green-600 rounded-full'></div>
+                <div>
+                  <h3 className='text-2xl font-bold'>
+                    Student Status Distribution
+                  </h3>
+                  <p className='text-muted-foreground'>
+                    Breakdown of students by current enrollment status
+                  </p>
+                </div>
+              </div>
+
+              <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
+                {/* Active Students Status Card */}
+                <Card className='bg-gradient-to-br from-green-50 to-emerald-50 border-green-200'>
+                  <CardHeader>
+                    <CardTitle className='flex items-center gap-2 text-green-800'>
+                      <UserCheck className='h-5 w-5' />
+                      Active Students
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className='space-y-4'>
+                      <div className='text-center'>
+                        <div className='text-3xl font-bold text-green-700'>
+                          {dashboardStats?.overview?.activeStudents?.toLocaleString() ||
+                            '0'}
+                        </div>
+                        <div className='text-sm text-green-600'>
+                          {dashboardStats?.overview?.totalStudents
+                            ? (
+                                (dashboardStats.overview.activeStudents /
+                                  dashboardStats.overview.totalStudents) *
+                                100
+                              ).toFixed(1)
+                            : '0'}
+                          % of total
+                        </div>
+                      </div>
+                      <div className='flex items-center justify-center gap-2'>
+                        <TrendingUp className='h-4 w-4 text-green-600' />
+                        <span className='text-sm text-green-700 font-medium'>
+                          Currently enrolled
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Pending Students Status Card */}
+                <Card className='bg-gradient-to-br from-yellow-50 to-amber-50 border-yellow-200'>
+                  <CardHeader>
+                    <CardTitle className='flex items-center gap-2 text-yellow-800'>
+                      <Clock className='h-5 w-5' />
+                      Pending Students
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className='space-y-4'>
+                      <div className='text-center'>
+                        <div className='text-3xl font-bold text-yellow-700'>
+                          {dashboardStats?.overview?.pendingStudents?.toLocaleString() ||
+                            '0'}
+                        </div>
+                        <div className='text-sm text-yellow-600'>
+                          Awaiting approval
+                        </div>
+                      </div>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='w-full border-yellow-300 hover:bg-yellow-100'
+                      >
+                        Review Pending
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Graduated Students Status Card */}
+                <Card className='bg-gradient-to-br from-purple-50 to-violet-50 border-purple-200'>
+                  <CardHeader>
+                    <CardTitle className='flex items-center gap-2 text-purple-800'>
+                      <GraduationCap className='h-5 w-5' />
+                      Graduated Students
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className='space-y-4'>
+                      <div className='text-center'>
+                        <div className='text-3xl font-bold text-purple-700'>
+                          {dashboardStats?.overview?.graduatedStudents?.toLocaleString() ||
+                            '0'}
+                        </div>
+                        <div className='text-sm text-purple-600'>
+                          Successfully completed
+                        </div>
+                      </div>
+                      <div className='flex items-center justify-center gap-2'>
+                        <CheckCircle className='h-4 w-4 text-purple-600' />
+                        <span className='text-sm text-purple-700 font-medium'>
+                          Alumni network
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            <Separator className='my-8' />
+
+            {/* Analytics & Insights Section */}
+            <div className='space-y-6'>
+              <div className='flex items-center gap-3'>
+                <div className='h-8 w-1 bg-purple-600 rounded-full'></div>
+                <div>
+                  <h3 className='text-2xl font-bold'>Analytics & Insights</h3>
+                  <p className='text-muted-foreground'>
+                    Detailed trends and profile completion analytics
+                  </p>
+                </div>
+              </div>
+
+              <div className='grid grid-cols-1 gap-8'>
+                <RegistrationTrends
+                  data={dashboardStats?.registrationTrends}
+                  isLoading={isLoading}
+                />
+                <ProfileCompletionStats
+                  data={dashboardStats?.overview}
+                  isLoading={isLoading}
+                />
+              </div>
+            </div>
+
+            <Separator className='my-8' />
+
+            {/* Quick Actions & Institutional Overview */}
+            <div className='space-y-6'>
+              <div className='flex items-center gap-3'>
+                <div className='h-8 w-1 bg-orange-600 rounded-full'></div>
+                <div>
+                  <h3 className='text-2xl font-bold'>
+                    Quick Actions & Institution Overview
+                  </h3>
+                  <p className='text-muted-foreground'>
+                    Administrative shortcuts and organizational insights
+                  </p>
+                </div>
+              </div>
+
+              <div className='grid grid-cols-1 xl:grid-cols-3 gap-6'>
+                {/* Quick Actions Card */}
+                <Card className='xl:col-span-1 bg-gradient-to-br from-slate-50 to-gray-100'>
+                  <CardHeader>
+                    <CardTitle className='flex items-center gap-2'>
+                      <Users className='h-5 w-5 text-blue-600' />
+                      Quick Actions
+                    </CardTitle>
+                    <CardDescription>
+                      Frequently used administrative tasks
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className='space-y-3'>
+                    <Button
+                      variant='outline'
+                      className='w-full justify-start'
+                      size='sm'
+                    >
+                      <UserCheck className='h-4 w-4 mr-2' />
+                      Add New Student
+                    </Button>
+                    <Button
+                      variant='outline'
+                      className='w-full justify-start'
+                      size='sm'
+                    >
+                      <FileEdit className='h-4 w-4 mr-2' />
+                      Bulk Update Profiles
+                    </Button>
+                    <Button
+                      variant='outline'
+                      className='w-full justify-start'
+                      size='sm'
+                    >
+                      <Download className='h-4 w-4 mr-2' />
+                      Generate Reports
+                    </Button>
+                    <Button
+                      variant='outline'
+                      className='w-full justify-start'
+                      size='sm'
+                    >
+                      <Building className='h-4 w-4 mr-2' />
+                      Manage Institutions
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Institution Summary */}
+                <Card className='xl:col-span-2'>
+                  <CardHeader>
+                    <CardTitle className='flex items-center gap-2'>
+                      <Building className='h-5 w-5 text-green-600' />
+                      Top Performing Institutions
+                    </CardTitle>
+                    <CardDescription>
+                      Institutions with highest student enrollment and
+                      completion rates
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className='space-y-4'>
+                      {dashboardStats?.institutionStats?.slice(0, 4).map(
+                        (
+                          institution: {
+                            id: string;
+                            name: string;
+                            studentCount: number;
+                            percentage: number;
+                          },
+                          index: number
+                        ) => (
+                          <div
+                            key={institution.id}
+                            className='flex items-center justify-between p-3 border rounded-lg'
+                          >
+                            <div className='flex items-center gap-3'>
+                              <div className='flex items-center justify-center w-8 h-8 bg-blue-100 rounded-full'>
+                                <span className='text-sm font-bold text-blue-700'>
+                                  #{index + 1}
+                                </span>
+                              </div>
+                              <div>
+                                <div className='font-medium'>
+                                  {institution.name}
+                                </div>
+                                <div className='text-sm text-muted-foreground'>
+                                  {institution.studentCount.toLocaleString()}{' '}
+                                  students
+                                </div>
+                              </div>
+                            </div>
+                            <div className='text-right'>
+                              <Badge variant='outline'>
+                                {institution.percentage.toFixed(1)}%
+                              </Badge>
+                            </div>
+                          </div>
+                        )
+                      ) || (
+                        <div className='text-center py-8 text-muted-foreground'>
+                          <Building className='h-12 w-12 mx-auto mb-4 opacity-50' />
+                          <p>Institution data will appear here</p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            <Separator className='my-8' />
+
+            {/* System Health & Alerts */}
+            <div className='space-y-6'>
+              <div className='flex items-center gap-3'>
+                <div className='h-8 w-1 bg-red-600 rounded-full'></div>
+                <div>
+                  <h3 className='text-2xl font-bold'>System Health & Alerts</h3>
+                  <p className='text-muted-foreground'>
+                    Important notifications and system status overview
+                  </p>
+                </div>
+              </div>
+
+              <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
+                {/* System Health Card */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className='flex items-center gap-2'>
+                      <CheckCircle className='h-5 w-5 text-green-600' />
+                      System Health
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className='space-y-4'>
+                    <div className='space-y-3'>
+                      <div className='flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200'>
+                        <div className='flex items-center gap-2'>
+                          <div className='w-2 h-2 bg-green-500 rounded-full'></div>
+                          <span className='font-medium'>Database Status</span>
+                        </div>
+                        <Badge className='bg-green-100 text-green-800'>
+                          Healthy
+                        </Badge>
+                      </div>
+                      <div className='flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200'>
+                        <div className='flex items-center gap-2'>
+                          <div className='w-2 h-2 bg-green-500 rounded-full'></div>
+                          <span className='font-medium'>API Response</span>
+                        </div>
+                        <Badge className='bg-green-100 text-green-800'>
+                          Normal
+                        </Badge>
+                      </div>
+                      <div className='flex items-center justify-between p-3 bg-yellow-50 rounded-lg border border-yellow-200'>
+                        <div className='flex items-center gap-2'>
+                          <div className='w-2 h-2 bg-yellow-500 rounded-full'></div>
+                          <span className='font-medium'>
+                            Profile Completion
+                          </span>
+                        </div>
+                        <Badge className='bg-yellow-100 text-yellow-800'>
+                          {dashboardStats?.overview?.profileCompletionRate?.toFixed(
+                            1
+                          ) || '0'}
+                          %
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Recent Alerts Card */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className='flex items-center gap-2'>
+                      <AlertCircle className='h-5 w-5 text-orange-600' />
+                      Recent Alerts
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className='space-y-3'>
+                    <div className='space-y-3'>
+                      <div className='flex items-start gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200'>
+                        <div className='p-1 bg-blue-200 rounded-full'>
+                          <UserCheck className='h-3 w-3 text-blue-700' />
+                        </div>
+                        <div className='flex-1'>
+                          <div className='font-medium text-sm'>
+                            New Student Registrations
+                          </div>
+                          <div className='text-xs text-muted-foreground'>
+                            {dashboardStats?.overview?.pendingStudents || 0}{' '}
+                            students awaiting approval
+                          </div>
+                        </div>
+                        <Badge variant='outline' className='text-xs'>
+                          Today
+                        </Badge>
+                      </div>
+
+                      <div className='flex items-start gap-3 p-3 bg-orange-50 rounded-lg border border-orange-200'>
+                        <div className='p-1 bg-orange-200 rounded-full'>
+                          <UserX className='h-3 w-3 text-orange-700' />
+                        </div>
+                        <div className='flex-1'>
+                          <div className='font-medium text-sm'>
+                            Incomplete Profiles
+                          </div>
+                          <div className='text-xs text-muted-foreground'>
+                            {dashboardStats?.overview?.incompleteProfiles || 0}{' '}
+                            students need profile completion
+                          </div>
+                        </div>
+                        <Badge variant='outline' className='text-xs'>
+                          Active
+                        </Badge>
+                      </div>
+
+                      <div className='flex items-start gap-3 p-3 bg-green-50 rounded-lg border border-green-200'>
+                        <div className='p-1 bg-green-200 rounded-full'>
+                          <TrendingUp className='h-3 w-3 text-green-700' />
+                        </div>
+                        <div className='flex-1'>
+                          <div className='font-medium text-sm'>
+                            System Performance
+                          </div>
+                          <div className='text-xs text-muted-foreground'>
+                            All services running optimally
+                          </div>
+                        </div>
+                        <Badge variant='outline' className='text-xs'>
+                          Good
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </TabsContent>
 
