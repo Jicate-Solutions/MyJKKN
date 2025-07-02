@@ -123,7 +123,7 @@ export function DashboardFiltersPanel({
   const handleInstitutionChange = (institutionId: string) => {
     onFiltersChange({
       ...filters,
-      institutionId: institutionId || undefined,
+      institutionId: institutionId === 'all' ? undefined : institutionId,
       departmentId: undefined,
       programId: undefined
     });
@@ -132,7 +132,7 @@ export function DashboardFiltersPanel({
   const handleDepartmentChange = (departmentId: string) => {
     onFiltersChange({
       ...filters,
-      departmentId: departmentId || undefined,
+      departmentId: departmentId === 'all' ? undefined : departmentId,
       programId: undefined
     });
   };
@@ -140,7 +140,7 @@ export function DashboardFiltersPanel({
   const handleProgramChange = (programId: string) => {
     onFiltersChange({
       ...filters,
-      programId: programId || undefined
+      programId: programId === 'all' ? undefined : programId
     });
   };
 
@@ -260,14 +260,14 @@ export function DashboardFiltersPanel({
             <div className='space-y-2'>
               <Label>Institution</Label>
               <Select
-                value={filters.institutionId || ''}
+                value={filters.institutionId || 'all'}
                 onValueChange={handleInstitutionChange}
               >
                 <SelectTrigger>
                   <SelectValue placeholder='Select institution' />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value=''>All Institutions</SelectItem>
+                  <SelectItem value='all'>All Institutions</SelectItem>
                   {institutions.map((institution) => (
                     <SelectItem key={institution.id} value={institution.id}>
                       {institution.name}
@@ -281,14 +281,14 @@ export function DashboardFiltersPanel({
             <div className='space-y-2'>
               <Label>Department</Label>
               <Select
-                value={filters.departmentId || ''}
+                value={filters.departmentId || 'all'}
                 onValueChange={handleDepartmentChange}
               >
                 <SelectTrigger>
                   <SelectValue placeholder='Select department' />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value=''>All Departments</SelectItem>
+                  <SelectItem value='all'>All Departments</SelectItem>
                   {departments.map((department) => (
                     <SelectItem key={department.id} value={department.id}>
                       {department.department_name}
@@ -302,14 +302,14 @@ export function DashboardFiltersPanel({
             <div className='space-y-2'>
               <Label>Program</Label>
               <Select
-                value={filters.programId || ''}
+                value={filters.programId || 'all'}
                 onValueChange={handleProgramChange}
               >
                 <SelectTrigger>
                   <SelectValue placeholder='Select program' />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value=''>All Programs</SelectItem>
+                  <SelectItem value='all'>All Programs</SelectItem>
                   {programs.map((program) => (
                     <SelectItem key={program.id} value={program.id}>
                       {program.program_name}

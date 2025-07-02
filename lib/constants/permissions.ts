@@ -243,6 +243,7 @@ export const PERMISSION_CATEGORIES = [
     name: 'Staff Management',
     key: 'staff',
     permissions: [
+      { key: 'staff.dashboard.view', label: 'View Staff Analytics Dashboard' },
       { key: 'staff.categories.view', label: 'View Staff Categories' },
       { key: 'staff.categories.create', label: 'Create Staff Categories' },
       { key: 'staff.categories.edit', label: 'Edit Staff Categories' },
