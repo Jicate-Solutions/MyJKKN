@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, Lock, Check, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -51,6 +51,10 @@ export function AttendanceFilters({
 }: AttendanceFiltersProps) {
   const { isSuperAdmin } = usePermissions();
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [periodPermissions, setPeriodPermissions] = useState<
+    Record<string, boolean>
+  >({});
+  const [checkingPermissions, setCheckingPermissions] = useState(false);
 
   // Fetch data hooks
   const { institutions, fetchInstitutions } = useInstitutions({});
@@ -168,12 +172,77 @@ export function AttendanceFilters({
     fetchSections
   ]);
 
+  // Check permissions for all periods when they change
+  useEffect(() => {
+    const checkPeriodsPermissions = async () => {
+      if (availablePeriods.length === 0 || isSuperAdmin) {
+        // Super admins can access all periods
+        const permissions = availablePeriods.reduce((acc, period) => {
+          acc[period.timetable_slot_id] = true;
+          return acc;
+        }, {} as Record<string, boolean>);
+        setPeriodPermissions(permissions);
+        return;
+      }
+
+      setCheckingPermissions(true);
+      try {
+        const { AttendanceService } = await import(
+          '@/lib/services/academic/attendance-service'
+        );
+
+        const permissionChecks = await Promise.all(
+          availablePeriods.map(async (period) => {
+            const canMark = await AttendanceService.canMarkAttendanceForSlot(
+              period.timetable_slot_id,
+              isSuperAdmin
+            );
+            return { slotId: period.timetable_slot_id, canMark };
+          })
+        );
+
+        const permissions = permissionChecks.reduce((acc, check) => {
+          acc[check.slotId] = check.canMark;
+          return acc;
+        }, {} as Record<string, boolean>);
+
+        setPeriodPermissions(permissions);
+      } catch (error) {
+        console.error('Error checking period permissions:', error);
+        // Set all to false on error (except for super admin)
+        const permissions = availablePeriods.reduce((acc, period) => {
+          acc[period.timetable_slot_id] = false;
+          return acc;
+        }, {} as Record<string, boolean>);
+        setPeriodPermissions(permissions);
+      } finally {
+        setCheckingPermissions(false);
+      }
+    };
+
+    checkPeriodsPermissions();
+  }, [availablePeriods, isSuperAdmin]);
+
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
-      const dateString = date.toISOString().split('T')[0];
-      onContextChange({ attendance_date: dateString });
-      setCalendarOpen(false);
+      try {
+        // Create date string in local timezone to avoid timezone issues
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const dateString = `${year}-${month}-${day}`;
+
+        onContextChange({ attendance_date: dateString });
+        setCalendarOpen(false);
+      } catch (error) {
+        console.error('Error formatting date:', error);
+      }
     }
+  };
+
+  const handleClearDate = () => {
+    onContextChange({ attendance_date: null });
+    setCalendarOpen(false);
   };
 
   return (
@@ -374,36 +443,76 @@ export function AttendanceFilters({
           {/* Attendance Date */}
           <div className='space-y-2'>
             <Label htmlFor='date'>Attendance Date</Label>
-            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-              <PopoverTrigger asChild>
+            <div className='flex gap-2'>
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant='outline'
+                    className={cn(
+                      'flex-1 justify-start text-left font-normal',
+                      !searchContext.attendance_date && 'text-muted-foreground'
+                    )}
+                    onClick={() => setCalendarOpen(true)}
+                  >
+                    <CalendarIcon className='mr-2 h-4 w-4' />
+                    {searchContext.attendance_date ? (
+                      format(
+                        new Date(searchContext.attendance_date + 'T00:00:00'),
+                        'PPP'
+                      )
+                    ) : (
+                      <span>Pick a date</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className='w-auto p-0' align='start'>
+                  <Calendar
+                    mode='single'
+                    selected={
+                      searchContext.attendance_date
+                        ? new Date(searchContext.attendance_date + 'T00:00:00')
+                        : undefined
+                    }
+                    onSelect={handleDateSelect}
+                    initialFocus
+                    disabled={(date) => {
+                      // Disable dates more than 1 year in the future
+                      const oneYearFromNow = new Date();
+                      oneYearFromNow.setFullYear(
+                        oneYearFromNow.getFullYear() + 1
+                      );
+                      return date > oneYearFromNow;
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+              {searchContext.attendance_date && (
                 <Button
                   variant='outline'
-                  className={cn(
-                    'w-full justify-start text-left font-normal',
-                    !searchContext.attendance_date && 'text-muted-foreground'
-                  )}
+                  size='icon'
+                  onClick={handleClearDate}
+                  title='Clear date'
                 >
-                  <CalendarIcon className='mr-2 h-4 w-4' />
-                  {searchContext.attendance_date ? (
-                    format(new Date(searchContext.attendance_date), 'PPP')
-                  ) : (
-                    <span>Pick a date</span>
-                  )}
+                  <X className='h-4 w-4' />
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent className='w-auto p-0'>
-                <Calendar
-                  mode='single'
-                  selected={
-                    searchContext.attendance_date
-                      ? new Date(searchContext.attendance_date)
-                      : undefined
-                  }
-                  onSelect={handleDateSelect}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
+              )}
+              <Button
+                variant='ghost'
+                size='sm'
+                onClick={() => {
+                  const today = new Date();
+                  const year = today.getFullYear();
+                  const month = String(today.getMonth() + 1).padStart(2, '0');
+                  const day = String(today.getDate()).padStart(2, '0');
+                  const dateString = `${year}-${month}-${day}`;
+                  onContextChange({ attendance_date: dateString });
+                }}
+                title='Set to today'
+                className='text-xs'
+              >
+                Today
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -411,32 +520,96 @@ export function AttendanceFilters({
       {/* Period Selection */}
       {availablePeriods.length > 0 && (
         <div>
-          <h3 className='text-lg font-medium mb-4'>Select Period</h3>
-          <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
-            {availablePeriods.map((period) => (
-              <Button
-                key={period.timetable_slot_id}
-                variant={
-                  selectedPeriod === period.timetable_slot_id
-                    ? 'default'
-                    : 'outline'
-                }
-                className='h-auto p-4 flex flex-col items-start'
-                onClick={() => onPeriodSelect(period)}
-                disabled={loading}
-              >
-                <div className='font-medium'>{period.period_name}</div>
-                <div className='text-sm text-muted-foreground'>
-                  {period.start_time} - {period.end_time}
-                </div>
-                {period.course && (
-                  <div className='text-sm font-medium mt-1'>
-                    {period.course.course_code} - {period.course.course_name}
-                  </div>
-                )}
-              </Button>
-            ))}
+          <div className='flex items-center justify-between mb-4'>
+            <h3 className='text-lg font-medium'>Select Period</h3>
+            {checkingPermissions && (
+              <div className='flex items-center text-sm text-muted-foreground'>
+                <div className='animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full mr-2'></div>
+                Checking permissions...
+              </div>
+            )}
           </div>
+          <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
+            {availablePeriods.map((period) => {
+              const hasPermission =
+                periodPermissions[period.timetable_slot_id] ?? true;
+              const isSelected = selectedPeriod === period.timetable_slot_id;
+
+              return (
+                <Button
+                  key={period.timetable_slot_id}
+                  variant={isSelected ? 'default' : 'outline'}
+                  className={cn(
+                    'h-auto p-4 flex flex-col items-start relative',
+                    !hasPermission &&
+                      !isSuperAdmin &&
+                      'opacity-60 border-dashed'
+                  )}
+                  onClick={() => onPeriodSelect(period)}
+                  disabled={loading || checkingPermissions}
+                >
+                  {/* Permission indicator */}
+                  <div className='absolute top-2 right-2'>
+                    {isSuperAdmin ? (
+                      <Check className='h-4 w-4 text-green-600' />
+                    ) : hasPermission ? (
+                      <Check className='h-4 w-4 text-green-600' />
+                    ) : (
+                      <Lock className='h-4 w-4 text-red-500' />
+                    )}
+                  </div>
+
+                  <div className='font-medium'>{period.period_name}</div>
+                  <div className='text-sm text-muted-foreground'>
+                    {period.start_time} - {period.end_time}
+                  </div>
+                  {period.course && (
+                    <div className='text-sm font-medium mt-1'>
+                      {period.course.course_code} - {period.course.course_name}
+                    </div>
+                  )}
+                  {period.sections && period.sections.length > 0 && (
+                    <div className='text-xs text-muted-foreground mt-1'>
+                      Sections: {period.sections.map((s) => s.name).join(', ')}
+                    </div>
+                  )}
+
+                  {/* Permission status text */}
+                  {!isSuperAdmin && (
+                    <div
+                      className={cn(
+                        'text-xs mt-2 font-medium',
+                        hasPermission ? 'text-green-600' : 'text-red-500'
+                      )}
+                    >
+                      {hasPermission
+                        ? 'You can teach this'
+                        : 'Assigned to others'}
+                    </div>
+                  )}
+                </Button>
+              );
+            })}
+          </div>
+
+          {/* Show legend for non-super admins */}
+          {!isSuperAdmin && availablePeriods.length > 0 && (
+            <div className='mt-4 p-3 bg-gray-50 rounded-lg'>
+              <p className='text-sm text-muted-foreground mb-2'>
+                <strong>Permission Legend:</strong>
+              </p>
+              <div className='flex flex-wrap gap-4 text-xs'>
+                <div className='flex items-center gap-1'>
+                  <Check className='h-3 w-3 text-green-600' />
+                  <span>You can mark attendance</span>
+                </div>
+                <div className='flex items-center gap-1'>
+                  <Lock className='h-3 w-3 text-red-500' />
+                  <span>Only assigned staff can mark</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

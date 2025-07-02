@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createAdminClient } from '@/lib/supabase/client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { Profile } from '@/types/supabase';
 
 export function useAuth() {
   const [user, setUser] = useState<(Profile & { id: string }) | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const supabase = createAdminClient();
+  const supabase = createClientSupabaseClient();
 
   useEffect(() => {
     // Track if component is mounted to prevent state updates after unmount

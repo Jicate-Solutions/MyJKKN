@@ -98,6 +98,9 @@ export async function GET(request: NextRequest) {
       Object.fromEntries(url.searchParams)
     );
 
+    // Check if client wants all records without pagination
+    // Usage: ?all=true to fetch all staff records
+    const fetchAll = url.searchParams.get('all') === 'true';
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '10');
     const search = url.searchParams.get('search');
@@ -117,7 +120,10 @@ export async function GET(request: NextRequest) {
       { count: 'exact' }
     );
 
-    console.log('[Staff API] 5. Executing query...');
+    console.log('[Staff API] 5. Executing query...', {
+      fetchAll,
+      pagination: fetchAll ? 'disabled' : `page ${page}, limit ${limit}`
+    });
 
     // Apply filters
     if (search) {
@@ -142,10 +148,15 @@ export async function GET(request: NextRequest) {
       query = query.eq('is_active', isActive === 'true');
     }
 
-    // Apply pagination
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-    query = query.range(from, to).order('created_at', { ascending: false });
+    // Apply pagination only if not fetching all records
+    if (!fetchAll) {
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+      query = query.range(from, to);
+    }
+
+    // Always apply ordering
+    query = query.order('created_at', { ascending: false });
 
     // Execute query
     const { data: staff, error, count } = await query;
@@ -153,7 +164,9 @@ export async function GET(request: NextRequest) {
     console.log('[Staff API] 6. Query result:', {
       success: !!staff,
       error: error?.message,
-      count,
+      total: count,
+      returned: staff?.length || 0,
+      fetchedAll: fetchAll,
       firstRecord: staff?.[0]
         ? {
             id: staff[0].id,
@@ -173,12 +186,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         data: staff || [],
-        metadata: {
-          total: count || 0,
-          page,
-          limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
-        }
+        metadata: fetchAll
+          ? {
+              total: count || 0,
+              all: true,
+              returned: staff?.length || 0
+            }
+          : {
+              total: count || 0,
+              page,
+              limit,
+              totalPages: count ? Math.ceil(count / limit) : 0,
+              returned: staff?.length || 0
+            }
       },
       { headers: corsHeaders }
     );

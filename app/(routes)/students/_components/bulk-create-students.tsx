@@ -486,16 +486,61 @@ const resolveSectionName = async (
     );
     const supabase = createClientSupabaseClient();
 
+    // Try exact match first (case-insensitive)
     const { data, error } = await supabase
       .from('sections')
-      .select('id')
+      .select('id, section_name')
       .ilike('section_name', name.trim())
       .eq('semester_id', semesterId)
+      .eq('is_active', true)
       .limit(1)
       .single();
 
-    if (error || !data) return null;
-    return data.id;
+    if (data) {
+      console.log(
+        `Section resolved: "${name.trim()}" -> "${data.section_name}" (ID: ${
+          data.id
+        })`
+      );
+      return data.id;
+    }
+
+    // If exact match fails, try with whitespace-normalized comparison
+    const { data: allSections, error: allError } = await supabase
+      .from('sections')
+      .select('id, section_name')
+      .eq('semester_id', semesterId)
+      .eq('is_active', true);
+
+    if (allError || !allSections) {
+      console.error('Error fetching sections for fallback search:', allError);
+      return null;
+    }
+
+    // Find section with normalized name comparison
+    const normalizedInputName = name.trim().toLowerCase();
+    const matchedSection = allSections.find(
+      (section) =>
+        section.section_name.trim().toLowerCase() === normalizedInputName
+    );
+
+    if (matchedSection) {
+      console.log(
+        `Section resolved (fallback): "${name.trim()}" -> "${
+          matchedSection.section_name
+        }" (ID: ${matchedSection.id})`
+      );
+      return matchedSection.id;
+    }
+
+    console.warn(
+      `Section not found: "${name.trim()}" in semester ID: ${semesterId}`
+    );
+    console.log(
+      'Available sections:',
+      allSections.map((s) => `"${s.section_name}"`)
+    );
+    return null;
   } catch (error) {
     console.error('Error resolving section name:', error);
     return null;

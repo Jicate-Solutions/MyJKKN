@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, Save, Users, UserCheck, UserX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,8 @@ import {
   TableRow
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import type {
   AttendanceRosterData,
   AttendanceRosterStudent,
@@ -27,21 +29,82 @@ interface AttendanceRosterProps {
   onSave: (data: BatchUpdateAttendanceDto) => Promise<boolean>;
   canMarkAttendance: boolean;
   loading: boolean;
+  institutionId: string;
+  checkSlotPermission?: boolean;
 }
 
 export function AttendanceRoster({
   rosterData,
   onSave,
   canMarkAttendance,
-  loading
+  loading,
+  institutionId,
+  checkSlotPermission = false
 }: AttendanceRosterProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const { userProfile, isSuperAdmin } = usePermissions();
   const [searchTerm, setSearchTerm] = useState('');
   const [students, setStudents] = useState<AttendanceRosterStudent[]>(
     rosterData.students
   );
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [canMarkThisSlot, setCanMarkThisSlot] = useState(canMarkAttendance);
+  const [checkingPermission, setCheckingPermission] = useState(false);
+
+  // Check slot-specific permissions when enabled
+  useEffect(() => {
+    const checkSlotSpecificPermission = async () => {
+      // For super admins, always allow
+      if (isSuperAdmin) {
+        setCanMarkThisSlot(true);
+        return;
+      }
+
+      // For manual entries, use general permission
+      if (rosterData.timetable_slot.id === 'manual-entry') {
+        setCanMarkThisSlot(canMarkAttendance);
+        return;
+      }
+
+      // If slot permission checking is disabled, use general permission
+      if (!checkSlotPermission) {
+        setCanMarkThisSlot(canMarkAttendance);
+        return;
+      }
+
+      setCheckingPermission(true);
+      try {
+        const { AttendanceService } = await import(
+          '@/lib/services/academic/attendance-service'
+        );
+
+        const canMarkForSlot = await AttendanceService.canMarkAttendanceForSlot(
+          rosterData.timetable_slot.id,
+          isSuperAdmin
+        );
+
+        // Use slot-specific permission only if stricter checks are enabled
+        // Otherwise, fall back to general permission
+        const finalPermission = canMarkForSlot || canMarkAttendance;
+        setCanMarkThisSlot(finalPermission);
+      } catch (error) {
+        console.error('Error checking slot permission:', error);
+        // On error, fall back to general permission
+        setCanMarkThisSlot(canMarkAttendance);
+      } finally {
+        setCheckingPermission(false);
+      }
+    };
+
+    checkSlotSpecificPermission();
+  }, [
+    checkSlotPermission,
+    isSuperAdmin,
+    canMarkAttendance,
+    rosterData.timetable_slot.id
+  ]);
 
   // Filter students based on search term
   const filteredStudents = useMemo(() => {
@@ -126,7 +189,7 @@ export function AttendanceRoster({
 
   // Save attendance
   const handleSave = async () => {
-    if (!canMarkAttendance) {
+    if (!canMarkThisSlot) {
       toast({
         title: 'Permission Denied',
         description: 'You do not have permission to mark attendance.',
@@ -135,13 +198,41 @@ export function AttendanceRoster({
       return;
     }
 
+    // Check authentication - use userProfile.id as fallback for user.id
+    const currentUserId = user?.id || userProfile?.id;
+    if (!currentUserId) {
+      toast({
+        title: 'Authentication Error',
+        description: 'You must be logged in to mark attendance.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // For super admins, use the first student's institution or allow manual override
+    let institutionIdToUse = userProfile?.institution_id;
+
+    if (!institutionIdToUse) {
+      if (isSuperAdmin && institutionId) {
+        // For super admins, use the institution from the filter context
+        institutionIdToUse = institutionId;
+      }
+
+      if (!institutionIdToUse) {
+        toast({
+          title: 'Institution Error',
+          description:
+            'Unable to determine institution context. Please contact support.',
+          variant: 'destructive'
+        });
+        return;
+      }
+    }
+
     try {
       setSaving(true);
 
-      // Get current user ID (you might need to get this from auth context)
-      const currentUserId = 'current-user-id'; // TODO: Get from auth context
-
-      // Prepare attendance records
+      // Prepare attendance records with actual user and institution IDs
       const attendanceRecords: CreateStudentAttendanceDto[] = students.map(
         (student) => ({
           student_id: student.id,
@@ -149,7 +240,7 @@ export function AttendanceRoster({
           attendance_date: rosterData.attendance_date,
           status: student.status,
           marked_by: currentUserId,
-          institution_id: 'institution-id' // TODO: Get from context
+          institution_id: institutionIdToUse!
         })
       );
 
@@ -217,6 +308,53 @@ export function AttendanceRoster({
         </div>
       </div>
 
+      {/* Show permission checking indicator */}
+      {checkingPermission && (
+        <div className='flex items-center justify-center py-4 text-sm text-muted-foreground'>
+          <div className='animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full mr-2'></div>
+          Checking teaching assignment...
+        </div>
+      )}
+
+      {/* Show permission denied message for slot-specific restrictions */}
+      {checkSlotPermission &&
+        !isSuperAdmin &&
+        !checkingPermission &&
+        !canMarkThisSlot &&
+        canMarkAttendance && (
+          <div className='bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center'>
+            <p className='text-sm text-yellow-800'>
+              <strong>Permission Restricted:</strong> You are not assigned to
+              teach this specific period. Only staff assigned to this timetable
+              slot can mark attendance.
+            </p>
+          </div>
+        )}
+
+      {/* Debug permission info - remove after testing */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className='bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs'>
+          <div className='flex justify-between items-center'>
+            <div>
+              <strong>Debug Info:</strong> canMarkAttendance:{' '}
+              {canMarkAttendance.toString()}, canMarkThisSlot:{' '}
+              {canMarkThisSlot.toString()}, checkSlotPermission:{' '}
+              {checkSlotPermission.toString()}, isSuperAdmin:{' '}
+              {isSuperAdmin.toString()}
+            </div>
+            {!canMarkThisSlot && (
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={() => setCanMarkThisSlot(true)}
+              >
+                Force Enable (Debug)
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Search and actions */}
       <div className='flex flex-col sm:flex-row gap-4'>
         <div className='relative flex-1'>
@@ -229,7 +367,7 @@ export function AttendanceRoster({
           />
         </div>
 
-        {canMarkAttendance && selectedStudents.length > 0 && (
+        {canMarkThisSlot && selectedStudents.length > 0 && (
           <div className='flex gap-2'>
             <Button
               variant='outline'
@@ -262,13 +400,13 @@ export function AttendanceRoster({
                 <Checkbox
                   checked={isAllSelected}
                   onCheckedChange={handleSelectAll}
-                  disabled={!canMarkAttendance}
+                  disabled={!canMarkThisSlot}
                 />
               </TableHead>
               <TableHead>Roll Number</TableHead>
               <TableHead>Student Name</TableHead>
               <TableHead>Status</TableHead>
-              {canMarkAttendance && <TableHead>Action</TableHead>}
+              {canMarkThisSlot && <TableHead>Action</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -280,7 +418,7 @@ export function AttendanceRoster({
                     onCheckedChange={(checked) =>
                       handleStudentSelect(student.id, checked as boolean)
                     }
-                    disabled={!canMarkAttendance}
+                    disabled={!canMarkThisSlot}
                   />
                 </TableCell>
                 <TableCell className='font-medium'>
@@ -302,7 +440,7 @@ export function AttendanceRoster({
                     {student.status}
                   </Badge>
                 </TableCell>
-                {canMarkAttendance && (
+                {canMarkThisSlot && (
                   <TableCell>
                     <Button
                       variant='ghost'
@@ -331,7 +469,7 @@ export function AttendanceRoster({
       </div>
 
       {/* Save button */}
-      {canMarkAttendance && (
+      {canMarkThisSlot && (
         <div className='flex justify-end'>
           <Button
             onClick={handleSave}
