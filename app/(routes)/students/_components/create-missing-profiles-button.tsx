@@ -726,7 +726,7 @@ const checkForDuplicateStudent = async (
   }
 };
 
-export function BulkCreateStudents() {
+export function CreateMissingStudentProfilesButton() {
   const router = useRouter(); // Add router
   const [isOpen, setIsOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
