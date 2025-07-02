@@ -63,7 +63,6 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { StudentService } from '@/lib/services/student/student-service';
 import { DownloadNewStudentTemplateButton } from './_components/download-new-student-template-button';
-import { BulkCreateStudents } from './_components/bulk-create-students';
 import { ExportStudents } from './_components/export-students';
 import { CreateMissingStudentProfilesButton } from './_components/create-missing-profiles-button';
 import { usePermissions } from '@/hooks/use-permissions';
