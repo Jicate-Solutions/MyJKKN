@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import type {
   StudentAttendance,
   AttendanceFilters,
@@ -105,6 +106,8 @@ export function useAttendanceRoster() {
 
   const fetchAvailablePeriods = useCallback(
     async (context: AttendanceSearchContext) => {
+      console.log('fetchAvailablePeriods called with context:', context);
+
       if (
         !context.institution_id ||
         !context.academic_year_id ||
@@ -114,6 +117,15 @@ export function useAttendanceRoster() {
         !context.semester_id ||
         !context.attendance_date
       ) {
+        console.log('Missing required fields for period fetch:', {
+          institution_id: !!context.institution_id,
+          academic_year_id: !!context.academic_year_id,
+          degree_id: !!context.degree_id,
+          program_id: !!context.program_id,
+          department_id: !!context.department_id,
+          semester_id: !!context.semester_id,
+          attendance_date: !!context.attendance_date
+        });
         setAvailablePeriods([]);
         return;
       }
@@ -121,6 +133,16 @@ export function useAttendanceRoster() {
       try {
         setLoading(true);
         setError(null);
+
+        console.log('Fetching periods with filters:', {
+          institution_id: context.institution_id,
+          academic_year_id: context.academic_year_id,
+          degree_id: context.degree_id,
+          program_id: context.program_id,
+          department_id: context.department_id,
+          semester: context.semester_id,
+          section: context.section_id || undefined
+        });
 
         const periods = await AttendanceService.getAvailablePeriodsForDate(
           {
@@ -135,6 +157,7 @@ export function useAttendanceRoster() {
           context.attendance_date
         );
 
+        console.log('Fetched periods:', periods);
         setAvailablePeriods(periods);
       } catch (err) {
         console.error('Error fetching available periods:', err);
@@ -145,6 +168,24 @@ export function useAttendanceRoster() {
     },
     []
   );
+
+  // Auto-fetch academic year when institution changes
+  const fetchAcademicYear = useCallback(async (institutionId: string) => {
+    try {
+      const academicYears =
+        await AcademicYearService.getAcademicYearsByInstitution(institutionId);
+
+      if (academicYears.length > 0) {
+        // Use the first active academic year
+        return academicYears[0].id;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error fetching academic year:', error);
+      return null;
+    }
+  }, []);
 
   const fetchAttendanceRoster = useCallback(
     async (
@@ -193,7 +234,18 @@ export function useAttendanceRoster() {
   );
 
   const updateSearchContext = useCallback(
-    (newContext: Partial<AttendanceSearchContext>) => {
+    async (newContext: Partial<AttendanceSearchContext>) => {
+      // If institution is being changed, auto-fetch academic year
+      if (
+        newContext.institution_id &&
+        newContext.institution_id !== searchContext.institution_id
+      ) {
+        const academicYearId = await fetchAcademicYear(
+          newContext.institution_id
+        );
+        newContext.academic_year_id = academicYearId;
+      }
+
       setSearchContext((prevContext) => {
         const updatedContext = { ...prevContext, ...newContext };
 
@@ -208,7 +260,7 @@ export function useAttendanceRoster() {
         return updatedContext;
       });
     },
-    [fetchAvailablePeriods]
+    [fetchAvailablePeriods, fetchAcademicYear, searchContext.institution_id]
   );
 
   return {

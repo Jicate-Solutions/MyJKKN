@@ -153,4 +153,8 @@ export interface AttendancePeriodOption {
     course_name: string;
     course_code: string;
   };
+  sections?: {
+    id: string;
+    name: string;
+  }[];
 }

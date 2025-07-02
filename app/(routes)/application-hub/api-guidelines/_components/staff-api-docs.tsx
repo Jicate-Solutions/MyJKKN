@@ -152,7 +152,52 @@ const filters = {
   is_active: true
 };
 
-fetchStaffWithFilters(apiKey, filters);`
+fetchStaffWithFilters(apiKey, filters);`,
+
+    fetchAllStaff: `// Fetch all staff (no pagination) example
+const fetchAllStaff = async (apiKey, filters = {}) => {
+  try {
+    // Create URL with query parameters, including all=true
+    const url = new URL('https://myadmin.jkkn.ac.in/api/api-management/staff');
+    
+    // Always add all=true to get all records
+    url.searchParams.append('all', 'true');
+    
+    // Add other filters to URL (page and limit are ignored when all=true)
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value && key !== 'page' && key !== 'limit') {
+        url.searchParams.append(key, String(value));
+      }
+    });
+    
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'Authorization': \`Bearer \${apiKey}\`,
+        'Accept': 'application/json',
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(\`HTTP error! status: \${response.status}\`);
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching all staff:', error);
+    throw error;
+  }
+};
+
+// Usage example for fetching all staff
+const filters = {
+  search: 'Professor',
+  institution_id: '1234',
+  is_active: true
+};
+
+fetchAllStaff(apiKey, filters);`
   };
 
   // Complete examples with interfaces
@@ -208,10 +253,21 @@ interface PaginatedResponse<T> {
     page: number;
     limit: number;
     totalPages: number;
+    returned: number;
+  };
+}
+
+interface AllDataResponse<T> {
+  data: T[];
+  metadata: {
+    total: number;
+    all: true;
+    returned: number;
   };
 }
 
 interface StaffFilters {
+  all?: boolean;
   page?: number;
   limit?: number;
   search?: string;
@@ -253,12 +309,13 @@ export class StaffApiService {
 
   async getStaffList(
     filters: StaffFilters = {}
-  ): Promise<PaginatedResponse<StaffMember>> {
+  ): Promise<PaginatedResponse<StaffMember> | AllDataResponse<StaffMember>> {
     // Build query parameters
     const params = new URLSearchParams();
     
-    if (filters.page) params.append('page', filters.page.toString());
-    if (filters.limit) params.append('limit', filters.limit.toString());
+    if (filters.all) params.append('all', 'true');
+    if (filters.page && !filters.all) params.append('page', filters.page.toString());
+    if (filters.limit && !filters.all) params.append('limit', filters.limit.toString());
     if (filters.search) params.append('search', filters.search);
     if (filters.institution_id) params.append('institution_id', filters.institution_id);
     if (filters.department_id) params.append('department_id', filters.department_id);
@@ -267,7 +324,7 @@ export class StaffApiService {
     
     const queryString = params.toString() ? \`?\${params.toString()}\` : '';
     
-    return this.request<PaginatedResponse<StaffMember>>(\`/staff\${queryString}\`);
+    return this.request<PaginatedResponse<StaffMember> | AllDataResponse<StaffMember>>(\`/staff\${queryString}\`);
   }
 
   async getStaffMember(id: string): Promise<{ data: StaffMember }> {
@@ -518,10 +575,16 @@ export function StaffList() {
             <h4 className='font-semibold mb-2'>Query Parameters</h4>
             <ul className='list-disc pl-5 mb-4 space-y-1'>
               <li>
-                <code>page</code> - Page number (default: 1)
+                <code>all</code> - Set to <code>true</code> to fetch all records
+                without pagination
               </li>
               <li>
-                <code>limit</code> - Items per page (default: 10)
+                <code>page</code> - Page number (default: 1, ignored when
+                all=true)
+              </li>
+              <li>
+                <code>limit</code> - Items per page (default: 10, ignored when
+                all=true)
               </li>
               <li>
                 <code>search</code> - Search term to filter by name, email, or
@@ -542,8 +605,10 @@ export function StaffList() {
             </ul>
 
             <Accordion type='single' collapsible className='mb-4'>
-              <AccordionItem value='response'>
-                <AccordionTrigger>Example Response</AccordionTrigger>
+              <AccordionItem value='response-paginated'>
+                <AccordionTrigger>
+                  Example Response (Paginated)
+                </AccordionTrigger>
                 <AccordionContent>
                   <CodeBlock
                     language='json'
@@ -597,7 +662,41 @@ export function StaffList() {
                           total: 156,
                           page: 1,
                           limit: 10,
-                          totalPages: 16
+                          totalPages: 16,
+                          returned: 10
+                        }
+                      },
+                      null,
+                      2
+                    )}
+                  />
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value='response-all'>
+                <AccordionTrigger>Example Response (All Data)</AccordionTrigger>
+                <AccordionContent>
+                  <p className='text-sm text-muted-foreground mb-2'>
+                    When using <code>all=true</code> parameter:
+                  </p>
+                  <CodeBlock
+                    language='json'
+                    code={JSON.stringify(
+                      {
+                        data: [
+                          // All staff records would be included here
+                          {
+                            id: '123e4567-e89b-12d3-a456-426614174000',
+                            first_name: 'John',
+                            last_name: 'Doe'
+                            // ... complete staff data
+                          }
+                          // ... all other staff records
+                        ],
+                        metadata: {
+                          total: 156,
+                          all: true,
+                          returned: 156
                         }
                       },
                       null,
@@ -733,6 +832,18 @@ export function StaffList() {
                   <CodeBlock
                     language='javascript'
                     code={basicExamples.withFilters}
+                  />
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value='fetchAllStaff'>
+                <AccordionTrigger>
+                  Fetch All Staff (No Pagination) Example
+                </AccordionTrigger>
+                <AccordionContent>
+                  <CodeBlock
+                    language='javascript'
+                    code={basicExamples.fetchAllStaff}
                   />
                 </AccordionContent>
               </AccordionItem>

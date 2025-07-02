@@ -1,15 +1,13 @@
 'use client';
 
 import { use } from 'react';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SectionForm } from '../../_components/section-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { SectionService } from '@/lib/services/organization/section-service';
-import type { Section } from '@/types/organizations';
+import { useSection } from '@/hooks/organization/use-section';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -25,31 +23,9 @@ interface EditSectionPageProps {
 
 export default function EditSectionPage({ params }: EditSectionPageProps) {
   const { id } = use(params);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<Section | null>(null);
+  const { data: section, isLoading, error } = useSection(id);
 
-  useEffect(() => {
-    async function fetchSection() {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await SectionService.getSection(id);
-        setSection(data);
-      } catch (err) {
-        console.error('Error fetching section:', err);
-        setError(
-          err instanceof Error ? err.message : 'Failed to fetch section'
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchSection();
-  }, [id]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <ContentLayout title='Edit Section'>
         <div className='flex items-center justify-center min-h-[400px]'>
@@ -64,7 +40,7 @@ export default function EditSectionPage({ params }: EditSectionPageProps) {
       <ContentLayout title='Edit Section'>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
-            {error || 'Section not found'}
+            {error?.message || 'Section not found'}
           </p>
           <Button variant='outline' asChild>
             <Link href='/organizations/sections'>Back to Sections</Link>

@@ -64,12 +64,22 @@ export default function CurlDocumentationContent() {
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
+      all: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/staff?all=true" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Accept: application/json" \\
+  -H "Content-Type: application/json"`,
+
       search: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/staff?search=Professor&page=1&limit=10" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
       filters: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/staff?institution_id=YOUR_INSTITUTION_ID&department_id=YOUR_DEPARTMENT_ID&is_active=true&page=1&limit=10" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Accept: application/json" \\
+  -H "Content-Type: application/json"`,
+
+      allWithFilters: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/staff?all=true&is_active=true&institution_id=YOUR_INSTITUTION_ID" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`
@@ -170,6 +180,7 @@ test_endpoint "/api-management/students?search=test&limit=1" "Students Search"
 
 # Staff API
 test_endpoint "/api-management/staff?limit=2" "Staff List (Limited)"
+test_endpoint "/api-management/staff?all=true" "All Staff (No Pagination)"
 test_endpoint "/api-management/staff?is_active=true&limit=1" "Active Staff"
 
 # Organizations API

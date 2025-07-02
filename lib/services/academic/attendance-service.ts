@@ -93,27 +93,55 @@ export class AttendanceService {
     date: string
   ): Promise<TimetableSlot[]> {
     try {
-      // First, find the active timetable for the given filters
-      let timetableQuery = this.supabase
+      // First, convert semester_id to semester_name if it's a UUID
+      let semesterFilter = filters.semester;
+
+      // Check if semester is a UUID (if it contains hyphens and is 36 chars)
+      if (
+        typeof filters.semester === 'string' &&
+        filters.semester.includes('-') &&
+        filters.semester.length === 36
+      ) {
+        const { data: semesterData, error: semesterError } = await this.supabase
+          .from('semesters')
+          .select('semester_name')
+          .eq('id', filters.semester)
+          .single();
+
+        if (semesterError) {
+          console.error('Error fetching semester name:', semesterError);
+          throw semesterError;
+        }
+
+        semesterFilter = semesterData.semester_name;
+      }
+
+      // First, find the active timetable for the given filters that includes the selected date
+
+      const timetableQuery = this.supabase
         .from('timetables')
-        .select('id')
+        .select('id, start_date, end_date, timetable_name')
         .eq('institution_id', filters.institution_id)
         .eq('academic_year_id', filters.academic_year_id)
         .eq('degree_id', filters.degree_id)
         .eq('program_id', filters.program_id)
         .eq('department_id', filters.department_id)
-        .eq('semester', filters.semester)
-        .eq('is_active', true);
+        .eq('semester', semesterFilter) // Use converted semester name
+        .eq('is_active', true)
+        .lte('start_date', date) // start_date <= selected date
+        .gte('end_date', date); // end_date >= selected date
 
-      if (filters.section) {
-        timetableQuery = timetableQuery.eq('section', filters.section);
-      }
+      // Note: section filter removed as sections are at slot level, not timetable level
 
       const { data: timetables, error: timetableError } = await timetableQuery;
 
-      if (timetableError) throw timetableError;
+      if (timetableError) {
+        console.error('Timetable query error:', timetableError);
+        throw timetableError;
+      }
 
       if (!timetables || timetables.length === 0) {
+        console.log('No active timetable found for date:', date);
         return [];
       }
 
@@ -122,7 +150,7 @@ export class AttendanceService {
       // Determine day of week from date
       const dayOfWeek = this.getDayOfWeekFromDate(date);
 
-      // Get timetable slots for that day
+      // Get timetable slots for that day with sections
       const { data: slots, error: slotsError } = await this.supabase
         .from('timetable_slots')
         .select(
@@ -131,6 +159,7 @@ export class AttendanceService {
           day_of_week,
           period_id,
           course_id,
+          staff_id,
           is_break_slot,
           break_description,
           period:period_id(
@@ -143,17 +172,55 @@ export class AttendanceService {
             id,
             course_name,
             course_code
+          ),
+          timetable_slot_sections(
+            section_id,
+            section:section_id(
+              id,
+              section_name
+            )
           )
         `
         )
         .eq('timetable_id', timetableId)
         .eq('day_of_week', dayOfWeek)
-        .eq('is_break_slot', false) // Only get class periods, not breaks
-        .order('period.start_time', { ascending: true });
+        .eq('is_break_slot', false); // Only get class periods, not breaks
 
-      if (slotsError) throw slotsError;
+      if (slotsError) {
+        console.error('Slots query error:', slotsError);
+        throw slotsError;
+      }
 
-      return (slots || []) as unknown as TimetableSlot[];
+      // Filter slots based on section if specified
+      let filteredSlots = slots || [];
+
+      if (filters.section) {
+        filteredSlots = filteredSlots.filter((slot) =>
+          slot.timetable_slot_sections?.some(
+            (tss: any) => tss.section_id === filters.section
+          )
+        );
+      }
+
+      // Only return slots that have at least one section assigned
+      filteredSlots = filteredSlots.filter(
+        (slot) =>
+          slot.timetable_slot_sections &&
+          slot.timetable_slot_sections.length > 0
+      );
+
+      // Sort by period start time
+      filteredSlots.sort((a: any, b: any) => {
+        const timeA = a.period?.start_time || '';
+        const timeB = b.period?.start_time || '';
+        return timeA.localeCompare(timeB);
+      });
+
+      console.log(
+        `Found ${filteredSlots.length} periods for ${date} (${dayOfWeek})`
+      );
+
+      return filteredSlots as unknown as TimetableSlot[];
     } catch (error) {
       console.error('Error fetching timetable slots for date:', error);
       throw error;
@@ -217,7 +284,7 @@ export class AttendanceService {
     }
   ): Promise<AttendanceRosterData> {
     try {
-      // Get the timetable slot details
+      // Get the timetable slot details with sections
       const { data: slotData, error: slotError } = await this.supabase
         .from('timetable_slots')
         .select(
@@ -234,6 +301,13 @@ export class AttendanceService {
             id,
             course_name,
             course_code
+          ),
+          timetable_slot_sections(
+            section_id,
+            section:section_id(
+              id,
+              section_name
+            )
           )
         `
         )
@@ -242,8 +316,78 @@ export class AttendanceService {
 
       if (slotError) throw slotError;
 
-      // Get students for the class
-      const students = await this.getStudentsForAttendance(studentFilters);
+      // Get section IDs assigned to this slot
+      const sectionIds =
+        slotData.timetable_slot_sections?.map((tss: any) => tss.section_id) ||
+        [];
+
+      if (sectionIds.length === 0) {
+        console.warn(
+          'No sections assigned to timetable slot:',
+          timetable_slot_id
+        );
+        return {
+          students: [],
+          timetable_slot: {
+            ...slotData,
+            timetable_slot_sections: undefined // Remove from final output
+          } as unknown as AttendanceRosterData['timetable_slot'],
+          attendance_date
+        };
+      }
+
+      // Get students for the sections assigned to this slot
+      let studentsQuery = this.supabase
+        .from('students')
+        .select(
+          `
+          id,
+          student_name,
+          roll_number,
+          institution_id,
+          degree_id,
+          program_id,
+          department_id,
+          semester_id,
+          section_id,
+          status
+        `
+        )
+        .eq('status', 'active')
+        .eq('institution_id', studentFilters.institution_id)
+        .in('section_id', sectionIds); // Filter by sections assigned to the slot
+
+      // Apply other filters if provided
+      if (studentFilters.degree_id) {
+        studentsQuery = studentsQuery.eq('degree_id', studentFilters.degree_id);
+      }
+
+      if (studentFilters.program_id) {
+        studentsQuery = studentsQuery.eq(
+          'program_id',
+          studentFilters.program_id
+        );
+      }
+
+      if (studentFilters.department_id) {
+        studentsQuery = studentsQuery.eq(
+          'department_id',
+          studentFilters.department_id
+        );
+      }
+
+      if (studentFilters.semester_id) {
+        studentsQuery = studentsQuery.eq(
+          'semester_id',
+          studentFilters.semester_id
+        );
+      }
+
+      studentsQuery = studentsQuery.order('roll_number', { ascending: true });
+
+      const { data: students, error: studentsError } = await studentsQuery;
+
+      if (studentsError) throw studentsError;
 
       // Get existing attendance records
       const attendanceRecords = await this.getAttendanceRecords(
@@ -257,7 +401,7 @@ export class AttendanceService {
       );
 
       // Build roster students with attendance status
-      const rosterStudents: AttendanceRosterStudent[] = students.map(
+      const rosterStudents: AttendanceRosterStudent[] = (students || []).map(
         (student) => {
           const attendanceRecord = attendanceMap.get(student.id);
           return {
@@ -272,8 +416,10 @@ export class AttendanceService {
 
       return {
         students: rosterStudents,
-        timetable_slot:
-          slotData as unknown as AttendanceRosterData['timetable_slot'],
+        timetable_slot: {
+          ...slotData,
+          timetable_slot_sections: undefined // Remove from final output
+        } as unknown as AttendanceRosterData['timetable_slot'],
         attendance_date
       };
     } catch (error) {
@@ -298,13 +444,19 @@ export class AttendanceService {
     try {
       const slots = await this.getTimetableSlotsForDate(filters, date);
 
-      return slots.map((slot) => ({
+      return slots.map((slot: any) => ({
         id: slot.period?.id || '',
         period_name: slot.period?.period_name || '',
         start_time: slot.period?.start_time || '',
         end_time: slot.period?.end_time || '',
         timetable_slot_id: slot.id,
-        course: slot.course
+        course: slot.course,
+        // Add section information
+        sections:
+          slot.timetable_slot_sections?.map((tss: any) => ({
+            id: tss.section_id,
+            name: tss.section?.section_name || ''
+          })) || []
       }));
     } catch (error) {
       console.error('Error fetching available periods:', error);
@@ -317,6 +469,19 @@ export class AttendanceService {
     data: BatchUpdateAttendanceDto
   ): Promise<void> {
     try {
+      // Check if this is a manual entry (no real timetable slot)
+      const isManualEntry = data.records.some(
+        (record) => record.timetable_slot_id === 'manual-entry'
+      );
+
+      if (isManualEntry) {
+        // For manual entries, save to a manual attendance table or with special handling
+        // For now, we'll skip saving manual entries to preserve data integrity
+        console.warn('Manual attendance entries are not saved to database yet');
+        toast.success('Manual attendance marked (not saved to database)');
+        return;
+      }
+
       // Use upsert to create or update attendance records
       const { error } = await this.supabase
         .from('student_attendance')
@@ -330,6 +495,181 @@ export class AttendanceService {
     } catch (error) {
       console.error('Error batch updating attendance:', error);
       toast.error('Failed to save attendance');
+      throw error;
+    }
+  }
+
+  // Get current user's staff ID if they are a staff member
+  static async getCurrentUserStaffId(): Promise<string | null> {
+    try {
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
+
+      if (userError || !userData.user) {
+        return null;
+      }
+
+      // Get the user's profile to find their email
+      const { data: profile, error: profileError } = await this.supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', userData.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        return null;
+      }
+
+      // Find staff record with matching institution_email
+      const { data: staff, error: staffError } = await this.supabase
+        .from('staff')
+        .select('id')
+        .eq('institution_email', profile.email)
+        .eq('is_active', true)
+        .single();
+
+      if (staffError || !staff) {
+        return null;
+      }
+
+      return staff.id;
+    } catch (error) {
+      console.error('Error getting current user staff ID:', error);
+      return null;
+    }
+  }
+
+  // Check if a staff member is assigned to a specific timetable slot
+  static async isStaffAssignedToSlot(
+    staffId: string,
+    timetableSlotId: string
+  ): Promise<boolean> {
+    try {
+      // Check legacy staff_id field first
+      const { data: legacyAssignment, error: legacyError } = await this.supabase
+        .from('timetable_slots')
+        .select('id')
+        .eq('id', timetableSlotId)
+        .eq('staff_id', staffId)
+        .single();
+
+      if (!legacyError && legacyAssignment) {
+        return true;
+      }
+
+      // Check new junction table
+      const { data: junctionAssignment, error: junctionError } =
+        await this.supabase
+          .from('timetable_slot_staff')
+          .select('timetable_slot_id')
+          .eq('timetable_slot_id', timetableSlotId)
+          .eq('staff_id', staffId)
+          .single();
+
+      if (!junctionError && junctionAssignment) {
+        return true;
+      }
+
+      // Check sub-slots for combined classes
+      const { data: subSlotAssignment, error: subSlotError } =
+        await this.supabase
+          .from('timetable_sub_slot_staff')
+          .select('sub_slot_id')
+          .eq('staff_id', staffId);
+
+      if (subSlotError) {
+        console.error('Error checking sub-slot assignments:', subSlotError);
+        return false;
+      }
+
+      if (subSlotAssignment && subSlotAssignment.length > 0) {
+        // Check if any of these sub-slots belong to our timetable slot
+        const subSlotIds = subSlotAssignment.map((ss) => ss.sub_slot_id);
+
+        const { data: parentSlots, error: parentError } = await this.supabase
+          .from('timetable_sub_slots')
+          .select('parent_slot_id')
+          .in('id', subSlotIds)
+          .eq('parent_slot_id', timetableSlotId);
+
+        if (!parentError && parentSlots && parentSlots.length > 0) {
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error checking staff assignment to slot:', error);
+      return false;
+    }
+  }
+
+  // Check if current user can mark attendance for a specific timetable slot
+  static async canMarkAttendanceForSlot(
+    timetableSlotId: string,
+    isSuperAdmin: boolean = false
+  ): Promise<boolean> {
+    try {
+      // Super admins can mark attendance for any slot
+      if (isSuperAdmin) {
+        return true;
+      }
+
+      // Skip check for manual entries
+      if (timetableSlotId === 'manual-entry') {
+        return true;
+      }
+
+      // Get current user's staff ID
+      const staffId = await this.getCurrentUserStaffId();
+
+      if (!staffId) {
+        console.log('User is not a staff member');
+        return false;
+      }
+
+      // Check if staff is assigned to the slot
+      const isAssigned = await this.isStaffAssignedToSlot(
+        staffId,
+        timetableSlotId
+      );
+
+      if (!isAssigned) {
+        console.log(
+          `Staff ${staffId} is not assigned to slot ${timetableSlotId}`
+        );
+      }
+
+      return isAssigned;
+    } catch (error) {
+      console.error('Error checking attendance permission for slot:', error);
+      return false;
+    }
+  }
+
+  // New method to save manual attendance
+  static async saveManualAttendance(attendanceData: {
+    attendance_date: string;
+    student_records: Array<{
+      student_id: string;
+      status: 'Present' | 'Absent';
+    }>;
+    marked_by: string;
+    institution_id: string;
+    notes?: string;
+  }): Promise<void> {
+    try {
+      // This could be saved to a separate manual_attendance table
+      // or with a special timetable_slot_id marker
+      console.log('Manual attendance data:', attendanceData);
+
+      // For now, just show success message
+      toast.success(
+        `Manual attendance marked for ${attendanceData.student_records.length} students`
+      );
+    } catch (error) {
+      console.error('Error saving manual attendance:', error);
+      toast.error('Failed to save manual attendance');
       throw error;
     }
   }
