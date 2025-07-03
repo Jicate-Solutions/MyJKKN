@@ -235,6 +235,16 @@ export function useAttendanceRoster() {
 
   const updateSearchContext = useCallback(
     async (newContext: Partial<AttendanceSearchContext>) => {
+      // Check if this is a reset operation (all main fields are null except attendance_date)
+      const isResetOperation =
+        newContext.institution_id === null &&
+        newContext.academic_year_id === null &&
+        newContext.degree_id === null &&
+        newContext.program_id === null &&
+        newContext.department_id === null &&
+        newContext.semester_id === null &&
+        newContext.section_id === null;
+
       // If institution is being changed, auto-fetch academic year
       if (
         newContext.institution_id &&
@@ -249,12 +259,18 @@ export function useAttendanceRoster() {
       setSearchContext((prevContext) => {
         const updatedContext = { ...prevContext, ...newContext };
 
-        // Auto-fetch periods when context is complete enough
-        if (newContext.attendance_date || Object.keys(newContext).length > 1) {
+        // Auto-fetch periods when context is complete enough, but not during reset
+        if (
+          !isResetOperation &&
+          (newContext.attendance_date || Object.keys(newContext).length > 1)
+        ) {
           // Use setTimeout to avoid calling fetchAvailablePeriods during render
           setTimeout(() => {
             fetchAvailablePeriods(updatedContext);
           }, 0);
+        } else if (isResetOperation) {
+          // Clear available periods during reset
+          setAvailablePeriods([]);
         }
 
         return updatedContext;

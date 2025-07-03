@@ -77,6 +77,7 @@ export default function AttendancePage() {
   const [sortByName, setSortByName] = useState(false);
   const [allAbsent, setAllAbsent] = useState(false);
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   // Data hooks for search form
   const { institutions, fetchInstitutions } = useInstitutions({});
@@ -113,6 +114,10 @@ export default function AttendancePage() {
         institution_id: searchContext.institution_id,
         isActive: true
       });
+    } else {
+      // Clear dependent data when institution is reset
+      // Since the hooks don't have explicit clear methods, we'll let the data remain
+      // but the Select components will handle null values properly
     }
   }, [searchContext.institution_id]);
 
@@ -124,6 +129,7 @@ export default function AttendancePage() {
         isActive: true
       });
     }
+    // Programs will be empty when degree_id is null due to the condition above
   }, [searchContext.institution_id, searchContext.degree_id]);
 
   useEffect(() => {
@@ -138,6 +144,7 @@ export default function AttendancePage() {
         isActive: true
       });
     }
+    // Departments will be empty when program_id is null due to the condition above
   }, [
     searchContext.institution_id,
     searchContext.degree_id,
@@ -159,6 +166,7 @@ export default function AttendancePage() {
         isActive: true
       });
     }
+    // Semesters will be empty when department_id is null due to the condition above
   }, [
     searchContext.institution_id,
     searchContext.degree_id,
@@ -183,6 +191,7 @@ export default function AttendancePage() {
         isActive: true
       });
     }
+    // Sections will be empty when semester_id is null due to the condition above
   }, [
     searchContext.institution_id,
     searchContext.degree_id,
@@ -265,19 +274,44 @@ export default function AttendancePage() {
 
   // Handle reset form
   const handleReset = async () => {
-    await updateSearchContext({
-      institution_id: null,
-      academic_year_id: null,
-      degree_id: null,
-      program_id: null,
-      department_id: null,
-      semester_id: null,
-      section_id: null,
-      attendance_date: new Date().toISOString().split('T')[0]
-    });
-    setShowResults(false);
-    setStudentsForSection([]);
-    setSelectedPeriod(null);
+    try {
+      setIsResetting(true);
+
+      // Clear all local state first
+      setShowResults(false);
+      setStudentsForSection([]);
+      setSelectedPeriod(null);
+      setStudentSearchTerm('');
+      setSortByRollNo(true);
+      setSortByName(false);
+      setAllAbsent(false);
+      setCalendarOpen(false);
+
+      // Reset search context
+      const resetContext = {
+        institution_id: null,
+        academic_year_id: null,
+        degree_id: null,
+        program_id: null,
+        department_id: null,
+        semester_id: null,
+        section_id: null,
+        attendance_date: new Date().toISOString().split('T')[0]
+      };
+
+      // Update context
+      await updateSearchContext(resetContext);
+
+      // Force refetch of institutions to ensure fresh data
+      await fetchInstitutions();
+
+      toast.success('Form reset successfully');
+    } catch (error) {
+      console.error('Error resetting form:', error);
+      toast.error('Error resetting form');
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   // Handle date selection
@@ -609,7 +643,7 @@ export default function AttendancePage() {
             <div className='flex gap-3'>
               <Button
                 onClick={handleSearch}
-                disabled={loading || loadingStudents}
+                disabled={loading || loadingStudents || isResetting}
                 className='flex items-center gap-2'
               >
                 <Search className='h-4 w-4' />
@@ -618,10 +652,11 @@ export default function AttendancePage() {
               <Button
                 variant='outline'
                 onClick={handleReset}
+                disabled={loading || loadingStudents || isResetting}
                 className='flex items-center gap-2'
               >
                 <RotateCcw className='h-4 w-4' />
-                Reset
+                {isResetting ? 'Resetting...' : 'Reset'}
               </Button>
               <Button variant='ghost' className='flex items-center gap-2'>
                 <X className='h-4 w-4' />
