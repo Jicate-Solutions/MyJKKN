@@ -182,6 +182,15 @@ export function StudentDetail({ student }: StudentDetailProps) {
                   </div>
                   <div className='space-y-1'>
                     <h3 className='text-sm font-medium text-muted-foreground'>
+                      Academic Year
+                    </h3>
+                    <p className='text-sm'>
+                      {student.academic_year?.academic_year_name ||
+                        'Not specified'}
+                    </p>
+                  </div>
+                  <div className='space-y-1'>
+                    <h3 className='text-sm font-medium text-muted-foreground'>
                       Entry Type
                     </h3>
                     <p className='text-sm'>

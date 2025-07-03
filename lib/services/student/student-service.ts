@@ -63,7 +63,8 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name)
+          section:sections!section_id(id, section_name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
         `
         )
         .eq('id', id)
@@ -108,7 +109,8 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name)
+          section:sections!section_id(id, section_name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
         `
         )
         .single();
@@ -235,6 +237,7 @@ export class StudentService {
           roll_number: !!mergedData.roll_number,
           college_email: !!mergedData.college_email,
           student_photo_url: !!mergedData.student_photo_url,
+          academic_year_id: !!mergedData.academic_year_id,
           semester_id: !!mergedData.semester_id,
           section_id: !!mergedData.section_id
         }
@@ -259,7 +262,8 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name)
+          section:sections!section_id(id, section_name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
         `
         )
         .single();
@@ -441,7 +445,8 @@ export class StudentService {
           department:departments!department_id(id, department_name),
           program:programs!program_id(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name)
+          section:sections!section_id(id, section_name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
         `,
         { count: 'exact' }
       );
@@ -524,7 +529,8 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name)
+          section:sections!section_id(id, section_name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
         `
         )
         .eq('id', id)
@@ -737,6 +743,7 @@ export class StudentService {
     const requiredFields = [
       'roll_number',
       'college_email',
+      'academic_year_id',
       'semester_id',
       'section_id'
     ];
@@ -805,7 +812,8 @@ export class StudentService {
           department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name)
+          section:sections!section_id(id, section_name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
         `
         )
         .single();
@@ -914,7 +922,8 @@ export class StudentService {
           department:departments!department_id(id, department_name),
           program:programs!program_id(id, program_name),
           semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name)
+          section:sections!section_id(id, section_name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
         `);
 
       if (error) throw error;
@@ -1228,6 +1237,7 @@ export class StudentService {
     ).length;
     const hasRollNumber = students.filter((s) => s.roll_number).length;
     const hasCollegeEmail = students.filter((s) => s.college_email).length;
+    const hasAcademicYear = students.filter((s) => s.academic_year_id).length;
     const hasSemester = students.filter((s) => s.semester_id).length;
     const hasSection = students.filter((s) => s.section_id).length;
     const hasPhoto = students.filter((s) => s.student_photo_url).length;
@@ -1257,6 +1267,12 @@ export class StudentService {
         completed: hasCollegeEmail,
         total,
         percentage: (hasCollegeEmail / total) * 100
+      },
+      {
+        step: 'Academic Year',
+        completed: hasAcademicYear,
+        total,
+        percentage: (hasAcademicYear / total) * 100
       },
       {
         step: 'Semester',

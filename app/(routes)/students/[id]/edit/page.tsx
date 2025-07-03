@@ -51,6 +51,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { Section } from '@/types/organizations';
 import { useQueryClient } from '@tanstack/react-query';
 import { studentKeys } from '@/hooks/student/use-students';
+import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
 
 // Form schema for student edit (focusing on additional required fields)
 const editStudentSchema = z.object({
@@ -69,6 +70,7 @@ const editStudentSchema = z.object({
   roll_number: z.string().min(1, 'Roll number is required'),
   college_email: z.string().email('Invalid college email format'),
   student_email: z.string().email('Invalid personal email format').optional(),
+  academic_year_id: z.string().min(1, 'Academic year is required'),
   student_mobile: z.string().optional(),
   student_photo_url: z.string().optional(),
 
@@ -299,6 +301,13 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
   const updateStudent = useUpdateStudent(id);
   const queryClient = useQueryClient();
 
+  // Academic year hook
+  const {
+    academicYears,
+    loading: isLoadingAcademicYears,
+    fetchAcademicYears
+  } = useAcademicYearsByInstitution(student?.institution_id);
+
   // State for entity names
   const [institutionName, setInstitutionName] = useState<string>('');
   const [degreeName, setDegreeName] = useState<string>('');
@@ -340,6 +349,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
       college_email: '',
       student_email: '',
       student_mobile: '',
+      academic_year_id: '',
       student_photo_url: '',
       religion: '',
       community: '',
@@ -450,6 +460,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
           college_email: student.college_email || '',
           student_email: student.student_email || '',
           student_mobile: student.student_mobile || '',
+          academic_year_id: student.academic_year_id || '',
           student_photo_url: student.student_photo_url || '',
           religion: student.religion || '',
           community: student.community || '',
@@ -606,6 +617,13 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
 
     fetchEntityNames();
   }, [student]);
+
+  // Effect to fetch academic years when student institution is available
+  useEffect(() => {
+    if (student?.institution_id) {
+      fetchAcademicYears(student.institution_id);
+    }
+  }, [student?.institution_id, fetchAcademicYears]);
 
   // Modify fetchFormOptions to load initial values based on the student
   useEffect(() => {
@@ -799,6 +817,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
       const isComplete =
         !!data.roll_number &&
         !!data.college_email &&
+        !!data.academic_year_id &&
         !!data.semester_id &&
         !!data.section_id;
 
@@ -890,6 +909,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
   const isProfileComplete =
     !!student.roll_number &&
     !!student.college_email &&
+    !!student.academic_year_id &&
     !!student.semester_id &&
     !!student.section_id;
 
@@ -1506,6 +1526,52 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                       </div>
 
                       <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                        <FormField
+                          control={form.control}
+                          name='academic_year_id'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Academic Year*</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                                disabled={isLoadingAcademicYears}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select academic year' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {isLoadingAcademicYears ? (
+                                    <div className='flex items-center justify-center p-2'>
+                                      <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                      Loading...
+                                    </div>
+                                  ) : academicYears.length === 0 ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      No academic years available
+                                    </div>
+                                  ) : (
+                                    academicYears.map((academicYear) => (
+                                      <SelectItem
+                                        key={academicYear.id}
+                                        value={academicYear.id}
+                                      >
+                                        {academicYear.academic_year_name}
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                Academic year for the student
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
                         <FormField
                           control={form.control}
                           name='entry_type'

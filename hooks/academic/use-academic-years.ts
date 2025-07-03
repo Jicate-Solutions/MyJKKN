@@ -87,3 +87,45 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
     fetchAcademicYears
   };
 }
+
+// Simple hook for fetching academic years by institution (for dropdowns/forms)
+export function useAcademicYearsByInstitution(institutionId?: string) {
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchAcademicYears = useCallback(
+    async (instId?: string) => {
+      const targetInstitutionId = instId || institutionId;
+
+      if (!targetInstitutionId) {
+        setAcademicYears([]);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        const result = await AcademicYearService.getAcademicYearsByInstitution(
+          targetInstitutionId
+        );
+        setAcademicYears(result);
+      } catch (err) {
+        console.error('Error fetching academic years by institution:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+        setAcademicYears([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [institutionId]
+  );
+
+  return {
+    academicYears,
+    loading,
+    error,
+    fetchAcademicYears
+  };
+}

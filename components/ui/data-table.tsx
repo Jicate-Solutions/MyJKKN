@@ -106,6 +106,12 @@ interface DataTableProps<TData, TValue> {
   filterColumn?: string;
 
   /**
+   * Custom global filter function for searching across multiple fields
+   * If provided, this will be used instead of single column filtering
+   */
+  globalFilterFn?: (row: any, columnId: string, filterValue: string) => boolean;
+
+  /**
    * Permission configuration for the data table
    * If not provided, no permission checks will be applied
    */
@@ -162,6 +168,7 @@ export function DataTable<TData, TValue>({
   data,
   searchPlaceholder = 'Search...',
   filterColumn = 'email',
+  globalFilterFn,
   permissions,
   tableTools,
   onDeleteSelected,
@@ -174,6 +181,7 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     []
   );
+  const [globalFilter, setGlobalFilter] = React.useState('');
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
@@ -347,6 +355,8 @@ export function DataTable<TData, TValue>({
     getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
+    onGlobalFilterChange: setGlobalFilter,
+    globalFilterFn: globalFilterFn as any,
     manualPagination: !!serverSidePagination,
     pageCount: serverSidePagination
       ? serverSidePagination.totalPages
@@ -356,6 +366,7 @@ export function DataTable<TData, TValue>({
       columnFilters,
       columnVisibility,
       rowSelection,
+      globalFilter,
       pagination: serverSidePagination
         ? {
             pageIndex: serverSidePagination.currentPage - 1,
@@ -544,20 +555,29 @@ export function DataTable<TData, TValue>({
     <div className='space-y-4'>
       <div className='flex flex-col sm:flex-row sm:items-center justify-between py-4 gap-3'>
         <div className='flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto'>
-          {filterColumnExists && (
+          {globalFilterFn ? (
             <Input
               placeholder={searchPlaceholder}
-              value={
-                (table.getColumn(filterColumn)?.getFilterValue() as string) ??
-                ''
-              }
-              onChange={(event) =>
-                table
-                  .getColumn(filterColumn)
-                  ?.setFilterValue(event.target.value)
-              }
+              value={globalFilter ?? ''}
+              onChange={(event) => setGlobalFilter(event.target.value)}
               className='max-w-sm'
             />
+          ) : (
+            filterColumnExists && (
+              <Input
+                placeholder={searchPlaceholder}
+                value={
+                  (table.getColumn(filterColumn)?.getFilterValue() as string) ??
+                  ''
+                }
+                onChange={(event) =>
+                  table
+                    .getColumn(filterColumn)
+                    ?.setFilterValue(event.target.value)
+                }
+                className='max-w-sm'
+              />
+            )
           )}
         </div>
         <div className='flex flex-wrap items-center gap-2'>

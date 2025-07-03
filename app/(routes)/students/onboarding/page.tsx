@@ -691,6 +691,7 @@ export default function StudentOnboardingPage() {
 
         if (!student.roll_number) missingFields.push('Roll Number');
         if (!student.college_email) missingFields.push('College Email');
+        if (!student.academic_year_id) missingFields.push('Academic Year');
         if (!student.student_photo_url) missingFields.push('Photo');
         if (!student.semester_id) missingFields.push('Semester');
         if (!student.section_id) missingFields.push('Section');

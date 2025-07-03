@@ -44,6 +44,7 @@ export interface Student {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  academic_year_id?: string;
   entry_type: string; // FIRST YEAR, LATERAL ENTRY, etc.
   permanent_address_street: string;
   permanent_address_taluk?: string;
@@ -100,6 +101,13 @@ export interface Student {
     section_name: string;
     section_code: string;
   };
+  academic_year?: {
+    id: string;
+    academic_year_name: string;
+    start_date: string;
+    end_date: string;
+    is_active: boolean;
+  };
 }
 
 // Zod schema for validation
@@ -110,6 +118,7 @@ export const studentSchema = z.object({
   roll_number: z.string().optional(),
   college_email: z.string().email('Invalid college email').optional(),
   student_photo_url: z.string().optional(),
+  academic_year_id: z.string().optional(),
   semester_id: z.string().optional(),
   section_id: z.string().optional()
 });
