@@ -12,6 +12,12 @@ export const SYSTEM_ROLES = {
 } as const;
 
 export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
+export type StudentStatus =
+  | 'active'
+  | 'inactive'
+  | 'pending'
+  | 'exited'
+  | 'graduated';
 
 // Institution interface for profile relations
 export interface Institution {
@@ -45,6 +51,11 @@ export interface Profile {
   created_at: string;
   updated_at: string;
   last_login: string | null;
+
+  // Student-related fields (populated if user is a student)
+  student_id?: string | null;
+  student_status?: StudentStatus | null;
+  student_profile_complete?: boolean | null;
 }
 
 // Profile update interface

@@ -18,7 +18,8 @@ import {
   Trash,
   RefreshCw,
   AlertCircle,
-  BarChart3
+  BarChart3,
+  Settings
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +38,14 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useStudents } from '@/hooks/student/use-students';
@@ -65,6 +74,7 @@ import { StudentService } from '@/lib/services/student/student-service';
 import { DownloadNewStudentTemplateButton } from './_components/download-new-student-template-button';
 import { ExportStudents } from './_components/export-students';
 import { CreateMissingStudentProfilesButton } from './_components/create-missing-profiles-button';
+import { BulkUploadStudentImages } from './_components/bulk-upload-student-images';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   CanCreate,
@@ -79,6 +89,19 @@ type DateRange = {
   from: Date | undefined;
   to?: Date | undefined;
 };
+
+// Student status options
+const STUDENT_STATUS_OPTIONS = [
+  { value: 'active', label: 'Active', color: 'bg-green-100 text-green-800' },
+  { value: 'inactive', label: 'Inactive', color: 'bg-gray-100 text-gray-800' },
+  {
+    value: 'pending',
+    label: 'Pending',
+    color: 'bg-yellow-100 text-yellow-800'
+  },
+  { value: 'exited', label: 'Exited', color: 'bg-red-100 text-red-800' },
+  { value: 'graduated', label: 'Graduated', color: 'bg-blue-100 text-blue-800' }
+] as const;
 
 export default function StudentsPage() {
   const router = useRouter();
@@ -97,6 +120,17 @@ export default function StudentsPage() {
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // State for bulk actions
+  const [bulkActionMode, setBulkActionMode] = useState<'delete' | 'status'>(
+    'delete'
+  );
+  const [showStatusDialog, setShowStatusDialog] = useState(false);
+  const [selectedStudentsForStatus, setSelectedStudentsForStatus] = useState<
+    Student[]
+  >([]);
+  const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   // State for institution/program filters
   const [institutions, setInstitutions] = useState<
@@ -242,6 +276,99 @@ export default function StudentsPage() {
       console.error('Error deleting students:', error);
       toast.error('Failed to delete students');
       throw error; // Re-throw to let DataTable handle the error state
+    }
+  };
+
+  // Handle bulk status update operation
+  const handleBulkStatusUpdate = async (students: Student[]) => {
+    if (students.length === 0) return;
+
+    setSelectedStudentsForStatus(students);
+    setShowStatusDialog(true);
+  };
+
+  // Handle status update confirmation
+  const handleStatusUpdateConfirm = async () => {
+    if (!selectedStatus || selectedStudentsForStatus.length === 0) {
+      toast.error('Please select a status');
+      return;
+    }
+
+    try {
+      setIsUpdatingStatus(true);
+
+      // Update each student's status
+      const promises = selectedStudentsForStatus.map((student) =>
+        StudentService.updateStudent(
+          student.id,
+          { status: selectedStatus as any },
+          { suppressToast: true }
+        )
+      );
+
+      await Promise.all(promises);
+
+      // Refresh the data
+      await refetch();
+
+      toast.success(
+        `Successfully updated status for ${selectedStudentsForStatus.length} student(s)`
+      );
+
+      // Reset state
+      setShowStatusDialog(false);
+      setSelectedStudentsForStatus([]);
+      setSelectedStatus('');
+    } catch (error) {
+      console.error('Error updating student status:', error);
+      toast.error('Failed to update student status');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // Handle canceling status update
+  const handleStatusUpdateCancel = () => {
+    setShowStatusDialog(false);
+    setSelectedStudentsForStatus([]);
+    setSelectedStatus('');
+  };
+
+  // Determine which bulk action to use based on mode
+  const getBulkActionFunction = () => {
+    if (bulkActionMode === 'delete') {
+      return handleBulkDelete;
+    } else {
+      return handleBulkStatusUpdate;
+    }
+  };
+
+  // Get bulk action configuration
+  const getBulkActionConfig = () => {
+    if (bulkActionMode === 'delete') {
+      return {
+        label: 'Delete',
+        icon: Trash,
+        variant: 'destructive' as const,
+        confirmTitle: 'Are you sure?',
+        confirmDescription:
+          'This will permanently delete the selected student(s). This action cannot be undone.',
+        successMessage: 'Successfully deleted {count} student{plural}',
+        errorMessage: 'Failed to delete students',
+        loadingText: 'Deleting...'
+      };
+    } else {
+      return {
+        label: 'Update Status',
+        icon: Settings,
+        variant: 'default' as const,
+        confirmTitle: '', // Empty to skip default confirmation dialog
+        confirmDescription: '',
+        successMessage:
+          'Successfully updated status for {count} student{plural}',
+        errorMessage: 'Failed to update student status',
+        loadingText: 'Updating...'
+      };
     }
   };
 
@@ -602,15 +729,43 @@ export default function StudentsPage() {
             <CanCreate module='students'>
               <CreateMissingStudentProfilesButton />
             </CanCreate>
+            <CanCreate module='students'>
+              <BulkUploadStudentImages />
+            </CanCreate>
           </div>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Student Records</CardTitle>
-            <CardDescription>
-              View and manage all enrolled students
-            </CardDescription>
+            <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between'>
+              <div>
+                <CardTitle>Student Records</CardTitle>
+                <CardDescription>
+                  View and manage all enrolled students
+                </CardDescription>
+              </div>
+
+              {/* Bulk Action Mode Toggle */}
+              <div className='flex items-center gap-2 mt-4 sm:mt-0'>
+                <span className='text-sm text-muted-foreground'>
+                  Bulk Action:
+                </span>
+                <Select
+                  value={bulkActionMode}
+                  onValueChange={(value: 'delete' | 'status') =>
+                    setBulkActionMode(value)
+                  }
+                >
+                  <SelectTrigger className='w-[140px]'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='delete'>Delete</SelectItem>
+                    <SelectItem value='status'>Update Status</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {/* Basic search and profile status filter */}
@@ -917,7 +1072,8 @@ export default function StudentsPage() {
                 },
                 showPermissionError: true
               }}
-              onDeleteSelected={handleBulkDelete}
+              onBulkAction={getBulkActionFunction()}
+              bulkActionConfig={getBulkActionConfig()}
               getRowId={(row) => row.id}
               onRefresh={handleRefresh}
               showRefresh={true}
@@ -925,6 +1081,89 @@ export default function StudentsPage() {
             />
           </CardContent>
         </Card>
+
+        {/* Status Update Dialog */}
+        <Dialog open={showStatusDialog} onOpenChange={setShowStatusDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Update Student Status</DialogTitle>
+              <DialogDescription>
+                Update the status for {selectedStudentsForStatus.length}{' '}
+                selected student(s).
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className='py-4'>
+              <div className='space-y-4'>
+                <div>
+                  <label className='text-sm font-medium mb-2 block'>
+                    Select New Status
+                  </label>
+                  <Select
+                    value={selectedStatus}
+                    onValueChange={setSelectedStatus}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='Choose a status' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STUDENT_STATUS_OPTIONS.map((status) => (
+                        <SelectItem key={status.value} value={status.value}>
+                          <div className='flex items-center gap-2'>
+                            <div
+                              className={cn(
+                                'w-3 h-3 rounded-full',
+                                status.color
+                              )}
+                            />
+                            {status.label}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className='text-sm font-medium mb-2 block'>
+                    Selected Students ({selectedStudentsForStatus.length})
+                  </label>
+                  <div className='max-h-32 overflow-y-auto border rounded-md p-2'>
+                    {selectedStudentsForStatus.map((student) => (
+                      <div key={student.id} className='text-sm py-1'>
+                        {student.student_name} (
+                        {student.roll_number || 'No roll number'})
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant='outline'
+                onClick={handleStatusUpdateCancel}
+                disabled={isUpdatingStatus}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleStatusUpdateConfirm}
+                disabled={!selectedStatus || isUpdatingStatus}
+              >
+                {isUpdatingStatus ? (
+                  <>
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    Updating...
+                  </>
+                ) : (
+                  'Update Status'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </ContentLayout>
   );

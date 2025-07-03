@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { UserService } from '@/lib/services/users/user-service';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { SYSTEM_ROLES } from '@/types/auth';
-import { Profile } from '@/types/auth';
+import { Profile, StudentStatus } from '@/types/auth';
 
 interface UsePermissionsOptions {
   /**
@@ -11,6 +11,23 @@ interface UsePermissionsOptions {
    */
   waitForLoad?: boolean;
 }
+
+// Define modules that graduated students can access
+const GRADUATED_STUDENT_ALLOWED_MODULES = [
+  'service_requests',
+  'profile',
+  'resources.digital',
+  'resources.physical.view', // Read-only access to resources
+  'billing.view', // View billing information only
+  'academic.view' // View academic records only
+];
+
+// Helper function to check if a permission is allowed for graduated students
+const isPermissionAllowedForGraduated = (permission: string): boolean => {
+  return GRADUATED_STUDENT_ALLOWED_MODULES.some(
+    (module) => permission.startsWith(module) || permission === module
+  );
+};
 
 export function usePermissions(
   requiredPermissions: string[] = [],
@@ -23,6 +40,71 @@ export function usePermissions(
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const { waitForLoad = false } = options;
 
+  // Student-specific properties
+  const isStudent = useMemo(
+    () => userProfile?.role === 'student',
+    [userProfile?.role]
+  );
+  const studentStatus = useMemo(
+    () => userProfile?.student_status || null,
+    [userProfile?.student_status]
+  );
+  const studentId = useMemo(
+    () => userProfile?.student_id || null,
+    [userProfile?.student_id]
+  );
+  const isStudentProfileComplete = useMemo(
+    () => userProfile?.student_profile_complete || false,
+    [userProfile?.student_profile_complete]
+  );
+
+  // Enhanced permissions that consider student status (Task 3: Fine-grained access control)
+  const enhancedPermissions = useMemo(() => {
+    // If not a student or super admin, return permissions as-is
+    if (isSuperAdmin || !isStudent || !studentStatus) {
+      return permissions;
+    }
+
+    // Apply student status-based restrictions
+    switch (studentStatus) {
+      case 'inactive':
+        // Inactive students have no access to permission-based modules
+        return {};
+
+      case 'graduated':
+        // Graduated students can only access specific modules
+        const filteredPermissions: Record<string, boolean> = {};
+        Object.entries(permissions).forEach(([permission, hasAccess]) => {
+          if (hasAccess && isPermissionAllowedForGraduated(permission)) {
+            filteredPermissions[permission] = true;
+          }
+        });
+        return filteredPermissions;
+
+      case 'active':
+        // Active students get full permissions based on their role
+        return permissions;
+
+      case 'pending':
+        // Pending students should be redirected by middleware, but if they get here,
+        // they only have access to profile completion
+        return {
+          'profile.view': permissions['profile.view'] || false,
+          'profile.edit': permissions['profile.edit'] || false
+        };
+
+      case 'exited':
+        // Exited students should be logged out by middleware, but if they get here,
+        // they have no access
+        return {};
+
+      default:
+        // Unknown status - no access for safety
+        console.warn(`Unknown student status in permissions: ${studentStatus}`);
+        return {};
+    }
+  }, [permissions, isStudent, studentStatus, isSuperAdmin]);
+
   // Load permissions from role
   useEffect(() => {
     let mounted = true;
@@ -31,7 +113,7 @@ export function usePermissions(
         setIsLoading(true);
         setError(null);
 
-        // Get current user profile
+        // Get current user profile (now includes student status)
         const { data: profile, error: profileError } =
           await UserService.getCurrentUserProfile();
 
@@ -75,37 +157,41 @@ export function usePermissions(
     };
   }, []);
 
-  // Check if user has all required permissions
+  // Check if user has all required permissions (using enhanced permissions)
   const hasAllPermissions = useMemo(() => {
     if (isLoading && waitForLoad) return false;
     // Super admins always have all permissions
     if (isSuperAdmin) return true;
-    return !error && requiredPermissions.every((perm) => permissions[perm]);
+    return (
+      !error && requiredPermissions.every((perm) => enhancedPermissions[perm])
+    );
   }, [
     isLoading,
     error,
     requiredPermissions,
-    permissions,
+    enhancedPermissions,
     waitForLoad,
     isSuperAdmin
   ]);
 
-  // Check if user has any of the required permissions
+  // Check if user has any of the required permissions (using enhanced permissions)
   const hasAnyPermission = useMemo(() => {
     if (isLoading && waitForLoad) return false;
     // Super admins always have all permissions
     if (isSuperAdmin) return true;
-    return !error && requiredPermissions.some((perm) => permissions[perm]);
+    return (
+      !error && requiredPermissions.some((perm) => enhancedPermissions[perm])
+    );
   }, [
     isLoading,
     error,
     requiredPermissions,
-    permissions,
+    enhancedPermissions,
     waitForLoad,
     isSuperAdmin
   ]);
 
-  // Check if user has specific permission for a module and action
+  // Check if user has specific permission for a module and action (using enhanced permissions)
   const canAccess = useCallback(
     (module: string, action: string) => {
       // Super admins can access everything
@@ -120,9 +206,9 @@ export function usePermissions(
 
       const permKey = `${module}.${action}`;
 
-      return permissions[permKey] || false;
+      return enhancedPermissions[permKey] || false;
     },
-    [permissions, isSuperAdmin, isLoading]
+    [enhancedPermissions, isSuperAdmin, isLoading]
   );
 
   // Check if user has all specified actions for a module
@@ -145,7 +231,7 @@ export function usePermissions(
     [canAccess, isSuperAdmin]
   );
 
-  // Get all permissions for a specific module
+  // Get all permissions for a specific module (using enhanced permissions)
   const getModulePermissions = useCallback(
     (module: string) => {
       // If super admin, return all actions as true
@@ -158,7 +244,7 @@ export function usePermissions(
         }, {} as Record<string, boolean>);
       }
 
-      return Object.entries(permissions)
+      return Object.entries(enhancedPermissions)
         .filter(([key]) => key.startsWith(`${module}.`))
         .reduce((acc, [key, value]) => {
           // Extract the action part after the module prefix
@@ -167,20 +253,27 @@ export function usePermissions(
           return acc;
         }, {} as Record<string, boolean>);
     },
-    [permissions, isSuperAdmin]
+    [enhancedPermissions, isSuperAdmin]
   );
 
   return {
-    permissions,
+    permissions: enhancedPermissions, // Return enhanced permissions instead of raw permissions
     isLoading,
     error,
     hasAllPermissions,
     hasAnyPermission,
     isSuperAdmin,
     userProfile,
-    // Generic permission check (legacy support)
+
+    // Student-specific properties
+    isStudent,
+    studentStatus,
+    studentId,
+    isStudentProfileComplete,
+
+    // Generic permission check (legacy support) - using enhanced permissions
     can: (permission: string) =>
-      isSuperAdmin ? true : permissions[permission] || false,
+      isSuperAdmin ? true : enhancedPermissions[permission] || false,
     // New module-based permission checks
     canAccess,
     canPerformAll,

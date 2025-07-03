@@ -153,6 +153,35 @@ export class UserService {
 
       if (error) throw error;
 
+      // If user is a student, fetch their student record and status
+      if (data && data.role === 'student') {
+        try {
+          const { data: studentData, error: studentError } = await this.supabase
+            .from('students')
+            .select('id, status, is_profile_complete')
+            .eq('college_email', data.email)
+            .single();
+
+          if (!studentError && studentData) {
+            // Enhance profile with student information
+            data.student_id = studentData.id;
+            data.student_status = studentData.status;
+            data.student_profile_complete = studentData.is_profile_complete;
+          } else {
+            // Student record not found or error - set defaults
+            data.student_id = null;
+            data.student_status = null;
+            data.student_profile_complete = null;
+          }
+        } catch (studentFetchError) {
+          // Log but don't fail the entire request if student fetch fails
+          console.warn('Failed to fetch student status:', studentFetchError);
+          data.student_id = null;
+          data.student_status = null;
+          data.student_profile_complete = null;
+        }
+      }
+
       return { data, error: null };
     } catch (error) {
       return {

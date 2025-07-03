@@ -99,6 +99,48 @@ interface DataTablePermissions {
   showPermissionError?: boolean;
 }
 
+// Configuration for bulk actions
+interface BulkActionConfig {
+  /**
+   * Text to display on the bulk action button
+   */
+  label: string;
+  /**
+   * Icon component to display (optional)
+   */
+  icon?: React.ComponentType<{ className?: string }>;
+  /**
+   * Button variant (default: 'destructive' for backward compatibility)
+   */
+  variant?:
+    | 'default'
+    | 'destructive'
+    | 'outline'
+    | 'secondary'
+    | 'ghost'
+    | 'link';
+  /**
+   * Confirmation dialog title
+   */
+  confirmTitle?: string;
+  /**
+   * Confirmation dialog description
+   */
+  confirmDescription?: string;
+  /**
+   * Success message template (use {count} for item count)
+   */
+  successMessage?: string;
+  /**
+   * Error message
+   */
+  errorMessage?: string;
+  /**
+   * Loading text
+   */
+  loadingText?: string;
+}
+
 interface DataTableProps<TData, TValue> {
   columns: PermissionColumnDef<TData, TValue>[];
   data: TData[];
@@ -126,8 +168,20 @@ interface DataTableProps<TData, TValue> {
   /**
    * Function to handle deletion of multiple items
    * Will be called with an array of selected row data
+   * @deprecated Use onBulkAction instead for custom actions
    */
   onDeleteSelected?: (rows: TData[]) => Promise<void>;
+
+  /**
+   * Function to handle bulk actions on multiple items
+   * Will be called with an array of selected row data
+   */
+  onBulkAction?: (rows: TData[]) => Promise<void>;
+
+  /**
+   * Configuration for the bulk action button and dialog
+   */
+  bulkActionConfig?: BulkActionConfig;
 
   /**
    * Function to get a unique ID for each row
@@ -172,6 +226,8 @@ export function DataTable<TData, TValue>({
   permissions,
   tableTools,
   onDeleteSelected,
+  onBulkAction,
+  bulkActionConfig,
   getRowId = () => Math.random().toString(36).substring(7), // Default fallback ID generator
   onRefresh,
   showRefresh = true,
@@ -185,8 +241,8 @@ export function DataTable<TData, TValue>({
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
-  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
-  const [deleteLoading, setDeleteLoading] = React.useState(false);
+  const [bulkActionDialogOpen, setBulkActionDialogOpen] = React.useState(false);
+  const [bulkActionLoading, setBulkActionLoading] = React.useState(false);
   const [refreshLoading, setRefreshLoading] = React.useState(false);
 
   // Get permission hooks with loading state
@@ -195,6 +251,27 @@ export function DataTable<TData, TValue>({
     isSuperAdmin,
     isLoading: permissionsLoading
   } = usePermissions();
+
+  // Determine which bulk action function to use (backward compatibility)
+  const bulkActionFunction = onBulkAction || onDeleteSelected;
+
+  // Default bulk action config for backward compatibility (delete behavior)
+  const defaultBulkActionConfig: BulkActionConfig = {
+    label: 'Delete',
+    icon: Trash2,
+    variant: 'destructive',
+    confirmTitle: 'Are you sure?',
+    confirmDescription:
+      'This will permanently delete the selected item{count}. This action cannot be undone.',
+    successMessage: 'Successfully deleted {count} item{plural}',
+    errorMessage: 'Failed to delete selected items',
+    loadingText: 'Deleting...'
+  };
+
+  // Merge user config with defaults
+  const finalBulkActionConfig = bulkActionConfig
+    ? { ...defaultBulkActionConfig, ...bulkActionConfig }
+    : defaultBulkActionConfig;
 
   // Check if user has permission to view the table
   const canViewTable = React.useMemo(() => {
@@ -211,20 +288,25 @@ export function DataTable<TData, TValue>({
     );
   }, [permissions, canAccess, isSuperAdmin]);
 
-  // Check if user has permission to delete records
-  const canDelete = React.useMemo(() => {
+  // Check if user has permission to perform bulk actions
+  const canPerformBulkAction = React.useMemo(() => {
     // If no permissions are specified, allow access
     if (!permissions?.module) return true;
 
-    // Super admins can always delete
+    // Super admins can always perform bulk actions
     if (isSuperAdmin) return true;
 
-    // Check the delete permission (or default to false if not specified)
+    // For backward compatibility, check delete permission if using onDeleteSelected
+    // Otherwise check edit permission for bulk actions
+    const permissionAction =
+      onDeleteSelected && !onBulkAction ? 'delete' : 'edit';
+
     return (
-      permissions.actions?.delete !== false &&
-      (permissions.actions?.delete || canAccess(permissions.module, 'delete'))
+      permissions.actions?.[permissionAction] !== false &&
+      (permissions.actions?.[permissionAction] ||
+        canAccess(permissions.module, permissionAction))
     );
-  }, [permissions, canAccess, isSuperAdmin]);
+  }, [permissions, canAccess, isSuperAdmin, onDeleteSelected, onBulkAction]);
 
   // Filter columns based on permissions
   const permissionFilteredColumns = React.useMemo(() => {
@@ -247,9 +329,9 @@ export function DataTable<TData, TValue>({
     });
   }, [columns, permissions, canAccess, isSuperAdmin]);
 
-  // Only add selection column if delete functionality is available
+  // Only add selection column if bulk action functionality is available
   const columnsWithSelection = React.useMemo(() => {
-    if (!onDeleteSelected || !canDelete) {
+    if (!bulkActionFunction || !canPerformBulkAction) {
       return permissionFilteredColumns;
     }
 
@@ -293,7 +375,7 @@ export function DataTable<TData, TValue>({
 
     // Add selection column at the beginning
     return [selectionColumn, ...permissionFilteredColumns];
-  }, [permissionFilteredColumns, onDeleteSelected, canDelete]);
+  }, [permissionFilteredColumns, bulkActionFunction, canPerformBulkAction]);
 
   // Add sorting capabilities to columns
   const enhancedColumns = React.useMemo(
@@ -465,37 +547,64 @@ export function DataTable<TData, TValue>({
     canNextPage
   ]);
 
-  // Handle multi-select delete
-  const handleDeleteSelected = async () => {
-    // Allow super admins to delete even if no rows are selected
-    if (!onDeleteSelected || (!isSuperAdmin && selectedRows.length === 0))
+  // Handle multi-select bulk action
+  const handleBulkAction = async () => {
+    // Allow super admins to perform action even if no rows are selected
+    if (!bulkActionFunction || (!isSuperAdmin && selectedRows.length === 0))
       return;
 
+    // If no confirmation dialog is needed (empty title), execute directly
+    if (!finalBulkActionConfig.confirmTitle) {
+      const rowsToProcess =
+        selectedRows.length > 0 ? selectedRows.map((row) => row.original) : [];
+
+      try {
+        await bulkActionFunction(rowsToProcess);
+        // Clear selection after successful action
+        setRowSelection({});
+      } catch (error) {
+        console.error('Error processing bulk action:', error);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : finalBulkActionConfig.errorMessage ||
+                'Failed to process selected items'
+        );
+      }
+      return;
+    }
+
     try {
-      setDeleteLoading(true);
+      setBulkActionLoading(true);
       // Get the actual data objects from the selected rows
-      const rowsToDelete =
+      const rowsToProcess =
         selectedRows.length > 0 ? selectedRows.map((row) => row.original) : []; // Empty array for super admins with no selection
 
-      await onDeleteSelected(rowsToDelete);
+      await bulkActionFunction(rowsToProcess);
 
-      // Clear selection after successful delete
+      // Clear selection after successful action
       setRowSelection({});
-      setDeleteDialogOpen(false);
+      setBulkActionDialogOpen(false);
 
       const count = selectedRows.length || 0;
-      toast.success(
-        `Successfully deleted ${count} item${count !== 1 ? 's' : ''}`
-      );
+      const plural = count !== 1 ? 's' : '';
+      const successMessage =
+        finalBulkActionConfig.successMessage
+          ?.replace('{count}', count.toString())
+          ?.replace('{plural}', plural) ||
+        `Successfully processed ${count} item${plural}`;
+
+      toast.success(successMessage);
     } catch (error) {
-      console.error('Error deleting items:', error);
+      console.error('Error processing bulk action:', error);
       toast.error(
         error instanceof Error
           ? error.message
-          : 'Failed to delete selected items'
+          : finalBulkActionConfig.errorMessage ||
+              'Failed to process selected items'
       );
     } finally {
-      setDeleteLoading(false);
+      setBulkActionLoading(false);
     }
   };
 
@@ -581,18 +690,31 @@ export function DataTable<TData, TValue>({
           )}
         </div>
         <div className='flex flex-wrap items-center gap-2'>
-          {onDeleteSelected && canDelete && selectedRows.length >= 2 && (
-            <Button
-              variant='destructive'
-              size='sm'
-              onClick={() => setDeleteDialogOpen(true)}
-              className='flex items-center gap-1'
-            >
-              <Trash2 className='h-4 w-4' />
-              <span className='hidden sm:inline'>{`Delete (${selectedRows.length})`}</span>
-              <span className='sm:hidden'>{selectedRows.length}</span>
-            </Button>
-          )}
+          {bulkActionFunction &&
+            canPerformBulkAction &&
+            selectedRows.length >= 2 && (
+              <Button
+                variant={finalBulkActionConfig.variant}
+                size='sm'
+                onClick={() => {
+                  // If no confirmation dialog needed, execute directly
+                  if (!finalBulkActionConfig.confirmTitle) {
+                    handleBulkAction();
+                  } else {
+                    setBulkActionDialogOpen(true);
+                  }
+                }}
+                className='flex items-center gap-1'
+              >
+                {finalBulkActionConfig.icon && (
+                  <finalBulkActionConfig.icon className='h-4 w-4' />
+                )}
+                <span className='hidden sm:inline'>
+                  {`${finalBulkActionConfig.label} (${selectedRows.length})`}
+                </span>
+                <span className='sm:hidden'>{selectedRows.length}</span>
+              </Button>
+            )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -832,52 +954,68 @@ export function DataTable<TData, TValue>({
         </div>
       </div>
 
-      {/* Delete confirmation dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {selectedRows.length > 0 ? (
-                <>
-                  This will permanently delete the {selectedRows.length}{' '}
-                  selected item{selectedRows.length !== 1 ? 's' : ''}. This
-                  action cannot be undone.
-                </>
-              ) : (
-                <>
-                  No items are selected. Please select items to delete or cancel
-                  this operation.
-                </>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteLoading}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                handleDeleteSelected();
-              }}
-              disabled={
-                deleteLoading || (!isSuperAdmin && selectedRows.length === 0)
-              }
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-            >
-              {deleteLoading ? (
-                <>
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  Deleting...
-                </>
-              ) : (
-                'Delete'
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Bulk action confirmation dialog - only show if confirmation is needed */}
+      {finalBulkActionConfig.confirmTitle && (
+        <AlertDialog
+          open={bulkActionDialogOpen}
+          onOpenChange={setBulkActionDialogOpen}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {finalBulkActionConfig.confirmTitle}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {selectedRows.length > 0 ? (
+                  <>
+                    {finalBulkActionConfig.confirmDescription
+                      ?.replace('{count}', selectedRows.length.toString())
+                      ?.replace('{s}', selectedRows.length !== 1 ? 's' : '') ||
+                      `This will affect ${selectedRows.length} selected item${
+                        selectedRows.length !== 1 ? 's' : ''
+                      }.`}
+                  </>
+                ) : (
+                  <>
+                    No items are selected. Please select items to{' '}
+                    {finalBulkActionConfig.label.toLowerCase()} or cancel this
+                    operation.
+                  </>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={bulkActionLoading}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleBulkAction();
+                }}
+                disabled={
+                  bulkActionLoading ||
+                  (!isSuperAdmin && selectedRows.length === 0)
+                }
+                className={
+                  finalBulkActionConfig.variant === 'destructive'
+                    ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                    : undefined
+                }
+              >
+                {bulkActionLoading ? (
+                  <>
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    {finalBulkActionConfig.loadingText}
+                  </>
+                ) : (
+                  finalBulkActionConfig.label
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }
