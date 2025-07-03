@@ -161,7 +161,7 @@ const parseAndNormalizeDate = (dateString: string): string | null => {
  *
  * 5. **No Required Fields - All Optional**:
  *    - ALL FIELDS ARE OPTIONAL - users can upload with any available data
- *    - Profile completion (optional): roll_number, college_email, semester_id, section_id
+ *    - Profile completion (optional): roll_number, college_email, academic_year_id, semester_id, section_id
  *    - When college_email is provided, user accounts are automatically created
  *
  * 6. **Batch Processing & Error Handling**:
@@ -269,6 +269,10 @@ const newStudentSchema = z
     // Program - Accept either UUID or name (optional)
     program_id: z.string().optional().nullable(),
     program_name: z.string().optional().nullable(),
+
+    // Academic Year - Accept either UUID or name (optional)
+    academic_year_id: z.string().optional().nullable(),
+    academic_year_name: z.string().optional().nullable(),
 
     // Semester - Accept either UUID or name (optional)
     semester_id: z.string().optional().nullable(),
@@ -547,6 +551,33 @@ const resolveSectionName = async (
   }
 };
 
+const resolveAcademicYearName = async (
+  name: string,
+  institutionId: string
+): Promise<string | null> => {
+  try {
+    const { createClientSupabaseClient } = await import(
+      '@/lib/supabase/client'
+    );
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await supabase
+      .from('academic_years')
+      .select('id')
+      .ilike('academic_year_name', name.trim())
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .limit(1)
+      .single();
+
+    if (error || !data) return null;
+    return data.id;
+  } catch (error) {
+    console.error('Error resolving academic year name:', error);
+    return null;
+  }
+};
+
 // Enhanced name resolution function that resolves all name-based fields to IDs
 const resolveNameFields = async (
   data: NewStudentData
@@ -624,7 +655,22 @@ const resolveNameFields = async (
       }
     }
 
-    // 5. Resolve Semester (optional)
+    // 5. Resolve Academic Year (optional)
+    if (data.academic_year_name && !data.academic_year_id && institutionId) {
+      const academicYearId = await resolveAcademicYearName(
+        data.academic_year_name,
+        institutionId
+      );
+      if (academicYearId) {
+        resolved.academic_year_id = academicYearId;
+      } else {
+        errors.push(
+          `Academic Year "${data.academic_year_name}" not found in the specified institution`
+        );
+      }
+    }
+
+    // 6. Resolve Semester (optional)
     if (data.semester_name && !data.semester_id && institutionId) {
       const semesterId = await resolveSemesterName(
         data.semester_name,
@@ -639,7 +685,7 @@ const resolveNameFields = async (
       }
     }
 
-    // 6. Resolve Section (optional)
+    // 7. Resolve Section (optional)
     if (data.section_name && !data.section_id && resolved.semester_id) {
       const sectionId = await resolveSectionName(
         data.section_name,

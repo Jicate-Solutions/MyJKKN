@@ -62,6 +62,7 @@ const ID_BASED_FIELD_CATEGORIES = {
     'department_id',
     'program_id',
     'degree_id',
+    'academic_year_id',
     'semester_id',
     'section_id',
     'entry_type',
@@ -108,6 +109,7 @@ const NAME_BASED_FIELD_CATEGORIES = {
     'department_name',
     'program_name',
     'degree_name',
+    'academic_year_name',
     'semester_name',
     'section_name',
     'entry_type',
@@ -165,6 +167,7 @@ const ID_BASED_SAMPLE_DATA = {
   degree_id: '28827de0-70ad-4082-8320-d9f0ae6920c5',
   department_id: '7646521a-a252-4756-bd8f-ba7c1d36ff56',
   program_id: 'd6662299-c40a-4da2-9099-2a2f7739f80b',
+  academic_year_id: '',
   semester_id: '',
   section_id: '',
   entry_type: 'FIRST YEAR',
@@ -238,6 +241,7 @@ const NAME_BASED_SAMPLE_DATA = {
   degree_name: 'Undergraduate',
   department_name: 'Department of AHS',
   program_name: '(BSC) Accident and Emergency Care Technology',
+  academic_year_name: '2024-2025',
   semester_name: 'Semester 1',
   section_name: 'Section A',
   entry_type: 'FIRST YEAR',
@@ -296,7 +300,9 @@ const ID_BASED_INSTRUCTIONS = [
   [''],
   ['3. COURSE INFORMATION - ALL OPTIONAL'],
   ['   - Optional: institution_id, department_id, program_id (UUIDs)'],
-  ['   - Optional: degree_id, semester_id, section_id (UUIDs)'],
+  [
+    '   - Optional: degree_id, academic_year_id, semester_id, section_id (UUIDs)'
+  ],
   ['   - All IDs must be valid UUIDs from Reference Data sheet if provided'],
   ['   - Copy UUIDs exactly from the reference lists'],
   [''],
@@ -315,7 +321,7 @@ const ID_BASED_INSTRUCTIONS = [
   ['• student_email: Must be valid email format if provided'],
   ['• college_email: Must be valid email format if provided'],
   [
-    '• institution_id, department_id, program_id: Must be valid UUIDs if provided'
+    '• institution_id, department_id, program_id, academic_year_id: Must be valid UUIDs if provided'
   ],
   ['• student_mobile: Must contain only digits (10-15 characters) if provided'],
   [''],
@@ -376,7 +382,9 @@ const NAME_BASED_INSTRUCTIONS = [
   [''],
   ['3. COURSE INFORMATION - ALL OPTIONAL'],
   ['   - Optional: institution_name, department_name, program_name'],
-  ['   - Optional: degree_name, semester_name, section_name'],
+  [
+    '   - Optional: degree_name, academic_year_name, semester_name, section_name'
+  ],
   ['   - Names must match exactly with database records if provided'],
   ['   - Copy names exactly from the reference lists'],
   ['   - System will automatically resolve names to IDs during upload'],
@@ -396,7 +404,7 @@ const NAME_BASED_INSTRUCTIONS = [
   ['• student_email: Must be valid email format if provided'],
   ['• college_email: Must be valid email format if provided'],
   [
-    '• institution_name, department_name, program_name: Must match exactly if provided'
+    '• institution_name, department_name, program_name, academic_year_name: Must match exactly if provided'
   ],
   ['• student_mobile: Must contain only digits (10-15 characters) if provided'],
   [''],

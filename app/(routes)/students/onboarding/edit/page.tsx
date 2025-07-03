@@ -44,12 +44,14 @@ import { SectionService } from '@/lib/services/organization/section-service';
 import { Section } from '@/types/organizations';
 import { useQueryClient } from '@tanstack/react-query';
 import { studentKeys } from '@/hooks/student/use-students';
+import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
 
 // Form schema for student onboarding edit (focusing only on the required fields for onboarding)
 const onboardingEditSchema = z.object({
   roll_number: z.string().min(1, 'Roll number is required'),
   college_email: z.string().email('Invalid college email format'),
   student_photo_url: z.string().optional(),
+  academic_year_id: z.string().min(1, 'Academic year is required'),
   semester_id: z.string().min(1, 'Semester is required'),
   section_id: z.string().min(1, 'Section is required')
 });
@@ -77,6 +79,13 @@ export default function EditonboardingPage() {
   );
   const updateStudent = useUpdateStudent(id as string);
 
+  // Academic year hook
+  const {
+    academicYears,
+    loading: isLoadingAcademicYears,
+    fetchAcademicYears
+  } = useAcademicYearsByInstitution(student?.institution_id);
+
   // Initialize form with default values
   const form = useForm<onboardingEditFormValues>({
     resolver: zodResolver(onboardingEditSchema),
@@ -84,6 +93,7 @@ export default function EditonboardingPage() {
       roll_number: '',
       college_email: '',
       student_photo_url: '',
+      academic_year_id: '',
       semester_id: '',
       section_id: ''
     }
@@ -104,6 +114,7 @@ export default function EditonboardingPage() {
       console.log('Student data loaded:', {
         roll_number: student.roll_number,
         college_email: student.college_email,
+        academic_year_id: student.academic_year_id,
         semester_id: student.semester_id,
         section_id: student.section_id
       });
@@ -113,6 +124,7 @@ export default function EditonboardingPage() {
         roll_number: student.roll_number || '',
         college_email: student.college_email || '',
         student_photo_url: student.student_photo_url || '',
+        academic_year_id: student.academic_year_id || '',
         semester_id: student.semester_id || '',
         section_id: student.section_id || ''
       };
@@ -121,6 +133,13 @@ export default function EditonboardingPage() {
       form.reset(defaultValues);
     }
   }, [student, form]);
+
+  // Effect to fetch academic years when student institution is available
+  useEffect(() => {
+    if (student?.institution_id) {
+      fetchAcademicYears(student.institution_id);
+    }
+  }, [student?.institution_id, fetchAcademicYears]);
 
   // Watch for semester_id changes in the form to reload sections
   useEffect(() => {
@@ -169,6 +188,7 @@ export default function EditonboardingPage() {
       const isComplete =
         !!data.roll_number &&
         !!data.college_email &&
+        !!data.academic_year_id &&
         !!data.semester_id &&
         !!data.section_id;
 
@@ -232,6 +252,7 @@ export default function EditonboardingPage() {
   const isProfileComplete =
     !!student.roll_number &&
     !!student.college_email &&
+    !!student.academic_year_id &&
     !!student.semester_id &&
     !!student.section_id;
 
@@ -310,6 +331,15 @@ export default function EditonboardingPage() {
                   </li>
                   <li
                     className={
+                      student.academic_year_id
+                        ? 'text-green-600'
+                        : 'text-red-600'
+                    }
+                  >
+                    Academic Year {student.academic_year_id ? '✓' : '✗'}
+                  </li>
+                  <li
+                    className={
                       student.student_photo_url
                         ? 'text-green-600'
                         : 'text-yellow-600'
@@ -380,6 +410,52 @@ export default function EditonboardingPage() {
                   <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                     <FormField
                       control={form.control}
+                      name='academic_year_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Academic Year*</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={student?.academic_year_id || ''}
+                            disabled={isLoadingAcademicYears}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder='Select academic year' />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {isLoadingAcademicYears ? (
+                                <div className='flex items-center justify-center p-2'>
+                                  <Loader2 className='h-4 w-4 animate-spin mr-2' />
+                                  Loading...
+                                </div>
+                              ) : academicYears.length === 0 ? (
+                                <div className='p-2 text-center text-sm text-muted-foreground'>
+                                  No academic years available
+                                </div>
+                              ) : (
+                                academicYears.map((academicYear) => (
+                                  <SelectItem
+                                    key={academicYear.id}
+                                    value={academicYear.id}
+                                  >
+                                    {academicYear.academic_year_name}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Academic year for the student
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
                       name='semester_id'
                       render={({ field }) => (
                         <FormItem>
@@ -424,7 +500,9 @@ export default function EditonboardingPage() {
                         </FormItem>
                       )}
                     />
+                  </div>
 
+                  <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                     <FormField
                       control={form.control}
                       name='section_id'
