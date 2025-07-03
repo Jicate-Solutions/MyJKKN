@@ -11,6 +11,47 @@ import type {
 export class SectionService {
   private static supabase = createClientSupabaseClient();
 
+  static async checkSectionExists(
+    institutionId: string,
+    degreeId: string,
+    departmentId: string,
+    programId: string,
+    semesterId: string,
+    sectionName: string,
+    excludeId?: string
+  ): Promise<boolean> {
+    try {
+      let query = this.supabase
+        .from('sections')
+        .select('id')
+        .eq('institution_id', institutionId)
+        .eq('degree_id', degreeId)
+        .eq('department_id', departmentId)
+        .eq('program_id', programId)
+        .eq('semester_id', semesterId)
+        .eq('section_name', sectionName);
+
+      // Exclude current section when updating
+      if (excludeId) {
+        query = query.neq('id', excludeId);
+      }
+
+      const { data, error } = await query.single();
+
+      if (error && error.code !== 'PGRST116') {
+        // PGRST116 is "no rows returned" which is what we want
+        throw error;
+      }
+
+      return !!data; // Returns true if section exists, false if not
+    } catch (error) {
+      console.error('Error checking section existence:', error);
+      // Return false on error to allow the create operation to proceed
+      // The database constraint will catch any actual conflicts
+      return false;
+    }
+  }
+
   static async createSection(data: CreateSectionDto): Promise<Section> {
     try {
       const { data: section, error } = await this.supabase
@@ -21,15 +62,48 @@ export class SectionService {
 
       if (error) {
         if (error.code === '23505') {
-          throw new Error(`Section name "${data.section_name}" already exists`);
+          // Handle unique constraint violations with specific context
+          const errorMessage = error.message || '';
+
+          if (errorMessage.includes('sections_unique_per_semester')) {
+            throw new Error(
+              `Section name "${data.section_name}" already exists in this semester. Please choose a different name or check if the section already exists in the selected semester.`
+            );
+          } else if (errorMessage.includes('sections_section_name_key')) {
+            // Legacy global constraint (if still exists)
+            throw new Error(
+              `Section name "${data.section_name}" already exists in the system. Please choose a different name.`
+            );
+          } else if (
+            errorMessage.includes('sections_institution_section_name_unique')
+          ) {
+            // Legacy institution-level constraint (if still exists)
+            throw new Error(
+              `Section name "${data.section_name}" already exists in this institution. Please choose a different name.`
+            );
+          } else {
+            // Generic constraint violation
+            throw new Error(
+              `Section "${data.section_name}" cannot be created due to a constraint violation. Please check if this section already exists in the selected context.`
+            );
+          }
         }
-        throw error;
+
+        // Handle foreign key constraint violations
+        if (error.code === '23503') {
+          throw new Error(
+            'Invalid reference data provided. Please ensure all selected institution, degree, department, program, and semester exist and are active.'
+          );
+        }
+
+        // Handle other database errors
+        throw new Error(`Database error: ${error.message}`);
       }
 
-      toast.success('Section created successfully');
       return section;
     } catch (error) {
       console.error('Error creating section:', error);
+      // Re-throw the error to be handled by the UI
       throw error;
     }
   }

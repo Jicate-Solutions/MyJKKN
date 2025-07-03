@@ -73,6 +73,8 @@ export function SectionList({
     isSuperAdmin || canAccess('organizations.sections', 'edit');
   const canDeleteSections =
     isSuperAdmin || canAccess('organizations.sections', 'delete');
+  const canCreateSections =
+    isSuperAdmin || canAccess('organizations.sections', 'create');
 
   // Handle bulk delete confirmation
   const handleBulkDeleteConfirm = async (selectedRows: Section[]) => {
@@ -334,7 +336,7 @@ export function SectionList({
   // Create table tools (action buttons)
   const tableTools = (
     <div className='flex flex-col sm:flex-row gap-2'>
-      {canEditSections ? (
+      {canCreateSections ? (
         <Button className='w-full sm:w-auto' asChild>
           <Link href='/organizations/sections/new'>
             <Plus className='mr-2 h-4 w-4' />
@@ -346,6 +348,7 @@ export function SectionList({
           className='w-full sm:w-auto opacity-50'
           disabled
           variant='outline'
+          title='You do not have permission to create sections'
         >
           <Plus className='mr-2 h-4 w-4' />
           Create Section

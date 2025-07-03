@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -21,7 +21,8 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage
+  FormMessage,
+  FormDescription
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -33,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { AlertTriangle } from 'lucide-react';
 
 const sectionSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -55,6 +57,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [checkingName, setCheckingName] = useState(false);
 
   // Dropdown data states
   const [institutions, setInstitutions] = useState<
@@ -80,6 +83,9 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
   const [loadingPrograms, setLoadingPrograms] = useState(false);
   const [loadingSemesters, setLoadingSemesters] = useState(false);
 
+  // For real-time name validation
+  const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
+
   const { isSuperAdmin, userProfile } = usePermissions();
 
   const form = useForm<FormValues>({
@@ -95,6 +101,75 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
     }
   });
 
+  // Real-time section name validation
+  const validateSectionName = async (sectionName: string) => {
+    if (!sectionName || sectionName.length < 1) return;
+
+    const institutionId = form.getValues('institution_id');
+    const degreeId = form.getValues('degree_id');
+    const departmentId = form.getValues('department_id');
+    const programId = form.getValues('program_id');
+    const semesterId = form.getValues('semester_id');
+
+    // Only validate if all required context is available
+    if (
+      !institutionId ||
+      !degreeId ||
+      !departmentId ||
+      !programId ||
+      !semesterId
+    ) {
+      return;
+    }
+
+    try {
+      setCheckingName(true);
+
+      const exists = await SectionService.checkSectionExists(
+        institutionId,
+        degreeId,
+        departmentId,
+        programId,
+        semesterId,
+        sectionName,
+        isEditing ? section?.id : undefined
+      );
+
+      if (exists) {
+        form.setError('section_name', {
+          type: 'manual',
+          message: `Section "${sectionName}" already exists in this semester`
+        });
+      } else {
+        form.clearErrors('section_name');
+      }
+    } catch (error) {
+      console.error('Error validating section name:', error);
+      // Don't show error to user, just log it
+    } finally {
+      setCheckingName(false);
+    }
+  };
+
+  // Debounced section name validation
+  const debouncedValidateName = (sectionName: string) => {
+    if (debounceTimeout.current) {
+      clearTimeout(debounceTimeout.current);
+    }
+
+    debounceTimeout.current = setTimeout(() => {
+      validateSectionName(sectionName);
+    }, 500); // Wait 500ms after user stops typing
+  };
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimeout.current) {
+        clearTimeout(debounceTimeout.current);
+      }
+    };
+  }, []);
+
   // Fetch institutions on mount
   useEffect(() => {
     const fetchInstitutions = async () => {
@@ -104,6 +179,11 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
           true
         );
         setInstitutions(institutionNames);
+
+        // Auto-set institution for faculty users after institutions are loaded
+        if (!isSuperAdmin && userProfile?.institution_id && !isEditing) {
+          form.setValue('institution_id', userProfile.institution_id);
+        }
       } catch (error) {
         console.error('Error fetching institutions:', error);
         toast.error('Failed to load institutions');
@@ -113,16 +193,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
     };
 
     fetchInstitutions();
-  }, []);
-
-  // Auto-set institution for faculty users (only when not editing or when institutions are loaded)
-  useEffect(() => {
-    if (!isSuperAdmin && userProfile?.institution_id && !loadingInstitutions) {
-      if (!isEditing) {
-        form.setValue('institution_id', userProfile.institution_id);
-      }
-    }
-  }, [userProfile, isSuperAdmin, loadingInstitutions, isEditing, form]);
+  }, [form, isSuperAdmin, userProfile?.institution_id, isEditing]);
 
   // Initialize form with section data when editing
   useEffect(() => {
@@ -144,201 +215,164 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
     }
   }, [section, isEditing, isInitialized, form]);
 
-  // Sequential loading of dropdown data when editing
-  useEffect(() => {
-    if (!isEditing || !section || !isInitialized) return;
-
-    const loadCascadingData = async () => {
-      try {
-        console.log('Loading cascading data for editing...');
-
-        // Load degrees
-        if (section.institution_id) {
-          setLoadingDegrees(true);
-          const degreesResponse = await DegreeService.getDegrees({
-            institution_id: section.institution_id,
-            isActive: true,
-            limit: 100
-          });
-          setDegrees(degreesResponse.data);
-          setLoadingDegrees(false);
-        }
-
-        // Load departments
-        if (section.degree_id) {
-          setLoadingDepartments(true);
-          const departmentsResponse = await DepartmentService.getDepartments({
-            degree_id: section.degree_id,
-            isActive: true,
-            limit: 100
-          });
-          setDepartments(departmentsResponse.data);
-          setLoadingDepartments(false);
-        }
-
-        // Load programs
-        if (section.department_id) {
-          setLoadingPrograms(true);
-          const programsResponse = await ProgramService.getPrograms({
-            department_id: section.department_id,
-            isActive: true,
-            limit: 100
-          });
-          setPrograms(programsResponse.data);
-          setLoadingPrograms(false);
-        }
-
-        // Load semesters
-        if (section.program_id) {
-          setLoadingSemesters(true);
-          const semestersResponse = await SemesterService.getSemesters({
-            program_id: section.program_id,
-            isActive: true,
-            limit: 100
-          });
-          setSemesters(semestersResponse.data);
-          setLoadingSemesters(false);
-        }
-
-        console.log('Cascading data loaded successfully');
-      } catch (error) {
-        console.error('Error loading cascading data:', error);
-        toast.error('Failed to load dropdown data');
-      }
-    };
-
-    loadCascadingData();
-  }, [isEditing, section, isInitialized]);
-
-  // Watch form values for cascading updates (only for new sections)
+  // Watch form values for cascading updates - simplified approach
   const watchedInstitutionId = form.watch('institution_id');
   const watchedDegreeId = form.watch('degree_id');
   const watchedDepartmentId = form.watch('department_id');
   const watchedProgramId = form.watch('program_id');
 
-  // Handle cascading updates for new sections only
+  // Load degrees when institution changes
   useEffect(() => {
-    if (isEditing || !watchedInstitutionId) {
-      return;
-    }
+    if (watchedInstitutionId) {
+      const fetchDegrees = async () => {
+        try {
+          setLoadingDegrees(true);
+          const response = await DegreeService.getDegrees({
+            institution_id: watchedInstitutionId,
+            isActive: true,
+            limit: 100
+          });
+          setDegrees(response.data);
 
-    const fetchDegrees = async () => {
-      try {
-        setLoadingDegrees(true);
-        const response = await DegreeService.getDegrees({
-          institution_id: watchedInstitutionId,
-          isActive: true,
-          limit: 100
-        });
-        setDegrees(response.data);
+          // Clear dependent fields when institution changes (only for new sections)
+          if (!isEditing) {
+            form.setValue('degree_id', '');
+            form.setValue('department_id', '');
+            form.setValue('program_id', '');
+            form.setValue('semester_id', '');
+            setDepartments([]);
+            setPrograms([]);
+            setSemesters([]);
+          }
+        } catch (error) {
+          console.error('Error fetching degrees:', error);
+          toast.error('Failed to load degrees');
+        } finally {
+          setLoadingDegrees(false);
+        }
+      };
 
-        // Clear dependent fields for new sections
+      fetchDegrees();
+    } else {
+      setDegrees([]);
+      if (!isEditing) {
         form.setValue('degree_id', '');
         form.setValue('department_id', '');
         form.setValue('program_id', '');
         form.setValue('semester_id', '');
-        setDepartments([]);
-        setPrograms([]);
-        setSemesters([]);
-      } catch (error) {
-        console.error('Error fetching degrees:', error);
-        toast.error('Failed to load degrees');
-      } finally {
-        setLoadingDegrees(false);
       }
-    };
-
-    fetchDegrees();
+    }
   }, [watchedInstitutionId, isEditing, form]);
 
+  // Load departments when degree changes
   useEffect(() => {
-    if (isEditing || !watchedDegreeId) {
-      return;
-    }
+    if (watchedDegreeId) {
+      const fetchDepartments = async () => {
+        try {
+          setLoadingDepartments(true);
+          const response = await DepartmentService.getDepartments({
+            degree_id: watchedDegreeId,
+            isActive: true,
+            limit: 100
+          });
+          setDepartments(response.data);
 
-    const fetchDepartments = async () => {
-      try {
-        setLoadingDepartments(true);
-        const response = await DepartmentService.getDepartments({
-          degree_id: watchedDegreeId,
-          isActive: true,
-          limit: 100
-        });
-        setDepartments(response.data);
+          // Clear dependent fields when degree changes (only for new sections)
+          if (!isEditing) {
+            form.setValue('department_id', '');
+            form.setValue('program_id', '');
+            form.setValue('semester_id', '');
+            setPrograms([]);
+            setSemesters([]);
+          }
+        } catch (error) {
+          console.error('Error fetching departments:', error);
+          toast.error('Failed to load departments');
+        } finally {
+          setLoadingDepartments(false);
+        }
+      };
 
-        // Clear dependent fields for new sections
+      fetchDepartments();
+    } else {
+      setDepartments([]);
+      if (!isEditing) {
         form.setValue('department_id', '');
         form.setValue('program_id', '');
         form.setValue('semester_id', '');
-        setPrograms([]);
-        setSemesters([]);
-      } catch (error) {
-        console.error('Error fetching departments:', error);
-        toast.error('Failed to load departments');
-      } finally {
-        setLoadingDepartments(false);
       }
-    };
-
-    fetchDepartments();
+    }
   }, [watchedDegreeId, isEditing, form]);
 
+  // Load programs when department changes
   useEffect(() => {
-    if (isEditing || !watchedDepartmentId) {
-      return;
-    }
+    if (watchedDepartmentId) {
+      const fetchPrograms = async () => {
+        try {
+          setLoadingPrograms(true);
+          const response = await ProgramService.getPrograms({
+            department_id: watchedDepartmentId,
+            isActive: true,
+            limit: 100
+          });
+          setPrograms(response.data);
 
-    const fetchPrograms = async () => {
-      try {
-        setLoadingPrograms(true);
-        const response = await ProgramService.getPrograms({
-          department_id: watchedDepartmentId,
-          isActive: true,
-          limit: 100
-        });
-        setPrograms(response.data);
+          // Clear dependent fields when department changes (only for new sections)
+          if (!isEditing) {
+            form.setValue('program_id', '');
+            form.setValue('semester_id', '');
+            setSemesters([]);
+          }
+        } catch (error) {
+          console.error('Error fetching programs:', error);
+          toast.error('Failed to load programs');
+        } finally {
+          setLoadingPrograms(false);
+        }
+      };
 
-        // Clear dependent fields for new sections
+      fetchPrograms();
+    } else {
+      setPrograms([]);
+      if (!isEditing) {
         form.setValue('program_id', '');
         form.setValue('semester_id', '');
-        setSemesters([]);
-      } catch (error) {
-        console.error('Error fetching programs:', error);
-        toast.error('Failed to load programs');
-      } finally {
-        setLoadingPrograms(false);
       }
-    };
-
-    fetchPrograms();
+    }
   }, [watchedDepartmentId, isEditing, form]);
 
+  // Load semesters when program changes
   useEffect(() => {
-    if (isEditing || !watchedProgramId) {
-      return;
-    }
+    if (watchedProgramId) {
+      const fetchSemesters = async () => {
+        try {
+          setLoadingSemesters(true);
+          const response = await SemesterService.getSemesters({
+            program_id: watchedProgramId,
+            isActive: true,
+            limit: 100
+          });
+          setSemesters(response.data);
 
-    const fetchSemesters = async () => {
-      try {
-        setLoadingSemesters(true);
-        const response = await SemesterService.getSemesters({
-          program_id: watchedProgramId,
-          isActive: true,
-          limit: 100
-        });
-        setSemesters(response.data);
+          // Clear semester field when program changes (only for new sections)
+          if (!isEditing) {
+            form.setValue('semester_id', '');
+          }
+        } catch (error) {
+          console.error('Error fetching semesters:', error);
+          toast.error('Failed to load semesters');
+        } finally {
+          setLoadingSemesters(false);
+        }
+      };
 
-        // Clear semester field for new sections
+      fetchSemesters();
+    } else {
+      setSemesters([]);
+      if (!isEditing) {
         form.setValue('semester_id', '');
-      } catch (error) {
-        console.error('Error fetching semesters:', error);
-        toast.error('Failed to load semesters');
-      } finally {
-        setLoadingSemesters(false);
       }
-    };
-
-    fetchSemesters();
+    }
   }, [watchedProgramId, isEditing, form]);
 
   const onSubmit = async (values: FormValues) => {
@@ -365,6 +399,47 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
         return;
       }
 
+      // Check if section already exists in this context (only for new sections)
+      if (!isEditing) {
+        const sectionExists = await SectionService.checkSectionExists(
+          submitValues.institution_id,
+          submitValues.degree_id,
+          submitValues.department_id,
+          submitValues.program_id,
+          submitValues.semester_id,
+          submitValues.section_name
+        );
+
+        if (sectionExists) {
+          form.setError('section_name', {
+            type: 'manual',
+            message: `Section "${submitValues.section_name}" already exists in this semester. Please choose a different name.`
+          });
+          return;
+        }
+      }
+
+      // Check for updates (exclude current section ID)
+      if (isEditing && section) {
+        const sectionExists = await SectionService.checkSectionExists(
+          submitValues.institution_id,
+          submitValues.degree_id,
+          submitValues.department_id,
+          submitValues.program_id,
+          submitValues.semester_id,
+          submitValues.section_name,
+          section.id // Exclude current section
+        );
+
+        if (sectionExists) {
+          form.setError('section_name', {
+            type: 'manual',
+            message: `Section "${submitValues.section_name}" already exists in this semester. Please choose a different name.`
+          });
+          return;
+        }
+      }
+
       if (isEditing && section) {
         await SectionService.updateSection(section.id, submitValues);
         toast.success('Section updated successfully');
@@ -377,27 +452,62 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
       router.refresh();
     } catch (error) {
       console.error('Form submission error:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to save section'
-      );
+
+      // Handle specific validation errors
+      if (error instanceof Error) {
+        if (error.message.includes('already exists in this semester')) {
+          form.setError('section_name', {
+            type: 'manual',
+            message: error.message
+          });
+        } else {
+          toast.error(error.message);
+        }
+      } else {
+        toast.error('Failed to save section');
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Calculate if form is ready to display
-  const isFormReady = useMemo(() => {
-    if (!isEditing) return !loadingInstitutions;
-    return isInitialized && !loadingInstitutions;
-  }, [isEditing, isInitialized, loadingInstitutions]);
-
-  if (!isFormReady) {
+  // Simplified loading state - only show loading for initial institutions load
+  if (loadingInstitutions) {
     return (
       <div className='flex items-center justify-center p-8'>
         <div className='text-center'>
           <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4'></div>
           <p className='text-muted-foreground'>Loading form data...</p>
         </div>
+      </div>
+    );
+  }
+
+  // Show error for faculty users without institution
+  if (!isSuperAdmin && !userProfile?.institution_id) {
+    return (
+      <div className='flex items-center justify-center p-8'>
+        <Card className='w-full max-w-md'>
+          <CardContent className='p-6 text-center'>
+            <div className='flex flex-col items-center space-y-4'>
+              <div className='rounded-full bg-red-100 p-3'>
+                <AlertTriangle className='h-8 w-8 text-red-600' />
+              </div>
+              <div className='space-y-2'>
+                <h3 className='text-lg font-semibold'>Institution Required</h3>
+                <p className='text-sm text-muted-foreground'>
+                  Your profile doesn&apos;t have an institution assigned. Please
+                  contact your administrator to update your profile.
+                </p>
+                <div className='text-xs text-muted-foreground mt-2'>
+                  <p>
+                    <strong>Your Role:</strong> {userProfile?.role || 'Unknown'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -422,7 +532,15 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder='Select institution' />
+                          <SelectValue
+                            placeholder={
+                              loadingInstitutions
+                                ? 'Loading institutions...'
+                                : isSuperAdmin
+                                ? 'Select institution'
+                                : 'Auto-assigned from your profile'
+                            }
+                          />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -442,6 +560,13 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                         Institution is automatically set based on your profile
                       </p>
                     )}
+                    {isSuperAdmin &&
+                      institutions.length === 0 &&
+                      !loadingInstitutions && (
+                        <p className='text-xs text-destructive'>
+                          No institutions available. Please contact support.
+                        </p>
+                      )}
                   </FormItem>
                 )}
               />
@@ -462,7 +587,11 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                         <SelectTrigger>
                           <SelectValue
                             placeholder={
-                              loadingDegrees ? 'Loading...' : 'Select degree'
+                              !form.watch('institution_id')
+                                ? 'Select institution first'
+                                : loadingDegrees
+                                ? 'Loading degrees...'
+                                : 'Select degree'
                             }
                           />
                         </SelectTrigger>
@@ -476,6 +605,13 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                       </SelectContent>
                     </Select>
                     <FormMessage />
+                    {form.watch('institution_id') &&
+                      degrees.length === 0 &&
+                      !loadingDegrees && (
+                        <p className='text-xs text-muted-foreground'>
+                          No degrees found for selected institution
+                        </p>
+                      )}
                   </FormItem>
                 )}
               />
@@ -496,8 +632,10 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                         <SelectTrigger>
                           <SelectValue
                             placeholder={
-                              loadingDepartments
-                                ? 'Loading...'
+                              !form.watch('degree_id')
+                                ? 'Select degree first'
+                                : loadingDepartments
+                                ? 'Loading departments...'
                                 : 'Select department'
                             }
                           />
@@ -513,6 +651,13 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                       </SelectContent>
                     </Select>
                     <FormMessage />
+                    {form.watch('degree_id') &&
+                      departments.length === 0 &&
+                      !loadingDepartments && (
+                        <p className='text-xs text-muted-foreground'>
+                          No departments found for selected degree
+                        </p>
+                      )}
                   </FormItem>
                 )}
               />
@@ -533,7 +678,11 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                         <SelectTrigger>
                           <SelectValue
                             placeholder={
-                              loadingPrograms ? 'Loading...' : 'Select program'
+                              !form.watch('department_id')
+                                ? 'Select department first'
+                                : loadingPrograms
+                                ? 'Loading programs...'
+                                : 'Select program'
                             }
                           />
                         </SelectTrigger>
@@ -547,6 +696,13 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                       </SelectContent>
                     </Select>
                     <FormMessage />
+                    {form.watch('department_id') &&
+                      programs.length === 0 &&
+                      !loadingPrograms && (
+                        <p className='text-xs text-muted-foreground'>
+                          No programs found for selected department
+                        </p>
+                      )}
                   </FormItem>
                 )}
               />
@@ -567,8 +723,10 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                         <SelectTrigger>
                           <SelectValue
                             placeholder={
-                              loadingSemesters
-                                ? 'Loading...'
+                              !form.watch('program_id')
+                                ? 'Select program first'
+                                : loadingSemesters
+                                ? 'Loading semesters...'
                                 : 'Select semester'
                             }
                           />
@@ -583,11 +741,18 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                       </SelectContent>
                     </Select>
                     <FormMessage />
+                    {form.watch('program_id') &&
+                      semesters.length === 0 &&
+                      !loadingSemesters && (
+                        <p className='text-xs text-muted-foreground'>
+                          No semesters found for selected program
+                        </p>
+                      )}
                   </FormItem>
                 )}
               />
 
-              {/* Section Name Input */}
+              {/* Section Name Field */}
               <FormField
                 control={form.control}
                 name='section_name'
@@ -595,9 +760,28 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                   <FormItem>
                     <FormLabel>Section Name *</FormLabel>
                     <FormControl>
-                      <Input placeholder='Enter section name' {...field} />
+                      <div className='relative'>
+                        <Input
+                          {...field}
+                          placeholder='Enter section name (e.g., A, B, C)'
+                          onChange={(e) => {
+                            field.onChange(e);
+                            debouncedValidateName(e.target.value);
+                          }}
+                          className={checkingName ? 'pr-10' : ''}
+                        />
+                        {checkingName && (
+                          <div className='absolute inset-y-0 right-0 flex items-center pr-3'>
+                            <div className='animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900'></div>
+                          </div>
+                        )}
+                      </div>
                     </FormControl>
                     <FormMessage />
+                    <FormDescription>
+                      Section names must be unique within the same semester.
+                      Examples: A, B, C, or Section-1, Section-2, etc.
+                    </FormDescription>
                   </FormItem>
                 )}
               />
