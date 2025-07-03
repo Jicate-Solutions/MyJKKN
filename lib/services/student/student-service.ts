@@ -82,6 +82,69 @@ export class StudentService {
     }
   }
 
+  // Task 4: Helper method to manage user account state based on student status
+  private static async manageUserAccountState(
+    studentEmail: string,
+    newStatus: string,
+    oldStatus?: string
+  ): Promise<void> {
+    try {
+      // Only proceed if status is changing to/from 'exited'
+      const isBecomingExited = newStatus === 'exited' && oldStatus !== 'exited';
+      const isLeavingExited = newStatus !== 'exited' && oldStatus === 'exited';
+
+      if (!isBecomingExited && !isLeavingExited) {
+        return; // No change needed
+      }
+
+      const action = isBecomingExited ? 'disable' : 'enable';
+
+      console.log(
+        `${
+          action === 'disable' ? 'Disabling' : 'Enabling'
+        } user account for student: ${studentEmail}`
+      );
+      console.log('Status change:', { oldStatus, newStatus });
+
+      // Use the API endpoint to manage user auth state
+      const response = await fetch('/api/users/manage-auth', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          action,
+          email: studentEmail
+        })
+      });
+
+      console.log('API response status:', response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API error response:', errorData);
+        throw new Error(errorData.error || `Failed to ${action} user account`);
+      }
+
+      const result = await response.json();
+      console.log(
+        `Successfully ${action}d user account for: ${studentEmail}`,
+        result
+      );
+    } catch (error) {
+      console.error('Error managing user account state:', error);
+      // Don't throw - we want student update to succeed even if user management fails
+      // The error is logged for debugging purposes
+
+      // However, let's add a more informative warning
+      if (error instanceof Error) {
+        console.warn(
+          `User account management failed for ${studentEmail}: ${error.message}`
+        );
+      }
+    }
+  }
+
   static async createStudent(
     studentData: CreateStudentDto
   ): Promise<Student | null> {
@@ -212,7 +275,8 @@ export class StudentService {
 
   static async updateStudent(
     id: string,
-    updateData: UpdateStudentDto
+    updateData: UpdateStudentDto,
+    options?: { suppressToast?: boolean }
   ): Promise<Student | null> {
     try {
       // Get current student data to correctly calculate profile completeness
@@ -242,6 +306,19 @@ export class StudentService {
           section_id: !!mergedData.section_id
         }
       });
+
+      // Task 4: Handle user account state changes when status changes
+      if (
+        updateData.status &&
+        currentStudent.college_email &&
+        updateData.status !== currentStudent.status
+      ) {
+        await this.manageUserAccountState(
+          currentStudent.college_email,
+          updateData.status,
+          currentStudent.status
+        );
+      }
 
       // Use the calculated value even if updateData already includes is_profile_complete
       // This ensures proper calculation regardless of client-side settings
@@ -319,11 +396,13 @@ export class StudentService {
                 'Status:',
                 userResponse.status
               );
-              toast(
-                `Student profile updated, but failed to create user account: ${
-                  userData.error || userData.details || userData.message
-                }`
-              );
+              if (!options?.suppressToast) {
+                toast(
+                  `Student profile updated, but failed to create user account: ${
+                    userData.error || userData.details || userData.message
+                  }`
+                );
+              }
             }
           } else {
             console.log(
@@ -337,18 +416,26 @@ export class StudentService {
           }
         } catch (apiError) {
           console.error('Error calling user creation API:', apiError);
-          toast(
-            'Student profile updated, but encountered an error trying to create user account.'
-          );
+          if (!options?.suppressToast) {
+            toast(
+              'Student profile updated, but encountered an error trying to create user account.'
+            );
+          }
         }
       }
       // --- END: Auto User Creation Logic ---
 
-      toast.success('Student record updated successfully');
+      // Only show toast if not suppressed
+      if (!options?.suppressToast) {
+        toast.success('Student record updated successfully');
+      }
       return student;
     } catch (error) {
       console.error('Error updating student:', error);
-      toast.error('Failed to update student');
+      // Only show error toast if not suppressed
+      if (!options?.suppressToast) {
+        toast.error('Failed to update student');
+      }
       throw error;
     }
   }

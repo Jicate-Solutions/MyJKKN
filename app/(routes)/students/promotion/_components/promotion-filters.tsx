@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search } from 'lucide-react';
+import { Search, RotateCcw } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,13 +26,19 @@ import { StudentFilters } from '@/types/student';
 interface PromotionFiltersProps {
   filters: StudentFilters;
   onFilterChange: (filters: Partial<StudentFilters>) => void;
+  onSearch: () => void;
+  onReset: () => void;
+  isSearching?: boolean;
 }
 
 export function PromotionFilters({
   filters,
-  onFilterChange
+  onFilterChange,
+  onSearch,
+  onReset,
+  isSearching = false
 }: PromotionFiltersProps) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(true);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -143,28 +149,29 @@ export function PromotionFilters({
     }
   }, [filters.semester, filters.institution]);
 
-  // Handle search input with debounce
+  // Update search input when filters change externally (for reset)
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchInput !== filters.search) {
-        onFilterChange({ search: searchInput });
-      }
-    }, 300);
+    setSearchInput(filters.search || '');
+  }, [filters.search]);
 
-    return () => clearTimeout(timer);
-  }, [searchInput, filters.search, onFilterChange]);
-
-  const handleReset = () => {
-    setSearchInput('');
+  const handleSearchClick = () => {
+    // Update the search filter and trigger search
     onFilterChange({
-      search: undefined,
-      institution: undefined,
-      department: undefined,
-      program: undefined,
-      semester: undefined,
-      section: undefined,
+      search: searchInput,
       page: 1
     });
+    onSearch();
+  };
+
+  const handleResetClick = () => {
+    setSearchInput('');
+    onReset();
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearchClick();
+    }
   };
 
   return (
@@ -177,17 +184,37 @@ export function PromotionFilters({
             className='pl-8'
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
+            onKeyPress={handleKeyPress}
           />
         </div>
+
+        <Button
+          onClick={handleSearchClick}
+          disabled={isSearching}
+          className='min-w-[100px]'
+        >
+          {isSearching ? (
+            <>
+              <div className='animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2' />
+              Searching...
+            </>
+          ) : (
+            <>
+              <Search className='h-4 w-4 mr-2' />
+              Search
+            </>
+          )}
+        </Button>
 
         <Button
           variant='outline'
           onClick={() => setShowAdvanced(!showAdvanced)}
         >
-          {showAdvanced ? 'Hide Filters' : 'Show Filters'}
+          {showAdvanced ? 'Hide Filters' : 'Advanced Filters'}
         </Button>
 
-        <Button variant='outline' onClick={handleReset}>
+        <Button variant='outline' onClick={handleResetClick}>
+          <RotateCcw className='h-4 w-4 mr-2' />
           Reset
         </Button>
       </div>

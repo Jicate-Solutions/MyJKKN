@@ -1,6 +1,7 @@
 import { Database } from '@/types/supabase';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { Profile } from '@/types/auth';
 
 // Create server client for use in server components
 export async function createServerSupabaseClient() {
@@ -41,6 +42,86 @@ export async function getAuthUser() {
   }
 
   return { user, error: null };
+}
+
+// Helper to get enhanced user profile with student status (server-side)
+export async function getEnhancedUserProfile(): Promise<{
+  profile: Profile | null;
+  error: Error | null;
+}> {
+  try {
+    const supabase = await createServerSupabaseClient();
+
+    // Get authenticated user
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+
+    if (userError) throw userError;
+    if (!userData.user) {
+      return { profile: null, error: new Error('No authenticated user') };
+    }
+
+    // Get user profile
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select(
+        `
+        *,
+        institutions (
+          id,
+          name,
+          category,
+          institution_type,
+          website,
+          email,
+          phone,
+          city,
+          state,
+          country
+        )
+      `
+      )
+      .eq('id', userData.user.id)
+      .single();
+
+    if (profileError) throw profileError;
+
+    // If user is a student, fetch their student record and status
+    if (profileData && profileData.role === 'student') {
+      try {
+        const { data: studentData, error: studentError } = await supabase
+          .from('students')
+          .select('id, status, is_profile_complete')
+          .eq('college_email', profileData.email)
+          .single();
+
+        if (!studentError && studentData) {
+          // Enhance profile with student information
+          profileData.student_id = studentData.id;
+          profileData.student_status = studentData.status;
+          profileData.student_profile_complete =
+            studentData.is_profile_complete;
+        } else {
+          // Student record not found or error - set defaults
+          profileData.student_id = null;
+          profileData.student_status = null;
+          profileData.student_profile_complete = null;
+        }
+      } catch (studentFetchError) {
+        // Log but don't fail the entire request if student fetch fails
+        console.warn('Failed to fetch student status:', studentFetchError);
+        profileData.student_id = null;
+        profileData.student_status = null;
+        profileData.student_profile_complete = null;
+      }
+    }
+
+    return { profile: profileData, error: null };
+  } catch (error) {
+    return {
+      profile: null,
+      error: error instanceof Error ? error : new Error('Unknown error')
+    };
+  }
 }
 
 // Helper to get authenticated session

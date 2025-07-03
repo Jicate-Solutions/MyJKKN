@@ -222,16 +222,33 @@ export function useStudentsPromotion(options: { limit?: number } = {}) {
 
   // Handle bulk promotion of students
   const bulkPromoteStudents = useCallback(
-    async (studentIds: string[], semesterId: string, sectionId: string) => {
+    async (
+      studentIds: string[],
+      semesterId: string,
+      sectionId: string,
+      departmentId?: string
+    ) => {
       try {
         setLoading(true);
 
-        // Loop through each student and update their semester and section
+        // Prepare update data
+        const updateData: any = {
+          semester_id: semesterId,
+          section_id: sectionId
+        };
+
+        // Only include department_id if it's provided
+        if (departmentId) {
+          updateData.department_id = departmentId;
+        }
+
+        // Loop through each student and update their semester, section, and optionally department
         const updatePromises = studentIds.map((studentId) =>
-          StudentService.updateStudent(studentId, {
-            semester_id: semesterId,
-            section_id: sectionId
-          })
+          StudentService.updateStudent(
+            studentId,
+            updateData,
+            { suppressToast: true } // Suppress individual toast messages
+          )
         );
 
         await Promise.all(updatePromises);
