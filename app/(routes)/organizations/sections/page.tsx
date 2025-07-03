@@ -35,6 +35,8 @@ export default function SectionsPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
   const canViewSections =
     isSuperAdmin || canAccess('organizations.sections', 'view');
+  const canCreateSections =
+    isSuperAdmin || canAccess('organizations.sections', 'create');
 
   useEffect(() => {
     fetchSections();

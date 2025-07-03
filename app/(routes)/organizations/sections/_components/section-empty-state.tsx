@@ -15,14 +15,18 @@ export function SectionEmptyState({ canCreate }: SectionEmptyStateProps) {
       <h3 className='text-lg font-medium mb-2'>No sections found</h3>
       <p className='text-sm text-muted-foreground mb-6 max-w-md'>
         There are no sections available matching your filters. Try adjusting
-        your search criteria or create a new section.
+        your search criteria{canCreate ? ' or create a new section' : ''}.
       </p>
       {canCreate ? (
         <Button asChild>
           <Link href='/organizations/sections/new'>Create Section</Link>
         </Button>
       ) : (
-        <Button variant='outline' disabled>
+        <Button
+          variant='outline'
+          disabled
+          title='You do not have permission to create sections'
+        >
           Create Section
         </Button>
       )}
