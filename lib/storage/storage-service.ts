@@ -5,7 +5,8 @@ import { createClient } from '@supabase/supabase-js';
 const BUCKETS = {
   AVATARS: 'avatars',
   LOGOS: 'institution-logos',
-  STUDENT_PHOTOS: 'student-photos'
+  STUDENT_PHOTOS: 'student-photos',
+  STAFF_PHOTOS: 'staff-images' // Corrected to use the existing bucket
 } as const;
 
 const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif'];
@@ -241,7 +242,7 @@ export class StorageService {
         .select(
           `
           roll_number,
-          institutions!inner(name)
+          institutions(name)
         `
         )
         .eq('id', studentId)
@@ -255,23 +256,24 @@ export class StorageService {
         throw new Error('Student roll number is required for photo upload');
       }
 
-      if (!student.institutions?.[0]?.name) {
+      // PostgREST institutions(name) returns: { institutions: { name: "..." } }
+      const institutionName = (student.institutions as any)?.name;
+
+      if (!institutionName) {
         throw new Error('Student institution is required for photo upload');
       }
 
       // Delete old photo using both old and new path structures
       await this.deleteOldStudentPhoto(
         studentId,
-        student.institutions[0].name,
+        institutionName,
         student.roll_number
       );
 
       const fileExt = file.name.split('.').pop()?.toLowerCase();
       // Create institution-based path: institution-name/roll-number.extension
-      const institutionName = this.sanitizePathName(
-        student.institutions[0].name
-      );
-      const filePath = `${institutionName}/${student.roll_number}.${fileExt}`;
+      const sanitizedInstitutionName = this.sanitizePathName(institutionName);
+      const filePath = `${sanitizedInstitutionName}/${student.roll_number}.${fileExt}`;
 
       const { error: uploadError } = await this.supabase.storage
         .from(BUCKETS.STUDENT_PHOTOS)
@@ -356,7 +358,8 @@ export class StorageService {
           id,
           student_name,
           roll_number,
-          institutions!inner(name)
+          institution_id,
+          institutions(name)
         `
         )
         .in('roll_number', validRollNumbers);
@@ -403,7 +406,11 @@ export class StorageService {
                 return;
               }
 
-              if (!student.institutions?.[0]?.name) {
+              // PostgREST institutions(name) returns: { institutions: { name: "..." } }
+              const studentInstitutionName = (student.institutions as any)
+                ?.name;
+
+              if (!studentInstitutionName) {
                 results.failed.push({
                   filename: file.name,
                   roll_number: rollNumber,
@@ -418,16 +425,16 @@ export class StorageService {
               // Delete old photos
               await this.deleteOldStudentPhoto(
                 student.id,
-                student.institutions[0].name,
+                studentInstitutionName,
                 rollNumber
               );
 
               // Upload new photo
               const fileExt = file.name.split('.').pop()?.toLowerCase();
-              const institutionName = this.sanitizePathName(
-                student.institutions[0].name
+              const sanitizedInstitutionName = this.sanitizePathName(
+                studentInstitutionName
               );
-              const filePath = `${institutionName}/${rollNumber}.${fileExt}`;
+              const filePath = `${sanitizedInstitutionName}/${rollNumber}.${fileExt}`;
 
               const { error: uploadError } = await this.supabase.storage
                 .from(BUCKETS.STUDENT_PHOTOS)
@@ -509,6 +516,181 @@ export class StorageService {
       .replace(/\s+/g, '-') // Replace spaces with hyphens
       .toLowerCase()
       .trim();
+  }
+
+  // Helper method to extract staff ID from filename
+  private static extractStaffIdFromFilename(filename: string): string | null {
+    // Remove file extension
+    const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+    // For now, we assume the filename *is* the staff ID.
+    // This can be updated with a regex if a specific format is needed.
+    return nameWithoutExt || null;
+  }
+
+  // Bulk upload staff photos with institution-based paths
+  static async bulkUploadStaffPhotos(
+    files: File[],
+    onProgress?: (progress: {
+      completed: number;
+      total: number;
+      current?: string;
+    }) => void
+  ): Promise<{
+    success: Array<{
+      staff_id: string;
+      staff_name: string;
+      image_url: string;
+    }>;
+    failed: Array<{ filename: string; staff_id?: string; error: string }>;
+  }> {
+    const results = {
+      success: [] as Array<{
+        staff_id: string;
+        staff_name: string;
+        image_url: string;
+      }>,
+      failed: [] as Array<{
+        filename: string;
+        staff_id?: string;
+        error: string;
+      }>
+    };
+
+    try {
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      // Extract staff IDs from filenames
+      const staffIds = files.map((file) => {
+        const staffId = this.extractStaffIdFromFilename(file.name);
+        return { file, staffId };
+      });
+
+      // Get all staff with their institution details
+      const validStaffIds = staffIds
+        .filter((item) => item.staffId)
+        .map((item) => item.staffId!);
+
+      const { data: staff, error: staffError } = await this.supabase
+        .from('staff')
+        .select(
+          `
+          id,
+          staff_id,
+          first_name,
+          last_name,
+          institution:institutions(name)
+        `
+        )
+        .in('staff_id', validStaffIds);
+
+      if (staffError) {
+        throw new Error(`Failed to fetch staff data: ${staffError.message}`);
+      }
+
+      // Create lookup map for staff
+      const staffMap = new Map(staff?.map((s) => [s.staff_id, s]) || []);
+
+      // Process files in batches
+      const batchSize = 10;
+      for (let i = 0; i < files.length; i += batchSize) {
+        const batch = files.slice(i, i + batchSize);
+
+        await Promise.all(
+          batch.map(async (file, batchIndex) => {
+            const overallIndex = i + batchIndex;
+            const staffId = this.extractStaffIdFromFilename(file.name);
+
+            try {
+              if (!staffId) {
+                results.failed.push({
+                  filename: file.name,
+                  error:
+                    'Could not extract Staff ID from filename. Expected format: STAFF_ID.extension'
+                });
+                return;
+              }
+
+              const staffMember = staffMap.get(staffId);
+              if (!staffMember) {
+                results.failed.push({
+                  filename: file.name,
+                  staff_id: staffId,
+                  error: 'No staff member found with this Staff ID'
+                });
+                return;
+              }
+
+              const institutionName = (staffMember.institution as any)?.name;
+              if (!institutionName) {
+                results.failed.push({
+                  filename: file.name,
+                  staff_id: staffId,
+                  error: 'Staff institution not found'
+                });
+                return;
+              }
+
+              await this.validateFile(file);
+
+              const fileExt = file.name.split('.').pop()?.toLowerCase();
+              const sanitizedInstitutionName =
+                this.sanitizePathName(institutionName);
+              const filePath = `${sanitizedInstitutionName}/${staffId}.${fileExt}`;
+
+              const { error: uploadError } = await this.supabase.storage
+                .from(BUCKETS.STAFF_PHOTOS) // This now correctly points to 'staff-images'
+                .upload(filePath, file, {
+                  cacheControl: '3600',
+                  upsert: true
+                });
+
+              if (uploadError) throw uploadError;
+
+              const { data: urlData } = this.supabase.storage
+                .from(BUCKETS.STAFF_PHOTOS) // This now correctly points to 'staff-images'
+                .getPublicUrl(filePath);
+
+              await this.supabase
+                .from('staff')
+                .update({ profile_picture: urlData.publicUrl })
+                .eq('id', staffMember.id);
+
+              results.success.push({
+                staff_id: staffId,
+                staff_name: `${staffMember.first_name} ${staffMember.last_name}`,
+                image_url: urlData.publicUrl
+              });
+            } catch (error) {
+              results.failed.push({
+                filename: file.name,
+                staff_id: staffId || undefined,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              });
+            }
+
+            if (onProgress) {
+              onProgress({
+                completed: overallIndex + 1,
+                total: files.length,
+                current: file.name
+              });
+            }
+          })
+        );
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error in bulk staff photo upload:', error);
+      throw error;
+    }
   }
 
   // Helper method to extract roll number from filename
@@ -684,6 +866,39 @@ export class StorageService {
       return { error: null };
     } catch (error) {
       console.error('Error deleting staff image:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  static async deleteStaffImageByUrl(
+    imageUrl: string
+  ): Promise<{ error: Error | null }> {
+    if (!imageUrl) {
+      return { error: null }; // No image to delete
+    }
+
+    try {
+      // Extract the file path from the full URL
+      const url = new URL(imageUrl);
+      const path = url.pathname.split(
+        `/storage/v1/object/public/${BUCKETS.STAFF_PHOTOS}/`
+      )[1];
+
+      if (!path) {
+        throw new Error('Could not extract file path from URL');
+      }
+
+      const { error } = await this.supabase.storage
+        .from(BUCKETS.STAFF_PHOTOS)
+        .remove([path]);
+
+      if (error) throw error;
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting staff image by URL:', error);
       return {
         error: error instanceof Error ? error : new Error('Delete failed')
       };

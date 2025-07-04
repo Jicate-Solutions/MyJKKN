@@ -40,6 +40,7 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { StaffImageUpload } from '@/components/ImageUpload/staff-image-upload';
 import { DateInput } from '@/components/ui/date-input';
+import { StorageService } from '@/lib/storage/storage-service';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -83,6 +84,9 @@ interface StaffFormProps {
 export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [initialProfilePicture, setInitialProfilePicture] = useState<
+    string | undefined
+  >(staff?.profile_picture);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -154,6 +158,12 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const onSubmit = async (values: FormValues) => {
     try {
       setIsSubmitting(true);
+
+      // Check if profile picture was removed
+      if (isEditing && initialProfilePicture && !values.profile_picture) {
+        await StorageService.deleteStaffImageByUrl(initialProfilePicture);
+        toast.success('Profile picture deleted from storage.');
+      }
 
       // Format dates to ISO strings
       const formattedValues = {

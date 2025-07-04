@@ -704,7 +704,7 @@ export default function StudentsPage() {
             { label: 'Student Management' }
           ]}
         />
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-col items-start justify-between gap-4'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>Students</h1>
             <p className='text-muted-foreground'>
@@ -712,12 +712,14 @@ export default function StudentsPage() {
             </p>
           </div>
           <div className='flex items-center gap-2'>
-            <Link href='/students/dashboard'>
-              <Button variant='outline' size='sm'>
-                <BarChart3 className='h-4 w-4 mr-2' />
-                Analytics Dashboard
-              </Button>
-            </Link>
+            <CanView module='students.analytics'>
+              <Link href='/students/dashboard'>
+                <Button variant='outline' size='sm'>
+                  <BarChart3 className='h-4 w-4 mr-2' />
+                  Analytics Dashboard
+                </Button>
+              </Link>
+            </CanView>
             <CanCreate module='students'>
               <Link href='/students/onboarding'>
                 <Button variant='outline' size='sm'>
@@ -738,7 +740,7 @@ export default function StudentsPage() {
         <Card>
           <CardHeader>
             <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between'>
-              <div>
+              <div className='flex flex-col gap-2'>
                 <CardTitle>Student Records</CardTitle>
                 <CardDescription>
                   View and manage all enrolled students
