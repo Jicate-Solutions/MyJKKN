@@ -25,6 +25,7 @@ import { CreateMissingProfilesButton } from './_components/create-missing-profil
 import { usePermissions } from '@/hooks/use-permissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Info } from 'lucide-react';
+import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
 
 export default function StaffPage() {
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
@@ -154,6 +155,7 @@ export default function StaffPage() {
               <CreateMissingProfilesButton />
             )}
             {canEditStaff && <BulkUploadStaff />}
+            {canEditStaff && <BulkUploadStaffImages />}
           </div>
         </div>
 
