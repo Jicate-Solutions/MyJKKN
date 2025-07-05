@@ -246,41 +246,50 @@ export class StudentBillService {
     filters: StudentBillFilters = {}
   ): Promise<StudentBillListResponse> {
     try {
-      let query = this.supabase.from('billing_student_bills').select(
+      // Use the optimized view that pre-joins all data
+      let query = this.supabase.from('v_bill_details').select(
         `
-          *,
-          student:students(
-            id,
-            student_name,
-            roll_number,
-            student_email,
-            student_mobile
-          ),
-          institution:institutions(
-            id,
-            name,
-            counselling_code
-          ),
-          item_category:billing_item_categories(
-            id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
-          )
+          id,
+          student_id,
+          institution_id,
+          item_category_id,
+          bill_description,
+          due_date,
+          quantity,
+          unit_amount,
+          total_amount,
+          tax_amount,
+          final_amount,
+          status,
+          payment_date,
+          balance_amount,
+          remarks,
+          is_recurring,
+          recurrence_pattern,
+          number_of_recurrences,
+          created_by,
+          created_at,
+          updated_at,
+          student_name,
+          roll_number,
+          student_email,
+          institution_name,
+          item_category_name,
+          parent_category_name,
+          sub_category_name,
+          total_paid,
+          total_refunded,
+          total_discount,
+          net_paid
         `,
         { count: 'exact' }
       );
 
-      // Apply filters
+      // Apply search filter with correct syntax
       if (filters.search) {
+        const searchTerm = `*${filters.search}*`;
         query = query.or(
-          `bill_description.ilike.%${filters.search}%,student.student_name.ilike.%${filters.search}%,student.roll_number.ilike.%${filters.search}%`
+          `bill_description.ilike.${searchTerm},student_name.ilike.${searchTerm},roll_number.ilike.${searchTerm}`
         );
       }
 
@@ -334,8 +343,66 @@ export class StudentBillService {
 
       if (error) throw error;
 
+      // Transform the flattened view data back to the expected nested structure
+      const transformedData = (data || []).map(
+        (bill): StudentBill => ({
+          // Core bill fields from view
+          id: bill.id,
+          student_id: bill.student_id,
+          institution_id: bill.institution_id,
+          item_category_id: bill.item_category_id,
+          bill_description: bill.bill_description,
+          due_date: bill.due_date,
+          quantity: bill.quantity,
+          unit_amount: bill.unit_amount,
+          total_amount: bill.total_amount,
+          tax_amount: bill.tax_amount,
+          final_amount: bill.final_amount,
+          status: bill.status,
+          payment_date: bill.payment_date,
+          balance_amount: bill.balance_amount,
+          remarks: bill.remarks,
+          is_recurring: bill.is_recurring,
+          recurrence_pattern: bill.recurrence_pattern,
+          number_of_recurrences: bill.number_of_recurrences,
+          created_by: bill.created_by,
+          created_at: bill.created_at,
+          updated_at: bill.updated_at,
+
+          // Related data from view
+          student: {
+            id: bill.student_id,
+            student_name: bill.student_name,
+            roll_number: bill.roll_number,
+            student_email: bill.student_email,
+            student_mobile: '' // Not available in view, would need separate query if needed
+          },
+          institution: {
+            id: bill.institution_id,
+            name: bill.institution_name,
+            counselling_code: '' // Not available in view
+          },
+          item_category: {
+            id: bill.item_category_id,
+            item_category_name: bill.item_category_name,
+            parent_category: bill.parent_category_name
+              ? {
+                  id: '',
+                  parent_category_name: bill.parent_category_name
+                }
+              : undefined,
+            sub_category: bill.sub_category_name
+              ? {
+                  id: '',
+                  sub_category_name: bill.sub_category_name
+                }
+              : undefined
+          }
+        })
+      );
+
       return {
-        data: data || [],
+        data: transformedData,
         metadata: {
           total: count || 0,
           page,
@@ -498,8 +565,9 @@ export class StudentBillService {
 
   static async calculateStudentOutstanding(studentId: string): Promise<number> {
     try {
+      // Use the optimized function with fallback
       const { data, error } = await this.supabase.rpc(
-        'calculate_student_outstanding',
+        'calculate_student_outstanding_optimized',
         { student_uuid: studentId }
       );
 
@@ -507,7 +575,22 @@ export class StudentBillService {
       return data || 0;
     } catch (error) {
       console.error('Error calculating student outstanding:', error);
-      throw error;
+
+      // Fallback: calculate from bill balances directly
+      try {
+        const { data: bills } = await this.supabase
+          .from('billing_student_bills')
+          .select('balance_amount')
+          .eq('student_id', studentId)
+          .in('status', ['unpaid', 'partially_paid', 'overdue']);
+
+        return (
+          bills?.reduce((sum, bill) => sum + (bill.balance_amount || 0), 0) || 0
+        );
+      } catch (fallbackError) {
+        console.error('Error in fallback calculation:', fallbackError);
+        return 0;
+      }
     }
   }
 
