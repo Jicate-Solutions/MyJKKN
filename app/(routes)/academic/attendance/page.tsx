@@ -1106,15 +1106,29 @@ export default function AttendancePage() {
                           <SelectValue placeholder='Choose a period...' />
                         </SelectTrigger>
                         <SelectContent>
-                          {availablePeriods
-                            .filter(
+                          {(() => {
+                            const filteredPeriods = availablePeriods.filter(
                               (period) =>
                                 isSuperAdmin ||
                                 attendancePermissions.get(
                                   period.timetable_slot_id
                                 ) === true
-                            )
-                            .map((period) => (
+                            );
+
+                            if (filteredPeriods.length === 0) {
+                              return (
+                                <SelectItem value='no-periods' disabled>
+                                  <div className='flex items-center gap-2'>
+                                    <AlertTriangle className='h-4 w-4 text-orange-500' />
+                                    <span className='text-gray-500'>
+                                      No periods available
+                                    </span>
+                                  </div>
+                                </SelectItem>
+                              );
+                            }
+
+                            return filteredPeriods.map((period) => (
                               <SelectItem
                                 key={period.timetable_slot_id}
                                 value={period.timetable_slot_id}
@@ -1132,7 +1146,8 @@ export default function AttendancePage() {
                                   </div>
                                 </div>
                               </SelectItem>
-                            ))}
+                            ));
+                          })()}
                         </SelectContent>
                       </Select>
 
