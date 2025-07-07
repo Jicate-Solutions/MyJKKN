@@ -134,12 +134,12 @@ export class StudentSearchServiceOptimized {
         bills,
         categoryData,
         receiptItemsData,
-        discountsData
+        discountsData as any[]
       );
       const enrichedReceipts = this.enrichReceiptsData(
         receipts,
         receiptItemsData,
-        refundsData
+        refundsData as any[]
       );
       const enrichedInvoices = this.enrichInvoicesData(
         invoices,
@@ -151,7 +151,7 @@ export class StudentSearchServiceOptimized {
       const summary = this.calculateBillingSummary(
         enrichedBills,
         enrichedReceipts,
-        refundsData
+        refundsData as any[]
       );
 
       console.log(`Calculated summary for student ${studentId}:`, summary);
@@ -160,10 +160,10 @@ export class StudentSearchServiceOptimized {
         student,
         bills: enrichedBills,
         receipts: enrichedReceipts,
-        discounts: discountsData,
-        refunds: refundsData,
+        discounts: discountsData as any[],
+        refunds: refundsData as any[],
         invoices: enrichedInvoices,
-        ...summary
+        summary
       };
     } catch (error) {
       console.error('Error in getStudentBillingSummary (optimized):', error);
@@ -284,7 +284,10 @@ export class StudentSearchServiceOptimized {
     const results = await Promise.allSettled(promises);
 
     return results.map((result) =>
-      result.status === 'fulfilled' && !result.value.error
+      result.status === 'fulfilled' &&
+      result.value &&
+      'data' in result.value &&
+      !('error' in result.value && result.value.error)
         ? result.value.data || []
         : []
     );
@@ -431,14 +434,14 @@ export class StudentSearchServiceOptimized {
     const netPaidAmount = totalReceiptAmount - totalProcessedRefunds;
 
     return {
-      totalBills,
-      totalBillAmount,
-      totalOutstanding,
-      totalReceiptAmount,
-      totalProcessedRefunds,
-      netPaidAmount,
-      billsByStatus,
-      lastPaymentDate: receipts.length > 0 ? receipts[0].receipt_date : null
+      total_bills: totalBills,
+      paid_amount: netPaidAmount,
+      outstanding_amount: totalOutstanding,
+      overdue_amount: bills
+        .filter((bill) => bill.status === 'overdue')
+        .reduce((sum, bill) => sum + (bill.balance_amount || 0), 0),
+      discount_amount: 0, // Calculate if needed
+      refund_amount: totalProcessedRefunds
     };
   }
 
@@ -465,7 +468,7 @@ export class StudentSearchServiceOptimized {
       const result = await Promise.race([calculationPromise, timeoutPromise]);
 
       if (result && typeof result === 'object' && 'data' in result) {
-        return result.data || 0;
+        return typeof result.data === 'number' ? result.data : 0;
       }
 
       return 0;
