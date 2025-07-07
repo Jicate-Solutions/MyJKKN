@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import type {
@@ -186,6 +186,20 @@ export function useAttendanceRoster() {
       return null;
     }
   }, []);
+
+  useEffect(() => {
+    if (
+      searchContext.institution_id &&
+      searchContext.academic_year_id &&
+      searchContext.degree_id &&
+      searchContext.program_id &&
+      searchContext.department_id &&
+      searchContext.semester_id &&
+      searchContext.attendance_date
+    ) {
+      fetchAvailablePeriods(searchContext);
+    }
+  }, [fetchAvailablePeriods, searchContext]);
 
   const fetchAttendanceRoster = useCallback(
     async (
