@@ -529,6 +529,8 @@ export class AttendanceService {
         end_time: slot.period?.end_time || '',
         timetable_slot_id: slot.id,
         course: slot.course,
+        staff: slot.staff, // Pass legacy staff object
+        staff_members: (slot as any).staff_members, // Pass new staff_members array
         // Add section information
         sections:
           slot.timetable_slot_sections?.map((tss: any) => ({

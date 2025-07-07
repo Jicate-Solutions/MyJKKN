@@ -16,7 +16,8 @@ import {
   TrendingUp,
   Award,
   Target,
-  BookOpen
+  BookOpen,
+  Loader2
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -222,7 +223,7 @@ export default function AttendancePage() {
       // Since the hooks don't have explicit clear methods, we'll let the data remain
       // but the Select components will handle null values properly
     }
-  }, [searchContext.institution_id]);
+  }, [searchContext.institution_id, fetchAcademicYears, fetchDegrees]);
 
   useEffect(() => {
     if (searchContext.institution_id && searchContext.degree_id) {
@@ -233,7 +234,7 @@ export default function AttendancePage() {
       });
     }
     // Programs will be empty when degree_id is null due to the condition above
-  }, [searchContext.institution_id, searchContext.degree_id]);
+  }, [searchContext.institution_id, searchContext.degree_id, fetchPrograms]);
 
   useEffect(() => {
     if (
@@ -251,7 +252,8 @@ export default function AttendancePage() {
   }, [
     searchContext.institution_id,
     searchContext.degree_id,
-    searchContext.program_id
+    searchContext.program_id,
+    fetchDepartments
   ]);
 
   useEffect(() => {
@@ -274,7 +276,8 @@ export default function AttendancePage() {
     searchContext.institution_id,
     searchContext.degree_id,
     searchContext.program_id,
-    searchContext.department_id
+    searchContext.department_id,
+    fetchSemesters
   ]);
 
   useEffect(() => {
@@ -300,7 +303,8 @@ export default function AttendancePage() {
     searchContext.degree_id,
     searchContext.program_id,
     searchContext.department_id,
-    searchContext.semester_id
+    searchContext.semester_id,
+    fetchSections
   ]);
 
   // Handle search form submission - Focus on loading periods first
@@ -751,7 +755,11 @@ export default function AttendancePage() {
   };
 
   if (!canViewAttendance) {
-    return <Loading title='Loading attendance...' />;
+    return (
+      <div className='flex items-center justify-center h-screen'>
+        <Loader2 className='h-10 w-10 animate-spin' />
+      </div>
+    );
   }
 
   return (
@@ -1082,8 +1090,8 @@ export default function AttendancePage() {
                   </div>
 
                   {loadingPeriods ? (
-                    <div className='text-center py-8'>
-                      <Loading title='Loading periods...' />
+                    <div className='flex items-center justify-center py-8'>
+                      <Loader2 className='h-5 w-5 text-primary animate-spin' />
                     </div>
                   ) : availablePeriods.length > 0 ? (
                     <div className='max-w-md'>
@@ -1389,14 +1397,7 @@ export default function AttendancePage() {
                                       {attendanceCompleted.details.staffName}
                                     </span>
                                   </div>
-                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
-                                      Email
-                                    </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
-                                      {attendanceCompleted.details.staffEmail}
-                                    </span>
-                                  </div>
+
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
                                     <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
                                       Marked by
@@ -1960,8 +1961,8 @@ export default function AttendancePage() {
 
                     {/* Loading State */}
                     {loadingStudents && (
-                      <div className='text-center py-8'>
-                        <Loading title='Loading students...' />
+                      <div className='flex items-center justify-center py-8'>
+                        <Loader2 className='h-5 w-5 text-primary animate-spin' />
                       </div>
                     )}
 
