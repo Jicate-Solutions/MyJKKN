@@ -173,6 +173,11 @@ export class AttendanceService {
             course_name,
             course_code
           ),
+          staff:staff_id(
+            id,
+            first_name,
+            last_name
+          ),
           timetable_slot_sections(
             section_id,
             section:section_id(
@@ -208,6 +213,41 @@ export class AttendanceService {
           slot.timetable_slot_sections &&
           slot.timetable_slot_sections.length > 0
       );
+
+      // Fetch staff assignments from junction table for each slot
+      for (const slot of filteredSlots) {
+        try {
+          const { data: staffAssignments, error: staffError } =
+            await this.supabase
+              .from('timetable_slot_staff')
+              .select(
+                `
+              staff_id,
+              staff:staff_id(
+                id,
+                first_name,
+                last_name
+              )
+            `
+              )
+              .eq('timetable_slot_id', slot.id);
+
+          if (staffError) {
+            console.error(
+              'Error fetching staff assignments for slot:',
+              slot.id,
+              staffError
+            );
+          } else {
+            // Add staff_members array to slot (cast to any to avoid TypeScript error)
+            (slot as any).staff_members =
+              staffAssignments?.map((sa: any) => sa.staff).filter(Boolean) ||
+              [];
+          }
+        } catch (error) {
+          console.error('Error fetching staff assignments:', error);
+        }
+      }
 
       // Sort by period start time
       filteredSlots.sort((a: any, b: any) => {
@@ -291,6 +331,7 @@ export class AttendanceService {
           `
           id,
           day_of_week,
+          staff_id,
           period:period_id(
             id,
             period_name,
@@ -301,6 +342,11 @@ export class AttendanceService {
             id,
             course_name,
             course_code
+          ),
+          staff:staff_id(
+            id,
+            first_name,
+            last_name
           ),
           timetable_slot_sections(
             section_id,
@@ -315,6 +361,38 @@ export class AttendanceService {
         .single();
 
       if (slotError) throw slotError;
+
+      // Fetch staff assignments from junction table for this slot
+      try {
+        const { data: staffAssignments, error: staffError } =
+          await this.supabase
+            .from('timetable_slot_staff')
+            .select(
+              `
+            staff_id,
+            staff:staff_id(
+              id,
+              first_name,
+              last_name
+            )
+          `
+            )
+            .eq('timetable_slot_id', timetable_slot_id);
+
+        if (staffError) {
+          console.error(
+            'Error fetching staff assignments for slot:',
+            timetable_slot_id,
+            staffError
+          );
+        } else {
+          // Add staff_members array to slot (cast to any to avoid TypeScript error)
+          (slotData as any).staff_members =
+            staffAssignments?.map((sa: any) => sa.staff).filter(Boolean) || [];
+        }
+      } catch (error) {
+        console.error('Error fetching staff assignments:', error);
+      }
 
       // Get section IDs assigned to this slot
       const sectionIds =

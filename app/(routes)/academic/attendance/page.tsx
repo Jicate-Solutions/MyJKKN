@@ -9,7 +9,14 @@ import {
   RotateCcw,
   X,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  BarChart3,
+  User,
+  Clock,
+  TrendingUp,
+  Award,
+  Target,
+  BookOpen
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -39,6 +46,15 @@ import {
   PopoverContent,
   PopoverTrigger
 } from '@/components/ui/popover';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from '@/components/ui/dialog';
 import Loading from '@/components/Loading/Loading';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
@@ -66,18 +82,50 @@ export default function AttendancePage() {
     saveAttendance
   } = useAttendanceRoster();
 
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
   const { user } = useAuth();
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
   const [studentsForSection, setStudentsForSection] = useState<any[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
+  const [loadingPeriods, setLoadingPeriods] = useState(false);
+  const [loadingPeriodData, setLoadingPeriodData] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [showStudents, setShowStudents] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [sortByRollNo, setSortByRollNo] = useState(true);
   const [sortByName, setSortByName] = useState(false);
   const [allAbsent, setAllAbsent] = useState(false);
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+  const [savingAttendance, setSavingAttendance] = useState(false);
+  const [attendancePermissions, setAttendancePermissions] = useState<
+    Map<string, boolean>
+  >(new Map());
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [attendanceCompleted, setAttendanceCompleted] = useState<{
+    isCompleted: boolean;
+    details: {
+      periodName: string;
+      courseName: string;
+      timeSlot: string;
+      date: string;
+      markedBy: string;
+      markedAt: string;
+      presentCount: number;
+      absentCount: number;
+      totalStudents: number;
+      attendancePercentage: number;
+      staffName: string;
+      staffEmail: string;
+      sectionName: string;
+      semesterName: string;
+      institutionName: string;
+      departmentName: string;
+      programName: string;
+      degreeName: string;
+    } | null;
+  }>({ isCompleted: false, details: null });
+  const [existingAttendance, setExistingAttendance] = useState<any[]>([]);
 
   // Data hooks for search form
   const { institutions, fetchInstitutions } = useInstitutions({});
@@ -91,7 +139,46 @@ export default function AttendancePage() {
   const canViewAttendance =
     isSuperAdmin || canAccess('academic.attendance', 'view');
   const canMarkAttendance =
-    isSuperAdmin || canAccess('academic.attendance', 'create');
+    isSuperAdmin || canAccess('academic.attendance', 'mark');
+
+  // Check staff permission for specific periods
+  const checkStaffPermissionForPeriod = async (
+    timetableSlotId: string
+  ): Promise<boolean> => {
+    try {
+      const { AttendanceService } = await import(
+        '@/lib/services/academic/attendance-service'
+      );
+      const canMark = await AttendanceService.canMarkAttendanceForSlot(
+        timetableSlotId,
+        isSuperAdmin
+      );
+      return canMark;
+    } catch (error) {
+      console.error('Error checking staff permission:', error);
+      return false;
+    }
+  };
+
+  // Check if attendance already exists for the selected criteria
+  const checkExistingAttendance = async (
+    timetableSlotId: string,
+    attendanceDate: string
+  ) => {
+    try {
+      const { AttendanceService } = await import(
+        '@/lib/services/academic/attendance-service'
+      );
+      const records = await AttendanceService.getAttendanceRecords(
+        timetableSlotId,
+        attendanceDate
+      );
+      return records;
+    } catch (error) {
+      console.error('Error checking existing attendance:', error);
+      return [];
+    }
+  };
 
   // Load initial data
   useEffect(() => {
@@ -101,7 +188,23 @@ export default function AttendancePage() {
       const today = new Date().toISOString().split('T')[0];
       updateSearchContext({ attendance_date: today });
     }
-  }, []);
+
+    // Auto-populate institution for faculty users
+    if (
+      !isSuperAdmin &&
+      userProfile?.institution_id &&
+      !searchContext.institution_id
+    ) {
+      updateSearchContext({ institution_id: userProfile.institution_id });
+    }
+  }, [
+    isSuperAdmin,
+    userProfile?.institution_id,
+    searchContext.institution_id,
+    searchContext.attendance_date,
+    updateSearchContext,
+    fetchInstitutions
+  ]);
 
   // Load dependent data when filters change
   useEffect(() => {
@@ -200,7 +303,7 @@ export default function AttendancePage() {
     searchContext.semester_id
   ]);
 
-  // Handle search form submission
+  // Handle search form submission - Focus on loading periods first
   const handleSearch = async () => {
     if (
       !searchContext.institution_id ||
@@ -213,32 +316,21 @@ export default function AttendancePage() {
     }
 
     try {
-      setLoadingStudents(true);
+      setLoadingPeriods(true);
       setShowResults(true);
+      setShowStudents(false);
+      // Clear any previous state
+      setAttendanceCompleted({ isCompleted: false, details: null });
+      setExistingAttendance([]);
+      setSelectedPeriod(null);
+      setStudentsForSection([]);
+      setLoadingPeriodData(false);
 
       const { AttendanceService } = await import(
         '@/lib/services/academic/attendance-service'
       );
 
-      // Fetch students for the section
-      const students = await AttendanceService.getStudentsForAttendance({
-        institution_id: searchContext.institution_id,
-        degree_id: searchContext.degree_id || undefined,
-        program_id: searchContext.program_id || undefined,
-        department_id: searchContext.department_id || undefined,
-        semester_id: searchContext.semester_id,
-        section_id: searchContext.section_id
-      });
-
-      // Add default status to students
-      const studentsWithStatus = students.map((student) => ({
-        ...student,
-        status: 'Present' // Default to Present
-      }));
-
-      setStudentsForSection(studentsWithStatus);
-
-      // Fetch available periods for the date
+      // Fetch available periods for the date first
       if (
         searchContext.academic_year_id &&
         searchContext.degree_id &&
@@ -258,17 +350,29 @@ export default function AttendancePage() {
             },
             searchContext.attendance_date
           );
+
+          // Check staff permissions for each period
+          const permissionMap = new Map<string, boolean>();
+          await Promise.all(
+            periods.map(async (period) => {
+              const canMark = await checkStaffPermissionForPeriod(
+                period.timetable_slot_id
+              );
+              permissionMap.set(period.timetable_slot_id, canMark);
+            })
+          );
+          setAttendancePermissions(permissionMap);
+
           // The periods will be automatically set by the useAttendanceRoster hook
         } catch (periodError) {
           console.warn('Could not fetch periods:', periodError);
         }
       }
     } catch (error) {
-      console.error('Error loading students:', error);
-      toast.error('Failed to load students');
-      setStudentsForSection([]);
+      console.error('Error loading periods:', error);
+      toast.error('Failed to load periods');
     } finally {
-      setLoadingStudents(false);
+      setLoadingPeriods(false);
     }
   };
 
@@ -279,6 +383,7 @@ export default function AttendancePage() {
 
       // Clear all local state first
       setShowResults(false);
+      setShowStudents(false);
       setStudentsForSection([]);
       setSelectedPeriod(null);
       setStudentSearchTerm('');
@@ -286,6 +391,9 @@ export default function AttendancePage() {
       setSortByName(false);
       setAllAbsent(false);
       setCalendarOpen(false);
+      setAttendanceCompleted({ isCompleted: false, details: null });
+      setExistingAttendance([]);
+      setLoadingPeriodData(false);
 
       // Reset search context
       const resetContext = {
@@ -362,6 +470,286 @@ export default function AttendancePage() {
     return nameMatch || rollMatch;
   });
 
+  // Handle period selection - Load students and check for existing attendance
+  const handlePeriodSelection = async (periodId: string) => {
+    setSelectedPeriod(periodId);
+    setLoadingPeriodData(true);
+    setShowStudents(true);
+    // Clear any previous state
+    setAttendanceCompleted({ isCompleted: false, details: null });
+    setStudentsForSection([]);
+
+    if (periodId && searchContext.attendance_date) {
+      try {
+        // First check for existing attendance
+        const existingRecords = await checkExistingAttendance(
+          periodId,
+          searchContext.attendance_date
+        );
+
+        setExistingAttendance(existingRecords);
+
+        // Load students for the section
+        const { AttendanceService } = await import(
+          '@/lib/services/academic/attendance-service'
+        );
+
+        const students = await AttendanceService.getStudentsForAttendance({
+          institution_id: searchContext.institution_id!,
+          degree_id: searchContext.degree_id || undefined,
+          program_id: searchContext.program_id || undefined,
+          department_id: searchContext.department_id || undefined,
+          semester_id: searchContext.semester_id!,
+          section_id: searchContext.section_id!
+        });
+
+        if (existingRecords.length > 0) {
+          // Attendance already exists, show completed state
+          const selectedPeriodInfo = availablePeriods.find(
+            (p) => p.timetable_slot_id === periodId
+          );
+
+          // Count present/absent students
+          const presentCount = existingRecords.filter(
+            (r) => r.status === 'Present'
+          ).length;
+          const absentCount = existingRecords.filter(
+            (r) => r.status === 'Absent'
+          ).length;
+          const total = existingRecords.length;
+          const attendancePercentage =
+            total > 0 ? Math.round((presentCount / total) * 100) : 0;
+
+          // Get marking details from the first record
+          const firstRecord = existingRecords[0];
+          const markedDate = new Date(firstRecord.created_at);
+
+          setAttendanceCompleted({
+            isCompleted: true,
+            details: {
+              periodName: selectedPeriodInfo?.period_name || 'Unknown',
+              courseName: selectedPeriodInfo?.course?.course_name || 'N/A',
+              timeSlot: `${selectedPeriodInfo?.start_time} - ${selectedPeriodInfo?.end_time}`,
+              date: format(
+                new Date(searchContext.attendance_date + 'T00:00:00'),
+                'dd-MMM-yyyy'
+              ),
+              markedBy:
+                firstRecord.marked_by_user?.full_name ||
+                firstRecord.marked_by_user?.email ||
+                'Unknown',
+              markedAt: format(markedDate, 'dd-MMM-yyyy hh:mm a'),
+              presentCount,
+              absentCount,
+              totalStudents: total,
+              attendancePercentage,
+              // Add staff and section details with proper names
+              staffName: (() => {
+                const periodInfo = selectedPeriodInfo as any;
+                if (
+                  periodInfo?.staff?.first_name &&
+                  periodInfo?.staff?.last_name
+                ) {
+                  return `${periodInfo.staff.first_name} ${periodInfo.staff.last_name}`.trim();
+                }
+                if (
+                  periodInfo?.staff_members &&
+                  periodInfo.staff_members.length > 0
+                ) {
+                  return periodInfo.staff_members
+                    .map((staff: any) =>
+                      `${staff.first_name} ${staff.last_name}`.trim()
+                    )
+                    .join(', ');
+                }
+                return 'Not assigned';
+              })(),
+              staffEmail: 'N/A',
+              sectionName:
+                sections.find((s) => s.id === searchContext.section_id)
+                  ?.section_name || 'Unknown Section',
+              semesterName:
+                semesters.find((s) => s.id === searchContext.semester_id)
+                  ?.semester_name || 'Unknown Semester',
+              institutionName:
+                institutions.find((i) => i.id === searchContext.institution_id)
+                  ?.name || 'Unknown Institution',
+              departmentName:
+                departments.find((d) => d.id === searchContext.department_id)
+                  ?.department_name || 'Unknown Department',
+              programName:
+                programs.find((p) => p.id === searchContext.program_id)
+                  ?.program_name || 'Unknown Program',
+              degreeName:
+                degrees.find((d) => d.id === searchContext.degree_id)
+                  ?.degree_name || 'Unknown Degree'
+            }
+          });
+
+          // Update student statuses to match existing attendance
+          const studentsWithStatus = students.map((student) => {
+            const attendanceRecord = existingRecords.find(
+              (r) => r.student_id === student.id
+            );
+            return {
+              ...student,
+              status: attendanceRecord ? attendanceRecord.status : 'Present'
+            };
+          });
+          setStudentsForSection(studentsWithStatus);
+        } else {
+          // No existing attendance, prepare for marking
+          setAttendanceCompleted({ isCompleted: false, details: null });
+
+          // Add default status to students
+          const studentsWithStatus = students.map((student) => ({
+            ...student,
+            status: 'Present' // Default to Present
+          }));
+          setStudentsForSection(studentsWithStatus);
+        }
+      } catch (error) {
+        console.error('Error loading attendance data:', error);
+        toast.error('Failed to load attendance data');
+      } finally {
+        setLoadingPeriodData(false);
+      }
+    }
+  };
+
+  // Handle save attendance confirmation and processing
+  const handleSaveAttendance = async () => {
+    try {
+      setSavingAttendance(true);
+      setShowConfirmDialog(false);
+
+      if (!selectedPeriod) {
+        toast.error('Please select a period first');
+        return;
+      }
+
+      if (!searchContext.institution_id || !user?.id) {
+        toast.error('Missing required information to save attendance');
+        return;
+      }
+
+      // Check staff permission for the selected period
+      if (!isSuperAdmin) {
+        const canMark = await checkStaffPermissionForPeriod(selectedPeriod);
+        if (!canMark) {
+          toast.error(
+            'You are not authorized to mark attendance for this period'
+          );
+          return;
+        }
+      }
+
+      // Prepare attendance records
+      const attendanceRecords = studentsForSection.map((student) => ({
+        student_id: student.id,
+        timetable_slot_id: selectedPeriod,
+        attendance_date: searchContext.attendance_date!,
+        status: student.status as 'Present' | 'Absent',
+        marked_by: user.id,
+        institution_id: searchContext.institution_id!
+      }));
+
+      // Save using the attendance service
+      const success = await saveAttendance({
+        records: attendanceRecords
+      });
+
+      if (success) {
+        // Get attendance statistics
+        const presentCount = studentsForSection.filter(
+          (s) => s.status === 'Present'
+        ).length;
+        const absentCount = studentsForSection.filter(
+          (s) => s.status === 'Absent'
+        ).length;
+        const total = studentsForSection.length;
+        const attendancePercentage = Math.round((presentCount / total) * 100);
+
+        // Get selected period info
+        const selectedPeriodInfo = availablePeriods.find(
+          (p) => p.timetable_slot_id === selectedPeriod
+        );
+
+        // Get current date and time
+        const currentDate = new Date();
+        const formattedDate = format(currentDate, 'dd-MMM-yyyy');
+        const formattedTime = format(currentDate, 'hh:mm a');
+
+        // Set completion details for display
+        setAttendanceCompleted({
+          isCompleted: true,
+          details: {
+            periodName: selectedPeriodInfo?.period_name || 'Unknown',
+            courseName: selectedPeriodInfo?.course?.course_name || 'N/A',
+            timeSlot: `${selectedPeriodInfo?.start_time} - ${selectedPeriodInfo?.end_time}`,
+            date: formattedDate,
+            markedBy: userProfile?.full_name || user?.email || 'Unknown',
+            markedAt: formattedTime,
+            presentCount,
+            absentCount,
+            totalStudents: total,
+            attendancePercentage,
+            // Add staff and section details with proper names
+            staffName: (() => {
+              const periodInfo = selectedPeriodInfo as any;
+              if (
+                periodInfo?.staff?.first_name &&
+                periodInfo?.staff?.last_name
+              ) {
+                return `${periodInfo.staff.first_name} ${periodInfo.staff.last_name}`.trim();
+              }
+              if (
+                periodInfo?.staff_members &&
+                periodInfo.staff_members.length > 0
+              ) {
+                return periodInfo.staff_members
+                  .map((staff: any) =>
+                    `${staff.first_name} ${staff.last_name}`.trim()
+                  )
+                  .join(', ');
+              }
+              return 'Not assigned';
+            })(),
+            staffEmail: 'N/A',
+            sectionName:
+              sections.find((s) => s.id === searchContext.section_id)
+                ?.section_name || 'Unknown Section',
+            semesterName:
+              semesters.find((s) => s.id === searchContext.semester_id)
+                ?.semester_name || 'Unknown Semester',
+            institutionName:
+              institutions.find((i) => i.id === searchContext.institution_id)
+                ?.name || 'Unknown Institution',
+            departmentName:
+              departments.find((d) => d.id === searchContext.department_id)
+                ?.department_name || 'Unknown Department',
+            programName:
+              programs.find((p) => p.id === searchContext.program_id)
+                ?.program_name || 'Unknown Program',
+            degreeName:
+              degrees.find((d) => d.id === searchContext.degree_id)
+                ?.degree_name || 'Unknown Degree'
+          }
+        });
+
+        // Show simple success toast
+        toast.success('Attendance saved successfully!');
+      } else {
+        toast.error('Failed to save attendance');
+      }
+    } catch (error) {
+      console.error('Error saving attendance:', error);
+      toast.error('Failed to save attendance');
+    } finally {
+      setSavingAttendance(false);
+    }
+  };
+
   if (!canViewAttendance) {
     return <Loading title='Loading attendance...' />;
   }
@@ -423,13 +811,18 @@ export default function AttendancePage() {
                       section_id: null
                     })
                   }
-                  disabled={!isSuperAdmin}
+                  disabled={!isSuperAdmin && !userProfile?.institution_id}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder='Select institution' />
                   </SelectTrigger>
                   <SelectContent>
-                    {institutions.map((institution) => (
+                    {(isSuperAdmin
+                      ? institutions
+                      : institutions.filter(
+                          (inst) => inst.id === userProfile?.institution_id
+                        )
+                    ).map((institution) => (
                       <SelectItem key={institution.id} value={institution.id}>
                         {institution.name}
                       </SelectItem>
@@ -669,324 +1062,1024 @@ export default function AttendancePage() {
         {/* Results Section */}
         {showResults && (
           <>
-            {/* Attendance Warning */}
-            <div className='flex items-center gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg'>
-              <AlertTriangle className='h-5 w-5 text-orange-600' />
-              <span className='text-orange-800'>
-                Attendance not yet recorded
-              </span>
-              <div className='ml-auto text-orange-600 text-sm'>
-                {(() => {
-                  const total = studentsForSection.length;
-                  const present = studentsForSection.filter(
-                    (s) => s.status === 'Present'
-                  ).length;
-                  const percentage =
-                    total > 0 ? Math.round((present / total) * 100) : 100;
-                  const dateStr = searchContext.attendance_date
-                    ? format(
-                        new Date(searchContext.attendance_date + 'T00:00:00'),
-                        'dd-MMM-yyyy'
-                      )
-                    : '';
-                  return `${present}/${total} | ${percentage}% attendance | ${dateStr}`;
-                })()}
-              </div>
-            </div>
-
-            {/* Period Selection and Controls */}
-            {availablePeriods.length > 0 && (
-              <div className='space-y-4 p-4 bg-blue-50 rounded-lg'>
-                <div className='flex flex-wrap items-center gap-4'>
-                  <div className='flex items-center gap-2'>
-                    <Label>Period:</Label>
-                    <Select
-                      value={selectedPeriod || undefined}
-                      onValueChange={(value) => setSelectedPeriod(value)}
-                    >
-                      <SelectTrigger className='w-48'>
-                        <SelectValue placeholder='Select period' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availablePeriods.map((period) => (
-                          <SelectItem
-                            key={period.timetable_slot_id}
-                            value={period.timetable_slot_id}
-                          >
-                            {period.period_name} ({period.start_time} -{' '}
-                            {period.end_time})
-                            {period.course && ` - ${period.course.course_name}`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+            {/* Available Periods Section */}
+            {!showStudents && (
+              <Card>
+                <CardContent className='p-6'>
+                  <div className='flex items-center gap-3 mb-4'>
+                    <Calendar className='h-5 w-5 text-blue-600' />
+                    <h3 className='text-lg font-medium'>Available Periods</h3>
+                    <Badge variant='secondary' className='ml-auto'>
+                      {searchContext.attendance_date
+                        ? format(
+                            new Date(
+                              searchContext.attendance_date + 'T00:00:00'
+                            ),
+                            'dd MMM yyyy'
+                          )
+                        : ''}
+                    </Badge>
                   </div>
 
-                  <div className='flex items-center gap-2 flex-1 min-w-[200px]'>
-                    <Label>Search:</Label>
-                    <div className='relative flex-1'>
-                      <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
-                      <Input
-                        placeholder='Search by name or roll number...'
-                        value={studentSearchTerm}
-                        onChange={(e) => setStudentSearchTerm(e.target.value)}
-                        className='pl-10 pr-10'
-                      />
-                      {studentSearchTerm && (
-                        <Button
-                          variant='ghost'
-                          size='sm'
-                          className='absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0'
-                          onClick={() => setStudentSearchTerm('')}
-                        >
-                          <X className='h-4 w-4' />
-                        </Button>
+                  {loadingPeriods ? (
+                    <div className='text-center py-8'>
+                      <Loading title='Loading periods...' />
+                    </div>
+                  ) : availablePeriods.length > 0 ? (
+                    <div className='max-w-md'>
+                      <Label
+                        htmlFor='period-select'
+                        className='text-sm font-medium text-gray-700 mb-2 block'
+                      >
+                        Select Period to View/Mark Attendance
+                      </Label>
+                      <Select onValueChange={handlePeriodSelection}>
+                        <SelectTrigger className='w-full'>
+                          <SelectValue placeholder='Choose a period...' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availablePeriods
+                            .filter(
+                              (period) =>
+                                isSuperAdmin ||
+                                attendancePermissions.get(
+                                  period.timetable_slot_id
+                                ) === true
+                            )
+                            .map((period) => (
+                              <SelectItem
+                                key={period.timetable_slot_id}
+                                value={period.timetable_slot_id}
+                              >
+                                <div className='flex items-center justify-between w-full'>
+                                  <div className='flex flex-col'>
+                                    <span className='font-medium'>
+                                      {period.period_name}
+                                    </span>
+                                    <span className='text-xs text-gray-500'>
+                                      {period.start_time} - {period.end_time}
+                                      {period.course &&
+                                        ` • ${period.course.course_name}`}
+                                    </span>
+                                  </div>
+                                </div>
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+
+                      {availablePeriods.filter(
+                        (period) =>
+                          isSuperAdmin ||
+                          attendancePermissions.get(
+                            period.timetable_slot_id
+                          ) === true
+                      ).length === 0 && (
+                        <div className='mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg'>
+                          <div className='flex items-center gap-2'>
+                            <AlertTriangle className='h-4 w-4 text-orange-600' />
+                            <p className='text-sm text-orange-800'>
+                              No periods available - You are not assigned to
+                              teach any periods for this class on the selected
+                              date.
+                            </p>
+                          </div>
+                        </div>
                       )}
                     </div>
-                  </div>
-                </div>
-
-                <div className='flex flex-wrap items-center gap-4'>
-                  <div className='flex items-center gap-2'>
-                    <Label>Sort by Roll No.</Label>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() => {
-                        setSortByRollNo(!sortByRollNo);
-                        setSortByName(false);
-                      }}
-                    >
-                      <Check
-                        className={`h-3 w-3 mr-1 ${
-                          sortByRollNo ? '' : 'opacity-0'
-                        }`}
-                      />
-                      {sortByRollNo ? 'YES' : 'NO'}
-                    </Button>
-                  </div>
-                  <div className='flex items-center gap-2'>
-                    <Label>Name A-Z</Label>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() => {
-                        setSortByName(!sortByName);
-                        setSortByRollNo(false);
-                      }}
-                    >
-                      <Check
-                        className={`h-3 w-3 mr-1 ${
-                          sortByName ? '' : 'opacity-0'
-                        }`}
-                      />
-                      {sortByName ? 'YES' : 'NO'}
-                    </Button>
-                  </div>
-                  <div className='flex items-center gap-2'>
-                    <Label>All absent</Label>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() => {
-                        const newAllAbsent = !allAbsent;
-                        setAllAbsent(newAllAbsent);
-                        if (newAllAbsent) {
-                          setStudentsForSection((prev) =>
-                            prev.map((student) => ({
-                              ...student,
-                              status: 'Absent'
-                            }))
-                          );
-                        } else {
-                          setStudentsForSection((prev) =>
-                            prev.map((student) => ({
-                              ...student,
-                              status: 'Present'
-                            }))
-                          );
-                        }
-                      }}
-                    >
-                      <Check
-                        className={`h-3 w-3 mr-1 ${
-                          allAbsent ? '' : 'opacity-0'
-                        }`}
-                      />
-                      {allAbsent ? 'YES' : 'NO'}
-                    </Button>
-                  </div>
-                  <div className='ml-auto text-blue-800 text-sm'>
-                    {filteredStudents.length} of {studentsForSection.length}{' '}
-                    student(s)
-                  </div>
-                </div>
-              </div>
+                  ) : (
+                    <div className='text-center py-8 text-muted-foreground'>
+                      <Calendar className='h-12 w-12 mx-auto mb-4 opacity-50' />
+                      <p className='font-medium'>No periods available</p>
+                      <p className='text-sm'>
+                        {isSuperAdmin
+                          ? 'No timetable periods are configured for this class on the selected date.'
+                          : 'You are not assigned to teach any periods for this class on the selected date.'}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             )}
 
-            {/* Save Attendance Button */}
-            {!loadingStudents && studentsForSection.length > 0 && (
-              <div className='flex justify-end gap-3'>
-                <Button
-                  variant='outline'
-                  onClick={() => {
-                    // Mark all as present
-                    setStudentsForSection((prev) =>
-                      prev.map((student) => ({ ...student, status: 'Present' }))
-                    );
-                  }}
-                >
-                  Mark All Present
-                </Button>
-                <Button
-                  variant='outline'
-                  onClick={() => {
-                    // Mark all as absent
-                    setStudentsForSection((prev) =>
-                      prev.map((student) => ({ ...student, status: 'Absent' }))
-                    );
-                  }}
-                >
-                  Mark All Absent
-                </Button>
-                <Button
-                  onClick={async () => {
-                    try {
-                      if (!selectedPeriod) {
-                        toast.error('Please select a period first');
-                        return;
-                      }
-
-                      if (!searchContext.institution_id || !user?.id) {
-                        toast.error(
-                          'Missing required information to save attendance'
-                        );
-                        return;
-                      }
-
-                      // Prepare attendance records
-                      const attendanceRecords = studentsForSection.map(
-                        (student) => ({
-                          student_id: student.id,
-                          timetable_slot_id: selectedPeriod,
-                          attendance_date: searchContext.attendance_date!,
-                          status: student.status as 'Present' | 'Absent',
-                          marked_by: user.id,
-                          institution_id: searchContext.institution_id!
-                        })
-                      );
-
-                      // Save using the attendance service
-                      const success = await saveAttendance({
-                        records: attendanceRecords
-                      });
-
-                      if (success) {
-                        toast.success('Attendance saved successfully!');
-                      } else {
-                        toast.error('Failed to save attendance');
-                      }
-                    } catch (error) {
-                      console.error('Error saving attendance:', error);
-                      toast.error('Failed to save attendance');
-                    }
-                  }}
-                  className='flex items-center gap-2'
-                  disabled={!selectedPeriod || studentsForSection.length === 0}
-                >
-                  <Check className='h-4 w-4' />
-                  Save Attendance
-                </Button>
-              </div>
-            )}
-
-            {/* Loading State */}
-            {loadingStudents && (
-              <div className='text-center py-8'>
-                <Loading title='Loading students...' />
-              </div>
-            )}
-
-            {/* Students Grid */}
-            {!loadingStudents && filteredStudents.length > 0 && (
-              <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4'>
-                {filteredStudents
-                  .slice() // Create a copy to avoid mutating original array
-                  .sort((a, b) => {
-                    if (sortByRollNo) {
-                      const rollA = a.roll_number || '';
-                      const rollB = b.roll_number || '';
-                      return rollA.localeCompare(rollB);
-                    } else if (sortByName) {
-                      return a.student_name.localeCompare(b.student_name);
-                    }
-                    return 0; // No sorting
-                  })
-                  .map((student) => (
-                    <Card
-                      key={student.id}
-                      className='cursor-pointer transition-all hover:shadow-md'
-                      onClick={() => toggleStudentStatus(student.id)}
-                    >
-                      <CardContent className='p-4 text-center'>
-                        <Avatar className='h-16 w-16 mx-auto mb-3'>
-                          <AvatarImage src={student.student_photo_url} />
-                          <AvatarFallback className='text-lg'>
-                            {getInitials(student.student_name)}
-                          </AvatarFallback>
-                        </Avatar>
-
-                        <h4 className='font-medium text-sm mb-1'>
-                          {student.student_name}
-                        </h4>
-                        <p className='text-xs text-muted-foreground mb-3'>
-                          {student.roll_number || 'No Roll Number'}
-                        </p>
-
-                        <Badge
-                          variant={
-                            student.status === 'Present'
-                              ? 'default'
-                              : 'destructive'
-                          }
-                          className='w-full justify-center'
-                        >
-                          {student.status || 'Present'}
-                        </Badge>
-                      </CardContent>
-                    </Card>
-                  ))}
-              </div>
-            )}
-
-            {/* No Students Found */}
-            {!loadingStudents && studentsForSection.length === 0 && (
-              <div className='text-center py-8 text-muted-foreground'>
-                <Users className='h-12 w-12 mx-auto mb-4 opacity-50' />
-                <p>No students found for the selected criteria</p>
-              </div>
-            )}
-
-            {/* No Students Match Search */}
-            {!loadingStudents &&
-              studentsForSection.length > 0 &&
-              filteredStudents.length === 0 && (
-                <div className='text-center py-8 text-muted-foreground'>
-                  <Search className='h-12 w-12 mx-auto mb-4 opacity-50' />
-                  <p>
-                    No students match your search for &ldquo;{studentSearchTerm}
-                    &rdquo;
-                  </p>
+            {/* Student Attendance Section */}
+            {showStudents && (
+              <>
+                {/* Back to Periods Button */}
+                <div className='flex items-center gap-3 mb-4'>
                   <Button
                     variant='outline'
-                    size='sm'
-                    className='mt-2'
-                    onClick={() => setStudentSearchTerm('')}
+                    onClick={() => {
+                      setShowStudents(false);
+                      setSelectedPeriod(null);
+                      setAttendanceCompleted({
+                        isCompleted: false,
+                        details: null
+                      });
+                      setStudentsForSection([]);
+                      setLoadingPeriodData(false);
+                    }}
+                    className='flex items-center gap-2'
+                    disabled={loadingPeriodData}
                   >
-                    Clear Search
+                    <RotateCcw className='h-4 w-4' />
+                    Back to Periods
                   </Button>
+                  {selectedPeriod && (
+                    <div className='flex items-center gap-2 text-sm text-gray-600'>
+                      <Calendar className='h-4 w-4' />
+                      <span>
+                        {
+                          availablePeriods.find(
+                            (p) => p.timetable_slot_id === selectedPeriod
+                          )?.period_name
+                        }
+                        (
+                        {
+                          availablePeriods.find(
+                            (p) => p.timetable_slot_id === selectedPeriod
+                          )?.start_time
+                        }{' '}
+                        -{' '}
+                        {
+                          availablePeriods.find(
+                            (p) => p.timetable_slot_id === selectedPeriod
+                          )?.end_time
+                        }
+                        )
+                      </span>
+                    </div>
+                  )}
                 </div>
-              )}
+
+                {/* Loading State for Period Data */}
+                {loadingPeriodData && (
+                  <Card>
+                    <CardContent className='p-8'>
+                      <div className='flex flex-col items-center justify-center space-y-4'>
+                        <div className='flex items-center space-x-2'>
+                          <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600'></div>
+                          <span className='text-gray-600'>
+                            Checking attendance status...
+                          </span>
+                        </div>
+                        <p className='text-sm text-gray-500 text-center'>
+                          Please wait while we load the attendance data for this
+                          period.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Content - Only show when not loading */}
+                {!loadingPeriodData && (
+                  <>
+                    {/* Attendance Completed Details - Simple & Clean Design */}
+                    {attendanceCompleted.isCompleted &&
+                      attendanceCompleted.details && (
+                        <div className='space-y-6'>
+                          {/* Header Section */}
+                          <Card className='border-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white'>
+                            <CardContent className='p-6'>
+                              <div className='flex items-center justify-between mb-4'>
+                                <div className='flex items-center gap-3'>
+                                  <div className='flex items-center justify-center w-12 h-12 bg-white/20 rounded-lg'>
+                                    <Check className='h-6 w-6 text-white' />
+                                  </div>
+                                  <div>
+                                    <h2 className='text-xl font-bold text-white'>
+                                      Attendance Completed!
+                                    </h2>
+                                    <p className='text-green-100 text-sm'>
+                                      {attendanceCompleted.details.periodName} •{' '}
+                                      {attendanceCompleted.details.timeSlot}
+                                    </p>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant='ghost'
+                                  size='sm'
+                                  onClick={() => {
+                                    setShowStudents(false);
+                                    setSelectedPeriod(null);
+                                    setAttendanceCompleted({
+                                      isCompleted: false,
+                                      details: null
+                                    });
+                                  }}
+                                  className='text-white/80 hover:text-white hover:bg-white/20'
+                                >
+                                  <X className='h-4 w-4' />
+                                </Button>
+                              </div>
+
+                              {/* Stats Row */}
+                              <div className='grid grid-cols-4 gap-4 text-center'>
+                                <div>
+                                  <div className='text-2xl font-bold text-white'>
+                                    {attendanceCompleted.details.totalStudents}
+                                  </div>
+                                  <div className='text-green-100 text-sm'>
+                                    Total
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className='text-2xl font-bold text-white'>
+                                    {attendanceCompleted.details.presentCount}
+                                  </div>
+                                  <div className='text-green-100 text-sm'>
+                                    Present
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className='text-2xl font-bold text-white'>
+                                    {attendanceCompleted.details.absentCount}
+                                  </div>
+                                  <div className='text-green-100 text-sm'>
+                                    Absent
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className='text-2xl font-bold text-white'>
+                                    {
+                                      attendanceCompleted.details
+                                        .attendancePercentage
+                                    }
+                                    %
+                                  </div>
+                                  <div className='text-green-100 text-sm'>
+                                    Rate
+                                  </div>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+
+                          {/* Information Cards */}
+                          <div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-6'>
+                            {/* Academic Information */}
+                            <Card className='border-blue-200 bg-blue-50 shadow-sm hover:shadow-md transition-shadow'>
+                              <CardContent className='p-4 lg:p-6'>
+                                <div className='flex items-center gap-3 mb-4'>
+                                  <div className='p-2 bg-blue-100 rounded-lg'>
+                                    <BookOpen className='h-5 w-5 text-blue-600' />
+                                  </div>
+                                  <h3 className='font-semibold text-blue-900 text-sm lg:text-base'>
+                                    Academic Info
+                                  </h3>
+                                </div>
+                                <div className='space-y-3'>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Course
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {attendanceCompleted.details.courseName}
+                                    </span>
+                                  </div>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Section
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {attendanceCompleted.details.sectionName}
+                                    </span>
+                                  </div>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Department
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {
+                                        attendanceCompleted.details
+                                          .departmentName
+                                      }
+                                    </span>
+                                  </div>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Program
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {attendanceCompleted.details.programName}
+                                    </span>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+
+                            {/* Staff Information */}
+                            <Card className='border-purple-200 bg-purple-50 shadow-sm hover:shadow-md transition-shadow'>
+                              <CardContent className='p-4 lg:p-6'>
+                                <div className='flex items-center gap-3 mb-4'>
+                                  <div className='p-2 bg-purple-100 rounded-lg'>
+                                    <User className='h-5 w-5 text-purple-600' />
+                                  </div>
+                                  <h3 className='font-semibold text-purple-900 text-sm lg:text-base'>
+                                    Staff Details
+                                  </h3>
+                                </div>
+                                <div className='space-y-3'>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Assigned Faculty
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {attendanceCompleted.details.staffName}
+                                    </span>
+                                  </div>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Email
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {attendanceCompleted.details.staffEmail}
+                                    </span>
+                                  </div>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Marked by
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {attendanceCompleted.details.markedBy}
+                                    </span>
+                                  </div>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Marked at
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {attendanceCompleted.details.markedAt}
+                                    </span>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+
+                            {/* Session Information */}
+                            <Card className='border-amber-200 bg-amber-50 shadow-sm hover:shadow-md transition-shadow lg:col-span-2 xl:col-span-1'>
+                              <CardContent className='p-4 lg:p-6'>
+                                <div className='flex items-center gap-3 mb-4'>
+                                  <div className='p-2 bg-amber-100 rounded-lg'>
+                                    <Calendar className='h-5 w-5 text-amber-600' />
+                                  </div>
+                                  <h3 className='font-semibold text-amber-900 text-sm lg:text-base'>
+                                    Session Details
+                                  </h3>
+                                </div>
+                                <div className='space-y-3'>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Date
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {attendanceCompleted.details.date}
+                                    </span>
+                                  </div>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Time
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {attendanceCompleted.details.timeSlot}
+                                    </span>
+                                  </div>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Institution
+                                    </span>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                      {
+                                        attendanceCompleted.details
+                                          .institutionName
+                                      }
+                                    </span>
+                                  </div>
+                                  <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
+                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                      Status
+                                    </span>
+                                    <Badge className='bg-green-100 text-green-700 border-green-200 text-xs'>
+                                      <Check className='h-3 w-3 mr-1' />
+                                      Completed
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </div>
+                        </div>
+                      )}
+
+                    {/* Attendance Warning - Only show if attendance not completed */}
+                    {!attendanceCompleted.isCompleted && (
+                      <div className='flex items-center gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg'>
+                        <AlertTriangle className='h-5 w-5 text-orange-600' />
+                        <span className='text-orange-800'>
+                          Attendance not yet recorded
+                        </span>
+                        <div className='ml-auto text-orange-600 text-sm'>
+                          {(() => {
+                            const total = studentsForSection.length;
+                            const present = studentsForSection.filter(
+                              (s) => s.status === 'Present'
+                            ).length;
+                            const percentage =
+                              total > 0
+                                ? Math.round((present / total) * 100)
+                                : 100;
+                            const dateStr = searchContext.attendance_date
+                              ? format(
+                                  new Date(
+                                    searchContext.attendance_date + 'T00:00:00'
+                                  ),
+                                  'dd-MMM-yyyy'
+                                )
+                              : '';
+                            return `${present}/${total} | ${percentage}% attendance | ${dateStr}`;
+                          })()}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Period Selection and Controls - Only show if attendance not completed */}
+                    {availablePeriods.length > 0 &&
+                      !attendanceCompleted.isCompleted && (
+                        <div className='space-y-4 p-4 bg-blue-50 rounded-lg'>
+                          <div className='flex flex-wrap items-center gap-4'>
+                            <div className='flex items-center gap-2'>
+                              <Label>Period:</Label>
+                              <Select
+                                value={selectedPeriod || undefined}
+                                onValueChange={handlePeriodSelection}
+                              >
+                                <SelectTrigger className='w-48'>
+                                  <SelectValue placeholder='Select period' />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availablePeriods
+                                    .filter(
+                                      (period) =>
+                                        isSuperAdmin ||
+                                        attendancePermissions.get(
+                                          period.timetable_slot_id
+                                        ) === true
+                                    )
+                                    .map((period) => (
+                                      <SelectItem
+                                        key={period.timetable_slot_id}
+                                        value={period.timetable_slot_id}
+                                      >
+                                        {period.period_name} (
+                                        {period.start_time} - {period.end_time})
+                                        {period.course &&
+                                          ` - ${period.course.course_name}`}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {/* Show message if no periods available for staff */}
+                            {!isSuperAdmin &&
+                              availablePeriods.length > 0 &&
+                              availablePeriods.filter(
+                                (p) =>
+                                  attendancePermissions.get(
+                                    p.timetable_slot_id
+                                  ) === true
+                              ).length === 0 && (
+                                <div className='text-sm text-orange-600 bg-orange-50 p-2 rounded border border-orange-200'>
+                                  <AlertTriangle className='h-4 w-4 inline mr-1' />
+                                  No periods available - You are not assigned to
+                                  teach any periods for this class on this date.
+                                </div>
+                              )}
+
+                            <div className='flex items-center gap-2 flex-1 min-w-[200px]'>
+                              <Label>Search:</Label>
+                              <div className='relative flex-1'>
+                                <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+                                <Input
+                                  placeholder='Search by name or roll number...'
+                                  value={studentSearchTerm}
+                                  onChange={(e) =>
+                                    setStudentSearchTerm(e.target.value)
+                                  }
+                                  className='pl-10 pr-10'
+                                />
+                                {studentSearchTerm && (
+                                  <Button
+                                    variant='ghost'
+                                    size='sm'
+                                    className='absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0'
+                                    onClick={() => setStudentSearchTerm('')}
+                                  >
+                                    <X className='h-4 w-4' />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className='flex flex-wrap items-center gap-4'>
+                            <div className='flex items-center gap-2'>
+                              <Label>Sort by Roll No.</Label>
+                              <Button
+                                variant='outline'
+                                size='sm'
+                                onClick={() => {
+                                  setSortByRollNo(!sortByRollNo);
+                                  setSortByName(false);
+                                }}
+                              >
+                                <Check
+                                  className={`h-3 w-3 mr-1 ${
+                                    sortByRollNo ? '' : 'opacity-0'
+                                  }`}
+                                />
+                                {sortByRollNo ? 'YES' : 'NO'}
+                              </Button>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                              <Label>Name A-Z</Label>
+                              <Button
+                                variant='outline'
+                                size='sm'
+                                onClick={() => {
+                                  setSortByName(!sortByName);
+                                  setSortByRollNo(false);
+                                }}
+                              >
+                                <Check
+                                  className={`h-3 w-3 mr-1 ${
+                                    sortByName ? '' : 'opacity-0'
+                                  }`}
+                                />
+                                {sortByName ? 'YES' : 'NO'}
+                              </Button>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                              <Label>All absent</Label>
+                              <Button
+                                variant='outline'
+                                size='sm'
+                                onClick={() => {
+                                  const newAllAbsent = !allAbsent;
+                                  setAllAbsent(newAllAbsent);
+                                  if (newAllAbsent) {
+                                    setStudentsForSection((prev) =>
+                                      prev.map((student) => ({
+                                        ...student,
+                                        status: 'Absent'
+                                      }))
+                                    );
+                                  } else {
+                                    setStudentsForSection((prev) =>
+                                      prev.map((student) => ({
+                                        ...student,
+                                        status: 'Present'
+                                      }))
+                                    );
+                                  }
+                                }}
+                              >
+                                <Check
+                                  className={`h-3 w-3 mr-1 ${
+                                    allAbsent ? '' : 'opacity-0'
+                                  }`}
+                                />
+                                {allAbsent ? 'YES' : 'NO'}
+                              </Button>
+                            </div>
+                            <div className='ml-auto text-blue-800 text-sm'>
+                              {filteredStudents.length} of{' '}
+                              {studentsForSection.length} student(s)
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                    {/* Period Selection for Completed Attendance */}
+                    {attendanceCompleted.isCompleted && selectedPeriod && (
+                      <div className='space-y-4 p-4 bg-green-50 rounded-lg border border-green-200'>
+                        <div className='flex items-center gap-4'>
+                          <div className='flex items-center gap-2'>
+                            <Check className='h-4 w-4 text-green-600' />
+                            <Label className='text-green-800 font-medium'>
+                              Selected Period:
+                            </Label>
+                            <span className='text-green-700'>
+                              {
+                                availablePeriods.find(
+                                  (p) => p.timetable_slot_id === selectedPeriod
+                                )?.period_name
+                              }
+                              (
+                              {
+                                availablePeriods.find(
+                                  (p) => p.timetable_slot_id === selectedPeriod
+                                )?.start_time
+                              }{' '}
+                              -{' '}
+                              {
+                                availablePeriods.find(
+                                  (p) => p.timetable_slot_id === selectedPeriod
+                                )?.end_time
+                              }
+                              )
+                              {availablePeriods.find(
+                                (p) => p.timetable_slot_id === selectedPeriod
+                              )?.course &&
+                                ` - ${
+                                  availablePeriods.find(
+                                    (p) =>
+                                      p.timetable_slot_id === selectedPeriod
+                                  )?.course?.course_name
+                                }`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* No Periods Available Message */}
+                    {!loadingStudents &&
+                      studentsForSection.length > 0 &&
+                      availablePeriods.length === 0 && (
+                        <div className='flex items-center gap-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg'>
+                          <AlertTriangle className='h-5 w-5 text-yellow-600' />
+                          <div>
+                            <p className='text-yellow-800 font-medium'>
+                              No periods available for the selected date
+                            </p>
+                            <p className='text-yellow-700 text-sm'>
+                              {isSuperAdmin
+                                ? 'No timetable periods are configured for this class on the selected date.'
+                                : 'You are not assigned to teach any periods for this class on the selected date, or no periods are configured.'}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                    {/* Save Attendance Button - Only show if attendance not completed */}
+                    {!loadingStudents &&
+                      studentsForSection.length > 0 &&
+                      !attendanceCompleted.isCompleted && (
+                        <div className='flex justify-end gap-3'>
+                          <Button
+                            variant='outline'
+                            onClick={() => {
+                              // Mark all as present
+                              setStudentsForSection((prev) =>
+                                prev.map((student) => ({
+                                  ...student,
+                                  status: 'Present'
+                                }))
+                              );
+                            }}
+                          >
+                            Mark All Present
+                          </Button>
+                          <Button
+                            variant='outline'
+                            onClick={() => {
+                              // Mark all as absent
+                              setStudentsForSection((prev) =>
+                                prev.map((student) => ({
+                                  ...student,
+                                  status: 'Absent'
+                                }))
+                              );
+                            }}
+                          >
+                            Mark All Absent
+                          </Button>
+                          <Dialog
+                            open={showConfirmDialog}
+                            onOpenChange={setShowConfirmDialog}
+                          >
+                            <DialogTrigger asChild>
+                              <Button
+                                className='flex items-center gap-2'
+                                disabled={
+                                  !selectedPeriod ||
+                                  studentsForSection.length === 0 ||
+                                  savingAttendance ||
+                                  (!isSuperAdmin &&
+                                    attendancePermissions.get(
+                                      selectedPeriod
+                                    ) !== true)
+                                }
+                              >
+                                <Check className='h-4 w-4' />
+                                {savingAttendance
+                                  ? 'Saving...'
+                                  : 'Save Attendance'}
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className='sm:max-w-[600px]'>
+                              <DialogHeader>
+                                <DialogTitle className='flex items-center gap-2'>
+                                  <AlertTriangle className='h-5 w-5 text-orange-600' />
+                                  Confirm Attendance Submission
+                                </DialogTitle>
+                                <DialogDescription>
+                                  Please review the attendance details before
+                                  submitting. This action cannot be undone.
+                                </DialogDescription>
+                              </DialogHeader>
+
+                              <div className='py-4'>
+                                <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                                  {/* Left Column - Period Details */}
+                                  <div className='space-y-3'>
+                                    <h4 className='font-semibold text-gray-800 flex items-center gap-2'>
+                                      <Calendar className='h-4 w-4' />
+                                      Period Information
+                                    </h4>
+                                    <div className='space-y-2 text-sm'>
+                                      <div className='flex justify-between'>
+                                        <span className='text-gray-600'>
+                                          Period:
+                                        </span>
+                                        <span className='font-medium'>
+                                          {availablePeriods.find(
+                                            (p) =>
+                                              p.timetable_slot_id ===
+                                              selectedPeriod
+                                          )?.period_name || 'Unknown'}
+                                        </span>
+                                      </div>
+                                      <div className='flex justify-between'>
+                                        <span className='text-gray-600'>
+                                          Time:
+                                        </span>
+                                        <span className='font-medium'>
+                                          {(() => {
+                                            const period =
+                                              availablePeriods.find(
+                                                (p) =>
+                                                  p.timetable_slot_id ===
+                                                  selectedPeriod
+                                              );
+                                            return `${period?.start_time} - ${period?.end_time}`;
+                                          })()}
+                                        </span>
+                                      </div>
+                                      <div className='flex justify-between'>
+                                        <span className='text-gray-600'>
+                                          Course:
+                                        </span>
+                                        <span className='font-medium'>
+                                          {availablePeriods.find(
+                                            (p) =>
+                                              p.timetable_slot_id ===
+                                              selectedPeriod
+                                          )?.course?.course_name || 'N/A'}
+                                        </span>
+                                      </div>
+                                      <div className='flex justify-between'>
+                                        <span className='text-gray-600'>
+                                          Date:
+                                        </span>
+                                        <span className='font-medium'>
+                                          {searchContext.attendance_date
+                                            ? format(
+                                                new Date(
+                                                  searchContext.attendance_date +
+                                                    'T00:00:00'
+                                                ),
+                                                'dd-MMM-yyyy'
+                                              )
+                                            : ''}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Right Column - Attendance Summary */}
+                                  <div className='space-y-3'>
+                                    <h4 className='font-semibold text-gray-800 flex items-center gap-2'>
+                                      <BarChart3 className='h-4 w-4' />
+                                      Attendance Summary
+                                    </h4>
+                                    <div className='space-y-2 text-sm'>
+                                      <div className='flex justify-between'>
+                                        <span className='text-gray-600'>
+                                          Present:
+                                        </span>
+                                        <span className='font-medium text-green-600'>
+                                          {
+                                            studentsForSection.filter(
+                                              (s) => s.status === 'Present'
+                                            ).length
+                                          }{' '}
+                                          students
+                                        </span>
+                                      </div>
+                                      <div className='flex justify-between'>
+                                        <span className='text-gray-600'>
+                                          Absent:
+                                        </span>
+                                        <span className='font-medium text-red-600'>
+                                          {
+                                            studentsForSection.filter(
+                                              (s) => s.status === 'Absent'
+                                            ).length
+                                          }{' '}
+                                          students
+                                        </span>
+                                      </div>
+                                      <div className='flex justify-between'>
+                                        <span className='text-gray-600'>
+                                          Total:
+                                        </span>
+                                        <span className='font-medium'>
+                                          {studentsForSection.length} students
+                                        </span>
+                                      </div>
+                                      <div className='flex justify-between'>
+                                        <span className='text-gray-600'>
+                                          Attendance Rate:
+                                        </span>
+                                        <span className='font-medium text-blue-600'>
+                                          {Math.round(
+                                            (studentsForSection.filter(
+                                              (s) => s.status === 'Present'
+                                            ).length /
+                                              studentsForSection.length) *
+                                              100
+                                          )}
+                                          %
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Warning Message */}
+                                <div className='mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg'>
+                                  <p className='text-yellow-800 text-sm flex items-start gap-2'>
+                                    <AlertTriangle className='h-4 w-4 mt-0.5 flex-shrink-0' />
+                                    <span>
+                                      <strong>Important:</strong> Once
+                                      submitted, this attendance record will be
+                                      saved to the database. Make sure all
+                                      attendance statuses are correct before
+                                      proceeding.
+                                    </span>
+                                  </p>
+                                </div>
+                              </div>
+
+                              <DialogFooter>
+                                <Button
+                                  variant='outline'
+                                  onClick={() => setShowConfirmDialog(false)}
+                                  disabled={savingAttendance}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  onClick={handleSaveAttendance}
+                                  disabled={savingAttendance}
+                                  className='flex items-center gap-2'
+                                >
+                                  <Check className='h-4 w-4' />
+                                  {savingAttendance
+                                    ? 'Saving...'
+                                    : 'Confirm & Save'}
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
+                        </div>
+                      )}
+
+                    {/* Loading State */}
+                    {loadingStudents && (
+                      <div className='text-center py-8'>
+                        <Loading title='Loading students...' />
+                      </div>
+                    )}
+
+                    {/* Attendance Already Completed Message */}
+                    {attendanceCompleted.isCompleted &&
+                      studentsForSection.length > 0 && (
+                        <div className='flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg'>
+                          <Check className='h-5 w-5 text-blue-600' />
+                          <div>
+                            <p className='text-blue-800 font-medium'>
+                              Attendance has been recorded for this period
+                            </p>
+                            <p className='text-blue-700 text-sm'>
+                              The attendance records below show the current
+                              status. To modify attendance, contact your system
+                              administrator.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                    {/* Students Grid */}
+                    {!loadingStudents && filteredStudents.length > 0 && (
+                      <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4'>
+                        {filteredStudents
+                          .slice() // Create a copy to avoid mutating original array
+                          .sort((a, b) => {
+                            if (sortByRollNo) {
+                              const rollA = a.roll_number || '';
+                              const rollB = b.roll_number || '';
+                              return rollA.localeCompare(rollB);
+                            } else if (sortByName) {
+                              return a.student_name.localeCompare(
+                                b.student_name
+                              );
+                            }
+                            return 0; // No sorting
+                          })
+                          .map((student) => (
+                            <Card
+                              key={student.id}
+                              className={`transition-all ${
+                                attendanceCompleted.isCompleted
+                                  ? 'opacity-75'
+                                  : 'cursor-pointer hover:shadow-md'
+                              }`}
+                              onClick={() =>
+                                attendanceCompleted.isCompleted
+                                  ? undefined
+                                  : toggleStudentStatus(student.id)
+                              }
+                            >
+                              <CardContent className='p-4 text-center'>
+                                <Avatar className='h-16 w-16 mx-auto mb-3'>
+                                  <AvatarImage
+                                    src={student.student_photo_url}
+                                  />
+                                  <AvatarFallback className='text-lg'>
+                                    {getInitials(student.student_name)}
+                                  </AvatarFallback>
+                                </Avatar>
+
+                                <h4 className='font-medium text-sm mb-1'>
+                                  {student.student_name}
+                                </h4>
+                                <p className='text-xs text-muted-foreground mb-3'>
+                                  {student.roll_number || 'No Roll Number'}
+                                </p>
+
+                                <Badge
+                                  variant={
+                                    student.status === 'Present'
+                                      ? 'default'
+                                      : 'destructive'
+                                  }
+                                  className='w-full justify-center'
+                                >
+                                  {student.status || 'Present'}
+                                </Badge>
+                              </CardContent>
+                            </Card>
+                          ))}
+                      </div>
+                    )}
+
+                    {/* No Students Found */}
+                    {!loadingStudents && studentsForSection.length === 0 && (
+                      <div className='text-center py-8 text-muted-foreground'>
+                        <Users className='h-12 w-12 mx-auto mb-4 opacity-50' />
+                        <p>No students found for the selected criteria</p>
+                      </div>
+                    )}
+
+                    {/* No Students Match Search */}
+                    {!loadingStudents &&
+                      studentsForSection.length > 0 &&
+                      filteredStudents.length === 0 && (
+                        <div className='text-center py-8 text-muted-foreground'>
+                          <Search className='h-12 w-12 mx-auto mb-4 opacity-50' />
+                          <p>
+                            No students match your search for &ldquo;
+                            {studentSearchTerm}
+                            &rdquo;
+                          </p>
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            className='mt-2'
+                            onClick={() => setStudentSearchTerm('')}
+                          >
+                            Clear Search
+                          </Button>
+                        </div>
+                      )}
+                  </>
+                )}
+              </>
+            )}
           </>
         )}
       </div>
