@@ -1089,10 +1089,8 @@ export default function TimetableDetailPage({
   // Add a period to the timetable
   const addPeriod = async (period: Period) => {
     if (!selectedPeriods.some((p) => p.id === period.id)) {
-      const newSelectedPeriods = sortPeriodsByName([
-        ...selectedPeriods,
-        period
-      ]);
+      // Add the period at the end of the existing list (don't sort)
+      const newSelectedPeriods = [...selectedPeriods, period];
       setSelectedPeriods(newSelectedPeriods);
 
       // Immediately save to database to prevent loss on refresh
@@ -1105,7 +1103,7 @@ export default function TimetableDetailPage({
 
         toast({
           title: 'Period Added',
-          description: `${period.period_name} has been added and saved to your timetable.`
+          description: `${period.period_name} has been added to the bottom of your timetable.`
         });
       } catch (err) {
         console.error('Error saving period selection:', err);
@@ -1155,6 +1153,9 @@ export default function TimetableDetailPage({
 
       // Clear unsaved changes flag after successful save
       setHasUnsavedChanges(false);
+
+      // Close the period configuration dialog
+      setPeriodSelectorOpen(false);
 
       toast({
         title: 'Success',
