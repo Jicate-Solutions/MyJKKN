@@ -400,7 +400,7 @@ export class StudentSearchServiceOptimized {
     // Calculate bill amounts by status
     let totalBillAmount = 0;
     let totalOutstanding = 0;
-    let billsByStatus = {
+    const billsByStatus = {
       paid: 0,
       unpaid: 0,
       partially_paid: 0,
