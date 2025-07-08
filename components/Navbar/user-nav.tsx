@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { CustomRole } from '@/types/auth';
+import { TrophyIcon, ClipboardListIcon } from '@/components/icons';
 
 export function UserNav() {
   const { user, signOut } = useAuth();
@@ -110,6 +111,29 @@ export function UserNav() {
             <Link href='/profile' className='flex items-center cursor-pointer'>
               <User className='mr-2 h-4 w-4' />
               Profile
+            </Link>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuGroup>
+          <DropdownMenuItem asChild>
+            <Link
+              href='/my-bug-reports'
+              className='flex items-center cursor-pointer'
+            >
+              <ClipboardListIcon className='mr-2 h-4 w-4' />
+              My Bug Reports
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link
+              href='/bug-leaderboard'
+              className='flex items-center cursor-pointer'
+            >
+              <TrophyIcon className='mr-2 h-4 w-4' />
+              Bug Leaderboard
             </Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>

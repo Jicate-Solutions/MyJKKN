@@ -16,7 +16,10 @@ import {
   Edit,
   Plus,
   Minus,
-  X
+  X,
+  Bug,
+  Trophy,
+  ClipboardList
 } from 'lucide-react';
 
 // Export the icons directly
@@ -36,5 +39,8 @@ export {
   Edit as EditIcon,
   Plus as PlusIcon,
   Minus as MinusIcon,
-  X as XIcon
+  X as XIcon,
+  Bug as BugIcon,
+  Trophy as TrophyIcon,
+  ClipboardList as ClipboardListIcon
 };
