@@ -6,9 +6,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Bug, X, TestTube, Camera } from 'lucide-react';
+import { Bug, X, TestTube, Camera, Zap } from 'lucide-react';
 import html2canvas from 'html2canvas';
-import Image from 'next/image';
 
 // Store captured console logs
 const capturedLogs: any[] = [];
@@ -76,7 +75,6 @@ function safeStringify(obj: any, maxDepth = 3): any {
       const result: any = {};
       for (const [k, v] of Object.entries(value)) {
         if (k === 'target' || k === 'currentTarget' || k === 'srcElement') {
-          // Skip DOM elements that often cause circular references
           result[k] = '[DOM Element]';
         } else {
           result[k] = replacer(k, v, depth + 1);
@@ -114,60 +112,295 @@ function isMobileDevice(): boolean {
   );
 }
 
-// Enhanced screenshot capture function with mobile support
-async function capturePageScreenshot(): Promise<string> {
+// High-quality screenshot capture using html2canvas with best practices
+async function captureScreenshotWithHtml2Canvas(): Promise<string> {
+  console.log('Starting html2canvas high-quality screenshot capture...');
+
   const isMobile = isMobileDevice();
 
-  // Mobile-specific handling
-  if (isMobile) {
-    console.log('Mobile device detected, using mobile-optimized capture...');
+  // Store current scroll position to restore later
+  const originalScrollX = window.scrollX;
+  const originalScrollY = window.scrollY;
 
-    // Option 1: Check clipboard for mobile screenshots (iOS/Android share functionality)
-    if ('clipboard' in navigator && 'read' in navigator.clipboard) {
-      try {
-        console.log('Checking clipboard for mobile screenshot...');
+  try {
+    // Scroll to top for consistent screenshots
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
 
-        const clipboardItems = await navigator.clipboard.read();
+    // Wait for scroll to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
-        for (const clipboardItem of clipboardItems) {
-          if (
-            clipboardItem.types.includes('image/png') ||
-            clipboardItem.types.includes('image/jpeg')
-          ) {
-            const mimeType = clipboardItem.types.includes('image/png')
-              ? 'image/png'
-              : 'image/jpeg';
-            const blob = await clipboardItem.getType(mimeType);
-            const dataURL = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.readAsDataURL(blob);
-            });
+    // html2canvas options optimized for better screenshot quality
+    const options = {
+      // Quality and scaling options
+      scale: Math.max(window.devicePixelRatio || 1, 2), // Force minimum 2x scale for crisp images
+      backgroundColor: '#ffffff', // White background to avoid transparency issues
 
-            console.log(
-              'Found mobile screenshot in clipboard, size:',
-              dataURL.length
-            );
-            return dataURL;
+      // Performance options
+      useCORS: true, // Enable CORS for cross-origin images
+      allowTaint: false, // Prevent canvas tainting for security
+      removeContainer: true, // Clean up temporary DOM elements
+      logging: false, // Disable logging for production
+
+      // Image handling
+      imageTimeout: isMobile ? 15000 : 30000, // Timeout for loading images
+
+      // Enhanced window dimensions - capture full scrollable content
+      windowWidth: Math.max(
+        window.innerWidth,
+        document.documentElement.scrollWidth
+      ),
+      windowHeight: Math.max(
+        window.innerHeight,
+        document.documentElement.scrollHeight
+      ),
+
+      // Capture full page content
+      width: Math.max(window.innerWidth, document.documentElement.scrollWidth),
+      height: Math.max(
+        window.innerHeight,
+        document.documentElement.scrollHeight
+      ),
+
+      // Scroll position - start from top
+      scrollX: 0,
+      scrollY: 0,
+
+      // Additional quality options
+      foreignObjectRendering: true, // Better text and complex element rendering
+
+      // Element filtering - ignore overlay elements
+      ignoreElements: (element: Element) => {
+        // Skip the bug reporter widget itself
+        if (element.classList.contains('bug-reporter-widget')) return true;
+
+        // Skip overlay elements by class
+        const className = element.className || '';
+        if (typeof className === 'string') {
+          const overlayClasses = [
+            'radix-portal',
+            'toast',
+            'modal',
+            'overlay',
+            'popup',
+            'dropdown',
+            'tooltip',
+            'popover',
+            'dialog',
+            'notification'
+          ];
+          if (overlayClasses.some((cls) => className.includes(cls))) {
+            return true;
           }
         }
 
-        console.log('No screenshot in mobile clipboard, using html2canvas...');
-      } catch (error) {
-        console.log('Mobile clipboard check failed, using html2canvas:', error);
+        // Skip elements by role
+        const role = element.getAttribute('role');
+        if (
+          role &&
+          ['dialog', 'alertdialog', 'tooltip', 'menu'].includes(role)
+        ) {
+          return true;
+        }
+
+        // Skip elements by data attributes
+        if (
+          element.hasAttribute('data-radix-portal') ||
+          element.hasAttribute('data-sonner-toaster') ||
+          element.hasAttribute('data-html2canvas-ignore')
+        ) {
+          return true;
+        }
+
+        // Skip hidden elements
+        const computedStyle = window.getComputedStyle(element);
+        if (
+          computedStyle.display === 'none' ||
+          computedStyle.visibility === 'hidden' ||
+          computedStyle.opacity === '0'
+        ) {
+          return true;
+        }
+
+        return false;
+      },
+
+      // Modify cloned document before rendering
+      onclone: (clonedDoc: Document) => {
+        // Remove any remaining overlay elements in the cloned document
+        const overlaySelectors = [
+          '[data-radix-portal]',
+          '[data-sonner-toaster]',
+          '.toast',
+          '[role="dialog"]',
+          '[role="alertdialog"]',
+          '.modal',
+          '.overlay',
+          '.popup',
+          '.bug-reporter-widget'
+        ];
+
+        overlaySelectors.forEach((selector) => {
+          try {
+            const elements = clonedDoc.querySelectorAll(selector);
+            elements.forEach((el) => el.remove());
+          } catch (e) {
+            console.warn('Failed to remove overlay elements:', e);
+          }
+        });
+
+        // Ensure high quality rendering with enhanced styles
+        try {
+          const style = clonedDoc.createElement('style');
+          style.textContent = `
+            * {
+              image-rendering: -webkit-optimize-contrast !important;
+              image-rendering: crisp-edges !important;
+              text-rendering: optimizeLegibility !important;
+              -webkit-font-smoothing: antialiased !important;
+              -moz-osx-font-smoothing: grayscale !important;
+              transform: translateZ(0) !important;
+              backface-visibility: hidden !important;
+            }
+            body {
+              overflow: visible !important;
+              position: static !important;
+            }
+            * {
+              box-shadow: none !important;
+              filter: none !important;
+              backdrop-filter: none !important;
+            }
+            img {
+              image-rendering: high-quality !important;
+              image-rendering: -webkit-optimize-contrast !important;
+            }
+          `;
+
+          // Safely append style to head with fallback
+          if (clonedDoc.head) {
+            clonedDoc.head.appendChild(style);
+          } else if (clonedDoc.documentElement) {
+            // Fallback: create head if it doesn't exist
+            const head = clonedDoc.createElement('head');
+            head.appendChild(style);
+            clonedDoc.documentElement.insertBefore(
+              head,
+              clonedDoc.documentElement.firstChild
+            );
+          }
+        } catch (e) {
+          console.warn('Failed to add quality styles:', e);
+        }
+
+        // Add timestamp to help with debugging (with safe body access)
+        try {
+          if (clonedDoc.body) {
+            const timestamp = clonedDoc.createElement('div');
+            timestamp.style.display = 'none';
+            timestamp.setAttribute(
+              'data-screenshot-timestamp',
+              new Date().toISOString()
+            );
+            clonedDoc.body.appendChild(timestamp);
+          }
+        } catch (e) {
+          console.warn('Failed to add timestamp:', e);
+        }
       }
+    };
+
+    console.log('Capturing with html2canvas options:', {
+      scale: options.scale,
+      backgroundColor: options.backgroundColor,
+      windowSize: `${options.windowWidth}x${options.windowHeight}`,
+      captureSize: `${options.width}x${options.height}`,
+      viewportSize: `${window.innerWidth}x${window.innerHeight}`,
+      scrollSize: `${document.documentElement.scrollWidth}x${document.documentElement.scrollHeight}`,
+      mobile: isMobile
+    });
+
+    // Wait a moment for any dynamic content to load
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // Capture with html2canvas - use document.documentElement for full page
+    const targetElement = document.documentElement;
+    const canvas = await html2canvas(targetElement, options);
+
+    // Convert to high-quality data URL
+    const dataUrl = canvas.toDataURL('image/png', 1.0);
+
+    console.log('html2canvas screenshot captured successfully:', {
+      size: dataUrl.length,
+      canvasSize: `${canvas.width}x${canvas.height}`,
+      quality: '100%'
+    });
+
+    // Restore original scroll position
+    window.scrollTo({
+      top: originalScrollY,
+      left: originalScrollX,
+      behavior: 'instant'
+    });
+
+    return dataUrl;
+  } catch (error) {
+    console.error('html2canvas capture failed:', error);
+
+    // Restore scroll position even on error
+    window.scrollTo({
+      top: originalScrollY,
+      left: originalScrollX,
+      behavior: 'instant'
+    });
+
+    // Fallback with simplified but reliable options
+    try {
+      console.log('Trying html2canvas fallback capture...');
+
+      // Simple but effective fallback options
+      const fallbackOptions = {
+        scale: Math.max(window.devicePixelRatio || 1, 1.5),
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        allowTaint: false,
+        logging: true, // Enable logging for debugging fallback
+        removeContainer: true,
+        imageTimeout: 10000,
+        windowWidth: window.innerWidth,
+        windowHeight: window.innerHeight,
+        ignoreElements: (element: Element) => {
+          return (
+            element.classList.contains('bug-reporter-widget') ||
+            element.hasAttribute('data-radix-portal') ||
+            element.hasAttribute('data-sonner-toaster')
+          );
+        }
+      };
+
+      // Try with visible viewport first
+      const fallbackCanvas = await html2canvas(document.body, fallbackOptions);
+
+      const fallbackDataUrl = fallbackCanvas.toDataURL('image/png', 1.0);
+      console.log('Fallback html2canvas capture successful:', {
+        size: fallbackDataUrl.length,
+        canvasSize: `${fallbackCanvas.width}x${fallbackCanvas.height}`
+      });
+      return fallbackDataUrl;
+    } catch (fallbackError) {
+      console.error('Fallback html2canvas also failed:', fallbackError);
+      throw new Error('Screenshot capture failed');
     }
-
-    // Option 2: Mobile-optimized html2canvas
-    return await captureMobileOptimizedScreenshot();
   }
+}
 
-  // Desktop handling (existing logic)
-  // Option 1: Try clipboard first (Windows native screenshots - highest quality)
+// Try clipboard first, then fallback to html2canvas
+async function capturePageScreenshot(): Promise<string> {
+  const isMobile = isMobileDevice();
+
+  // Option 1: Try clipboard first (for manual screenshots)
   if ('clipboard' in navigator && 'read' in navigator.clipboard) {
     try {
       console.log('Checking clipboard for existing screenshot...');
-
       const clipboardItems = await navigator.clipboard.read();
 
       for (const clipboardItem of clipboardItems) {
@@ -179,185 +412,17 @@ async function capturePageScreenshot(): Promise<string> {
             reader.readAsDataURL(blob);
           });
 
-          console.log('Found screenshot in clipboard, size:', dataURL.length);
+          console.log('Found high-quality screenshot in clipboard');
           return dataURL;
         }
       }
-
-      console.log('No screenshot in clipboard, trying other methods...');
     } catch (error) {
-      console.log('Clipboard check failed, trying other methods:', error);
+      console.log('Clipboard check failed, using html2canvas:', error);
     }
   }
 
-  // Option 2: Try Screen Capture API with current tab preference (Desktop only)
-  if ('getDisplayMedia' in navigator.mediaDevices) {
-    try {
-      console.log('Attempting to use Screen Capture API for current tab...');
-
-      // Request screen capture with preference for current tab
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 1 }
-        },
-        audio: false,
-        preferCurrentTab: true // This hints to prefer current tab
-      } as any); // Type assertion since preferCurrentTab might not be in types yet
-
-      // Create video element to capture frame
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.style.position = 'absolute';
-      video.style.top = '-9999px';
-      video.style.left = '-9999px';
-      document.body.appendChild(video);
-
-      return new Promise((resolve, reject) => {
-        video.onloadedmetadata = () => {
-          video.play();
-
-          // Wait for video to start playing
-          setTimeout(() => {
-            try {
-              // Create canvas and capture frame
-              const canvas = document.createElement('canvas');
-              canvas.width = video.videoWidth;
-              canvas.height = video.videoHeight;
-
-              const ctx = canvas.getContext('2d');
-              if (!ctx) throw new Error('Could not get canvas context');
-
-              ctx.drawImage(video, 0, 0);
-
-              // Stop the stream
-              stream.getTracks().forEach((track) => track.stop());
-
-              // Clean up
-              document.body.removeChild(video);
-
-              // Convert to data URL with high quality
-              const dataURL = canvas.toDataURL('image/png', 1.0);
-              console.log(
-                'Screen Capture API screenshot captured, size:',
-                dataURL.length
-              );
-              resolve(dataURL);
-            } catch (error) {
-              console.error('Error capturing frame:', error);
-              // Clean up
-              stream.getTracks().forEach((track) => track.stop());
-              document.body.removeChild(video);
-              reject(error);
-            }
-          }, 500);
-        };
-
-        video.onerror = (error) => {
-          console.error('Video error:', error);
-          stream.getTracks().forEach((track) => track.stop());
-          document.body.removeChild(video);
-          reject(error);
-        };
-      });
-    } catch (error) {
-      console.log(
-        'Screen Capture API failed, falling back to html2canvas:',
-        error
-      );
-    }
-  }
-
-  // Option 3: Fallback to improved html2canvas
-  return await captureMobileOptimizedScreenshot();
-}
-
-// Mobile-optimized html2canvas function
-async function captureMobileOptimizedScreenshot(): Promise<string> {
-  console.log('Using mobile-optimized html2canvas...');
-
-  const isMobile = isMobileDevice();
-
-  // Hide all potential overlay elements before taking screenshot
-  const elementsToHide = [
-    '[data-radix-portal]',
-    '[data-sonner-toaster]',
-    '.toast',
-    '[role="dialog"]',
-    '[role="alertdialog"]',
-    '.modal',
-    '.overlay',
-    '.popup'
-  ];
-
-  const hiddenElements: { element: HTMLElement; originalDisplay: string }[] =
-    [];
-
-  // Hide overlay elements
-  elementsToHide.forEach((selector) => {
-    const elements = document.querySelectorAll(
-      selector
-    ) as NodeListOf<HTMLElement>;
-    elements.forEach((element) => {
-      if (element.style.display !== 'none') {
-        hiddenElements.push({
-          element,
-          originalDisplay: element.style.display || ''
-        });
-        element.style.display = 'none';
-      }
-    });
-  });
-
-  try {
-    // Wait for elements to be hidden
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Mobile-optimized settings
-    const mobileSettings = {
-      height: window.innerHeight,
-      width: window.innerWidth,
-      scrollX: 0,
-      scrollY: 0,
-      useCORS: true,
-      allowTaint: false,
-      scale: isMobile ? 1 : window.devicePixelRatio || 2, // Lower scale for mobile to avoid memory issues
-      logging: false,
-      removeContainer: true,
-      backgroundColor: '#ffffff',
-      foreignObjectRendering: !isMobile, // Disable on mobile for better compatibility
-      imageTimeout: isMobile ? 15000 : 10000, // Longer timeout for mobile
-      windowWidth: window.innerWidth,
-      windowHeight: window.innerHeight,
-      ignoreElements: (element: Element) => {
-        return (
-          element.hasAttribute('data-radix-portal') ||
-          element.hasAttribute('data-sonner-toaster') ||
-          element.getAttribute('role') === 'dialog' ||
-          element.getAttribute('role') === 'alertdialog' ||
-          element.classList.contains('toast') ||
-          element.classList.contains('modal') ||
-          element.classList.contains('overlay') ||
-          element.classList.contains('popup')
-        );
-      }
-    };
-
-    // Capture with mobile-optimized settings
-    const canvas = await html2canvas(document.body, mobileSettings);
-
-    // Convert with appropriate quality (lower for mobile to reduce size)
-    const quality = isMobile ? 0.8 : 1.0;
-    const dataURL = canvas.toDataURL('image/jpeg', quality); // Use JPEG for mobile to reduce size
-    console.log('Mobile-optimized screenshot captured, size:', dataURL.length);
-    return dataURL;
-  } finally {
-    // Restore hidden elements
-    hiddenElements.forEach(({ element, originalDisplay }) => {
-      element.style.display = originalDisplay;
-    });
-  }
+  // Option 2: Use html2canvas for auto-capture
+  return await captureScreenshotWithHtml2Canvas();
 }
 
 export function BugReporterWidget() {
@@ -371,7 +436,6 @@ export function BugReporterWidget() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // This ensures the component only renders on the client
     setIsClient(true);
   }, []);
 
@@ -410,35 +474,28 @@ export function BugReporterWidget() {
     setIsCapturingScreenshot(true);
 
     try {
-      console.log('Starting automatic screenshot capture...');
+      console.log('Starting html2canvas screenshot capture...');
       const screenshot = await capturePageScreenshot();
       setCapturedScreenshot(screenshot);
-      console.log('Screenshot captured successfully, size:', screenshot.length);
+      console.log('Screenshot captured successfully');
 
-      // Open the dialog immediately
       setIsOpen(true);
 
-      // Show success message if screenshot was captured
-      if (screenshot) {
-        toast({
-          title: 'Bug Report Ready',
-          description: isMobileDevice()
-            ? 'Screenshot captured automatically. You can replace it with a manual one using device buttons if needed.'
-            : 'Screenshot captured automatically. You can replace it with a manual one if needed.',
-          variant: 'default'
-        });
-      }
+      toast({
+        title: 'Bug Report Ready',
+        description:
+          'Professional-quality screenshot captured with html2canvas!',
+        variant: 'default'
+      });
     } catch (error) {
       console.error('Failed to capture screenshot:', error);
-
-      // Still open the dialog even if screenshot fails
       setIsOpen(true);
 
       toast({
         title: 'Bug Report Ready',
         description: isMobileDevice()
-          ? 'You can add a high-quality screenshot manually using your device screenshot buttons.'
-          : 'You can add a high-quality screenshot manually using Windows + Shift + S.',
+          ? 'Screenshot failed. You can add one manually using device screenshot buttons.'
+          : 'Screenshot failed. You can add one manually using Windows + Shift + S.',
         variant: 'default'
       });
     } finally {
@@ -452,134 +509,65 @@ export function BugReporterWidget() {
     const isMobile = isMobileDevice();
 
     try {
-      // Check if clipboard API is supported
       if ('clipboard' in navigator && 'read' in navigator.clipboard) {
-        // Mobile-specific instructions
-        if (isMobile) {
-          const shouldTryClipboard = confirm(
-            'Mobile Screenshot Options:\n\n' +
-              'iOS:\n' +
-              '1. Press Home + Power buttons (or Volume Up + Power on newer devices)\n' +
-              '2. Take screenshot of this page\n' +
-              '3. Copy the screenshot\n' +
-              '4. Click OK to load from clipboard\n\n' +
-              'Android:\n' +
-              '1. Press Power + Volume Down buttons\n' +
-              '2. Take screenshot of this page\n' +
-              '3. Share → Copy to clipboard\n' +
-              '4. Click OK to load from clipboard\n\n' +
-              'Click OK to check clipboard, or Cancel to skip.'
-          );
+        const instructionMessage = isMobile
+          ? 'Mobile Screenshot:\n\n' +
+            'iOS: Press Home + Power (or Volume Up + Power)\n' +
+            'Android: Press Power + Volume Down\n\n' +
+            'Then copy the screenshot and click OK.'
+          : 'Desktop Screenshot:\n\n' +
+            'Press Windows + Shift + S (Snipping Tool)\n' +
+            'Select the area to capture\n' +
+            'Click OK to load from clipboard';
 
-          if (shouldTryClipboard) {
-            try {
-              const clipboardItems = await navigator.clipboard.read();
+        if (confirm(instructionMessage)) {
+          const clipboardItems = await navigator.clipboard.read();
 
-              for (const clipboardItem of clipboardItems) {
-                if (
-                  clipboardItem.types.includes('image/png') ||
-                  clipboardItem.types.includes('image/jpeg')
-                ) {
-                  const mimeType = clipboardItem.types.includes('image/png')
-                    ? 'image/png'
-                    : 'image/jpeg';
-                  const blob = await clipboardItem.getType(mimeType);
-                  const dataURL = await new Promise<string>((resolve) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result as string);
-                    reader.readAsDataURL(blob);
-                  });
+          for (const clipboardItem of clipboardItems) {
+            const imageType = clipboardItem.types.find(
+              (type) =>
+                type.includes('image/png') || type.includes('image/jpeg')
+            );
 
-                  setCapturedScreenshot(dataURL);
-                  toast({
-                    title: 'Mobile Screenshot Added!',
-                    description: 'High-quality screenshot loaded successfully.',
-                    variant: 'default'
-                  });
-                  return;
-                }
-              }
-
-              // No image found
-              toast({
-                title: 'No Screenshot Found',
-                description:
-                  'Please take a screenshot first using your device buttons, then try again.',
-                variant: 'destructive'
+            if (imageType) {
+              const blob = await clipboardItem.getType(imageType);
+              const dataURL = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
               });
-            } catch (clipboardError) {
-              console.error('Mobile clipboard access failed:', clipboardError);
+
+              setCapturedScreenshot(dataURL);
               toast({
-                title: 'Clipboard Access Limited',
+                title: 'Manual Screenshot Added!',
                 description:
-                  'Mobile browsers have limited clipboard access. The automatic capture will be used instead.',
+                  'High-quality manual screenshot loaded successfully.',
                 variant: 'default'
               });
+              return;
             }
           }
-        } else {
-          // Desktop instructions (existing)
-          const shouldTryClipboard = confirm(
-            'For best screenshot quality:\n\n' +
-              '1. Press Windows + Shift + S (Snipping Tool)\n' +
-              '2. Select the area you want to capture\n' +
-              '3. Click OK to load from clipboard\n\n' +
-              'Alternative: Press Print Screen, then click OK\n\n' +
-              'Click OK to check clipboard, or Cancel to skip.'
-          );
 
-          if (shouldTryClipboard) {
-            try {
-              const clipboardItems = await navigator.clipboard.read();
-
-              for (const clipboardItem of clipboardItems) {
-                if (clipboardItem.types.includes('image/png')) {
-                  const blob = await clipboardItem.getType('image/png');
-                  const dataURL = await new Promise<string>((resolve) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result as string);
-                    reader.readAsDataURL(blob);
-                  });
-
-                  setCapturedScreenshot(dataURL);
-                  toast({
-                    title: 'High-Quality Screenshot Added!',
-                    description:
-                      'Screenshot loaded from clipboard successfully.',
-                    variant: 'default'
-                  });
-                  return;
-                }
-              }
-
-              // No image found
-              toast({
-                title: 'No Screenshot Found',
-                description:
-                  'Please take a screenshot first (Windows + Shift + S), then try again.',
-                variant: 'destructive'
-              });
-            } catch (clipboardError) {
-              console.error('Clipboard access failed:', clipboardError);
-              toast({
-                title: 'Clipboard Access Denied',
-                description:
-                  'Please allow clipboard permissions in your browser settings.',
-                variant: 'destructive'
-              });
-            }
-          }
+          toast({
+            title: 'No Screenshot Found',
+            description: 'Please take a screenshot first, then try again.',
+            variant: 'destructive'
+          });
         }
       } else {
-        // Clipboard not supported
         toast({
           title: 'Manual Screenshot Not Available',
-          description: isMobile
-            ? 'Your mobile browser does not support clipboard access for manual screenshots.'
-            : 'Your browser does not support clipboard access for manual screenshots.',
+          description: 'Your browser does not support clipboard access.',
           variant: 'destructive'
         });
       }
+    } catch (error) {
+      console.error('Manual screenshot failed:', error);
+      toast({
+        title: 'Screenshot Failed',
+        description: 'Could not access clipboard for manual screenshot.',
+        variant: 'destructive'
+      });
     } finally {
       setIsCapturingScreenshot(false);
     }
@@ -599,22 +587,21 @@ export function BugReporterWidget() {
 
     try {
       console.log('Starting bug report submission...');
-
-      // Safely serialize console logs
       const safeLogs = serializeConsoleArgs(capturedLogs);
       console.log('Console logs serialized, count:', safeLogs.length);
 
-      // Prepare payload with the pre-captured screenshot
       const payload = {
         page_url: window.location.href,
         description: description.trim(),
-        screenshot_data_url: capturedScreenshot, // Use the pre-captured screenshot
+        screenshot_data_url: capturedScreenshot,
         console_logs: safeLogs,
         metadata: {
           userAgent: navigator.userAgent,
           screenResolution: `${screen.width}x${screen.height}`,
           viewport: `${window.innerWidth}x${window.innerHeight}`,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          captureMethod: capturedScreenshot ? 'html2canvas' : 'none',
+          devicePixelRatio: window.devicePixelRatio
         }
       };
 
@@ -622,12 +609,9 @@ export function BugReporterWidget() {
         page_url: payload.page_url,
         description_length: payload.description.length,
         screenshot_size: payload.screenshot_data_url.length,
-        console_logs_count: payload.console_logs.length,
-        metadata: payload.metadata
+        console_logs_count: payload.console_logs.length
       });
 
-      // Submit the bug report
-      console.log('Submitting bug report...');
       const response = await fetch('/api/bug-reports', {
         method: 'POST',
         headers: {
@@ -636,8 +620,6 @@ export function BugReporterWidget() {
         body: JSON.stringify(payload)
       });
 
-      console.log('Response status:', response.status);
-
       if (!response.ok) {
         const errorData = await response.json();
         console.error('Server error:', errorData);
@@ -645,7 +627,6 @@ export function BugReporterWidget() {
         let errorMessage = 'Failed to create bug report.';
         if (errorData.error) {
           if (Array.isArray(errorData.error)) {
-            // Zod validation errors
             errorMessage = errorData.error
               .map((err: any) => err.message)
               .join(', ');
@@ -665,12 +646,9 @@ export function BugReporterWidget() {
         description: 'Thank you for reporting this issue!'
       });
 
-      // Reset form
       setDescription('');
       setCapturedScreenshot('');
       setIsOpen(false);
-
-      // Clear captured logs
       capturedLogs.length = 0;
     } catch (error) {
       console.error('Bug report submission failed:', error);
@@ -687,7 +665,6 @@ export function BugReporterWidget() {
     }
   };
 
-  // Don't render on server
   if (!isClient) return null;
 
   return (
@@ -698,31 +675,35 @@ export function BugReporterWidget() {
         disabled={isCapturingScreenshot}
         className={`fixed ${
           isMobileDevice() ? 'bottom-4 right-4' : 'bottom-4 right-4'
-        } z-50 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-shadow`}
+        } z-50 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget`}
         variant='destructive'
         title={
           isCapturingScreenshot
             ? 'Capturing screenshot...'
-            : isMobileDevice()
-            ? 'Report a Bug (Mobile)'
-            : 'Report a Bug'
+            : 'Report a Bug (html2canvas Pro)'
         }
       >
         {isCapturingScreenshot ? (
-          <Camera className='w-5 h-5 animate-pulse' />
+          <Camera className='w-5 h-5 animate-pulse text-primary' />
         ) : (
-          <Bug className='w-5 h-5' />
+          <div className='relative'>
+            <Bug className='w-5 h-5 text-white' />
+          </div>
         )}
       </Button>
 
       {/* Bug Report Modal */}
       {isOpen && (
         <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'>
-          <Card className='w-full max-w-md'>
+          <Card className='w-full max-w-md max-h-[90vh] overflow-y-auto'>
             <CardHeader className='flex flex-row items-center justify-between'>
               <CardTitle className='flex items-center gap-2'>
                 <Bug className='w-5 h-5' />
                 Report a Bug
+                <Badge variant='secondary' className='ml-2'>
+                  <Zap className='w-3 h-3 mr-1' />
+                  html2canvas
+                </Badge>
               </CardTitle>
               <Button
                 variant='ghost'
@@ -754,7 +735,10 @@ export function BugReporterWidget() {
               </div>
 
               <div className='flex items-center gap-2 text-sm text-muted-foreground'>
-                <Badge variant='outline'>Auto-captured</Badge>
+                <Badge variant='outline'>
+                  <Zap className='w-3 h-3 mr-1' />
+                  html2canvas Pro
+                </Badge>
                 <span>Console logs</span>
                 {capturedScreenshot && (
                   <>
@@ -766,11 +750,12 @@ export function BugReporterWidget() {
 
               {capturedScreenshot && (
                 <div>
-                  <label className='text-sm font-medium text-green-600'>
-                    ✓ Screenshot captured
+                  <label className='text-sm font-medium text-green-600 flex items-center gap-2'>
+                    <Zap className='w-4 h-4' />✓ Professional-quality screenshot
+                    captured
                   </label>
                   <div className='mt-1 border rounded overflow-hidden'>
-                    <Image
+                    <img
                       src={capturedScreenshot}
                       alt='Captured screenshot'
                       className='w-full h-20 object-cover object-top'
@@ -785,7 +770,7 @@ export function BugReporterWidget() {
                       className='text-xs'
                     >
                       <Camera className='w-3 h-3 mr-1' />
-                      Replace Screenshot
+                      Replace
                     </Button>
                     <Button
                       variant='outline'
