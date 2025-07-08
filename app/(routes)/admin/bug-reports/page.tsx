@@ -41,8 +41,14 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const colorClass = status === 'resolved' ? 'bg-green-500 text-white' : '';
 
   return (
-    <Badge variant={variant} className={colorClass}>
-      {status.replace(/_/g, ' ')}
+    <Badge
+      variant={variant}
+      className={`${colorClass} text-xs px-1 py-0.5 sm:px-2 sm:py-1`}
+    >
+      <span className='sm:hidden'>
+        {status === 'in_progress' ? 'Progress' : status.replace(/_/g, ' ')}
+      </span>
+      <span className='hidden sm:inline'>{status.replace(/_/g, ' ')}</span>
     </Badge>
   );
 };
@@ -86,33 +92,45 @@ export default function AdminBugReportsPage() {
         accessorKey: 'display_id',
         header: 'Bug ID',
         cell: ({ row }) => (
-          <span className='font-mono font-medium'>
+          <span className='font-mono font-medium text-xs sm:text-sm'>
             {row.original.display_id}
           </span>
         )
       },
       {
         accessorKey: 'created_at',
-        header: 'Created At',
-        cell: ({ row }) => new Date(row.original.created_at).toLocaleString()
+        header: 'Created',
+        cell: ({ row }) => (
+          <div className='text-xs sm:text-sm'>
+            <div className='sm:hidden'>
+              {new Date(row.original.created_at).toLocaleDateString()}
+            </div>
+            <div className='hidden sm:block'>
+              {new Date(row.original.created_at).toLocaleString()}
+            </div>
+          </div>
+        )
       },
       {
         accessorKey: 'description',
         header: 'Description',
         cell: ({ row }) => (
-          <div className='max-w-xs truncate'>{row.original.description}</div>
+          <div className='max-w-[150px] sm:max-w-xs truncate text-xs sm:text-sm'>
+            {row.original.description}
+          </div>
         )
       },
       {
         accessorKey: 'page_url',
-        header: 'Page URL',
+        header: 'Page',
         cell: ({ row }) => (
           <Link
             href={row.original.page_url}
             target='_blank'
-            className='text-blue-500 hover:underline'
+            className='text-blue-500 hover:underline text-xs sm:text-sm'
           >
-            View Page
+            <span className='sm:hidden'>View</span>
+            <span className='hidden sm:inline'>View Page</span>
           </Link>
         )
       },
@@ -123,6 +141,7 @@ export default function AdminBugReportsPage() {
       },
       {
         id: 'actions',
+        header: '',
         cell: ({ row }) => (
           <div className='text-right'>
             <DropdownMenu>
@@ -189,27 +208,11 @@ export default function AdminBugReportsPage() {
       fallback={<div>You do not have permission to view this page.</div>}
     >
       <ContentLayout title='Bug Reports'>
-        <DataTable
-          columns={columns}
-          data={reports}
-          permissions={{
-            module: 'system',
-            actions: { view: true }
-          }}
-          onRefresh={refetch}
-          serverSidePagination={{
-            currentPage: filters.page,
-            pageSize: filters.limit,
-            totalPages: metadata?.totalPages ?? 1,
-            totalItems: metadata?.total ?? 0,
-            onPageChange: handlePageChange,
-            onPageSizeChange: handlePageSizeChange,
-            isLoading: isLoading,
-            hasPreviousPage: filters.page > 1,
-            hasNextPage: filters.page < (metadata?.totalPages ?? 1)
-          }}
-          tableTools={
-            <div className='w-48'>
+        <div className='space-y-4'>
+          {/* Mobile-friendly header */}
+          <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
+            <h1 className='text-xl sm:text-2xl font-bold'>Bug Reports</h1>
+            <div className='w-full sm:w-48'>
               <Select
                 onValueChange={(value) =>
                   setFilters((prev) => ({
@@ -219,7 +222,7 @@ export default function AdminBugReportsPage() {
                   }))
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger className='w-full'>
                   <SelectValue placeholder='Filter by status...' />
                 </SelectTrigger>
                 <SelectContent>
@@ -231,8 +234,34 @@ export default function AdminBugReportsPage() {
                 </SelectContent>
               </Select>
             </div>
-          }
-        />
+          </div>
+
+          {/* Mobile-optimized DataTable */}
+          <div className='overflow-x-auto'>
+            <div className='min-w-[600px]'>
+              <DataTable
+                columns={columns}
+                data={reports}
+                permissions={{
+                  module: 'system',
+                  actions: { view: true }
+                }}
+                onRefresh={refetch}
+                serverSidePagination={{
+                  currentPage: filters.page,
+                  pageSize: filters.limit,
+                  totalPages: metadata?.totalPages ?? 1,
+                  totalItems: metadata?.total ?? 0,
+                  onPageChange: handlePageChange,
+                  onPageSizeChange: handlePageSizeChange,
+                  isLoading: isLoading,
+                  hasPreviousPage: filters.page > 1,
+                  hasNextPage: filters.page < (metadata?.totalPages ?? 1)
+                }}
+              />
+            </div>
+          </div>
+        </div>
       </ContentLayout>
     </AdminPermissionGuard>
   );

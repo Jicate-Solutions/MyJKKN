@@ -61,7 +61,7 @@ function BentoGridSecondDemo({
   greeting: string;
 }) {
   return (
-    <BentoGrid className='max-w-7xl mx-auto md:auto-rows-[20rem]'>
+    <BentoGrid className='max-w-7xl mx-auto px-2 sm:px-4'>
       {items.map((item, i) => (
         <BentoGridItem
           key={i}
@@ -91,21 +91,21 @@ const items = [
       greeting: string;
     }) => (
       <motion.div
-        className='w-full h-full flex flex-col justify-center p-6 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl relative overflow-hidden'
+        className='w-full h-full flex flex-col justify-center p-3 sm:p-6 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl relative overflow-hidden'
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
       >
         {/* Enhanced background animations - confetti effect */}
-        {Array.from({ length: 12 }).map((_, i) => (
+        {Array.from({ length: 8 }).map((_, i) => (
           <motion.div
             key={i}
             className={`absolute rounded-full opacity-${
               Math.random() > 0.5 ? '30' : '20'
             } blur-sm`}
             style={{
-              width: `${Math.random() * 20 + 10}px`,
-              height: `${Math.random() * 20 + 10}px`,
+              width: `${Math.random() * 15 + 8}px`,
+              height: `${Math.random() * 15 + 8}px`,
               top: `${Math.random() * 100}%`,
               left: `${Math.random() * 100}%`,
               backgroundColor: [
@@ -117,42 +117,42 @@ const items = [
               ][Math.floor(Math.random() * 5)]
             }}
             animate={{
-              y: [0, Math.random() * -100 - 50],
-              x: [0, (Math.random() - 0.5) * 100],
+              y: [0, Math.random() * -80 - 40],
+              x: [0, (Math.random() - 0.5) * 80],
               opacity: [0.7, 0],
               scale: [0, 1, 0.5]
             }}
             transition={{
-              duration: Math.random() * 10 + 10,
+              duration: Math.random() * 8 + 8,
               repeat: Infinity,
               ease: 'easeInOut',
-              repeatDelay: Math.random() * 5
+              repeatDelay: Math.random() * 4
             }}
           />
         ))}
 
         <motion.div
-          className='absolute top-0 right-0 w-32 h-32 bg-green-300 rounded-full opacity-20 blur-3xl'
+          className='absolute top-0 right-0 w-12 sm:w-24 lg:w-32 h-12 sm:h-24 lg:h-32 bg-green-300 rounded-full opacity-20 blur-3xl'
           animate={{
             scale: [1, 1.2, 1],
-            x: [0, 10, 0],
-            y: [0, -10, 0]
+            x: [0, 8, 0],
+            y: [0, -8, 0]
           }}
           transition={{
-            duration: 8,
+            duration: 6,
             repeat: Infinity,
             repeatType: 'reverse'
           }}
         />
         <motion.div
-          className='absolute bottom-10 left-10 w-24 h-24 bg-emerald-400 rounded-full opacity-20 blur-3xl'
+          className='absolute bottom-1 sm:bottom-6 lg:bottom-10 left-1 sm:left-6 lg:left-10 w-8 sm:w-16 lg:w-24 h-8 sm:h-16 lg:h-24 bg-emerald-400 rounded-full opacity-20 blur-3xl'
           animate={{
             scale: [1, 1.3, 1],
-            x: [0, -15, 0],
-            y: [0, 15, 0]
+            x: [0, -10, 0],
+            y: [0, 10, 0]
           }}
           transition={{
-            duration: 10,
+            duration: 8,
             repeat: Infinity,
             repeatType: 'reverse'
           }}
@@ -164,7 +164,7 @@ const items = [
           transition={{ delay: 0.3, duration: 0.8 }}
         >
           <motion.h1
-            className='text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-green-500 mb-2'
+            className='text-lg sm:text-2xl lg:text-3xl xl:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-green-500 mb-1 sm:mb-2 leading-tight'
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{
@@ -179,15 +179,15 @@ const items = [
 
           {/* Animated color underline effect */}
           <motion.div
-            className='h-1 bg-gradient-to-r from-green-500 via-green-500 to-green-500 rounded-full'
+            className='h-0.5 sm:h-1 bg-gradient-to-r from-green-500 via-green-500 to-green-500 rounded-full'
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: '40%', opacity: 1 }}
+            animate={{ width: '50%', opacity: 1 }}
             transition={{ delay: 0.8, duration: 0.6 }}
           />
         </motion.div>
 
         <motion.p
-          className='mt-4 text-sm text-gray-600 max-w-md'
+          className='mt-2 sm:mt-3 lg:mt-4 text-xs sm:text-sm text-gray-600 max-w-md leading-relaxed'
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.9, duration: 0.5 }}
@@ -197,22 +197,23 @@ const items = [
         </motion.p>
 
         <motion.div
-          className='mt-4'
+          className='mt-2 sm:mt-3 lg:mt-4'
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1.1, duration: 0.5 }}
         >
           <Button
             size='sm'
-            className='bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 shadow-md hover:shadow-lg transition-all'
+            className='bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 shadow-md hover:shadow-lg transition-all text-xs sm:text-sm px-3 sm:px-4 py-1.5 sm:py-2 h-8 sm:h-9'
           >
-            <Sparkles className='mr-2 h-4 w-4' />
-            Explore Dashboard
+            <Sparkles className='mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4' />
+            <span className='hidden xs:inline'>Explore Dashboard</span>
+            <span className='xs:hidden'>Explore</span>
           </Button>
         </motion.div>
       </motion.div>
     ),
-    className: 'md:col-span-2',
+    className: 'sm:col-span-2 lg:col-span-2',
     title: '',
     description: ''
   },
@@ -220,11 +221,11 @@ const items = [
     title: 'AI Intelligence',
     description: "India's first AI Empowered college management system",
     header: (
-      <div className='w-full h-full flex items-center justify-center rounded-xl overflow-hidden'>
+      <div className='w-full h-full flex items-center justify-center rounded-xl overflow-hidden p-2'>
         <AIChip embedded={true} />
       </div>
     ),
-    className: 'md:col-span-1'
+    className: 'sm:col-span-2 lg:col-span-1'
   }
 ];
 
@@ -258,23 +259,25 @@ function WidgetSelectionDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-4xl max-h-[80vh] overflow-y-auto'>
+      <DialogContent className='max-w-4xl max-h-[80vh] overflow-y-auto mx-4'>
         <DialogHeader>
-          <DialogTitle>Add Widget to Dashboard</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className='text-lg sm:text-xl'>
+            Add Widget to Dashboard
+          </DialogTitle>
+          <DialogDescription className='text-sm'>
             Choose from available widgets to add to your dashboard
           </DialogDescription>
         </DialogHeader>
 
-        <div className='space-y-6'>
+        <div className='space-y-4 sm:space-y-6'>
           {Object.entries(widgetTypes).map(([category, widgets]) => (
             <div key={category}>
-              <h3 className='text-lg font-semibold mb-3 flex items-center gap-2'>
+              <h3 className='text-base sm:text-lg font-semibold mb-2 sm:mb-3 flex items-center gap-2'>
                 {getCategoryIcon(category)}
                 {category.charAt(0).toUpperCase() + category.slice(1)} Widgets
               </h3>
 
-              <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
+              <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3'>
                 {widgets.map((widget) => (
                   <Card
                     key={widget.id}
@@ -284,21 +287,27 @@ function WidgetSelectionDialog({
                       onOpenChange(false);
                     }}
                   >
-                    <CardHeader className='pb-2'>
-                      <CardTitle className='text-sm flex items-center gap-2'>
+                    <CardHeader className='pb-2 p-3 sm:p-4'>
+                      <CardTitle className='text-xs sm:text-sm flex items-center gap-2'>
                         {getCategoryIcon(widget.category)}
                         {widget.widget_name}
                       </CardTitle>
                     </CardHeader>
-                    <CardContent>
-                      <p className='text-xs text-muted-foreground mb-2'>
+                    <CardContent className='p-3 sm:p-4 pt-0'>
+                      <p className='text-xs text-muted-foreground mb-2 leading-relaxed'>
                         {widget.description}
                       </p>
                       <div className='flex flex-wrap gap-1'>
-                        <Badge variant='outline' className='text-xs'>
+                        <Badge
+                          variant='outline'
+                          className='text-xs px-1.5 py-0.5'
+                        >
                           {widget.data_source}
                         </Badge>
-                        <Badge variant='secondary' className='text-xs'>
+                        <Badge
+                          variant='secondary'
+                          className='text-xs px-1.5 py-0.5'
+                        >
                           {widget.category}
                         </Badge>
                       </div>
@@ -413,17 +422,19 @@ export default function DashboardPage() {
   if (error) {
     return (
       <ContentLayout title='Dashboard'>
-        <div className='flex flex-col items-center justify-center min-h-[400px] max-w-[600px] mx-auto p-6 bg-red-50 rounded-lg border border-red-200'>
+        <div className='flex flex-col items-center justify-center min-h-[300px] sm:min-h-[400px] max-w-[600px] mx-auto p-4 sm:p-6 bg-red-50 rounded-lg border border-red-200'>
           <div className='text-red-500 mb-4'>
-            <AlertCircle size={40} />
+            <AlertCircle size={32} className='sm:w-10 sm:h-10' />
           </div>
-          <h2 className='text-xl font-semibold mb-2'>
+          <h2 className='text-lg sm:text-xl font-semibold mb-2 text-center'>
             Error Loading Dashboard
           </h2>
-          <p className='text-destructive text-center mb-6'>{error}</p>
+          <p className='text-destructive text-center mb-4 sm:mb-6 text-sm sm:text-base px-2'>
+            {error}
+          </p>
           <Button
             onClick={refreshDashboard}
-            className='flex items-center gap-2'
+            className='flex items-center gap-2 w-full sm:w-auto'
           >
             <RefreshCw className='h-4 w-4' />
             Retry
@@ -437,12 +448,13 @@ export default function DashboardPage() {
 
   return (
     <ContentLayout title='Dashboard'>
-      <div className='space-y-6'>
+      <div className='space-y-3 sm:space-y-4 lg:space-y-6 px-1 sm:px-2 lg:px-4'>
         {/* Default BentoGrid Layout - Always visible */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.3 }}
+          className='w-full'
         >
           <BentoGridSecondDemo
             currentUser={currentUser}
@@ -452,16 +464,18 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Dashboard Controls */}
-        <div className='flex items-center justify-between'>
-          <div className='flex items-center gap-4'>
-            <h1 className='text-2xl font-bold'>Analytics & Insights</h1>
+        <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 px-2 sm:px-4'>
+          <div className='flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4'>
+            <h1 className='text-lg sm:text-xl lg:text-2xl font-bold'>
+              Analytics & Insights
+            </h1>
 
             {configurations.length > 1 && (
               <Select
                 value={currentConfiguration?.id}
                 onValueChange={switchConfiguration}
               >
-                <SelectTrigger className='w-[200px]'>
+                <SelectTrigger className='w-full sm:w-[200px] h-9'>
                   <SelectValue placeholder='Select dashboard' />
                 </SelectTrigger>
                 <SelectContent>
@@ -483,10 +497,11 @@ export default function DashboardPage() {
           <Button
             variant='outline'
             onClick={refreshDashboard}
-            className='flex items-center gap-2'
+            className='flex items-center gap-2 w-full sm:w-auto h-9'
           >
             <RefreshCw className='h-4 w-4' />
-            Refresh
+            <span className='hidden xs:inline'>Refresh</span>
+            <span className='xs:hidden'>Refresh</span>
           </Button>
         </div>
 
@@ -495,6 +510,7 @@ export default function DashboardPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.6 }}
+          className='px-1 sm:px-2 lg:px-4'
         >
           <DashboardLayout
             configuration={currentConfiguration}
@@ -523,28 +539,40 @@ export default function DashboardPage() {
 // Loading skeleton for dashboard
 function DashboardSkeleton() {
   return (
-    <div className='space-y-6'>
-      <div className='flex items-center justify-between'>
-        <div className='flex items-center gap-4'>
-          <Skeleton className='h-8 w-64' />
-          <Skeleton className='h-10 w-[200px]' />
+    <div className='space-y-3 sm:space-y-4 lg:space-y-6 px-1 sm:px-2 lg:px-4'>
+      {/* BentoGrid Skeleton */}
+      <div className='max-w-7xl mx-auto px-2 sm:px-4'>
+        <div className='grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+          <div className='sm:col-span-2 lg:col-span-2 min-h-[200px] sm:min-h-[250px] rounded-xl border bg-muted animate-pulse' />
+          <div className='sm:col-span-2 lg:col-span-1 min-h-[200px] sm:min-h-[250px] rounded-xl border bg-muted animate-pulse' />
         </div>
-        <Skeleton className='h-10 w-32' />
       </div>
 
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'>
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Card key={i} className='h-[300px]'>
-            <CardHeader>
-              <Skeleton className='h-6 w-32' />
-              <Skeleton className='h-4 w-48' />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className='h-24 w-full mb-4' />
-              <Skeleton className='h-4 w-24' />
-            </CardContent>
-          </Card>
-        ))}
+      {/* Controls Skeleton */}
+      <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 px-2 sm:px-4'>
+        <div className='flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4'>
+          <Skeleton className='h-6 sm:h-7 lg:h-8 w-32 sm:w-48' />
+          <Skeleton className='h-8 sm:h-9 w-full sm:w-[200px]' />
+        </div>
+        <Skeleton className='h-8 sm:h-9 w-full sm:w-24' />
+      </div>
+
+      {/* Widgets Grid Skeleton */}
+      <div className='px-1 sm:px-2 lg:px-4'>
+        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-6'>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i} className='h-[200px] sm:h-[250px] lg:h-[300px]'>
+              <CardHeader className='p-3 sm:p-4 lg:p-6'>
+                <Skeleton className='h-3 sm:h-4 lg:h-6 w-20 sm:w-24 lg:w-32' />
+                <Skeleton className='h-2 sm:h-3 lg:h-4 w-28 sm:w-32 lg:w-48' />
+              </CardHeader>
+              <CardContent className='p-3 sm:p-4 lg:p-6 pt-0'>
+                <Skeleton className='h-12 sm:h-16 lg:h-24 w-full mb-2 sm:mb-3 lg:mb-4' />
+                <Skeleton className='h-2 sm:h-3 lg:h-4 w-12 sm:w-16 lg:w-24' />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );
