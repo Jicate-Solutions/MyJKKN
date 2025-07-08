@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Profile } from '@/types/auth';
-import { Shield, AlertCircle } from 'lucide-react';
+import { Shield, AlertCircle, Users, CheckSquare } from 'lucide-react';
 import { ROLE_LABELS } from '@/lib/constants/permissions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -26,6 +28,7 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { CustomRole } from '@/types/auth';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { UserService } from '@/lib/services/users/user-service';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 
 interface RolesListProps {
@@ -53,6 +56,7 @@ export function RolesList({
   paginationLoading
 }: RolesListProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showBulkRoleDialog, setShowBulkRoleDialog] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState<{
     userId: string;
@@ -62,6 +66,8 @@ export function RolesList({
   } | null>(null);
   const [availableRoles, setAvailableRoles] = useState<CustomRole[]>([]);
   const [isLoadingRoles, setIsLoadingRoles] = useState(true);
+  const [selectedBulkRole, setSelectedBulkRole] = useState<string>('');
+  const [pendingBulkUsers, setPendingBulkUsers] = useState<Profile[]>([]);
 
   // Fetch available roles
   useEffect(() => {
@@ -91,6 +97,35 @@ export function RolesList({
     setShowConfirmDialog(true);
   };
 
+  const handleBulkRoleUpdate = useCallback(
+    async (selectedUsers: Profile[]) => {
+      if (!selectedBulkRole) {
+        // Store users and show role selection dialog
+        setPendingBulkUsers(selectedUsers);
+        setShowBulkRoleDialog(true);
+        return;
+      }
+
+      try {
+        await UserService.bulkUpdateUserRoles(
+          selectedUsers.map((user) => user.id),
+          selectedBulkRole
+        );
+
+        // Refresh the data by calling onRoleUpdate for the first user to trigger refresh
+        if (selectedUsers.length > 0) {
+          await onRoleUpdate(selectedUsers[0].id, selectedBulkRole);
+        }
+      } catch (error) {
+        console.error('Error updating roles:', error);
+        throw error; // Re-throw to let DataTable handle the error
+      } finally {
+        setSelectedBulkRole('');
+      }
+    },
+    [selectedBulkRole, onRoleUpdate]
+  );
+
   const confirmRoleUpdate = async () => {
     if (!pendingUpdate) return;
 
@@ -106,6 +141,21 @@ export function RolesList({
       setIsUpdating(false);
       setShowConfirmDialog(false);
       setPendingUpdate(null);
+    }
+  };
+
+  const confirmBulkRoleUpdateWithRole = async () => {
+    if (!selectedBulkRole || pendingBulkUsers.length === 0) return;
+
+    try {
+      await handleBulkRoleUpdate(pendingBulkUsers);
+      setShowBulkRoleDialog(false);
+      setPendingBulkUsers([]);
+    } catch (error) {
+      console.error('Error updating roles:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update roles'
+      );
     }
   };
 
@@ -233,6 +283,16 @@ export function RolesList({
         }}
         getRowId={(row) => row.id}
         showRefresh={false}
+        onBulkAction={handleBulkRoleUpdate}
+        bulkActionConfig={{
+          label: 'Update Roles',
+          icon: Users,
+          variant: 'default',
+          confirmTitle: '', // Empty title means no confirmation dialog
+          successMessage: 'Successfully updated {count} user{plural} roles',
+          errorMessage: 'Failed to update user roles',
+          loadingText: 'Updating roles...'
+        }}
         serverSidePagination={{
           currentPage: metadata.page,
           totalPages: metadata.totalPages,
@@ -246,6 +306,7 @@ export function RolesList({
         }}
       />
 
+      {/* Individual Role Update Confirmation Dialog */}
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -265,6 +326,72 @@ export function RolesList({
               className='bg-primary'
             >
               {isUpdating ? 'Updating...' : 'Update Role'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Role Selection Dialog */}
+      <AlertDialog
+        open={showBulkRoleDialog}
+        onOpenChange={setShowBulkRoleDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Select Role for Bulk Update</AlertDialogTitle>
+            <AlertDialogDescription>
+              Choose the role to assign to {pendingBulkUsers.length} selected
+              user(s).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className='py-2'>
+            <div className='text-sm font-medium mb-2'>Users to update:</div>
+            <div className='max-h-32 overflow-y-auto bg-muted/30 rounded p-2'>
+              {pendingBulkUsers.slice(0, 5).map((user) => (
+                <div key={user.id} className='text-sm py-0.5'>
+                  • {user.full_name || user.email}
+                </div>
+              ))}
+              {pendingBulkUsers.length > 5 && (
+                <div className='text-sm py-0.5 text-muted-foreground'>
+                  • And {pendingBulkUsers.length - 5} more...
+                </div>
+              )}
+            </div>
+          </div>
+          <div className='py-4'>
+            <Select
+              value={selectedBulkRole}
+              onValueChange={setSelectedBulkRole}
+              disabled={isLoadingRoles}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='Select new role' />
+              </SelectTrigger>
+              <SelectContent>
+                {availableRoles.map((role) => (
+                  <SelectItem key={role.role_key} value={role.role_key}>
+                    {role.role_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setSelectedBulkRole('');
+                setPendingBulkUsers([]);
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmBulkRoleUpdateWithRole}
+              disabled={!selectedBulkRole}
+              className='bg-primary'
+            >
+              Update {pendingBulkUsers.length} User(s)
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

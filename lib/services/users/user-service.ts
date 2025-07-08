@@ -244,6 +244,51 @@ export class UserService {
     }
   }
 
+  static async bulkUpdateUserRoles(
+    userIds: string[],
+    newRole: string
+  ): Promise<{
+    success: string[];
+    failed: Array<{ userId: string; error: string }>;
+  }> {
+    try {
+      const response = await fetch('/api/users/bulk-role-update', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userIds,
+          role: newRole
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update roles');
+      }
+
+      const data = await response.json();
+
+      if (data.success.length > 0) {
+        toast.success(
+          `Successfully updated ${data.success.length} user(s) roles to ${newRole}`
+        );
+      }
+
+      if (data.failed.length > 0) {
+        toast.error(`Failed to update ${data.failed.length} user(s) roles`);
+      }
+
+      return data;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to update roles';
+      toast.error(message);
+      throw error;
+    }
+  }
+
   static async deactivateUser(userId: string): Promise<void> {
     try {
       const response = await fetch(`/api/users/${userId}/deactivate`, {
