@@ -202,9 +202,14 @@ export default function TimetableDetailPage({
   const [selectedStaff, setSelectedStaff] = useState<string[]>([]);
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
 
+  // State for staff planning courses and staff
+  const [staffPlanningCourses, setStaffPlanningCourses] = useState<any[]>([]);
+  const [staffPlanningStaff, setStaffPlanningStaff] = useState<any[]>([]);
+  const [loadingStaffPlanData, setLoadingStaffPlanData] = useState(false);
+
   // Fetch courses, staff and sections data
   const {
-    courses,
+    courses: allCourses,
     loading: loadingCourses,
     fetchCourses
   } = useCourses({
@@ -213,7 +218,7 @@ export default function TimetableDetailPage({
   });
 
   const {
-    staff,
+    staff: allStaff,
     loading: loadingStaff,
     fetchStaff
   } = useStaff({
@@ -221,6 +226,179 @@ export default function TimetableDetailPage({
   });
 
   const { sections, loading: loadingSections, fetchSections } = useSections();
+
+  // Fetch staff planning data based on timetable hierarchy
+  const fetchStaffPlanningData = useCallback(async () => {
+    if (!timetable) return;
+
+    try {
+      setLoadingStaffPlanData(true);
+
+      // CRITICAL: We must match the exact semester between timetable and staff planning
+      // Timetable is semester-specific, so only courses from that same semester's staff planning should be shown
+      let semesterIdForStaffPlan: string | undefined;
+
+      // If timetable has semester as object with id, use it directly
+      if (
+        typeof timetable.semester === 'object' &&
+        timetable.semester &&
+        'id' in timetable.semester
+      ) {
+        semesterIdForStaffPlan = (timetable.semester as any).id;
+        console.log('Using semester object ID:', semesterIdForStaffPlan);
+      }
+      // If timetable has semester as string, find the matching semester ID
+      else if (typeof timetable.semester === 'string') {
+        try {
+          console.log(
+            'Looking up semester ID for timetable semester:',
+            timetable.semester
+          );
+
+          // Find the semester ID by matching semester name within the same program/department context
+          const semestersResponse = await SemesterService.getSemesters({
+            program_id: timetable.program_id,
+            department_id: timetable.department_id,
+            isActive: true,
+            limit: 100
+          });
+
+          const matchingSemester = semestersResponse.data.find(
+            (semester) => semester.semester_name === timetable.semester
+          );
+
+          if (matchingSemester) {
+            semesterIdForStaffPlan = matchingSemester.id;
+            console.log(
+              '✓ Found matching semester ID:',
+              semesterIdForStaffPlan,
+              'for semester:',
+              timetable.semester
+            );
+          } else {
+            console.warn(
+              '✗ No matching semester found for:',
+              timetable.semester
+            );
+            console.log(
+              'Available semesters:',
+              semestersResponse.data.map((s) => s.semester_name)
+            );
+            // If we can't find the semester, don't show any staff planning data
+            setStaffPlanningCourses([]);
+            setStaffPlanningStaff([]);
+            return;
+          }
+        } catch (error) {
+          console.error('Error finding semester ID:', error);
+          setStaffPlanningCourses([]);
+          setStaffPlanningStaff([]);
+          return;
+        }
+      }
+
+      // If we don't have a semester ID, we can't properly match staff planning to timetable
+      if (!semesterIdForStaffPlan) {
+        console.warn(
+          'No semester ID available - cannot match staff planning to timetable semester'
+        );
+        setStaffPlanningCourses([]);
+        setStaffPlanningStaff([]);
+        return;
+      }
+
+      const staffPlanFilters = {
+        institution_id: timetable.institution_id,
+        degree_id: timetable.degree_id,
+        program_id: timetable.program_id,
+        department_id: timetable.department_id,
+        academic_year_id: timetable.academic_year_id,
+        semester_id: semesterIdForStaffPlan, // REQUIRED: Only show courses from this exact semester
+        isActive: true,
+        limit: 1000 // Get all active staff plans for this hierarchy
+      };
+
+      console.log('Fetching staff plans with filters:', staffPlanFilters);
+
+      // Fetch staff plans that match the timetable hierarchy
+      const staffPlansResult = await StaffPlanService.getStaffPlans(
+        staffPlanFilters
+      );
+
+      console.log('Found staff plans:', staffPlansResult.data.length);
+
+      if (staffPlansResult.data.length === 0) {
+        console.warn('No staff plans found for this timetable hierarchy');
+        setStaffPlanningCourses([]);
+        setStaffPlanningStaff([]);
+        return;
+      }
+
+      // Extract unique courses and staff from staff plans
+      const coursesSet = new Set<string>();
+      const staffSet = new Set<string>();
+      const courseDetailsMap = new Map<string, any>();
+      const staffDetailsMap = new Map<string, any>();
+
+      // Fetch course assignments for each staff plan
+      for (const staffPlan of staffPlansResult.data) {
+        try {
+          const courseAssignments = await StaffPlanService.getStaffPlanCourses(
+            staffPlan.id
+          );
+
+          console.log(
+            `Staff plan ${staffPlan.id} has ${courseAssignments.length} course assignments`
+          );
+
+          for (const assignment of courseAssignments) {
+            if (assignment.course && assignment.staff) {
+              coursesSet.add(assignment.course.id);
+              staffSet.add(assignment.staff.id);
+
+              // Store course details
+              courseDetailsMap.set(assignment.course.id, assignment.course);
+
+              // Store staff details
+              staffDetailsMap.set(assignment.staff.id, assignment.staff);
+            }
+          }
+        } catch (error) {
+          console.error(
+            `Error fetching courses for staff plan ${staffPlan.id}:`,
+            error
+          );
+        }
+      }
+
+      // Convert sets to arrays with details
+      const coursesFromStaffPlanning = Array.from(coursesSet)
+        .map((courseId) => courseDetailsMap.get(courseId))
+        .filter(Boolean);
+
+      const staffFromStaffPlanning = Array.from(staffSet)
+        .map((staffId) => staffDetailsMap.get(staffId))
+        .filter(Boolean);
+
+      console.log(
+        'Extracted courses from staff planning:',
+        coursesFromStaffPlanning.length
+      );
+      console.log(
+        'Extracted staff from staff planning:',
+        staffFromStaffPlanning.length
+      );
+
+      setStaffPlanningCourses(coursesFromStaffPlanning);
+      setStaffPlanningStaff(staffFromStaffPlanning);
+    } catch (error) {
+      console.error('Error fetching staff planning data:', error);
+      setStaffPlanningCourses([]);
+      setStaffPlanningStaff([]);
+    } finally {
+      setLoadingStaffPlanData(false);
+    }
+  }, [timetable]);
 
   // State for filtered sections
   const [filteredSections, setFilteredSections] = useState<any[]>([]);
@@ -319,12 +497,24 @@ export default function TimetableDetailPage({
     }
   }, [timetable]);
 
+  // Fetch staff planning data when timetable data is loaded
+  useEffect(() => {
+    if (timetable) {
+      fetchStaffPlanningData();
+    }
+  }, [timetable, fetchStaffPlanningData]);
+
   // Fetch filtered sections when timetable data is loaded
   useEffect(() => {
     if (timetable) {
       fetchFilteredSections();
     }
   }, [timetable, fetchFilteredSections]);
+
+  // Computed values for courses and staff to use in slot creation
+  const courses =
+    staffPlanningCourses.length > 0 ? staffPlanningCourses : allCourses;
+  const staff = staffPlanningStaff.length > 0 ? staffPlanningStaff : allStaff;
 
   // Helper function to sort periods by name naturally (Period 1, Period 2, etc.)
   const sortPeriodsByName = (periods: Period[]): Period[] => {
@@ -1725,6 +1915,8 @@ export default function TimetableDetailPage({
         filteredSections={filteredSections}
         loadingFilteredSections={loadingFilteredSections}
         timetable={timetable}
+        isUsingStaffPlanningData={staffPlanningCourses.length > 0}
+        loadingStaffPlanData={loadingStaffPlanData}
       />
 
       {/* Period Configuration Component */}
