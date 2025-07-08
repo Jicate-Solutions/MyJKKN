@@ -128,6 +128,43 @@ export default function RolesPage() {
     }
   };
 
+  const handleBulkRoleUpdate = async (userIds: string[], newRole: string) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // Check for super_admin users in the selection
+      const superAdminUsers = users.filter(
+        (user) => userIds.includes(user.id) && user.role === 'super_admin'
+      );
+
+      if (superAdminUsers.length > 0 && newRole !== 'super_admin') {
+        throw new Error(
+          `Cannot modify super admin roles: ${superAdminUsers
+            .map((u) => u.full_name || u.email)
+            .join(', ')}`
+        );
+      }
+
+      await UserService.bulkUpdateUserRoles(userIds, newRole);
+
+      // Refresh user list
+      const response = await UserService.getUsers(filters);
+      setUsers(response.data);
+      setMetadata(response.metadata);
+    } catch (error) {
+      console.error('Error updating roles:', error);
+      setError(
+        error instanceof Error ? error.message : 'Failed to update roles'
+      );
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update roles'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handlePageChange = (page: number) => {
     setFilters((prev) => ({
       ...prev,
