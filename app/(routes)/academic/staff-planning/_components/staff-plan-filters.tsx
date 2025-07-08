@@ -133,17 +133,21 @@ export function StaffPlanFilters({
 
   useEffect(() => {
     async function loadAcademicYears() {
-      try {
-        const result = await AcademicYearService.getAcademicYears({
-          isActive: true
-        });
-        setAcademicYears(result.data);
-      } catch (error) {
-        console.error('Error loading academic years:', error);
+      if (filters.institution_id) {
+        try {
+          const data = await AcademicYearService.getAcademicYearsByInstitution(
+            filters.institution_id
+          );
+          setAcademicYears(data);
+        } catch (error) {
+          console.error('Error loading academic years:', error);
+        }
+      } else {
+        setAcademicYears([]);
       }
     }
     loadAcademicYears();
-  }, []);
+  }, [filters.institution_id]);
 
   const debouncedSearch = useDebounce((value: string) => {
     onFilterChange({ search: value });
@@ -177,7 +181,8 @@ export function StaffPlanFilters({
               degree_id: undefined,
               department_id: undefined,
               program_id: undefined,
-              semester_id: undefined
+              semester_id: undefined,
+              academic_year_id: undefined
             })
           }
         >
@@ -299,6 +304,7 @@ export function StaffPlanFilters({
               academic_year_id: value === 'all' ? undefined : value
             })
           }
+          disabled={!filters.institution_id}
         >
           <SelectTrigger>
             <SelectValue placeholder='Select academic year' />

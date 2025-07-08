@@ -97,7 +97,43 @@ export class StaffPlanService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
-      // Add other filters...
+      if (filters.degree_id) {
+        query = query.eq('degree_id', filters.degree_id);
+      }
+
+      if (filters.department_id) {
+        query = query.eq('department_id', filters.department_id);
+      }
+
+      if (filters.program_id) {
+        query = query.eq('program_id', filters.program_id);
+      }
+
+      if (filters.semester_id) {
+        query = query.eq('semester_id', filters.semester_id);
+      }
+
+      if (filters.academic_year_id) {
+        query = query.eq('academic_year_id', filters.academic_year_id);
+      }
+
+      if (filters.isActive !== undefined) {
+        query = query.eq('is_active', filters.isActive);
+      }
+
+      // Apply text search across relevant fields
+      if (filters.search) {
+        // Use textSearch or ilike on the main table fields, and handle related table search client-side
+        // For now, let's search by the main table fields and handle complex search on the client side
+        query = query.or(`
+          institution.name.ilike.%${filters.search}%,
+          degree.degree_name.ilike.%${filters.search}%,
+          program.program_name.ilike.%${filters.search}%,
+          department.department_name.ilike.%${filters.search}%,
+          semester.semester_name.ilike.%${filters.search}%,
+          academic_year.academic_year_name.ilike.%${filters.search}%
+        `);
+      }
 
       // Apply pagination
       const page = filters.page || 1;

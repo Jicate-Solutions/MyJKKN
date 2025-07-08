@@ -215,7 +215,9 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             DepartmentService.getDepartmentsByDegree(staffPlan.degree_id),
             ProgramService.getProgramsByDepartment(staffPlan.department_id),
             SemesterService.getSemestersByProgram(staffPlan.program_id),
-            AcademicYearService.getAcademicYears({ isActive: true }),
+            AcademicYearService.getAcademicYearsByInstitution(
+              staffPlan.institution_id
+            ),
             CourseService.getCoursesByMapping(
               staffPlan.program_id,
               staffPlan.semester_id
@@ -228,7 +230,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           setDepartments(departmentsData);
           setPrograms(programsData);
           setSemesters(semestersData);
-          setAcademicYears(academicYearsData.data);
+          setAcademicYears(academicYearsData);
           // Format courses to have the expected structure
           const uniqueCourses = Array.from(
             new Map(
@@ -290,15 +292,14 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           toast.error('Failed to load form data');
         }
       } else {
-        // Load only institutions and academic years for new form
+        // Load only institutions for new form
         const loadInitialData = async () => {
           try {
-            const [institutionsData, academicYearsData] = await Promise.all([
-              OrganizationService.getInstitutionNames(true),
-              AcademicYearService.getAcademicYears({ isActive: true })
-            ]);
+            const institutionsData =
+              await OrganizationService.getInstitutionNames(true);
             setInstitutions(institutionsData);
-            setAcademicYears(academicYearsData.data);
+            // Don't load academic years initially - wait for institution selection
+            setAcademicYears([]);
             // Don't load staff initially - wait for institution and department selection
             setStaffMembers([]);
           } catch (error) {
@@ -312,6 +313,27 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
     loadInitialEditData();
   }, [staffPlan, form, fetchStaffMembers]);
+
+  // Load academic years when institution changes (for new forms)
+  useEffect(() => {
+    if (!isEditing && watchedInstitutionId) {
+      const loadAcademicYears = async () => {
+        try {
+          const data = await AcademicYearService.getAcademicYearsByInstitution(
+            watchedInstitutionId
+          );
+          setAcademicYears(data);
+        } catch (error) {
+          console.error('Error loading academic years:', error);
+          setAcademicYears([]);
+        }
+      };
+      loadAcademicYears();
+    } else if (!isEditing && !watchedInstitutionId) {
+      // Clear academic years when no institution is selected
+      setAcademicYears([]);
+    }
+  }, [watchedInstitutionId, isEditing]);
 
   // Fetch staff when institution or department changes (for new forms)
   useEffect(() => {
@@ -496,6 +518,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                         form.setValue('department_id', '');
                         form.setValue('program_id', '');
                         form.setValue('semester_id', '');
+                        form.setValue('academic_year_id', '');
                       }}
                     >
                       <FormControl>
@@ -680,7 +703,11 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Academic Year</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={!watchedInstitutionId}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder='Select academic year' />
