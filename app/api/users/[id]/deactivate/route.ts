@@ -8,9 +8,11 @@ import { RESOURCE_TYPES } from '@/types/activity';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: userId } = await params;
+
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -61,7 +63,7 @@ export async function POST(
     const { data: targetUser, error: targetUserError } = await supabase
       .from('profiles')
       .select('role, full_name, email')
-      .eq('id', params.id)
+      .eq('id', userId)
       .single();
 
     if (targetUserError) {
@@ -82,7 +84,7 @@ export async function POST(
         is_active: false,
         updated_at: new Date().toISOString()
       })
-      .eq('id', params.id)
+      .eq('id', userId)
       .select()
       .single();
 
@@ -97,12 +99,12 @@ export async function POST(
       userId: user.id,
       actionType: template.actionType,
       resourceType: template.resourceType,
-      resourceId: params.id,
+      resourceId: userId,
       resourceName: targetName,
       description: template.description,
       request,
       metadata: {
-        target_user_id: params.id,
+        target_user_id: userId,
         target_email: targetUser?.email,
         target_role: targetUser?.role,
         deactivated_by_role: currentUser?.role

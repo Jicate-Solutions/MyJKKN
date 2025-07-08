@@ -42,7 +42,8 @@ import {
   FileBarChart,
   PlusCircle,
   Clock,
-  RefreshCw
+  RefreshCw,
+  Bug
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 
@@ -159,6 +160,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // System Management
   '/system/api-management': 'system.api.view',
+  '/admin/bug-reports': 'system.bugs.view',
 
   // Billing Management
   '/billing/categories/parent-categories': 'billing.parent_categories.view',
@@ -672,6 +674,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'API Management',
           active: pathname === '/system/api-management',
           icon: Key,
+          submenus: []
+        },
+        {
+          href: '/admin/bug-reports',
+          label: 'Bug Reports',
+          active: pathname.startsWith('/admin/bug-reports'),
+          icon: Bug,
           submenus: []
         }
       ]

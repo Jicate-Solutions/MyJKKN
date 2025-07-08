@@ -20,10 +20,10 @@ const supabaseAdmin = createClient(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = params.id;
+    const { id: userId } = await params;
 
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(

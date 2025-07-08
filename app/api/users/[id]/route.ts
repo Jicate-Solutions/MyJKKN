@@ -22,10 +22,10 @@ const supabaseAdmin = createClient(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = params.id;
+    const { id: userId } = await params;
 
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(
@@ -129,10 +129,10 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = params.id;
+    const { id: userId } = await params;
     const body: UpdateUserRequest = await request.json();
 
     const cookieStore = await cookies();
@@ -332,11 +332,11 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Ensure params is properly handled
-    const { id } = params;
+    const { id } = await params;
 
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(

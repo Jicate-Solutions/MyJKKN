@@ -6,8 +6,10 @@ import { Database } from '@/types/auth';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
+  const { key: roleKey } = await params;
+
   const cookieStore = await cookies();
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,7 +28,6 @@ export async function GET(
       }
     }
   );
-  const roleKey = params.key;
 
   try {
     // Check authentication and authorization
@@ -73,8 +74,10 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
+  const { key: roleKey } = await params;
+
   const cookieStore = await cookies();
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -93,8 +96,6 @@ export async function PATCH(
       }
     }
   );
-
-  const roleKey = params.key;
 
   try {
     // Check authentication and authorization
@@ -180,8 +181,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
+  const { key: roleKey } = await params;
+
   const cookieStore = await cookies();
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -200,8 +203,6 @@ export async function DELETE(
       }
     }
   );
-
-  const roleKey = params.key;
 
   try {
     // Check authentication and authorization
