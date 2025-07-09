@@ -12,7 +12,7 @@ import {
 
 export function LearnerBannerCarousel() {
   const plugin = React.useRef(
-    Autoplay({ delay: 2000, stopOnInteraction: true })
+    Autoplay({ delay: 5000, stopOnInteraction: true })
   );
 
   // Sample banner data - replace with your actual banner images/content
