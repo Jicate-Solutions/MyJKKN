@@ -260,6 +260,32 @@ export default function AdminBugReportsPage() {
         )
       },
       {
+        accessorKey: 'reporter',
+        header: 'Reporter',
+        cell: ({ row }) => {
+          const reporter = row.original.reporter;
+          return (
+            <div className='text-xs sm:text-sm min-w-[120px]'>
+              {reporter ? (
+                <div>
+                  <div className='font-medium text-gray-900 dark:text-gray-100'>
+                    {reporter.full_name || 'Unknown User'}
+                  </div>
+                  <div className='text-gray-500 dark:text-gray-400 text-xs truncate max-w-[150px]'>
+                    {reporter.email || 'No email'}
+                  </div>
+                </div>
+              ) : (
+                <div className='text-gray-500 dark:text-gray-400'>
+                  <div>Unknown User</div>
+                  <div className='text-xs'>No details</div>
+                </div>
+              )}
+            </div>
+          );
+        }
+      },
+      {
         accessorKey: 'created_at',
         header: 'Created',
         cell: ({ row }) => (
@@ -464,7 +490,7 @@ export default function AdminBugReportsPage() {
             </CardHeader>
             <CardContent>
               <div className='overflow-x-auto'>
-                <div className='min-w-[600px]'>
+                <div className='min-w-[800px]'>
                   <DataTable
                     columns={columns}
                     data={reports}

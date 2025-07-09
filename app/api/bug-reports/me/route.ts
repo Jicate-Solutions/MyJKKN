@@ -18,10 +18,19 @@ export async function GET() {
       );
     }
 
-    // Fetch the user's bug reports
+    // Fetch the user's bug reports with reporter information
     const { data: myReports, error } = await supabase
       .from('bug_reports')
-      .select('*')
+      .select(
+        `
+        *,
+        reporter:profiles!reporter_user_id (
+          id,
+          full_name,
+          email
+        )
+      `
+      )
       .eq('reporter_user_id', user.id)
       .order('created_at', { ascending: false });
 

@@ -37,7 +37,7 @@ export async function GET(
     // 2. Fetch the reporter's profile information
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('full_name, email')
+      .select('id, full_name, email')
       .eq('id', report.reporter_user_id)
       .single();
 

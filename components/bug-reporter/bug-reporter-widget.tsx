@@ -433,6 +433,7 @@ export function BugReporterWidget() {
   const [capturedScreenshot, setCapturedScreenshot] = useState<string>('');
   const [isClient, setIsClient] = useState(false);
   const [testResults, setTestResults] = useState<string>('');
+  const [debugMode, setDebugMode] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -624,7 +625,26 @@ export function BugReporterWidget() {
         const errorData = await response.json();
         console.error('Server error:', errorData);
 
+        // Store full error details for debugging
+        if (debugMode) {
+          setTestResults(
+            JSON.stringify(
+              {
+                status: response.status,
+                statusText: response.statusText,
+                errorData: errorData,
+                timestamp: new Date().toISOString(),
+                url: window.location.href
+              },
+              null,
+              2
+            )
+          );
+        }
+
         let errorMessage = 'Failed to create bug report.';
+        let errorDetails = '';
+
         if (errorData.error) {
           if (Array.isArray(errorData.error)) {
             errorMessage = errorData.error
@@ -635,15 +655,57 @@ export function BugReporterWidget() {
           }
         }
 
+        if (errorData.details) {
+          errorDetails = errorData.details;
+        }
+
+        // Show specific error messages based on error codes
+        if (errorData.errorCode) {
+          switch (errorData.errorCode) {
+            case 'AUTH_ERROR':
+            case 'NO_USER':
+              errorMessage = 'Authentication required. Please log in again.';
+              break;
+            case 'VALIDATION_ERROR':
+              errorMessage = `Validation failed: ${errorDetails}`;
+              break;
+            case 'DB_CONNECTION_ERROR':
+              errorMessage = 'Database connection failed. Please try again.';
+              break;
+            case 'INSERT_ERROR':
+              errorMessage = `Failed to save bug report: ${errorDetails}`;
+              break;
+            case 'INSERT_RETRY_FAILED':
+              errorMessage = 'System is busy. Please try again in a moment.';
+              break;
+            case 'DISPLAY_ID_GENERATION_FAILED':
+              errorMessage = 'Unable to generate report ID. Please try again.';
+              break;
+            case 'INVALID_JSON':
+              errorMessage = 'Invalid data format. Please try again.';
+              break;
+            default:
+              errorMessage = `Error: ${errorMessage}${
+                errorDetails ? ` - ${errorDetails}` : ''
+              }`;
+          }
+        }
+
         throw new Error(errorMessage);
       }
 
       const result = await response.json();
       console.log('Bug report created successfully:', result);
 
+      // Handle the new API response structure
+      const successMessage =
+        result.message || 'Thank you for reporting this issue!';
+      const reportData = result.data || result;
+
       toast({
         title: 'Bug Report Submitted',
-        description: 'Thank you for reporting this issue!'
+        description: successMessage,
+        variant: 'default'
       });
 
       setDescription('');
@@ -827,11 +889,35 @@ export function BugReporterWidget() {
                 <Button variant='outline' onClick={runTest} size='sm'>
                   <TestTube className='w-4 h-4' />
                 </Button>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setDebugMode(!debugMode)}
+                  className={debugMode ? 'bg-yellow-100' : ''}
+                >
+                  🐛
+                </Button>
               </div>
+
+              {debugMode && (
+                <div className='mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded'>
+                  <h4 className='text-sm font-medium mb-2 text-yellow-800'>
+                    🐛 Debug Mode
+                  </h4>
+                  <p className='text-xs text-yellow-700 mb-2'>
+                    Enhanced error details will be captured
+                  </p>
+                  <div className='text-xs text-yellow-600'>
+                    URL: {window.location.href}
+                  </div>
+                </div>
+              )}
 
               {testResults && (
                 <div className='mt-4'>
-                  <h4 className='text-sm font-medium mb-2'>Test Results:</h4>
+                  <h4 className='text-sm font-medium mb-2'>
+                    {debugMode ? 'Debug Results:' : 'Test Results:'}
+                  </h4>
                   <pre className='text-xs bg-muted p-2 rounded overflow-auto max-h-32'>
                     {testResults}
                   </pre>

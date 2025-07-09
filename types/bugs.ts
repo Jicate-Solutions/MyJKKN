@@ -21,6 +21,11 @@ export interface BugReport {
     os?: string;
     [key: string]: any;
   } | null;
+  reporter?: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+  } | null;
 }
 
 export interface BugReportLeaderboardEntry {
@@ -33,6 +38,7 @@ export interface BugReportLeaderboardEntry {
 
 export interface DetailedBugReport extends BugReport {
   reporter: {
+    id: string;
     full_name: string | null;
     email: string | null;
   } | null;
