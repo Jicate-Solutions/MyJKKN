@@ -9,7 +9,9 @@ import {
   Calendar,
   BookOpen,
   Award,
-  Settings
+  Settings,
+  LayoutDashboard,
+  Megaphone
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect, useMemo } from 'react';
@@ -37,23 +39,23 @@ export function LearnerBottomNavigation() {
         active: pathname === '/learner'
       },
       {
-        icon: BookOpen,
-        label: 'Courses',
-        href: '/learner/courses',
-        active: pathname.startsWith('/learner/courses')
+        icon: Calendar,
+        label: 'Attendance',
+        href: '/learner/attendance',
+        active: pathname.startsWith('/learner/attendance')
       },
       {
-        icon: FileText,
-        label: 'Applications',
+        icon: LayoutDashboard,
+        label: 'Apps',
         href: '/learner/applications',
         active: pathname.startsWith('/learner/applications'),
         badge: 2
       },
       {
-        icon: Calendar,
-        label: 'Schedule',
-        href: '/learner/schedule',
-        active: pathname.startsWith('/learner/schedule')
+        icon: Megaphone,
+        label: 'Notify',
+        href: '/learner/notifications',
+        active: pathname.startsWith('/learner/notifications')
       },
       {
         icon: User,
@@ -97,7 +99,7 @@ export function LearnerBottomNavigation() {
       <div className='relative'>
         {/* Mobile Navigation */}
         {isMobile && (
-          <div className='flex items-center justify-between px-2 py-1'>
+          <div className='flex items-center justify-between px-4 py-3'>
             {navItems.map((item, index) => {
               const Icon = item.icon;
               const isActive = item.active;
@@ -107,73 +109,42 @@ export function LearnerBottomNavigation() {
                   key={item.href}
                   onClick={() => handleNavigation(item.href, index)}
                   className={cn(
-                    'relative flex flex-col items-center justify-center py-2 px-1 rounded-2xl transition-all duration-300 ease-in-out group',
-                    'min-w-0 flex-1 max-w-[80px] hover:scale-105 active:scale-95',
-                    isActive
-                      ? 'text-blue-600 transform -translate-y-1'
-                      : 'text-gray-500 hover:text-gray-700'
+                    'relative flex flex-col items-center justify-center py-2 px-3 rounded-xl',
+                    'min-w-0 flex-1 max-w-[80px]',
+                    isActive ? 'text-blue-600 bg-blue-50' : 'text-gray-500'
                   )}
                 >
-                  {/* Background for active state */}
-                  <div
-                    className={cn(
-                      'absolute inset-0 rounded-2xl transition-all duration-300',
-                      isActive
-                        ? 'bg-gradient-to-br from-blue-50 to-green-50 shadow-lg scale-105'
-                        : 'bg-transparent group-hover:bg-gray-50 group-hover:scale-102'
-                    )}
-                  />
-
-                  {/* Icon container with animation */}
-                  <div className='relative z-10 mb-1'>
-                    <div
+                  {/* Icon container */}
+                  <div className='relative mb-1'>
+                    <Icon
                       className={cn(
-                        'relative transition-all duration-300',
-                        isActive ? 'animate-bounce' : 'group-hover:scale-110'
+                        'h-6 w-6',
+                        isActive ? 'text-blue-600' : 'text-gray-500'
                       )}
-                    >
-                      <Icon
-                        className={cn(
-                          'h-5 w-5 transition-all duration-300',
-                          isActive
-                            ? 'text-blue-600'
-                            : 'text-gray-500 group-hover:text-gray-700'
-                        )}
-                      />
-
-                      {/* Glow effect for active icon */}
-                      {isActive && (
-                        <div className='absolute inset-0 bg-blue-400 rounded-full blur-md opacity-20 animate-pulse' />
-                      )}
-                    </div>
+                    />
 
                     {/* Badge */}
                     {item.badge && (
-                      <div className='absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse'>
+                      <div className='absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center'>
                         {item.badge}
                       </div>
                     )}
                   </div>
 
-                  {/* Label with animation */}
+                  {/* Label */}
                   <span
                     className={cn(
-                      'text-xs font-medium transition-all duration-300 truncate px-1',
-                      isActive
-                        ? 'text-blue-600 font-semibold'
-                        : 'text-gray-500 group-hover:text-gray-700'
+                      'text-xs font-medium truncate',
+                      isActive ? 'text-blue-600 font-semibold' : 'text-gray-500'
                     )}
                   >
                     {item.label}
                   </span>
 
-                  {/* Ripple effect */}
-                  <div
-                    className={cn(
-                      'absolute inset-0 rounded-2xl transition-all duration-500',
-                      'opacity-0 group-active:opacity-100 bg-blue-200/30 scale-0 group-active:scale-100'
-                    )}
-                  />
+                  {/* Active indicator */}
+                  {isActive && (
+                    <div className='absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-blue-600 rounded-full' />
+                  )}
                 </button>
               );
             })}

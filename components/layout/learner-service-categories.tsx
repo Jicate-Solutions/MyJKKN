@@ -12,7 +12,9 @@ import {
   BookOpen,
   Award,
   MessageSquare,
-  Settings
+  Settings,
+  LayoutDashboard,
+  Megaphone
 } from 'lucide-react';
 
 interface ServiceCategory {
@@ -29,76 +31,52 @@ export function LearnerServiceCategories() {
 
   const primaryServices: ServiceCategory[] = [
     {
-      id: 'class',
-      title: 'Class',
-      description: 'View your class information',
-      icon: BookOpen,
+      id: 'profile',
+      title: 'Profile',
+      description: 'View your profile information',
+      icon: User,
       color: 'text-blue-600',
-      href: '/learner/class'
+      href: '/learner/profile'
     },
     {
-      id: 'achievement',
-      title: 'Achievement',
-      description: 'Track your achievements',
-      icon: Award,
+      id: 'attendance',
+      title: 'Attendance',
+      description: 'Track your attendance',
+      icon: Calendar,
       color: 'text-yellow-600',
-      href: '/learner/achievement'
+      href: '/learner/attendance'
     },
     {
-      id: 'article',
-      title: 'Article',
-      description: 'Read educational articles',
-      icon: FileText,
+      id: 'apps',
+      title: 'Apps',
+      description: 'View your apps',
+      icon: LayoutDashboard,
       color: 'text-green-600',
       href: '/learner/article'
     },
     {
-      id: 'calendar',
-      title: 'Calendar',
-      description: 'View your schedule',
-      icon: Calendar,
+      id: 'time-table',
+      title: 'Time Table',
+      description: 'View your time table',
+      icon: Clock,
       color: 'text-red-600',
-      href: '/learner/calendar'
+      href: '/learner/time-table'
     },
     {
-      id: 'data-master',
-      title: 'Data Master',
-      description: 'Manage your data',
-      icon: FileText,
+      id: 'notify',
+      title: 'Notify',
+      description: 'View your notifications',
+      icon: Megaphone,
       color: 'text-purple-600',
-      href: '/learner/data-master'
+      href: '/learner/notify'
     },
     {
-      id: 'guru',
-      title: 'Guru',
-      description: 'Teacher information',
-      icon: User,
+      id: 'billing',
+      title: 'Billing',
+      description: 'View your billing',
+      icon: CreditCard,
       color: 'text-orange-600',
-      href: '/learner/guru'
-    },
-    {
-      id: 'portfolio',
-      title: 'Portfolio',
-      description: 'Your student portfolio',
-      icon: User,
-      color: 'text-pink-600',
-      href: '/learner/portfolio'
-    },
-    {
-      id: 'siswa',
-      title: 'Siswa',
-      description: 'Student information',
-      icon: GraduationCap,
-      color: 'text-indigo-600',
-      href: '/learner/siswa'
-    },
-    {
-      id: 'untuk-kerja',
-      title: 'Untuk Kerja',
-      description: 'Career preparation',
-      icon: BookOpen,
-      color: 'text-teal-600',
-      href: '/learner/untuk-kerja'
+      href: '/learner/billing'
     }
   ];
 
