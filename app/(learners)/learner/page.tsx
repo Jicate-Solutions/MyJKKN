@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import { LearnerProfileHeader } from '@/components/layout/learner-profile-header';
-import { LearnerSearchBar } from '@/components/layout/learner-search-bar';
 import { LearnerBannerCarousel } from '@/components/layout/learner-banner-carousel';
 import { LearnerServiceCategories } from '@/components/layout/learner-service-categories';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -52,7 +51,6 @@ export default function LearnerDashboardPage() {
         {/* Add padding for bottom navigation */}
         <LearnerProfileHeader user={user} currentTime={currentTime} />
         <LearnerBannerCarousel />
-        <LearnerSearchBar />
         <LearnerServiceCategories />
       </div>
     </div>
