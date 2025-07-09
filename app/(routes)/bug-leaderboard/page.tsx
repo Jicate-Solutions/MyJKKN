@@ -5,7 +5,15 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { Trophy } from 'lucide-react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+import { Trophy, Medal, Award } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import ConfettiEffect from '@/components/magic-ui/confetti';
 
@@ -136,33 +144,152 @@ export default function BugLeaderboardPage() {
             {!rank3 && rank1 && <div className='w-1/3' />}
           </div>
 
-          {/* Rest of the Leaderboard */}
-          <div className='space-y-2 pt-8'>
-            {restOfLeaderboard.map((user, index) => (
-              <Card
-                key={user.user_id}
-                className='p-3 flex items-center justify-between'
-              >
-                <div className='flex items-center gap-4'>
-                  <div className='font-bold text-lg w-6 text-center'>
-                    {index + 4}
-                  </div>
-                  <Avatar className='w-10 h-10'>
-                    <AvatarImage src={user.avatar_url ?? ''} />
-                    <AvatarFallback>
-                      {user.user_name?.charAt(0) ?? 'U'}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className='font-medium'>
-                    {user.user_name ?? 'Anonymous'}
-                  </span>
-                </div>
-                <Badge variant='outline' className='font-semibold'>
-                  {user.total_bugs_count} reports
-                </Badge>
+          {/* Complete Rankings - Table Format */}
+          {leaderboard && leaderboard.length > 0 && (
+            <div className='pt-8'>
+              <h3 className='text-lg font-semibold mb-4 flex items-center gap-2'>
+                <Award className='w-5 h-5' />
+                Complete Rankings
+              </h3>
+              <Card className='overflow-hidden'>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className='w-16 text-center'>Rank</TableHead>
+                      <TableHead>User</TableHead>
+                      <TableHead className='text-center'>Bug Reports</TableHead>
+                      <TableHead className='text-center'>Resolved</TableHead>
+                      <TableHead className='text-center'>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {leaderboard.map((user, index) => {
+                      const rank = index + 1;
+                      const isTopThree = rank <= 3;
+                      const isTopTen = rank <= 10;
+                      const resolvedBugs = user.resolved_bugs_count || 0;
+                      const totalBugs = user.total_bugs_count || 0;
+                      const resolvedPercentage =
+                        totalBugs > 0
+                          ? Math.round((resolvedBugs / totalBugs) * 100)
+                          : 0;
+
+                      return (
+                        <TableRow
+                          key={user.user_id}
+                          className={`${
+                            isTopThree
+                              ? 'bg-gradient-to-r from-yellow-50 to-amber-50 border-l-4 border-l-yellow-400'
+                              : isTopTen
+                              ? 'bg-muted/20'
+                              : ''
+                          }`}
+                        >
+                          <TableCell className='text-center'>
+                            <div className='flex items-center justify-center'>
+                              {rank === 1 && (
+                                <Trophy className='w-4 h-4 text-yellow-500 mr-1' />
+                              )}
+                              {rank === 2 && (
+                                <Medal className='w-4 h-4 text-gray-400 mr-1' />
+                              )}
+                              {rank === 3 && (
+                                <Medal className='w-4 h-4 text-amber-600 mr-1' />
+                              )}
+                              {rank > 3 && rank <= 10 && (
+                                <Medal className='w-4 h-4 text-amber-500 mr-1' />
+                              )}
+                              <span
+                                className={`font-bold ${
+                                  isTopThree
+                                    ? 'text-yellow-600'
+                                    : isTopTen
+                                    ? 'text-amber-600'
+                                    : ''
+                                }`}
+                              >
+                                #{rank}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className='flex items-center gap-3'>
+                              <Avatar className='w-8 h-8'>
+                                <AvatarImage src={user.avatar_url ?? ''} />
+                                <AvatarFallback className='text-xs'>
+                                  {user.user_name?.charAt(0) ?? 'U'}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <div
+                                  className={`font-medium ${
+                                    isTopThree ? 'text-yellow-700' : ''
+                                  }`}
+                                >
+                                  {user.user_name ?? 'Anonymous'}
+                                </div>
+                                {isTopThree && (
+                                  <div className='text-xs text-yellow-600 font-medium'>
+                                    🏆 Podium Finisher
+                                  </div>
+                                )}
+                                {!isTopThree && isTopTen && (
+                                  <div className='text-xs text-amber-600 font-medium'>
+                                    Top 10 Contributor
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className='text-center'>
+                            <Badge
+                              variant={isTopThree ? 'default' : 'outline'}
+                              className={`font-semibold ${
+                                isTopThree ? 'bg-yellow-500 text-white' : ''
+                              }`}
+                            >
+                              {totalBugs}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className='text-center'>
+                            <Badge
+                              variant={
+                                resolvedBugs > 0 ? 'default' : 'secondary'
+                              }
+                              className='font-semibold'
+                            >
+                              {resolvedBugs}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className='text-center'>
+                            <div className='flex items-center justify-center gap-2'>
+                              <div className='text-sm font-medium'>
+                                {resolvedPercentage}%
+                              </div>
+                              <div className='w-16 h-2 bg-gray-200 rounded-full overflow-hidden'>
+                                <div
+                                  className={`h-full transition-all duration-500 ${
+                                    resolvedPercentage >= 80
+                                      ? 'bg-green-500'
+                                      : resolvedPercentage >= 60
+                                      ? 'bg-yellow-500'
+                                      : resolvedPercentage >= 40
+                                      ? 'bg-orange-500'
+                                      : 'bg-red-500'
+                                  }`}
+                                  style={{ width: `${resolvedPercentage}%` }}
+                                />
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
               </Card>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
