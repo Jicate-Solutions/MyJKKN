@@ -674,7 +674,7 @@ export function BugReporterWidget() {
         onClick={handleOpenBugReport}
         disabled={isCapturingScreenshot}
         className={`fixed ${
-          isMobileDevice() ? 'bottom-20 right-4' : 'bottom-4 right-4'
+          isMobileDevice() ? 'bottom-24 right-2' : 'bottom-4 right-4'
         } z-[60] rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget`}
         variant='destructive'
         title={

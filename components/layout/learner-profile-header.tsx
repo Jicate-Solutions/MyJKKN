@@ -3,9 +3,8 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Profile } from '@/types/auth';
 import { format } from 'date-fns';
-import { Bell, Settings, GraduationCap } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { GraduationCap } from 'lucide-react';
+import GradientText from '@/components/ui/gradient-text';
 
 interface LearnerProfileHeaderProps {
   user: Profile | null;
@@ -31,14 +30,6 @@ export function LearnerProfileHeader({
       .join('')
       .toUpperCase()
       .slice(0, 2);
-  };
-
-  const formatTime = (date: Date) => {
-    return format(date, 'HH:mm');
-  };
-
-  const formatDate = (date: Date) => {
-    return format(date, 'EEEE, MMMM d');
   };
 
   return (
@@ -80,10 +71,15 @@ export function LearnerProfileHeader({
           </div>
         </div>
 
-        <div className='mt-4'>
-          <h2 className='text-lg font-semibold text-gray-900 mb-1'>
+        <div className='mt-8'>
+          <GradientText
+            colors={['#16a34a', '#e11d48', '#16a34a']}
+            animationSpeed={5}
+            className='text-2xl font-semibold'
+          >
             {getGreeting()}, {user?.full_name?.split(' ')[0] || 'Student'}!
-          </h2>
+          </GradientText>
+
           <p className='text-gray-600 text-sm'>
             Welcome back to your learning journey
           </p>
