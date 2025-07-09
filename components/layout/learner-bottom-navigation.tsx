@@ -47,15 +47,15 @@ export function LearnerBottomNavigation() {
       {
         icon: LayoutDashboard,
         label: 'Apps',
-        href: '/learner/applications',
-        active: pathname.startsWith('/learner/applications'),
+        href: '/learner/apps',
+        active: pathname.startsWith('/learner/apps'),
         badge: 2
       },
       {
         icon: Megaphone,
         label: 'Notify',
-        href: '/learner/notifications',
-        active: pathname.startsWith('/learner/notifications')
+        href: '/learner/notify',
+        active: pathname.startsWith('/learner/notify')
       },
       {
         icon: User,
