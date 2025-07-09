@@ -71,11 +71,11 @@ export function LearnerProfileHeader({
           </div>
         </div>
 
-        <div className='mt-8'>
+        <div className='mt-8 flex flex-col items-start gap-2'>
           <GradientText
             colors={['#16a34a', '#e11d48', '#16a34a']}
             animationSpeed={5}
-            className='text-2xl font-semibold'
+            className='text-3xl'
           >
             {getGreeting()}, {user?.full_name?.split(' ')[0] || 'Student'}!
           </GradientText>
