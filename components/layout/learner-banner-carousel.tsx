@@ -81,7 +81,7 @@ export function LearnerBannerCarousel() {
               key={banner.id}
               className='pl-2 md:pl-4 basis-full md:basis-1/2 lg:basis-1/3'
             >
-              <div className='p-1'>
+            <div className='p-1'>
                 <Card className='overflow-hidden group hover:shadow-lg transition-all duration-300 hover:scale-[1.02]'>
                   <CardContent className='p-0 relative'>
                     <div
@@ -111,15 +111,15 @@ export function LearnerBannerCarousel() {
                       {/* Gradient overlay for better text readability */}
                       <div className='absolute inset-0 bg-gradient-to-t from-black/30 to-transparent' />
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </CarouselItem>
-          ))}
-        </CarouselContent>
+                </CardContent>
+              </Card>
+            </div>
+          </CarouselItem>
+        ))}
+      </CarouselContent>
         <CarouselPrevious className='hidden md:flex -left-6 lg:-left-8' />
         <CarouselNext className='hidden md:flex -right-6 lg:-right-8' />
-      </Carousel>
+    </Carousel>
     </div>
   );
 }

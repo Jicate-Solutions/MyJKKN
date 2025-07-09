@@ -604,31 +604,37 @@ export class StudentService {
     }
   }
 
+  // Get a single student by ID with all related data
   static async getStudent(id: string): Promise<Student> {
     try {
-      const { data: student, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from('students')
         .select(
           `
           *,
-          institution:institutions(id, name),
-          degree:degrees(id, degree_name),
-          department:departments(id, department_name),
-          program:programs(id, program_name),
-          semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name),
-          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
+          institution:institutions (*),
+          degree:degrees (*),
+          department:departments (*),
+          program:programs (*),
+          semester:semesters (*),
+          section:sections (*),
+          academic_year:academic_years (*)
         `
         )
         .eq('id', id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        throw new Error(`Error fetching student: ${error.message}`);
+      }
 
-      return student;
+      if (!data) {
+        throw new Error('Student not found');
+      }
+
+      return data as Student;
     } catch (error) {
-      console.error('Error fetching student:', error);
-      toast.error('Failed to fetch student details');
+      console.error('Error in getStudent:', error);
       throw error;
     }
   }
