@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { LearnerBottomNavigation } from './learner-bottom-navigation';
-import { cn } from '@/lib/utils';
 
 interface LearnerLayoutProps {
   children: React.ReactNode;
@@ -22,7 +21,7 @@ export default function LearnerLayout({ children }: LearnerLayoutProps) {
       </div>
 
       {/* Main content area */}
-      <main className='relative min-h-screen'>{children}</main>
+      <main className='relative pb-24'>{children}</main>
 
       {/* Bottom navigation - fixed at bottom */}
       <div className='fixed bottom-0 left-0 right-0 z-50'>
