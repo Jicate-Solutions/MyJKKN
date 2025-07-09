@@ -108,11 +108,12 @@ export async function middleware(request: NextRequest) {
           // Handle student status-based redirects
           switch (studentData.status) {
             case 'pending':
-              // Redirect to onboarding if not already there
-              if (!currentPath.startsWith('/students/onboarding')) {
-                return NextResponse.redirect(
-                  new URL('/students/onboarding', request.url)
-                );
+              // Redirect pending students to learner dashboard instead of onboarding
+              if (
+                !currentPath.startsWith('/learner') &&
+                !currentPath.startsWith('/students/onboarding')
+              ) {
+                return NextResponse.redirect(new URL('/learner', request.url));
               }
               break;
 
@@ -158,11 +159,12 @@ export async function middleware(request: NextRequest) {
             profile.email
           );
 
-          // If we're not on onboarding page, redirect there
-          if (!currentPath.startsWith('/students/onboarding')) {
-            return NextResponse.redirect(
-              new URL('/students/onboarding', request.url)
-            );
+          // Redirect to learner dashboard instead of onboarding
+          if (
+            !currentPath.startsWith('/learner') &&
+            !currentPath.startsWith('/students/onboarding')
+          ) {
+            return NextResponse.redirect(new URL('/learner', request.url));
           }
         }
       } catch (studentFetchError) {
@@ -197,6 +199,34 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(
         new URL('/auth/complete-profile', request.url)
       );
+    }
+
+    // Role-based routing: Redirect students to learner layout
+    if (profile.role === 'student') {
+      // If student is trying to access admin routes, redirect to learner dashboard
+      if (
+        currentPath.startsWith('/users') ||
+        currentPath.startsWith('/system') ||
+        currentPath.startsWith('/organizations') ||
+        currentPath.startsWith('/staff') ||
+        currentPath.startsWith('/admissions') ||
+        currentPath.startsWith('/admin') ||
+        currentPath.startsWith('/billing') ||
+        currentPath.startsWith('/academic') ||
+        currentPath.startsWith('/resources') ||
+        currentPath.startsWith('/application-hub') ||
+        currentPath.startsWith('/bug-leaderboard') ||
+        currentPath.startsWith('/my-bug-reports') ||
+        currentPath === '/'
+      ) {
+        // Redirect to learner dashboard
+        return NextResponse.redirect(new URL('/learner', request.url));
+      }
+    } else {
+      // Non-student users trying to access learner routes should be redirected to admin dashboard
+      if (currentPath.startsWith('/learner')) {
+        return NextResponse.redirect(new URL('/', request.url));
+      }
     }
 
     // Check protected routes access
@@ -234,6 +264,8 @@ export const config = {
     '/courses/:path*',
     '/profile/:path*',
     '/users/:path*',
+    '/learner/:path*',
+    '/students/:path*',
     // Match all paths except public ones
     '/((?!_next/static|_next/image|favicon.ico|api|auth/login|auth/callback|auth/complete-profile).*)'
   ]

@@ -674,8 +674,8 @@ export function BugReporterWidget() {
         onClick={handleOpenBugReport}
         disabled={isCapturingScreenshot}
         className={`fixed ${
-          isMobileDevice() ? 'bottom-4 right-4' : 'bottom-4 right-4'
-        } z-50 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget`}
+          isMobileDevice() ? 'bottom-20 right-4' : 'bottom-4 right-4'
+        } z-[60] rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget`}
         variant='destructive'
         title={
           isCapturingScreenshot
@@ -694,7 +694,7 @@ export function BugReporterWidget() {
 
       {/* Bug Report Modal */}
       {isOpen && (
-        <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'>
+        <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4'>
           <Card className='w-full max-w-md max-h-[90vh] overflow-y-auto'>
             <CardHeader className='flex flex-row items-center justify-between'>
               <CardTitle className='flex items-center gap-2'>
