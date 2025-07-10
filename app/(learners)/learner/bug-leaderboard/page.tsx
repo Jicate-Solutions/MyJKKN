@@ -15,7 +15,11 @@ import {
   Star,
   TrendingUp,
   Users,
-  RefreshCw
+  RefreshCw,
+  IndianRupee,
+  Briefcase,
+  Calendar,
+  Gift
 } from 'lucide-react';
 import ConfettiEffect from '@/components/magic-ui/confetti';
 import { Button } from '@/components/ui/button';
@@ -110,7 +114,7 @@ export default function LearnerBugLeaderboardPage() {
           <div className='flex items-center justify-between mb-2'>
             <h1 className='text-2xl font-bold flex items-center gap-2'>
               <Trophy className='w-6 h-6 text-yellow-500' />
-              Leaderboard
+              JKKN Bug Bounty
             </h1>
             <Button
               variant='ghost'
@@ -129,6 +133,56 @@ export default function LearnerBugLeaderboardPage() {
             Top bug hunters in the community
           </p>
         </div>
+
+        {/* Prize Details Section */}
+        <div className='grid grid-cols-2 gap-3 mb-6'>
+          {/* Weekly Prize */}
+          <Card className='p-4 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800'>
+            <div className='flex items-center gap-2 mb-2'>
+              <div className='p-1.5 bg-green-500 rounded'>
+                <IndianRupee className='w-4 h-4 text-white' />
+              </div>
+              <h3 className='font-medium text-sm'>Weekly Prize</h3>
+            </div>
+            <p className='text-xl font-bold text-green-700 dark:text-green-400'>
+              ₹500
+            </p>
+            <p className='text-xs text-muted-foreground'>
+              Top hunter wins every week
+            </p>
+          </Card>
+
+          {/* Grand Prize */}
+          <Card className='p-4 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20 border-purple-200 dark:border-purple-800'>
+            <div className='flex items-center gap-2 mb-2'>
+              <div className='p-1.5 bg-purple-500 rounded'>
+                <Briefcase className='w-4 h-4 text-white' />
+              </div>
+              <h3 className='font-medium text-sm'>Grand Prize</h3>
+            </div>
+            <p className='text-lg font-bold text-purple-700 dark:text-purple-400'>
+              3x Win = Internship
+            </p>
+            <p className='text-xs text-muted-foreground'>
+              3-month paid @ Jicate
+            </p>
+          </Card>
+        </div>
+
+        {/* Schedule Banner */}
+        <Card className='p-4 mb-6 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border-indigo-200 dark:border-indigo-800'>
+          <div className='flex items-center gap-3'>
+            <Calendar className='w-5 h-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0' />
+            <div className='flex-1'>
+              <p className='text-sm font-medium'>
+                Winners Announced Every Monday
+              </p>
+              <p className='text-xs text-muted-foreground'>
+                10 AM • Direct bank transfer in 24 hours
+              </p>
+            </div>
+          </div>
+        </Card>
 
         {/* Period Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
@@ -416,6 +470,20 @@ export default function LearnerBugLeaderboardPage() {
             </div>
           )}
         </Tabs>
+
+        {/* Initiative Footer */}
+        <div className='mt-8 pt-6 border-t text-center'>
+          <p className='text-xs text-muted-foreground'>
+            An initiative by{' '}
+            <span className='font-medium text-foreground'>
+              JKKN Institutions
+            </span>{' '}
+            in partnership with{' '}
+            <span className='font-medium text-foreground'>
+              Jicate Solutions
+            </span>
+          </p>
+        </div>
       </div>
     </div>
   );
