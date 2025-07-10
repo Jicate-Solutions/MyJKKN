@@ -40,6 +40,7 @@ import {
   ExternalLink,
   FileImage
 } from 'lucide-react';
+import Link from 'next/link';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const statusConfig: Record<
@@ -365,12 +366,30 @@ export default function MyBugReportsPage() {
               Track your contributions to platform improvement
             </p>
           </div>
-          {isFetching && !isLoading && (
-            <div className='flex items-center gap-2 text-sm text-muted-foreground'>
-              <div className='w-2 h-2 bg-green-500 rounded-full animate-pulse'></div>
-              <span>Updating...</span>
-            </div>
-          )}
+          <div className='flex items-center gap-3'>
+            <Button
+              variant='outline'
+              size='sm'
+              asChild
+              className='hidden sm:flex'
+            >
+              <Link href='/bug-leaderboard'>
+                <Trophy className='w-4 h-4 mr-2' />
+                View Leaderboard
+              </Link>
+            </Button>
+            <Button variant='ghost' size='icon' asChild className='sm:hidden'>
+              <Link href='/bug-leaderboard'>
+                <Trophy className='w-4 h-4' />
+              </Link>
+            </Button>
+            {isFetching && !isLoading && (
+              <div className='flex items-center gap-2 text-sm text-muted-foreground'>
+                <div className='w-2 h-2 bg-green-500 rounded-full animate-pulse'></div>
+                <span className='hidden sm:inline'>Updating...</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Statistics Cards */}

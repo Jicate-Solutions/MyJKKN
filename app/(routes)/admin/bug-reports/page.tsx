@@ -3,15 +3,19 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   useBugReports,
-  useUpdateBugReportStatus
+  useUpdateBugReportStatus,
+  useDeleteBugReport,
+  useBulkDeleteBugReports
 } from '@/hooks/bug-reports/use-bug-reports';
+import { usePermissions } from '@/hooks/use-permissions';
 import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
+  DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
 import {
   Select,
@@ -22,7 +26,19 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { BugReport, BugReportStatus } from '@/types/bugs';
 import { useToast } from '@/hooks/use-toast';
 import { MoreHorizontalIcon } from '@/components/icons';
@@ -36,7 +52,9 @@ import {
   Clock,
   AlertTriangle,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  Trash2,
+  Trophy
 } from 'lucide-react';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
@@ -137,6 +155,7 @@ const StatCard = ({
 };
 
 export default function AdminBugReportsPage() {
+  const router = useRouter();
   const [filters, setFilters] = useState<{
     status?: BugReportStatus;
     page: number;
@@ -146,10 +165,17 @@ export default function AdminBugReportsPage() {
     limit: 10
   });
   const [allReports, setAllReports] = useState<BugReport[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [reportToDelete, setReportToDelete] = useState<string | null>(null);
+  const [selectedReports, setSelectedReports] = useState<string[]>([]);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const { toast } = useToast();
+  const { isSuperAdmin } = usePermissions();
 
   const { data, isLoading, error, refetch } = useBugReports(filters);
   const updateStatusMutation = useUpdateBugReportStatus();
+  const deleteReportMutation = useDeleteBugReport();
+  const bulkDeleteMutation = useBulkDeleteBugReports();
 
   // Fetch all reports for statistics
   const { data: allReportsData, refetch: refetchAll } = useBugReports({
@@ -248,8 +274,100 @@ export default function AdminBugReportsPage() {
     [updateStatusMutation, toast, refetch, refetchAll]
   );
 
+  const handleDeleteReport = useCallback(async () => {
+    if (!reportToDelete) return;
+
+    try {
+      await deleteReportMutation.mutateAsync(reportToDelete);
+      toast({
+        title: 'Bug Report Deleted',
+        description: 'The bug report and its associated data have been removed.'
+      });
+      setDeleteConfirmOpen(false);
+      setReportToDelete(null);
+      refetch();
+      refetchAll(); // Also refetch all reports for stats
+    } catch (err) {
+      toast({
+        title: 'Delete Failed',
+        description:
+          err instanceof Error
+            ? err.message
+            : 'Could not delete the bug report.',
+        variant: 'destructive'
+      });
+    }
+  }, [reportToDelete, deleteReportMutation, toast, refetch, refetchAll]);
+
+  const handleBulkDelete = useCallback(async () => {
+    try {
+      await bulkDeleteMutation.mutateAsync(selectedReports);
+      toast({
+        title: 'Bug Reports Deleted',
+        description: `${selectedReports.length} bug report(s) have been removed.`
+      });
+      setBulkDeleteConfirmOpen(false);
+      setSelectedReports([]);
+      refetch();
+      refetchAll();
+    } catch (err) {
+      toast({
+        title: 'Bulk Delete Failed',
+        description:
+          err instanceof Error
+            ? err.message
+            : 'Could not delete the selected bug reports.',
+        variant: 'destructive'
+      });
+    }
+  }, [selectedReports, bulkDeleteMutation, toast, refetch, refetchAll]);
+
+  const reports = data?.data ?? [];
+  const metadata = data?.metadata;
+
+  const handleSelectAll = useCallback(() => {
+    if (selectedReports.length === reports.length) {
+      setSelectedReports([]);
+    } else {
+      setSelectedReports(reports.map((r) => r.id));
+    }
+  }, [selectedReports.length, reports]);
+
+  const handleSelectReport = useCallback((reportId: string) => {
+    setSelectedReports((prev) => {
+      if (prev.includes(reportId)) {
+        return prev.filter((id) => id !== reportId);
+      } else {
+        return [...prev, reportId];
+      }
+    });
+  }, []);
+
   const columns: ColumnDef<BugReport>[] = useMemo(
     () => [
+      {
+        id: 'select',
+        header: ({ table }) =>
+          isSuperAdmin ? (
+            <Checkbox
+              checked={
+                reports.length > 0 && selectedReports.length === reports.length
+              }
+              onCheckedChange={handleSelectAll}
+              aria-label='Select all'
+            />
+          ) : null,
+        cell: ({ row }) =>
+          isSuperAdmin ? (
+            <Checkbox
+              checked={selectedReports.includes(row.original.id)}
+              onCheckedChange={() => handleSelectReport(row.original.id)}
+              aria-label='Select row'
+            />
+          ) : null,
+        enableSorting: false,
+        enableHiding: false
+      },
       {
         accessorKey: 'display_id',
         header: 'Bug ID',
@@ -265,7 +383,12 @@ export default function AdminBugReportsPage() {
         cell: ({ row }) => {
           const reporter = row.original.reporter;
           return (
-            <div className='text-xs sm:text-sm min-w-[120px]'>
+            <div
+              className='text-xs sm:text-sm min-w-[120px] cursor-pointer hover:text-primary transition-colors'
+              onClick={() =>
+                router.push(`/admin/bug-reports/${row.original.id}`)
+              }
+            >
               {reporter ? (
                 <div>
                   <div className='font-medium text-gray-900 dark:text-gray-100'>
@@ -371,17 +494,37 @@ export default function AdminBugReportsPage() {
                 >
                   {"Mark as Won't Fix"}
                 </DropdownMenuItem>
+                {isSuperAdmin && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setReportToDelete(row.original.id);
+                        setDeleteConfirmOpen(true);
+                      }}
+                      className='text-destructive focus:text-destructive'
+                    >
+                      <Trash2 className='mr-2 h-4 w-4' />
+                      Delete Report
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         )
       }
     ],
-    [handleStatusChange]
+    [
+      handleStatusChange,
+      isSuperAdmin,
+      selectedReports,
+      handleSelectAll,
+      handleSelectReport,
+      router,
+      reports
+    ]
   );
-
-  const reports = data?.data ?? [];
-  const metadata = data?.metadata;
 
   const handlePageChange = (newPage: number) => {
     setFilters((prev) => ({ ...prev, page: newPage }));
@@ -406,6 +549,23 @@ export default function AdminBugReportsPage() {
               <p className='text-muted-foreground'>
                 Comprehensive analytics and management
               </p>
+            </div>
+            <div className='flex gap-2'>
+              {isSuperAdmin && selectedReports.length > 0 && (
+                <Button
+                  variant='destructive'
+                  onClick={() => setBulkDeleteConfirmOpen(true)}
+                >
+                  <Trash2 className='w-4 h-4 mr-2' />
+                  Delete Selected ({selectedReports.length})
+                </Button>
+              )}
+              <Button asChild variant='outline'>
+                <Link href='/bug-leaderboard'>
+                  <Trophy className='w-4 h-4 mr-2' />
+                  View Leaderboard
+                </Link>
+              </Button>
             </div>
           </div>
 
@@ -517,6 +677,59 @@ export default function AdminBugReportsPage() {
           </Card>
         </div>
       </ContentLayout>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the bug
+              report and remove any associated screenshot from storage.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setReportToDelete(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteReport}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog
+        open={bulkDeleteConfirmOpen}
+        onOpenChange={setBulkDeleteConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedReports.length} bug report
+              {selectedReports.length > 1 ? 's' : ''}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the
+              selected bug reports and remove any associated screenshots from
+              storage.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              Delete All
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AdminPermissionGuard>
   );
 }

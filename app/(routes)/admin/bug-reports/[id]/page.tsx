@@ -4,9 +4,11 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import {
   useBugReport,
-  useUpdateBugReportStatus
+  useUpdateBugReportStatus,
+  useDeleteBugReport
 } from '@/hooks/bug-reports/use-bug-reports';
 import { useToast } from '@/hooks/use-toast';
+import { usePermissions } from '@/hooks/use-permissions';
 import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -14,6 +16,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 import { BugReportStatus } from '@/types/bugs';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -46,7 +58,8 @@ import {
   AlertCircle,
   Eye,
   Loader2,
-  Download
+  Download,
+  Trash2
 } from 'lucide-react';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
@@ -120,10 +133,13 @@ export default function BugReportDetailsPage() {
   const router = useRouter();
   const id = params.id as string;
   const { toast } = useToast();
+  const { isSuperAdmin } = usePermissions();
   const [isDownloading, setIsDownloading] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const { data: report, isLoading, error } = useBugReport(id);
   const updateStatusMutation = useUpdateBugReportStatus();
+  const deleteReportMutation = useDeleteBugReport();
 
   const handleStatusChange = async (status: BugReportStatus) => {
     try {
@@ -136,6 +152,26 @@ export default function BugReportDetailsPage() {
       toast({
         title: 'Update Failed',
         description: 'Could not update the report status.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleDeleteReport = async () => {
+    try {
+      await deleteReportMutation.mutateAsync(id);
+      toast({
+        title: 'Bug Report Deleted',
+        description: 'The bug report and its associated data have been removed.'
+      });
+      router.push('/admin/bug-reports');
+    } catch (err) {
+      toast({
+        title: 'Delete Failed',
+        description:
+          err instanceof Error
+            ? err.message
+            : 'Could not delete the bug report.',
         variant: 'destructive'
       });
     }
@@ -463,6 +499,27 @@ export default function BugReportDetailsPage() {
                       </Button>
                     </div>
                   </div>
+
+                  {isSuperAdmin && (
+                    <>
+                      <Separator />
+                      <div>
+                        <label className='text-sm font-medium text-muted-foreground mb-3 block'>
+                          Danger Zone
+                        </label>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() => setDeleteConfirmOpen(true)}
+                          disabled={deleteReportMutation.isPending}
+                          className='w-full justify-start border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground'
+                        >
+                          <Trash2 className='w-4 h-4 mr-2' />
+                          Delete Report
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
@@ -583,6 +640,32 @@ export default function BugReportDetailsPage() {
             </div>
           </div>
         </div>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog
+          open={deleteConfirmOpen}
+          onOpenChange={setDeleteConfirmOpen}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the
+                bug report &quot;{report.display_id}&quot; and remove any
+                associated screenshot from storage.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteReport}
+                className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </ContentLayout>
     </AdminPermissionGuard>
   );

@@ -19,7 +19,8 @@ import {
   RefreshCw,
   AlertCircle,
   BarChart3,
-  Settings
+  Settings,
+  Users
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -68,8 +69,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
+import { SemesterService } from '@/lib/services/organization/semester-service';
+import { SectionService } from '@/lib/services/organization/section-service';
+import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
+import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
 import { StudentService } from '@/lib/services/student/student-service';
 import { DownloadNewStudentTemplateButton } from './_components/download-new-student-template-button';
 import { ExportStudents } from './_components/export-students';
@@ -110,8 +116,12 @@ export default function StudentsPage() {
     search: '',
     student_name: '',
     institution: '',
-    program: '',
+    degree: '',
     department: '',
+    program: '',
+    semester: '',
+    section: '',
+    academic_year: '',
     is_profile_complete: true,
     page: 1,
     limit: 10
@@ -132,15 +142,27 @@ export default function StudentsPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-  // State for institution/program filters
+  // State for hierarchical filters
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
+  >([]);
+  const [degrees, setDegrees] = useState<
+    Array<{ id: string; degree_name: string }>
   >([]);
   const [departments, setDepartments] = useState<
     Array<{ id: string; department_name: string }>
   >([]);
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
+  >([]);
+  const [semesters, setSemesters] = useState<
+    Array<{ id: string; semester_name: string; semester_code: string }>
+  >([]);
+  const [sections, setSections] = useState<
+    Array<{ id: string; section_name: string }>
+  >([]);
+  const [academicYears, setAcademicYears] = useState<
+    Array<{ id: string; academic_year_name: string }>
   >([]);
 
   // Date range state
@@ -172,15 +194,33 @@ export default function StudentsPage() {
     loadInstitutions();
   }, []);
 
-  // Load departments when institution changes
+  // Load degrees when institution changes
   useEffect(() => {
     if (filters.institution) {
+      async function loadDegrees() {
+        try {
+          const data = await DegreeService.getDegreesByInstitution(
+            filters.institution as string
+          );
+          setDegrees(data);
+        } catch (error) {
+          console.error('Error loading degrees:', error);
+        }
+      }
+      loadDegrees();
+    } else {
+      setDegrees([]);
+    }
+  }, [filters.institution]);
+
+  // Load departments when degree changes
+  useEffect(() => {
+    if (filters.degree) {
       async function loadDepartments() {
         try {
-          const { data } = await DepartmentService.getDepartments({
-            institution_id: filters.institution,
-            isActive: true
-          });
+          const data = await DepartmentService.getDepartmentsByDegree(
+            filters.degree as string
+          );
           setDepartments(data);
         } catch (error) {
           console.error('Error loading departments:', error);
@@ -190,17 +230,16 @@ export default function StudentsPage() {
     } else {
       setDepartments([]);
     }
-  }, [filters.institution]);
+  }, [filters.degree]);
 
   // Load programs when department changes
   useEffect(() => {
     if (filters.department) {
       async function loadPrograms() {
         try {
-          const { data } = await ProgramService.getPrograms({
-            department_id: filters.department,
-            isActive: true
-          });
+          const data = await ProgramService.getProgramsByDepartment(
+            filters.department as string
+          );
           setPrograms(data);
         } catch (error) {
           console.error('Error loading programs:', error);
@@ -211,6 +250,64 @@ export default function StudentsPage() {
       setPrograms([]);
     }
   }, [filters.department]);
+
+  // Load semesters when program changes
+  useEffect(() => {
+    if (filters.program) {
+      async function loadSemesters() {
+        try {
+          const data = await SemesterService.getSemestersByProgram(
+            filters.program as string
+          );
+          setSemesters(data);
+        } catch (error) {
+          console.error('Error loading semesters:', error);
+        }
+      }
+      loadSemesters();
+    } else {
+      setSemesters([]);
+    }
+  }, [filters.program]);
+
+  // Load sections when semester and institution are available
+  useEffect(() => {
+    if (filters.semester && filters.institution) {
+      async function loadSections() {
+        try {
+          const data = await SectionService.getSectionsBySemesterAndInstitution(
+            filters.semester as string,
+            filters.institution as string
+          );
+          setSections(data);
+        } catch (error) {
+          console.error('Error loading sections:', error);
+        }
+      }
+      loadSections();
+    } else {
+      setSections([]);
+    }
+  }, [filters.semester, filters.institution]);
+
+  // Load academic years when institution changes
+  useEffect(() => {
+    if (filters.institution) {
+      async function loadAcademicYears() {
+        try {
+          const data = await AcademicYearService.getAcademicYearsByInstitution(
+            filters.institution as string
+          );
+          setAcademicYears(data);
+        } catch (error) {
+          console.error('Error loading academic years:', error);
+        }
+      }
+      loadAcademicYears();
+    } else {
+      setAcademicYears([]);
+    }
+  }, [filters.institution]);
 
   // Redirect if no access permission
   useEffect(() => {
@@ -383,8 +480,12 @@ export default function StudentsPage() {
       search: '',
       student_name: '',
       institution: '',
-      program: '',
+      degree: '',
       department: '',
+      program: '',
+      semester: '',
+      section: '',
+      academic_year: '',
       gender: undefined,
       entry_type: undefined,
       accommodation_type: undefined,
@@ -404,11 +505,28 @@ export default function StudentsPage() {
     const newFilters = { ...filters };
     delete newFilters[key];
 
+    // Handle hierarchical dependencies
     if (key === 'institution') {
+      delete newFilters.degree;
       delete newFilters.department;
       delete newFilters.program;
+      delete newFilters.semester;
+      delete newFilters.section;
+      delete newFilters.academic_year;
+    } else if (key === 'degree') {
+      delete newFilters.department;
+      delete newFilters.program;
+      delete newFilters.semester;
+      delete newFilters.section;
     } else if (key === 'department') {
       delete newFilters.program;
+      delete newFilters.semester;
+      delete newFilters.section;
+    } else if (key === 'program') {
+      delete newFilters.semester;
+      delete newFilters.section;
+    } else if (key === 'semester') {
+      delete newFilters.section;
     } else if (key === 'created_from' || key === 'created_to') {
       if (key === 'created_from') {
         setDateRange((prev) => ({ ...prev, from: undefined }));
@@ -457,6 +575,21 @@ export default function StudentsPage() {
       }
     }
 
+    if (filters.degree) {
+      const degree = degrees.find((d) => d.id === filters.degree);
+      if (degree) {
+        activeFilters.push(
+          <Badge key='degree' variant='outline' className='mr-2 mb-2'>
+            Degree: {degree.degree_name}
+            <X
+              className='ml-1 h-3 w-3 cursor-pointer'
+              onClick={() => handleRemoveFilter('degree')}
+            />
+          </Badge>
+        );
+      }
+    }
+
     if (filters.department) {
       const department = departments.find((d) => d.id === filters.department);
       if (department) {
@@ -481,6 +614,53 @@ export default function StudentsPage() {
             <X
               className='ml-1 h-3 w-3 cursor-pointer'
               onClick={() => handleRemoveFilter('program')}
+            />
+          </Badge>
+        );
+      }
+    }
+
+    if (filters.semester) {
+      const semester = semesters.find((s) => s.id === filters.semester);
+      if (semester) {
+        activeFilters.push(
+          <Badge key='semester' variant='outline' className='mr-2 mb-2'>
+            Semester: {semester.semester_name}
+            <X
+              className='ml-1 h-3 w-3 cursor-pointer'
+              onClick={() => handleRemoveFilter('semester')}
+            />
+          </Badge>
+        );
+      }
+    }
+
+    if (filters.section) {
+      const section = sections.find((s) => s.id === filters.section);
+      if (section) {
+        activeFilters.push(
+          <Badge key='section' variant='outline' className='mr-2 mb-2'>
+            Section: {section.section_name}
+            <X
+              className='ml-1 h-3 w-3 cursor-pointer'
+              onClick={() => handleRemoveFilter('section')}
+            />
+          </Badge>
+        );
+      }
+    }
+
+    if (filters.academic_year) {
+      const academicYear = academicYears.find(
+        (ay) => ay.id === filters.academic_year
+      );
+      if (academicYear) {
+        activeFilters.push(
+          <Badge key='academic_year' variant='outline' className='mr-2 mb-2'>
+            Academic Year: {academicYear.academic_year_name}
+            <X
+              className='ml-1 h-3 w-3 cursor-pointer'
+              onClick={() => handleRemoveFilter('academic_year')}
             />
           </Badge>
         );
@@ -817,15 +997,19 @@ export default function StudentsPage() {
               <div className='mb-6 pb-6 border-b'>
                 <h3 className='text-sm font-medium mb-4'>Advanced Filters</h3>
 
-                {/* First row of filters */}
+                {/* First row of filters - Institution to Program */}
                 <div className='grid gap-4 md:grid-cols-3 mb-4'>
                   <Select
                     value={filters.institution || 'all'}
                     onValueChange={(value) =>
                       handleFilterChange({
                         institution: value === 'all' ? undefined : value,
+                        degree: undefined,
                         department: undefined,
-                        program: undefined
+                        program: undefined,
+                        semester: undefined,
+                        section: undefined,
+                        academic_year: undefined
                       })
                     }
                   >
@@ -843,14 +1027,42 @@ export default function StudentsPage() {
                   </Select>
 
                   <Select
+                    value={filters.degree || 'all'}
+                    onValueChange={(value) =>
+                      handleFilterChange({
+                        degree: value === 'all' ? undefined : value,
+                        department: undefined,
+                        program: undefined,
+                        semester: undefined,
+                        section: undefined
+                      })
+                    }
+                    disabled={!filters.institution}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='Select Degree' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Degrees</SelectItem>
+                      {degrees.map((degree) => (
+                        <SelectItem key={degree.id} value={degree.id}>
+                          {degree.degree_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select
                     value={filters.department || 'all'}
                     onValueChange={(value) =>
                       handleFilterChange({
                         department: value === 'all' ? undefined : value,
-                        program: undefined
+                        program: undefined,
+                        semester: undefined,
+                        section: undefined
                       })
                     }
-                    disabled={!filters.institution}
+                    disabled={!filters.degree}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder='Select Department' />
@@ -864,12 +1076,17 @@ export default function StudentsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
 
+                {/* Second row of filters - Program to Section + Academic Year */}
+                <div className='grid gap-4 md:grid-cols-4 mb-4'>
                   <Select
                     value={filters.program || 'all'}
                     onValueChange={(value) =>
                       handleFilterChange({
-                        program: value === 'all' ? undefined : value
+                        program: value === 'all' ? undefined : value,
+                        semester: undefined,
+                        section: undefined
                       })
                     }
                     disabled={!filters.department}
@@ -882,6 +1099,76 @@ export default function StudentsPage() {
                       {programs.map((program) => (
                         <SelectItem key={program.id} value={program.id}>
                           {program.program_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select
+                    value={filters.semester || 'all'}
+                    onValueChange={(value) =>
+                      handleFilterChange({
+                        semester: value === 'all' ? undefined : value,
+                        section: undefined
+                      })
+                    }
+                    disabled={!filters.program}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='Select Semester' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Semesters</SelectItem>
+                      {semesters.map((semester) => (
+                        <SelectItem key={semester.id} value={semester.id}>
+                          {semester.semester_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select
+                    value={filters.section || 'all'}
+                    onValueChange={(value) =>
+                      handleFilterChange({
+                        section: value === 'all' ? undefined : value
+                      })
+                    }
+                    disabled={!filters.semester || !filters.institution}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='Select Section' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Sections</SelectItem>
+                      {sections.map((section) => (
+                        <SelectItem key={section.id} value={section.id}>
+                          {section.section_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select
+                    value={filters.academic_year || 'all'}
+                    onValueChange={(value) =>
+                      handleFilterChange({
+                        academic_year: value === 'all' ? undefined : value
+                      })
+                    }
+                    disabled={!filters.institution}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='Select Academic Year' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Academic Years</SelectItem>
+                      {academicYears.map((academicYear) => (
+                        <SelectItem
+                          key={academicYear.id}
+                          value={academicYear.id}
+                        >
+                          {academicYear.academic_year_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1057,6 +1344,49 @@ export default function StudentsPage() {
 
             {/* Active filter chips */}
             {renderFilterChips()}
+
+            {/* Filter-based count display */}
+            <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
+              <div className='flex items-center gap-2'>
+                <div className='flex items-center gap-1'>
+                  <Users className='h-4 w-4 text-muted-foreground' />
+                  <span className='text-sm font-medium'>
+                    {isLoading ? (
+                      'Loading...'
+                    ) : (
+                      <>
+                        Showing {studentsData?.data?.length || 0} of{' '}
+                        <span className='font-semibold text-primary'>
+                          {metadata.total || 0}
+                        </span>{' '}
+                        student{metadata.total !== 1 ? 's' : ''}
+                        {metadata.total > 0 && (
+                          <span className='text-muted-foreground'>
+                            {' '}
+                            (Page {metadata.page} of {metadata.totalPages})
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </span>
+                </div>
+                {!isLoading && metadata.total > 0 && (
+                  <Badge variant='secondary' className='ml-2'>
+                    {(
+                      ((studentsData?.data?.length || 0) /
+                        (metadata.total || 1)) *
+                      100
+                    ).toFixed(1)}
+                    % of total
+                  </Badge>
+                )}
+              </div>
+              {!isLoading && metadata.total === 0 && (
+                <div className='text-sm text-muted-foreground'>
+                  No students found matching the current filters
+                </div>
+              )}
+            </div>
 
             {/* DataTable component */}
             <DataTable

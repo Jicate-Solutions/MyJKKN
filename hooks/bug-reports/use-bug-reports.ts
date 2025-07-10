@@ -62,10 +62,36 @@ const updateBugReportStatus = async ({
   return response.json();
 };
 
-const fetchLeaderboard = async () => {
-  const response = await fetch('/api/bug-reports/leaderboard');
+const fetchLeaderboard = async (
+  period: 'overall' | 'week' | 'month' = 'overall'
+) => {
+  const response = await fetch(`/api/bug-reports/leaderboard?period=${period}`);
   if (!response.ok) {
     throw new Error('Failed to fetch leaderboard');
+  }
+  return response.json();
+};
+
+const deleteBugReport = async (reportId: string) => {
+  const response = await fetch(`/api/bug-reports/${reportId}`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to delete bug report');
+  }
+  return response.json();
+};
+
+const bulkDeleteBugReports = async (reportIds: string[]) => {
+  const response = await fetch('/api/bug-reports/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reportIds })
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to delete bug reports');
   }
   return response.json();
 };
@@ -130,10 +156,50 @@ export const useUpdateBugReportStatus = () => {
   });
 };
 
-export const useBugLeaderboard = () => {
+export const useDeleteBugReport = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteBugReport,
+    onSuccess: () => {
+      // Invalidate and refetch all bug reports queries
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.lists() });
+
+      // Invalidate my bug reports
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.mine() });
+
+      // Invalidate leaderboard
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.bugReports.leaderboard()
+      });
+    }
+  });
+};
+
+export const useBulkDeleteBugReports = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: bulkDeleteBugReports,
+    onSuccess: () => {
+      // Invalidate and refetch all bug reports queries
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.lists() });
+
+      // Invalidate my bug reports
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.mine() });
+
+      // Invalidate leaderboard
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.bugReports.leaderboard()
+      });
+    }
+  });
+};
+
+export const useBugLeaderboard = (
+  period: 'overall' | 'week' | 'month' = 'overall'
+) => {
   return useQuery<BugReportLeaderboardEntry[]>({
-    queryKey: queryKeys.bugReports.leaderboard(),
-    queryFn: fetchLeaderboard,
+    queryKey: [...queryKeys.bugReports.leaderboard(), period],
+    queryFn: () => fetchLeaderboard(period),
     refetchInterval: 60000, // Refetch every minute
     refetchOnWindowFocus: true,
     staleTime: 5 * 60 * 1000 // 5 minutes

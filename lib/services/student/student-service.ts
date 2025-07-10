@@ -569,8 +569,39 @@ export class StudentService {
         query = query.eq('section_id', filters.section);
       }
 
+      if (filters.degree) {
+        query = query.eq('degree_id', filters.degree);
+      }
+
+      if (filters.academic_year) {
+        query = query.eq('academic_year_id', filters.academic_year);
+      }
+
+      if (filters.gender) {
+        query = query.eq('gender', filters.gender);
+      }
+
+      if (filters.entry_type) {
+        query = query.eq('entry_type', filters.entry_type);
+      }
+
+      if (filters.accommodation_type) {
+        query = query.eq('accommodation_type', filters.accommodation_type);
+      }
+
       if (filters.status) {
         query = query.eq('status', filters.status);
+      }
+
+      if (filters.created_from) {
+        query = query.gte('created_at', filters.created_from.toISOString());
+      }
+
+      if (filters.created_to) {
+        // Add one day to include the entire to-date
+        const nextDay = new Date(filters.created_to);
+        nextDay.setDate(nextDay.getDate() + 1);
+        query = query.lt('created_at', nextDay.toISOString());
       }
 
       if (filters.is_profile_complete !== undefined) {
