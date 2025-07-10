@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import ConfettiEffect from '@/components/magic-ui/confetti';
+import Image from 'next/image';
 
 export default function BugLeaderboardPage() {
   const {
@@ -64,20 +65,27 @@ export default function BugLeaderboardPage() {
     <ContentLayout title='Bug Reporters Leaderboard'>
       {showConfetti && <ConfettiEffect />}
       {/* Hero section */}
-      <section className='relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-600 text-white shadow-xl mb-8'>
-        <div className='absolute inset-0 opacity-10 bg-[url("/globe.svg")] bg-cover bg-center' />
-        <div className='relative z-10 flex flex-col items-center justify-center text-center px-6 py-8 sm:py-12 space-y-2'>
-          <Trophy className='w-10 h-10 sm:w-12 sm:h-12 text-yellow-300 drop-shadow-md' />
-          <h2 className='text-2xl sm:text-3xl font-bold tracking-wide'>
+      <section className='relative mb-8 flex h-64 items-center justify-center overflow-hidden rounded-xl text-white shadow-xl'>
+        <Image
+          src='/banner/bug1.jpg'
+          alt='Abstract background'
+          className='absolute inset-0 h-full w-full object-cover'
+          width={1000}
+          height={1000}
+        />
+        <div className='absolute inset-0 bg-gradient-to-r from-purple-900/70 via-indigo-900/70 to-pink-900/70' />
+        <div className='relative z-0 flex flex-col items-center justify-center space-y-3 px-6 py-8 text-center'>
+          <Trophy className='h-12 w-12 text-yellow-300 drop-shadow-lg' />
+          <h2 className='text-2xl lg:text-3xl font-extrabold tracking-tight drop-shadow-lg sm:text-4xl'>
             JKKN Bug Bounty Hall of Fame
           </h2>
-          <p className='max-w-md text-xs sm:text-sm opacity-90'>
+          <p className='max-w-xl text-sm opacity-95 drop-shadow-md sm:text-base'>
             Celebrating our top contributors who help us squash bugs and make
             the platform better for everyone.
           </p>
           {isFetching && !isLoading && (
-            <div className='flex items-center justify-center gap-2 text-xs sm:text-sm text-white/90 pt-2'>
-              <div className='w-2 h-2 bg-green-300 rounded-full animate-pulse'></div>
+            <div className='flex items-center justify-center gap-2 rounded-full bg-white/10 px-3 py-1 pt-2 text-sm text-white/90 backdrop-blur-sm'>
+              <div className='h-2 w-2 animate-pulse rounded-full bg-green-300'></div>
               <span>Updating rankings…</span>
             </div>
           )}
@@ -85,75 +93,83 @@ export default function BugLeaderboardPage() {
       </section>
 
       {/* Prize Details Section */}
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8'>
+      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8'>
         {/* Weekly Prize */}
-        <Card className='p-6 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800'>
-          <div className='flex items-center gap-3 mb-3'>
-            <div className='p-2 bg-green-500 rounded-lg'>
-              <IndianRupee className='w-5 h-5 text-white' />
-            </div>
-            <h3 className='font-semibold text-lg'>Weekly Prize</h3>
+        <Card className='group relative overflow-hidden rounded-xl border-2 border-transparent bg-green-100 p-6 text-green-900 transition-all duration-300 hover:border-green-400 hover:shadow-2xl hover:scale-105 dark:bg-green-900/30 dark:text-green-100 dark:hover:border-green-600'>
+          <div className='absolute -right-6 -top-6 z-0 h-28 w-28 text-green-300/30 opacity-80 transition-transform duration-500 group-hover:rotate-12 group-hover:scale-125 dark:text-green-500/10'>
+            <IndianRupee className='h-full w-full' />
           </div>
-          <p className='text-2xl font-bold text-green-700 dark:text-green-400 mb-1'>
-            ₹500
-          </p>
-          <p className='text-sm text-muted-foreground'>
-            Top bug hunter wins every week
-          </p>
+          <div className='relative z-0'>
+            <div className='mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg'>
+              <IndianRupee className='h-7 w-7 text-white' />
+            </div>
+            <h3 className='text-lg font-semibold'>Weekly Prize</h3>
+            <p className='mt-1 text-3xl font-bold text-green-600 dark:text-green-300'>
+              ₹500
+            </p>
+            <p className='mt-2 text-sm text-green-700/90 dark:text-green-200/80'>
+              Top bug hunter wins every week.
+            </p>
+          </div>
         </Card>
 
         {/* Grand Prize */}
-        <Card className='p-6 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20 border-purple-200 dark:border-purple-800'>
-          <div className='flex items-center gap-3 mb-3'>
-            <div className='p-2 bg-purple-500 rounded-lg'>
-              <Briefcase className='w-5 h-5 text-white' />
-            </div>
-            <h3 className='font-semibold text-lg'>Grand Prize</h3>
+        <Card className='group relative overflow-hidden rounded-xl border-2 border-transparent bg-purple-100 p-6 text-purple-900 transition-all duration-300 hover:border-purple-400 hover:shadow-2xl hover:scale-105 dark:bg-purple-900/30 dark:text-purple-100 dark:hover:border-purple-600'>
+          <div className='absolute -right-6 -top-6 z-0 h-28 w-28 text-purple-300/30 opacity-80 transition-transform duration-500 group-hover:rotate-12 group-hover:scale-125 dark:text-purple-500/10'>
+            <Briefcase className='h-full w-full' />
           </div>
-          <p className='text-xl font-bold text-purple-700 dark:text-purple-400 mb-1'>
-            Win 3x = Internship
-          </p>
-          <p className='text-sm text-muted-foreground'>
-            3-month paid @ Jicate Solutions
-          </p>
-        </Card>
-
-        {/* Stats */}
-        <Card className='p-6 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800'>
-          <div className='flex items-center gap-3 mb-3'>
-            <div className='p-2 bg-blue-500 rounded-lg'>
-              <TrendingUp className='w-5 h-5 text-white' />
+          <div className='relative z-0'>
+            <div className='mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-pink-600 shadow-lg'>
+              <Briefcase className='h-7 w-7 text-white' />
             </div>
-            <h3 className='font-semibold text-lg'>Annual Impact</h3>
-          </div>
-          <div className='space-y-1'>
-            <p className='text-sm'>
-              <span className='font-bold text-blue-700 dark:text-blue-400'>
-                52
-              </span>{' '}
-              Winners/Year
+            <h3 className='text-lg font-semibold'>Grand Prize</h3>
+            <p className='mt-1 text-2xl font-bold text-purple-600 dark:text-purple-300'>
+              Win 3x = Internship
             </p>
-            <p className='text-sm'>
-              <span className='font-bold text-blue-700 dark:text-blue-400'>
-                5+
-              </span>{' '}
-              Internships
+            <p className='mt-2 text-sm text-purple-700/90 dark:text-purple-200/80'>
+              3-month paid @ Jicate Solutions.
             </p>
           </div>
         </Card>
 
-        {/* Total Opportunity */}
-        <Card className='p-6 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200 dark:border-amber-800'>
-          <div className='flex items-center gap-3 mb-3'>
-            <div className='p-2 bg-amber-500 rounded-lg'>
-              <Gift className='w-5 h-5 text-white' />
-            </div>
-            <h3 className='font-semibold text-lg'>Opportunity</h3>
+        {/* Annual Impact */}
+        <Card className='group relative overflow-hidden rounded-xl border-2 border-transparent bg-blue-100 p-6 text-blue-900 transition-all duration-300 hover:border-blue-400 hover:shadow-2xl hover:scale-105 dark:bg-blue-900/30 dark:text-blue-100 dark:hover:border-blue-600'>
+          <div className='absolute -right-6 -top-6 z-0 h-28 w-28 text-blue-300/30 opacity-80 transition-transform duration-500 group-hover:rotate-12 group-hover:scale-125 dark:text-blue-500/10'>
+            <TrendingUp className='h-full w-full' />
           </div>
-          <p className='text-2xl font-bold text-amber-700 dark:text-amber-400 mb-1'>
-            ₹1.5L
-          </p>
-          <p className='text-sm text-muted-foreground'>Total annual rewards</p>
+          <div className='relative z-0'>
+            <div className='mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg'>
+              <TrendingUp className='h-7 w-7 text-white' />
+            </div>
+            <h3 className='text-lg font-semibold'>Annual Impact</h3>
+            <div className='mt-2 space-y-1'>
+              <p className='text-lg font-bold text-blue-600 dark:text-blue-300'>
+                <span className='text-2xl'>52</span> Winners/Year
+              </p>
+              <p className='text-lg font-bold text-blue-600 dark:text-blue-300'>
+                <span className='text-2xl'>5+</span> Internships
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        {/* Opportunity */}
+        <Card className='group relative overflow-hidden rounded-xl border-2 border-transparent bg-amber-100 p-6 text-amber-900 transition-all duration-300 hover:border-amber-400 hover:shadow-2xl hover:scale-105 dark:bg-amber-900/30 dark:text-amber-100 dark:hover:border-amber-600'>
+          <div className='absolute -right-6 -top-6 z-0 h-28 w-28 text-amber-300/30 opacity-80 transition-transform duration-500 group-hover:rotate-12 group-hover:scale-125 dark:text-amber-500/10'>
+            <Gift className='h-full w-full' />
+          </div>
+          <div className='relative z-0'>
+            <div className='mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg'>
+              <Gift className='h-7 w-7 text-white' />
+            </div>
+            <h3 className='text-lg font-semibold'>Opportunity</h3>
+            <p className='mt-1 text-3xl font-bold text-amber-600 dark:text-amber-300'>
+              ₹1.5L
+            </p>
+            <p className='mt-2 text-sm text-amber-700/90 dark:text-amber-200/80'>
+              Total annual rewards.
+            </p>
+          </div>
         </Card>
       </div>
 

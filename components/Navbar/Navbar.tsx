@@ -24,7 +24,7 @@ export function Navbar({ title }: NavbarProps) {
   };
 
   return (
-    <header className='sticky top-0 z-10 w-full bg-background/95 shadow backdrop-blur supports-[backdrop-filter]:bg-background/60 dark:shadow-secondary'>
+    <header className='sticky top-0 z-10 w-full bg-white shadow dark:shadow-secondary'>
       <div className='mx-4 sm:mx-8 flex h-14 items-center justify-between'>
         <div className='flex items-center space-x-4 lg:space-x-0'>
           <SheetMenu />
