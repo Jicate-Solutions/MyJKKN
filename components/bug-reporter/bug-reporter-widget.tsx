@@ -6,7 +6,28 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Bug, X, TestTube, Camera, Zap } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
+import {
+  Bug,
+  X,
+  TestTube,
+  Camera,
+  Zap,
+  Search,
+  DollarSign,
+  Rocket,
+  IndianRupee,
+  ChevronRight,
+  Trophy,
+  Briefcase,
+  Info,
+  ChevronDown
+} from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { useRouter } from 'next/navigation';
 
@@ -417,6 +438,7 @@ export function BugReporterWidget() {
   const [isClient, setIsClient] = useState(false);
   const [testResults, setTestResults] = useState<string>('');
   const [debugMode, setDebugMode] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
 
@@ -776,41 +798,72 @@ export function BugReporterWidget() {
   return (
     <>
       {/* Floating Bug Report Button */}
-      <Button
-        onClick={handleOpenBugReport}
-        disabled={isCapturingScreenshot}
-        className={`fixed ${
-          isMobileDevice() ? 'bottom-24 right-2' : 'bottom-4 right-4'
-        } z-[60] rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget`}
-        variant='destructive'
-        title={
-          isCapturingScreenshot
-            ? 'Capturing screenshot...'
-            : 'Report a Bug (html2canvas Pro)'
-        }
-      >
-        {isCapturingScreenshot ? (
-          <Camera className='w-5 h-5 animate-pulse text-primary' />
-        ) : (
-          <div className='relative'>
-            <Bug className='w-5 h-5 text-white' />
-          </div>
-        )}
-      </Button>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={handleOpenBugReport}
+              disabled={isCapturingScreenshot}
+              className={`fixed ${
+                isMobileDevice() ? 'bottom-24 right-2' : 'bottom-4 right-4'
+              } z-[60] bg-red-600 hover:bg-red-700 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget`}
+              variant='outline'
+            >
+              {isCapturingScreenshot ? (
+                <Camera className='w-5 h-5 animate-pulse text-primary' />
+              ) : (
+                <div className='relative'>
+                  <Bug className='w-5 h-5 text-white' />
+                </div>
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent
+            side='left'
+            className='bg-gradient-to-r from-purple-600 to-pink-600 text-white border-0'
+          >
+            <p className='font-semibold'>
+              {isCapturingScreenshot
+                ? 'Capturing screenshot...'
+                : 'JKKN Bug Bounty'}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
       {/* Bug Report Modal */}
       {isOpen && (
         <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4'>
           <Card className='w-full max-w-md max-h-[90vh] overflow-y-auto'>
             <CardHeader className='flex flex-row items-center justify-between'>
-              <CardTitle className='flex items-center gap-2'>
-                <Bug className='w-5 h-5' />
-                Report a Bug
-                <Badge variant='secondary' className='ml-2'>
-                  <Zap className='w-3 h-3 mr-1' />
-                  html2canvas
-                </Badge>
-              </CardTitle>
+              <div className='flex flex-col items-start justify-start gap-2'>
+                <CardTitle className='flex items-center gap-2'>
+                  <Bug className='w-5 h-5 text-red-600' />
+                  <span className='text-green-600'>JKKN Bug Bounty</span>
+                </CardTitle>
+                <p className='text-sm mt-1 flex items-center gap-3'>
+                  <span className='flex items-center gap-1'>
+                    <Search className='w-4 h-4 text-blue-500' />
+                    <span className='text-muted-foreground font-semibold'>
+                      Find bugs
+                    </span>
+                  </span>
+                  <span className='text-muted-foreground'>•</span>
+                  <span className='flex items-center gap-1'>
+                    <IndianRupee className='w-4 h-4 text-yellow-600' />
+                    <span className='text-muted-foreground font-semibold'>
+                      Win Cash
+                    </span>
+                  </span>
+                  <span className='text-muted-foreground'>•</span>
+                  <span className='flex items-center gap-1'>
+                    <Rocket className='w-4 h-4 text-purple-500' />
+                    <span className='text-muted-foreground font-semibold'>
+                      Launch Career
+                    </span>
+                  </span>
+                </p>
+              </div>
               <Button
                 variant='ghost'
                 size='sm'
@@ -824,6 +877,147 @@ export function BugReporterWidget() {
               </Button>
             </CardHeader>
             <CardContent className='space-y-4'>
+              {/* How it Works Toggle Button */}
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setShowHowItWorks(!showHowItWorks)}
+                className='w-full bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20 border-purple-200 dark:border-purple-800 hover:from-purple-100 hover:to-pink-100 dark:hover:from-purple-950/30 dark:hover:to-pink-950/30 transition-all duration-200'
+              >
+                <div className='flex items-center justify-between w-full'>
+                  <div className='flex items-center gap-2'>
+                    <div className='p-1 bg-gradient-to-br from-purple-500 to-pink-500 rounded'>
+                      <Info className='w-3 h-3 text-white' />
+                    </div>
+                    <span className='text-sm font-medium bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent'>
+                      How to Win ₹500 Weekly + Internship
+                    </span>
+                  </div>
+                  <ChevronDown
+                    className={`w-4 h-4 text-purple-600 transition-transform duration-200 ${
+                      showHowItWorks ? 'rotate-180' : ''
+                    }`}
+                  />
+                </div>
+              </Button>
+
+              {/* How it Works Content - Collapsible */}
+              <div
+                className={`overflow-hidden transition-all duration-300 ${
+                  showHowItWorks ? 'max-h-100' : 'max-h-0'
+                }`}
+              >
+                <div className='bg-gradient-to-br from-purple-50 via-pink-50 to-indigo-50 dark:from-purple-950/10 dark:via-pink-950/10 dark:to-indigo-950/10 rounded-lg p-4 space-y-4 border border-purple-100 dark:border-purple-900'>
+                  {/* Steps with enhanced design */}
+                  <div className='space-y-3'>
+                    {/* Step 1 */}
+                    <div className='relative'>
+                      <div className='flex items-start gap-3 bg-white dark:bg-gray-900 rounded-lg p-3 shadow-sm border border-blue-100 dark:border-blue-900'>
+                        <div className='relative'>
+                          <div className='bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-md'>
+                            1
+                          </div>
+                          <div className='absolute -bottom-1 -right-1 w-3 h-3 bg-blue-300 rounded-full animate-pulse'></div>
+                        </div>
+                        <div className='flex-1'>
+                          <p className='text-sm font-semibold flex items-center gap-2'>
+                            <Search className='w-4 h-4 text-blue-500' />
+                            Find & Report Bugs
+                          </p>
+                          <p className='text-xs text-muted-foreground mt-1'>
+                            Use MyJKKN platform daily. Spot issues. Click the
+                            bug reporter.
+                          </p>
+                          <div className='flex flex-wrap gap-1 mt-2'>
+                            <Badge
+                              variant='secondary'
+                              className='text-xs py-0 px-1.5'
+                            >
+                              UI Issues
+                            </Badge>
+                            <Badge
+                              variant='secondary'
+                              className='text-xs py-0 px-1.5'
+                            >
+                              Functionality
+                            </Badge>
+                            <Badge
+                              variant='secondary'
+                              className='text-xs py-0 px-1.5'
+                            >
+                              Performance
+                            </Badge>
+                            <Badge
+                              variant='secondary'
+                              className='text-xs py-0 px-1.5'
+                            >
+                              Security
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Connector */}
+                      <div className='absolute left-4 top-12 bottom-0 w-0.5 bg-gradient-to-b from-blue-300 to-green-300'></div>
+                    </div>
+
+                    {/* Step 2 */}
+                    <div className='relative'>
+                      <div className='flex items-start gap-3 bg-white dark:bg-gray-900 rounded-lg p-3 shadow-sm border border-green-100 dark:border-green-900'>
+                        <div className='relative'>
+                          <div className='bg-gradient-to-br from-green-500 to-emerald-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-md'>
+                            2
+                          </div>
+                          <div className='absolute -bottom-1 -right-1 w-3 h-3 bg-green-300 rounded-full animate-pulse'></div>
+                        </div>
+                        <div className='flex-1'>
+                          <p className='text-sm font-semibold flex items-center gap-2'>
+                            <Trophy className='w-4 h-4 text-green-500' />
+                            Win ₹500 Weekly
+                          </p>
+                          <p className='text-xs text-muted-foreground mt-1'>
+                            Top bug hunter each week wins cash prize. Winners
+                            announced every Monday!
+                          </p>
+                          <div className='flex items-center gap-3 mt-2'>
+                            <Badge className='bg-green-100 hover:text-white text-green-700 dark:bg-green-950 dark:text-green-300 text-xs'>
+                              <IndianRupee className='w-3 h-3 mr-1' />
+                              Direct Bank Transfer
+                            </Badge>
+                            <span className='text-xs text-muted-foreground'>
+                              Within 24 hours
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Connector */}
+                      <div className='absolute left-4 top-12 bottom-0 w-0.5 bg-gradient-to-b from-green-300 to-purple-300'></div>
+                    </div>
+
+                    {/* Step 3 */}
+                    <div className='relative'>
+                      <div className='flex items-start gap-3 bg-white dark:bg-gray-900 rounded-lg p-3 shadow-sm border border-purple-100 dark:border-purple-900'>
+                        <div className='relative'>
+                          <div className='bg-gradient-to-br from-purple-500 to-pink-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-md'>
+                            3
+                          </div>
+                          <div className='absolute -bottom-1 -right-1 w-3 h-3 bg-purple-300 rounded-full animate-pulse'></div>
+                        </div>
+                        <div className='flex-1'>
+                          <p className='text-sm font-semibold flex items-center gap-2'>
+                            <Briefcase className='w-4 h-4 text-purple-500' />
+                            Get Jicate Internship
+                          </p>
+                          <p className='text-xs text-muted-foreground mt-1'>
+                            Win 3 times (any weeks) = 3-month paid internship at
+                            Jicate Solutions!
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className='text-sm font-medium'>
                   Describe the issue *
@@ -838,20 +1032,6 @@ export function BugReporterWidget() {
                 <p className='text-xs text-muted-foreground mt-1'>
                   Minimum 10 characters required
                 </p>
-              </div>
-
-              <div className='flex items-center gap-2 text-sm text-muted-foreground'>
-                <Badge variant='outline'>
-                  <Zap className='w-3 h-3 mr-1' />
-                  html2canvas Pro
-                </Badge>
-                <span>Console logs</span>
-                {capturedScreenshot && (
-                  <>
-                    <span>•</span>
-                    <span className='text-green-600'>Screenshot ✓</span>
-                  </>
-                )}
               </div>
 
               {capturedScreenshot && (
@@ -930,6 +1110,21 @@ export function BugReporterWidget() {
                 >
                   {isSubmitting ? 'Submitting...' : 'Submit Report'}
                 </Button>
+              </div>
+
+              {/* Motivational Footer */}
+              <div className='text-center pt-2'>
+                <p className='text-xs text-muted-foreground'>
+                  Your journey from{' '}
+                  <span className='font-medium text-foreground'>
+                    bug hunter
+                  </span>{' '}
+                  to{' '}
+                  <span className='font-medium text-foreground'>
+                    software developer
+                  </span>{' '}
+                  starts here!
+                </p>
               </div>
 
               {testResults && (
