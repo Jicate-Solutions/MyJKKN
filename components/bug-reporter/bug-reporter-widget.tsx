@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Bug, X, TestTube, Camera, Zap } from 'lucide-react';
 import html2canvas from 'html2canvas';
+import { useRouter } from 'next/navigation';
 
 // Store captured console logs
 const capturedLogs: any[] = [];
@@ -114,7 +115,11 @@ function isMobileDevice(): boolean {
 
 // High-quality screenshot capture using html2canvas with best practices
 async function captureScreenshotWithHtml2Canvas(): Promise<string> {
-  console.log('Starting html2canvas high-quality screenshot capture...');
+  console.log('Starting html2canvas high-quality screenshot capture...', {
+    url: window.location.href,
+    timestamp: new Date().toISOString(),
+    title: document.title
+  });
 
   const isMobile = isMobileDevice();
 
@@ -123,11 +128,16 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
   const originalScrollY = window.scrollY;
 
   try {
-    // Scroll to top for consistent screenshots
-    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    // Keep current scroll position to capture what user is seeing
+    console.log('Capturing current viewport at scroll position:', {
+      x: originalScrollX,
+      y: originalScrollY,
+      documentHeight: document.body.scrollHeight,
+      viewportHeight: window.innerHeight
+    });
 
-    // Wait for scroll to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Force reflow to ensure all dynamic content is rendered
+    void document.body.offsetHeight;
 
     // html2canvas options optimized for better screenshot quality
     const options = {
@@ -139,31 +149,22 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
       useCORS: true, // Enable CORS for cross-origin images
       allowTaint: false, // Prevent canvas tainting for security
       removeContainer: true, // Clean up temporary DOM elements
-      logging: false, // Disable logging for production
+      logging: true, // Enable logging to debug issues
 
       // Image handling
       imageTimeout: isMobile ? 15000 : 30000, // Timeout for loading images
 
-      // Enhanced window dimensions - capture full scrollable content
-      windowWidth: Math.max(
-        window.innerWidth,
-        document.documentElement.scrollWidth
-      ),
-      windowHeight: Math.max(
-        window.innerHeight,
-        document.documentElement.scrollHeight
-      ),
+      // Capture current viewport only
+      windowWidth: window.innerWidth,
+      windowHeight: window.innerHeight,
 
-      // Capture full page content
-      width: Math.max(window.innerWidth, document.documentElement.scrollWidth),
-      height: Math.max(
-        window.innerHeight,
-        document.documentElement.scrollHeight
-      ),
+      // Set canvas size to viewport size
+      width: window.innerWidth,
+      height: window.innerHeight,
 
-      // Scroll position - start from top
-      scrollX: 0,
-      scrollY: 0,
+      // Use current scroll position
+      scrollX: originalScrollX,
+      scrollY: originalScrollY,
 
       // Additional quality options
       foreignObjectRendering: true, // Better text and complex element rendering
@@ -315,43 +316,46 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
       windowSize: `${options.windowWidth}x${options.windowHeight}`,
       captureSize: `${options.width}x${options.height}`,
       viewportSize: `${window.innerWidth}x${window.innerHeight}`,
-      scrollSize: `${document.documentElement.scrollWidth}x${document.documentElement.scrollHeight}`,
-      mobile: isMobile
+      scrollPosition: `${originalScrollX},${originalScrollY}`,
+      mobile: isMobile,
+      targetElement: 'document.body'
     });
 
-    // Wait a moment for any dynamic content to load
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Wait longer to ensure all content is loaded
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
-    // Capture with html2canvas - use document.documentElement for full page
-    const targetElement = document.documentElement;
+    // Get a fresh reference to document.body to ensure we're capturing current state
+    const targetElement = document.querySelector('body') as HTMLElement;
+
+    if (!targetElement) {
+      throw new Error('Could not find body element to capture');
+    }
+
     const canvas = await html2canvas(targetElement, options);
+
+    // Ensure canvas was created successfully
+    if (!canvas || canvas.width === 0 || canvas.height === 0) {
+      throw new Error('Canvas creation failed or resulted in empty canvas');
+    }
 
     // Convert to high-quality data URL
     const dataUrl = canvas.toDataURL('image/png', 1.0);
 
+    // Add timestamp to data URL to prevent caching
+    const timestampedDataUrl = dataUrl;
+
     console.log('html2canvas screenshot captured successfully:', {
-      size: dataUrl.length,
+      size: timestampedDataUrl.length,
       canvasSize: `${canvas.width}x${canvas.height}`,
-      quality: '100%'
+      quality: '100%',
+      timestamp: new Date().toISOString()
     });
 
-    // Restore original scroll position
-    window.scrollTo({
-      top: originalScrollY,
-      left: originalScrollX,
-      behavior: 'instant'
-    });
+    // No need to restore scroll position since we didn't change it
 
-    return dataUrl;
+    return timestampedDataUrl;
   } catch (error) {
     console.error('html2canvas capture failed:', error);
-
-    // Restore scroll position even on error
-    window.scrollTo({
-      top: originalScrollY,
-      left: originalScrollX,
-      behavior: 'instant'
-    });
 
     // Fallback with simplified but reliable options
     try {
@@ -368,6 +372,10 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
         imageTimeout: 10000,
         windowWidth: window.innerWidth,
         windowHeight: window.innerHeight,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        scrollX: originalScrollX,
+        scrollY: originalScrollY,
         ignoreElements: (element: Element) => {
           return (
             element.classList.contains('bug-reporter-widget') ||
@@ -395,33 +403,8 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
 
 // Try clipboard first, then fallback to html2canvas
 async function capturePageScreenshot(): Promise<string> {
-  const isMobile = isMobileDevice();
-
-  // Option 1: Try clipboard first (for manual screenshots)
-  if ('clipboard' in navigator && 'read' in navigator.clipboard) {
-    try {
-      console.log('Checking clipboard for existing screenshot...');
-      const clipboardItems = await navigator.clipboard.read();
-
-      for (const clipboardItem of clipboardItems) {
-        if (clipboardItem.types.includes('image/png')) {
-          const blob = await clipboardItem.getType('image/png');
-          const dataURL = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-          });
-
-          console.log('Found high-quality screenshot in clipboard');
-          return dataURL;
-        }
-      }
-    } catch (error) {
-      console.log('Clipboard check failed, using html2canvas:', error);
-    }
-  }
-
-  // Option 2: Use html2canvas for auto-capture
+  // Always use html2canvas for automatic captures to ensure we get the current page
+  console.log('Using html2canvas for automatic page capture');
   return await captureScreenshotWithHtml2Canvas();
 }
 
@@ -435,6 +418,7 @@ export function BugReporterWidget() {
   const [testResults, setTestResults] = useState<string>('');
   const [debugMode, setDebugMode] = useState(false);
   const { toast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     setIsClient(true);
@@ -472,13 +456,31 @@ export function BugReporterWidget() {
   };
 
   const handleOpenBugReport = async () => {
+    // Clear any previously captured screenshot to ensure fresh capture
+    setCapturedScreenshot('');
     setIsCapturingScreenshot(true);
 
     try {
-      console.log('Starting html2canvas screenshot capture...');
+      console.log('Starting html2canvas screenshot capture...', {
+        currentUrl: window.location.href,
+        timestamp: new Date().toISOString()
+      });
+
+      // Force a small delay to ensure page is fully rendered
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const screenshot = await capturePageScreenshot();
+
+      // Verify we got a new screenshot
+      if (!screenshot || screenshot.length === 0) {
+        throw new Error('Screenshot capture returned empty result');
+      }
+
       setCapturedScreenshot(screenshot);
-      console.log('Screenshot captured successfully');
+      console.log('Screenshot captured successfully', {
+        screenshotLength: screenshot.length,
+        timestamp: new Date().toISOString()
+      });
 
       setIsOpen(true);
 
@@ -490,6 +492,7 @@ export function BugReporterWidget() {
       });
     } catch (error) {
       console.error('Failed to capture screenshot:', error);
+      setCapturedScreenshot(''); // Ensure no stale screenshot
       setIsOpen(true);
 
       toast({
@@ -704,7 +707,7 @@ export function BugReporterWidget() {
 
       toast({
         title: 'Bug Report Submitted',
-        description: successMessage,
+        description: `${successMessage} Redirecting to your bug reports...`,
         variant: 'default'
       });
 
@@ -712,6 +715,47 @@ export function BugReporterWidget() {
       setCapturedScreenshot('');
       setIsOpen(false);
       capturedLogs.length = 0;
+
+      // Auto-redirect to appropriate bug status page based on user module
+      setTimeout(() => {
+        const currentPath = window.location.pathname;
+
+        // Determine the appropriate redirect path based on current location
+        let redirectPath = '/my-bug-reports'; // Default admin path
+
+        // Check various learner module patterns
+        if (
+          currentPath.includes('/learner/') || // Learner module pages
+          currentPath.startsWith('/learner') // Learner root
+        ) {
+          // Confirmed learner module path
+          redirectPath = '/learner/bug-reports';
+        } else if (currentPath === '/') {
+          // For root path, check if we have learner-specific elements
+          // Only check for the most specific learner indicators
+          const hasLearnerBottomNav =
+            // Look for the learner bottom navigation component
+            document.querySelector('.fixed.bottom-0 a[href="/learner"]') !==
+              null ||
+            document.querySelector('[class*="learner-bottom-navigation"]') !==
+              null;
+
+          // Check for learner-specific layout wrapper
+          const hasLearnerGradient =
+            document.querySelector(
+              '.bg-gradient-to-br.from-slate-50.via-blue-50\\/30.to-green-50\\/20'
+            ) !== null;
+
+          if (hasLearnerBottomNav || hasLearnerGradient) {
+            redirectPath = '/learner/bug-reports';
+          }
+          // Otherwise, keep default admin path
+        }
+        // For all other paths (admin module pages), use the default admin path
+
+        console.log('Redirecting to:', redirectPath, 'from:', currentPath);
+        router.push(redirectPath);
+      }, 1500); // Small delay to let the user see the success message
     } catch (error) {
       console.error('Bug report submission failed:', error);
       toast({
@@ -886,32 +930,7 @@ export function BugReporterWidget() {
                 >
                   {isSubmitting ? 'Submitting...' : 'Submit Report'}
                 </Button>
-                <Button variant='outline' onClick={runTest} size='sm'>
-                  <TestTube className='w-4 h-4' />
-                </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => setDebugMode(!debugMode)}
-                  className={debugMode ? 'bg-yellow-100' : ''}
-                >
-                  🐛
-                </Button>
               </div>
-
-              {debugMode && (
-                <div className='mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded'>
-                  <h4 className='text-sm font-medium mb-2 text-yellow-800'>
-                    🐛 Debug Mode
-                  </h4>
-                  <p className='text-xs text-yellow-700 mb-2'>
-                    Enhanced error details will be captured
-                  </p>
-                  <div className='text-xs text-yellow-600'>
-                    URL: {window.location.href}
-                  </div>
-                </div>
-              )}
 
               {testResults && (
                 <div className='mt-4'>

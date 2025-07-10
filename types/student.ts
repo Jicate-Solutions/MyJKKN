@@ -150,10 +150,12 @@ export interface StudentFilters {
   search?: string;
   student_name?: string;
   institution?: string;
+  degree?: string;
   department?: string;
   program?: string;
   semester?: string;
   section?: string;
+  academic_year?: string;
   gender?: string;
   entry_type?: string;
   accommodation_type?: string;

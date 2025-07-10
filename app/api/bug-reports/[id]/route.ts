@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/client';
 
 const updateStatusSchema = z.object({
   status: z.enum(['new', 'seen', 'in_progress', 'resolved', 'wont_fix'])
@@ -104,6 +105,121 @@ export async function PATCH(
     );
     return NextResponse.json(
       { error: 'Failed to update bug report status.' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: reportId } = await params;
+
+  try {
+    const supabase = await createServerSupabaseClient();
+
+    // Check if user is authenticated
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // Check if user is super admin
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile || profile.role !== 'super_admin') {
+      return NextResponse.json(
+        { error: 'Only super administrators can delete bug reports' },
+        { status: 403 }
+      );
+    }
+
+    // Use admin client for deletion operations
+    const adminSupabase = createAdminClient();
+
+    // First, get the bug report to find the screenshot URL
+    const { data: report, error: fetchError } = await adminSupabase
+      .from('bug_reports')
+      .select('screenshot_url')
+      .eq('id', reportId)
+      .single();
+
+    if (fetchError || !report) {
+      return NextResponse.json(
+        { error: 'Bug report not found' },
+        { status: 404 }
+      );
+    }
+
+    // If there's a screenshot, delete it from storage
+    if (report.screenshot_url) {
+      try {
+        // Extract the file path from the public URL
+        // The URL format is typically: https://...supabase.co/storage/v1/object/public/bug-reports/{reportId}/screenshot.png
+        const urlParts = report.screenshot_url.split('/bug-reports/');
+        if (urlParts.length > 1) {
+          const filePath = urlParts[1];
+
+          const { error: storageError } = await adminSupabase.storage
+            .from('bug-reports')
+            .remove([filePath]);
+
+          if (storageError) {
+            console.error(
+              '[BUG_REPORTS_DELETE] Storage deletion error:',
+              storageError
+            );
+            // Continue with database deletion even if storage deletion fails
+          } else {
+            console.log(
+              '[BUG_REPORTS_DELETE] Screenshot deleted successfully:',
+              filePath
+            );
+          }
+        }
+      } catch (error) {
+        console.error(
+          '[BUG_REPORTS_DELETE] Error parsing screenshot URL:',
+          error
+        );
+        // Continue with database deletion
+      }
+    }
+
+    // Delete the bug report from the database
+    const { error: deleteError } = await adminSupabase
+      .from('bug_reports')
+      .delete()
+      .eq('id', reportId);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    console.log(
+      '[BUG_REPORTS_DELETE] Bug report deleted successfully:',
+      reportId
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: 'Bug report deleted successfully'
+    });
+  } catch (error) {
+    console.error('[BUG_REPORTS_DELETE]', error);
+    return NextResponse.json(
+      { error: 'Failed to delete bug report' },
       { status: 500 }
     );
   }
