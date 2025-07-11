@@ -126,7 +126,6 @@ export default function StudentsPage() {
     page: 1,
     limit: 10
   });
-  const [currentPage, setCurrentPage] = useState(1);
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -171,15 +170,7 @@ export default function StudentsPage() {
     to: undefined
   });
 
-  const {
-    data: studentsData,
-    isLoading,
-    refetch
-  } = useStudents({
-    ...filters,
-    page: currentPage,
-    limit: 10
-  });
+  const { data: studentsData, isLoading, refetch } = useStudents(filters);
 
   // Load institutions on mount
   useEffect(() => {
@@ -332,11 +323,10 @@ export default function StudentsPage() {
       ...newFilters,
       page: 1
     }));
-    setCurrentPage(1);
   };
 
   const handlePageChange = (page: number) => {
-    setCurrentPage(page);
+    setFilters((prev) => ({ ...prev, page }));
   };
 
   // Handle refreshing the student list
@@ -469,11 +459,6 @@ export default function StudentsPage() {
     }
   };
 
-  // Update the filter state when page changes
-  useState(() => {
-    setFilters((prev) => ({ ...prev, page: currentPage }));
-  });
-
   // Reset all filters except is_profile_complete
   const handleResetFilters = () => {
     setFilters({
@@ -497,7 +482,6 @@ export default function StudentsPage() {
       limit: 10
     });
     setDateRange({ from: undefined, to: undefined });
-    setCurrentPage(1);
   };
 
   // Remove a specific filter
@@ -539,7 +523,6 @@ export default function StudentsPage() {
       ...newFilters,
       page: 1
     });
-    setCurrentPage(1);
   };
 
   // Render active filter chips
@@ -869,7 +852,6 @@ export default function StudentsPage() {
     onPageChange: handlePageChange,
     onPageSizeChange: (pageSize: number) => {
       setFilters((prev) => ({ ...prev, limit: pageSize, page: 1 }));
-      setCurrentPage(1);
     },
     isLoading: isLoading
   };

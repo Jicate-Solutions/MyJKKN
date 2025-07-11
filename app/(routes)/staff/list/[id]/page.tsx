@@ -284,6 +284,12 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
               </p>
             </div>
             <div>
+              <p className='font-medium'>Degree</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.degree?.degree_name} ({staff.degree?.degree_id})
+              </p>
+            </div>
+            <div>
               <p className='font-medium'>Department</p>
               <p className='text-base text-muted-foreground'>
                 {staff.department?.department_name}
