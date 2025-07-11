@@ -34,6 +34,24 @@ export default function UsersPage() {
     hasNextPage: false,
     hasPreviousPage: false
   });
+  const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(
+    null
+  );
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const { data } = await UserService.getCurrentUserProfile();
+        setCurrentUserProfile(data);
+      } catch (err) {
+        setError('Could not load your profile. Please refresh.');
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   // Define fetchData as a useCallback function
   const fetchData = useCallback(
@@ -46,14 +64,21 @@ export default function UsersPage() {
         }
         setError(null);
 
+        const fetchFilters: UserFilters = { ...filters };
+        if (currentUserProfile && currentUserProfile.institution_id) {
+          fetchFilters.institution = currentUserProfile.institution_id;
+        }
+
         // Fetch users with filters
-        const response = await UserService.getUsers(filters);
+        const response = await UserService.getUsers(fetchFilters);
         setUsers(response.data);
         setMetadata(response.metadata);
 
         // Fetch stats only on initial load
         if (!showPaginationLoader) {
-          const statsData = await UserService.getUserStats();
+          const statsData = await UserService.getUserStats(
+            fetchFilters.institution
+          );
           setStats(statsData);
         }
       } catch (err) {
@@ -64,13 +89,15 @@ export default function UsersPage() {
         setPaginationLoading(false);
       }
     },
-    [filters]
+    [filters, currentUserProfile]
   );
 
   // Fetch users and stats
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (!profileLoading) {
+      fetchData();
+    }
+  }, [fetchData, profileLoading]);
 
   const handleFilterChange = (newFilters: Partial<UserFilters>) => {
     setFilters((prev) => ({
