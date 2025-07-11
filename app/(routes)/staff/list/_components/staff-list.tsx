@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { MoreVertical, Edit, Trash2, FileText, Plus } from 'lucide-react';
@@ -20,6 +20,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -53,21 +63,53 @@ export function StaffList({
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit') || canEdit;
   const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
 
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [selectedStaffForDelete, setSelectedStaffForDelete] =
+    useState<Staff | null>(null);
+  const [selectedRowsForBulkDelete, setSelectedRowsForBulkDelete] = useState<
+    Staff[]
+  >([]);
+
   // Handle bulk delete
   const handleBulkDelete = async (selectedRows: Staff[]) => {
+    if (selectedRows.length === 0) {
+      toast.error('Please select at least one staff member to delete.');
+      return;
+    }
+
+    setSelectedStaffForDelete(null); // Clear single delete selection
+    setSelectedRowsForBulkDelete(selectedRows);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  // Actual delete function that handles both single and bulk delete
+  const performDelete = async () => {
     try {
-      const staffIds = selectedRows.map((staff) => staff.id);
-      const result = await StaffService.bulkDeleteStaff(staffIds);
+      if (selectedStaffForDelete) {
+        // Single delete
+        await StaffService.deleteStaff(selectedStaffForDelete.id);
+        toast.success('Staff member deleted successfully');
+      } else if (selectedRowsForBulkDelete.length > 0) {
+        // Bulk delete
+        const staffIds = selectedRowsForBulkDelete.map((staff) => staff.id);
+        const result = await StaffService.bulkDeleteStaff(staffIds);
 
-      if (result.success.length > 0) {
-        toast.success(
-          `Successfully deleted ${result.success.length} staff members`
-        );
-      }
+        if (result.success.length > 0) {
+          toast.success(
+            `Successfully deleted ${result.success.length} staff member${
+              result.success.length > 1 ? 's' : ''
+            }`
+          );
+        }
 
-      if (result.failed.length > 0) {
-        toast.error(`Failed to delete ${result.failed.length} staff members`);
-        console.error('Failed deletions:', result.failed);
+        if (result.failed.length > 0) {
+          toast.error(
+            `Failed to delete ${result.failed.length} staff member${
+              result.failed.length > 1 ? 's' : ''
+            }`
+          );
+          console.error('Failed deletions:', result.failed);
+        }
       }
 
       onRefresh();
@@ -75,29 +117,20 @@ export function StaffList({
       toast.error(
         error instanceof Error
           ? error.message
-          : 'Failed to delete staff members'
+          : 'Failed to delete staff member(s)'
       );
-      throw error; // Re-throw to let DataTable handle the error state
+    } finally {
+      setIsDeleteConfirmOpen(false);
+      setSelectedStaffForDelete(null);
+      setSelectedRowsForBulkDelete([]);
     }
   };
 
   // Handle single delete
-  const handleSingleDelete = useCallback(
-    async (staffMember: Staff) => {
-      try {
-        await StaffService.deleteStaff(staffMember.id);
-        toast.success('Staff member deleted successfully');
-        onRefresh();
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : 'Failed to delete staff member'
-        );
-      }
-    },
-    [onRefresh]
-  );
+  const handleSingleDelete = useCallback(async (staffMember: Staff) => {
+    setSelectedStaffForDelete(staffMember);
+    setIsDeleteConfirmOpen(true);
+  }, []);
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
@@ -109,41 +142,42 @@ export function StaffList({
       {
         id: 'staff',
         header: 'Staff',
+        size: 250, // Set fixed width
         cell: ({ row }) => {
           const staff = row.original;
           return canViewStaff ? (
             <Link
               href={`/staff/list/${staff.id}`}
-              className='flex items-center gap-3 hover:text-primary'
+              className='flex items-center gap-2 hover:text-primary min-w-0'
             >
-              <Avatar>
+              <Avatar className='h-10 w-10 flex-shrink-0'>
                 <AvatarImage src={staff.profile_picture || undefined} />
-                <AvatarFallback>
+                <AvatarFallback className='text-xs'>
                   {getInitials(staff.first_name, staff.last_name)}
                 </AvatarFallback>
               </Avatar>
-              <div className='flex flex-col'>
-                <span className='font-medium'>
+              <div className='flex flex-col min-w-0 flex-1'>
+                <span className='font-medium truncate'>
                   {staff.first_name} {staff.last_name}
                 </span>
-                <span className='text-sm text-muted-foreground'>
+                <span className='text-sm text-muted-foreground truncate'>
                   {staff.email}
                 </span>
               </div>
             </Link>
           ) : (
-            <div className='flex items-center gap-3'>
-              <Avatar>
+            <div className='flex items-center gap-2 min-w-0'>
+              <Avatar className='h-8 w-8 flex-shrink-0'>
                 <AvatarImage src={staff.profile_picture || undefined} />
-                <AvatarFallback>
+                <AvatarFallback className='text-xs'>
                   {getInitials(staff.first_name, staff.last_name)}
                 </AvatarFallback>
               </Avatar>
-              <div className='flex flex-col'>
-                <span className='font-medium'>
+              <div className='flex flex-col min-w-0 flex-1'>
+                <span className='font-medium truncate'>
                   {staff.first_name} {staff.last_name}
                 </span>
-                <span className='text-sm text-muted-foreground'>
+                <span className='text-xs text-muted-foreground truncate'>
                   {staff.email}
                 </span>
               </div>
@@ -173,6 +207,14 @@ export function StaffList({
         cell: ({ row }) => {
           const staff = row.original;
           return staff.institution?.name || '-';
+        }
+      },
+      {
+        id: 'degree',
+        header: 'Degree',
+        cell: ({ row }) => {
+          const staff = row.original;
+          return staff.degree?.degree_name || '-';
         }
       },
       {
@@ -312,35 +354,83 @@ export function StaffList({
   );
 
   return (
-    <DataTable
-      columns={columns}
-      data={staff}
-      searchPlaceholder='Search staff...'
-      filterColumn='email'
-      permissions={{
-        module: 'staff',
-        actions: {
-          view: true,
-          delete: true
-        },
-        showPermissionError: true
-      }}
-      tableTools={tableTools}
-      onDeleteSelected={canDeleteStaff ? handleBulkDelete : undefined}
-      getRowId={(row) => row.id}
-      onRefresh={onRefresh}
-      showRefresh={true}
-      serverSidePagination={{
-        currentPage: metadata.page,
-        totalPages: metadata.totalPages,
-        pageSize: metadata.limit,
-        totalItems: metadata.total,
-        hasNextPage: metadata.page < metadata.totalPages,
-        hasPreviousPage: metadata.page > 1,
-        onPageChange: onPageChange,
-        onPageSizeChange: onPageSizeChange,
-        isLoading: paginationLoading
-      }}
-    />
+    <>
+      <DataTable
+        columns={columns}
+        data={staff}
+        searchPlaceholder='Search staff...'
+        filterColumn='email'
+        permissions={{
+          module: 'staff',
+          actions: {
+            view: true,
+            delete: true
+          },
+          showPermissionError: true
+        }}
+        tableTools={tableTools}
+        onDeleteSelected={canDeleteStaff ? handleBulkDelete : undefined}
+        getRowId={(row) => row.id}
+        onRefresh={onRefresh}
+        showRefresh={true}
+        serverSidePagination={{
+          currentPage: metadata.page,
+          totalPages: metadata.totalPages,
+          pageSize: metadata.limit,
+          totalItems: metadata.total,
+          hasNextPage: metadata.page < metadata.totalPages,
+          hasPreviousPage: metadata.page > 1,
+          onPageChange: onPageChange,
+          onPageSizeChange: onPageSizeChange,
+          isLoading: paginationLoading
+        }}
+      />
+
+      <AlertDialog
+        open={isDeleteConfirmOpen}
+        onOpenChange={setIsDeleteConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedStaffForDelete ? (
+                <>
+                  This action cannot be undone. This will permanently delete the
+                  staff member{' '}
+                  <strong>
+                    &ldquo;{selectedStaffForDelete.first_name}{' '}
+                    {selectedStaffForDelete.last_name}&rdquo;
+                  </strong>
+                  .
+                </>
+              ) : selectedRowsForBulkDelete.length > 0 ? (
+                <>
+                  This action cannot be undone. This will permanently delete{' '}
+                  <strong>
+                    {selectedRowsForBulkDelete.length} staff member
+                    {selectedRowsForBulkDelete.length > 1 ? 's' : ''}
+                  </strong>
+                  .
+                </>
+              ) : (
+                'This action cannot be undone. This will permanently delete the selected staff member(s).'
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={performDelete}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

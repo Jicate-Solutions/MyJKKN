@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -24,7 +25,7 @@ import ExportStaff from './_components/export-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info } from 'lucide-react';
+import { Info, Users } from 'lucide-react';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
 
 export default function StaffPage() {
@@ -162,6 +163,48 @@ export default function StaffPage() {
         <Card>
           <CardContent className='p-6'>
             <StaffFilters filters={filters} onFilterChange={updateFilters} />
+
+            {/* Filter-based count display */}
+            <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
+              <div className='flex items-center gap-2'>
+                <div className='flex items-center gap-1'>
+                  <Users className='h-4 w-4 text-muted-foreground' />
+                  <span className='text-sm font-medium'>
+                    {loading ? (
+                      'Loading...'
+                    ) : (
+                      <>
+                        Showing {staff?.length || 0} of{' '}
+                        <span className='font-semibold text-primary'>
+                          {metadata.total || 0}
+                        </span>{' '}
+                        staff member{metadata.total !== 1 ? 's' : ''}
+                        {metadata.total > 0 && (
+                          <span className='text-muted-foreground'>
+                            {' '}
+                            (Page {metadata.page} of {metadata.totalPages})
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </span>
+                </div>
+                {!loading && metadata.total > 0 && (
+                  <Badge variant='secondary' className='ml-2'>
+                    {(
+                      ((staff?.length || 0) / (metadata.total || 1)) *
+                      100
+                    ).toFixed(1)}
+                    % of total
+                  </Badge>
+                )}
+              </div>
+              {!loading && metadata.total === 0 && (
+                <div className='text-sm text-muted-foreground'>
+                  No staff members found matching the current filters
+                </div>
+              )}
+            </div>
 
             {loading && !paginationLoading ? (
               <div className='flex justify-center items-center p-8'>

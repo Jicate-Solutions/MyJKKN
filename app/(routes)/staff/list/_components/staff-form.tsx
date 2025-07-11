@@ -36,6 +36,7 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { CategoryService } from '@/lib/services/staff/category-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { StaffImageUpload } from '@/components/ImageUpload/staff-image-upload';
@@ -70,6 +71,7 @@ const staffSchema = z.object({
   designation: z.string().min(2, 'Designation is required'),
   category_id: z.string().min(1, 'Category is required'),
   institution_id: z.string().min(1, 'Institution is required'),
+  degree_id: z.string().min(1, 'Degree is required'),
   department_id: z.string().min(1, 'Department is required'),
   is_active: z.boolean().default(true)
 });
@@ -93,9 +95,15 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const [categories, setCategories] = useState<
     Array<{ id: string; category_name: string }>
   >([]);
+  const [degrees, setDegrees] = useState<
+    Array<{ id: string; degree_id: string; degree_name: string }>
+  >([]);
   const [departments, setDepartments] = useState<
     Array<{ id: string; department_name: string }>
   >([]);
+
+  // Track if this is the initial load to avoid unnecessary resets
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(staffSchema),
@@ -123,16 +131,19 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       designation: staff?.designation || '',
       category_id: staff?.category_id || '',
       institution_id: staff?.institution_id || '',
+      degree_id: staff?.degree_id || '',
       department_id: staff?.department_id || '',
       is_active: staff?.is_active ?? true
     }
   });
 
-  // Watch institution_id for departments loading
+  // Watch institution_id for degrees loading and degree_id for departments loading
   const watchedInstitutionId = form.watch('institution_id');
+  const watchedDegreeId = form.watch('degree_id');
 
+  // Separate useEffect for initial data loading
   useEffect(() => {
-    async function loadData() {
+    async function loadInitialData() {
       try {
         const [institutionsData, categoriesData] = await Promise.all([
           OrganizationService.getInstitutionNames(true),
@@ -140,20 +151,96 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         ]);
         setInstitutions(institutionsData);
         setCategories(categoriesData.data);
-
-        if (watchedInstitutionId) {
-          const depsData = await DepartmentService.getDepartmentsByInstitution(
-            watchedInstitutionId
-          );
-          setDepartments(depsData);
-        }
+        setIsInitialLoad(false);
       } catch (error) {
-        console.error('Error loading form data:', error);
-        toast.error('Failed to load form data');
+        console.error('Error loading initial data:', error);
+        toast.error('Failed to load initial data');
       }
     }
-    loadData();
-  }, [watchedInstitutionId]);
+    loadInitialData();
+  }, []);
+
+  // Separate useEffect for loading degrees when institution changes
+  useEffect(() => {
+    async function loadDegrees() {
+      if (!watchedInstitutionId) {
+        setDegrees([]);
+        setDepartments([]);
+        return;
+      }
+
+      try {
+        const degreesData = await DegreeService.getDegreesByInstitution(
+          watchedInstitutionId
+        );
+        setDegrees(degreesData);
+
+        // Only reset fields in create mode and after initial load
+        if (!isEditing && !isInitialLoad) {
+          form.setValue('degree_id', '');
+          form.setValue('department_id', '');
+          setDepartments([]);
+        } else if (isEditing && staff?.degree_id && !isInitialLoad) {
+          // In edit mode, only reset if current degree doesn't belong to new institution
+          const currentDegreeExists = degreesData.some(
+            (d) => d.id === staff.degree_id
+          );
+          if (!currentDegreeExists) {
+            form.setValue('degree_id', '');
+            form.setValue('department_id', '');
+            setDepartments([]);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading degrees:', error);
+        toast.error('Failed to load degrees');
+      }
+    }
+    loadDegrees();
+  }, [watchedInstitutionId, isEditing, staff?.degree_id, form, isInitialLoad]);
+
+  // Separate useEffect for loading departments when degree changes
+  useEffect(() => {
+    async function loadDepartments() {
+      if (!watchedDegreeId || !watchedInstitutionId) {
+        setDepartments([]);
+        return;
+      }
+
+      try {
+        const depsData =
+          await DepartmentService.getDepartmentsByInstitutionAndDegree(
+            watchedInstitutionId,
+            watchedDegreeId
+          );
+        setDepartments(depsData);
+
+        // Only reset department in create mode and after initial load
+        if (!isEditing && !isInitialLoad) {
+          form.setValue('department_id', '');
+        } else if (isEditing && staff?.department_id && !isInitialLoad) {
+          // In edit mode, only reset if current department doesn't belong to new degree
+          const currentDepartmentExists = depsData.some(
+            (d) => d.id === staff.department_id
+          );
+          if (!currentDepartmentExists) {
+            form.setValue('department_id', '');
+          }
+        }
+      } catch (error) {
+        console.error('Error loading departments:', error);
+        toast.error('Failed to load departments');
+      }
+    }
+    loadDepartments();
+  }, [
+    watchedDegreeId,
+    watchedInstitutionId,
+    isEditing,
+    staff?.department_id,
+    form,
+    isInitialLoad
+  ]);
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -604,13 +691,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Institution</FormLabel>
-                  <Select
-                    onValueChange={(value) => {
-                      field.onChange(value);
-                      form.setValue('department_id', '');
-                    }}
-                    value={field.value}
-                  >
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder='Select institution' />
@@ -631,6 +712,35 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
             <FormField
               control={form.control}
+              name='degree_id'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Degree</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={!form.watch('institution_id')}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select degree' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {degrees.map((degree) => (
+                        <SelectItem key={degree.id} value={degree.id}>
+                          {degree.degree_name} ({degree.degree_id})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name='department_id'
               render={({ field }) => (
                 <FormItem>
@@ -638,7 +748,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
-                    disabled={!form.watch('institution_id')}
+                    disabled={!form.watch('degree_id')}
                   >
                     <FormControl>
                       <SelectTrigger>
