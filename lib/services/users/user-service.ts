@@ -13,20 +13,22 @@ import { toast } from 'react-hot-toast';
 const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
 export class UserService {
-  private static supabase = createClientSupabaseClient();
-
   static async getUsers(filters: UserFilters = {}): Promise<UserListResponse> {
     try {
+      const supabase = createClientSupabaseClient();
       const page = filters.page || 1;
       const limit = filters.limit || 10;
       const start = (page - 1) * limit;
       const end = start + limit - 1;
 
-      let query = this.supabase
+      let query = supabase
         .from('profiles')
-        .select('*', { count: 'exact' });
+        .select('*, institutions(id, name)', { count: 'exact' });
 
       // Apply filters
+      if (filters.institution) {
+        query = query.eq('institution_id', filters.institution);
+      }
       if (filters.role) {
         query = query.eq('role', filters.role);
       }
@@ -64,36 +66,53 @@ export class UserService {
     }
   }
 
-  static async getUserStats(): Promise<UserStats> {
+  static async getUserStats(institutionId?: string): Promise<UserStats> {
     try {
-      // Get total users
-      const { count: total, error: totalError } = await this.supabase
-        .from('profiles')
-        .select('*', { count: 'exact' });
+      const supabase = createClientSupabaseClient();
+      const fromProfiles = supabase.from('profiles');
 
+      // Base queries
+      let totalQuery = fromProfiles.select('*', {
+        count: 'exact',
+        head: true
+      });
+      let activeQuery = fromProfiles.select('*', {
+        count: 'exact',
+        head: true
+      });
+      let inactiveQuery = fromProfiles.select('*', {
+        count: 'exact',
+        head: true
+      });
+      let rolesQuery = fromProfiles.select('role');
+
+      if (institutionId) {
+        totalQuery = totalQuery.eq('institution_id', institutionId);
+        activeQuery = activeQuery.eq('institution_id', institutionId);
+        inactiveQuery = inactiveQuery.eq('institution_id', institutionId);
+        rolesQuery = rolesQuery.eq('institution_id', institutionId);
+      }
+
+      // Get total users
+      const { count: total, error: totalError } = await totalQuery;
       if (totalError) throw totalError;
 
       // Get active users
-      const { count: active, error: activeError } = await this.supabase
-        .from('profiles')
-        .select('*', { count: 'exact' })
-        .eq('is_active', true);
-
+      const { count: active, error: activeError } = await activeQuery.eq(
+        'is_active',
+        true
+      );
       if (activeError) throw activeError;
 
       // Get inactive users
-      const { count: inactive, error: inactiveError } = await this.supabase
-        .from('profiles')
-        .select('*', { count: 'exact' })
-        .eq('is_active', false);
-
+      const { count: inactive, error: inactiveError } = await inactiveQuery.eq(
+        'is_active',
+        false
+      );
       if (inactiveError) throw inactiveError;
 
       // Get all profiles with role data
-      const { data: profiles, error: profilesError } = await this.supabase
-        .from('profiles')
-        .select('role');
-
+      const { data: profiles, error: profilesError } = await rolesQuery;
       if (profilesError) throw profilesError;
 
       // Count roles manually on the client side
@@ -124,18 +143,19 @@ export class UserService {
     error: Error | null;
   }> {
     try {
+      const supabase = createClientSupabaseClient();
       // Force refresh the user session to ensure we have the latest data
-      await this.supabase.auth.refreshSession();
+      await supabase.auth.refreshSession();
 
       const { data: userData, error: userError } =
-        await this.supabase.auth.getUser();
+        await supabase.auth.getUser();
 
       if (userError) throw userError;
       if (!userData.user) {
         return { data: null, error: new Error('No active user') };
       }
 
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('profiles')
         .select(
           `
@@ -166,7 +186,7 @@ export class UserService {
 
         // Attempt to fetch student details with a retry
         for (let i = 0; i < 2; i++) {
-          const { data: sData, error: sError } = await this.supabase
+          const { data: sData, error: sError } = await supabase
             .from('students')
             .select('id, status, is_profile_complete')
             .eq('college_email', data.email)
@@ -210,7 +230,8 @@ export class UserService {
 
   static async getUserById(id: string): Promise<Profile | null> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
         .from('profiles')
         .select(
           `
@@ -336,11 +357,12 @@ export class UserService {
 
   static async checkIsAdmin(): Promise<boolean> {
     try {
-      const { data: userData, error } = await this.supabase.auth.getUser();
+      const supabase = createClientSupabaseClient();
+      const { data: userData, error } = await supabase.auth.getUser();
 
       if (error || !userData.user) return false;
 
-      const { data: profile } = await this.supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('role')
         .eq('id', userData.user.id)
@@ -356,7 +378,8 @@ export class UserService {
 
   static async getUsersWithRoles(): Promise<Profile[]> {
     try {
-      const { data, error } = await this.supabase
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
         .from('profiles')
         .select(
           `
@@ -386,13 +409,14 @@ export class UserService {
 
   static async updateUser(id: string, data: UpdateUserDto): Promise<Profile> {
     try {
+      const supabase = createClientSupabaseClient();
       const { data: userData, error: userError } =
-        await this.supabase.auth.getUser();
+        await supabase.auth.getUser();
 
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
-      const { data: user, error } = await this.supabase
+      const { data: user, error } = await supabase
         .from('users')
         .update({
           ...data,
@@ -413,13 +437,14 @@ export class UserService {
 
   static async createUser(data: CreateUserDto): Promise<Profile> {
     try {
+      const supabase = createClientSupabaseClient();
       const { data: userData, error: userError } =
-        await this.supabase.auth.getUser();
+        await supabase.auth.getUser();
 
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
-      const { data: user, error } = await this.supabase
+      const { data: user, error } = await supabase
         .from('users')
         .insert([
           {
