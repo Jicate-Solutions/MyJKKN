@@ -1,4 +1,8 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  createApiInstitutionFilter,
+  applyInstitutionFilterToQuery
+} from '@/lib/auth/api-institution-filter';
 import type {
   StaffPlan,
   CreateStaffPlanDto,

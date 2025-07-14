@@ -2,6 +2,10 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
+import {
+  createApiInstitutionFilter,
+  applyInstitutionFilterToQuery
+} from '@/lib/auth/api-institution-filter';
 import type {
   AcademicYear,
   CreateAcademicYearDto,
@@ -105,6 +109,123 @@ export class AcademicYearService {
     return { success, failed };
   }
 
+  // Add institution filtering helper method
+  private static async applyInstitutionAccess(
+    query: any,
+    userInstitutionId?: string | null
+  ): Promise<any> {
+    if (userInstitutionId) {
+      return query.eq('institution_id', userInstitutionId);
+    }
+    return query;
+  }
+
+  // Enhanced method with institution filtering
+  static async getAcademicYearsWithAccess(
+    filters: AcademicYearFilters = {},
+    userInstitutionId?: string | null,
+    isSuperAdmin: boolean = false
+  ): Promise<AcademicYearListResponse> {
+    try {
+      let query = this.supabase.from('academic_years').select(
+        `
+          *,
+          institution:institutions (
+            id,
+            name,
+            counselling_code
+          )
+          `,
+        { count: 'exact' }
+      );
+
+      // Apply institution filter based on user permissions
+      if (!isSuperAdmin && userInstitutionId) {
+        query = query.eq('institution_id', userInstitutionId);
+      } else if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+      }
+
+      // Apply search filter
+      if (filters.search) {
+        query = query.ilike('academic_year_name', `%${filters.search}%`);
+      }
+
+      // Apply active status filter
+      if (filters.isActive !== undefined) {
+        query = query.eq('is_active', filters.isActive);
+      }
+
+      // Apply sorting
+      query = query.order('created_at', { ascending: false });
+
+      // Apply pagination
+      const page = filters.page || 1;
+      const limit = filters.limit || 10;
+      const offset = (page - 1) * limit;
+
+      query = query.range(offset, offset + limit - 1);
+
+      const { data, error, count } = await query;
+
+      if (error) throw error;
+
+      const total = count || 0;
+      const totalPages = Math.ceil(total / limit);
+
+      return {
+        data: data || [],
+        metadata: {
+          total,
+          page,
+          limit,
+          totalPages
+        }
+      };
+    } catch (error) {
+      console.error(
+        'Error fetching academic years with access control:',
+        error
+      );
+      throw error;
+    }
+  }
+
+  // Enhanced method for getting academic years by institution with access control
+  static async getAcademicYearsByInstitutionWithAccess(
+    institutionId: string,
+    userInstitutionId?: string | null,
+    isSuperAdmin: boolean = false
+  ): Promise<AcademicYear[]> {
+    try {
+      // Check if user has access to the requested institution
+      if (
+        !isSuperAdmin &&
+        userInstitutionId &&
+        institutionId !== userInstitutionId
+      ) {
+        throw new Error(
+          'Access denied: You can only access your own institution data'
+        );
+      }
+
+      const { data, error } = await this.supabase
+        .from('academic_years')
+        .select('*')
+        .eq('institution_id', institutionId)
+        .eq('is_active', true)
+        .order('academic_year_name');
+
+      if (error) throw error;
+
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching academic years by institution:', error);
+      throw error;
+    }
+  }
+
+  // Keep the original method for backward compatibility
   static async getAcademicYears(
     filters: AcademicYearFilters = {}
   ): Promise<AcademicYearListResponse> {

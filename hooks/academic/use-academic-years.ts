@@ -2,9 +2,11 @@
 
 import { useState, useCallback } from 'react';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { AcademicYear, AcademicYearFilters } from '@/types/academics';
 
 export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
+  const { isSuperAdmin, userProfile } = usePermissions();
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,9 +25,14 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
         setError(null);
         const currentFilters = newFilters || filters;
 
-        const result = await AcademicYearService.getAcademicYears(
-          currentFilters
-        );
+        // Use institution-aware method if user is not super admin
+        const result = isSuperAdmin
+          ? await AcademicYearService.getAcademicYears(currentFilters)
+          : await AcademicYearService.getAcademicYearsWithAccess(
+              currentFilters,
+              userProfile?.institution_id,
+              false
+            );
         setAcademicYears(result.data);
 
         // Ensure we have all required metadata fields
@@ -51,7 +58,7 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
         setLoading(false);
       }
     },
-    [filters]
+    [filters, isSuperAdmin, userProfile?.institution_id]
   );
 
   const updateFilters = useCallback(
@@ -90,6 +97,7 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
 
 // Simple hook for fetching academic years by institution (for dropdowns/forms)
 export function useAcademicYearsByInstitution(institutionId?: string) {
+  const { isSuperAdmin, userProfile } = usePermissions();
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
