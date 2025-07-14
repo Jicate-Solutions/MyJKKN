@@ -751,6 +751,18 @@ export function GetRoleBasedPages(
           // Dashboard is always visible
           if (menu.href === '/') return true;
 
+          // Special handling for parent menus with submenus
+          if (menu.submenus.length > 0) {
+            // Show parent if any submenu is accessible
+            return menu.submenus.some((submenu) => {
+              const requiredPermission = MENU_PERMISSIONS[submenu.href];
+              return (
+                requiredPermission &&
+                userRole.permissions[requiredPermission] === true
+              );
+            });
+          }
+
           // Check if user has permission for this menu
           const requiredPermission = MENU_PERMISSIONS[menu.href];
 
