@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import type {
   Timetable,
   TimetableFilters,
@@ -8,6 +9,7 @@ import type {
 } from '@/types/academics';
 
 export function useTimetables(initialFilters: TimetableFilters = {}) {
+  const { isSuperAdmin, userProfile } = usePermissions();
   const [timetables, setTimetables] = useState<Timetable[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,18 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
         setError(null);
         const currentFilters = newFilters || filters;
 
-        const result = await TimetableService.getTimetables(currentFilters);
+        // Apply institution filtering for non-super admin users
+        const filtersWithInstitution = {
+          ...currentFilters,
+          ...(!isSuperAdmin &&
+            userProfile?.institution_id && {
+              institution_id: userProfile.institution_id
+            })
+        };
+
+        const result = await TimetableService.getTimetables(
+          filtersWithInstitution
+        );
         setTimetables(result.data);
         setMetadata(result.metadata);
 
@@ -40,31 +53,32 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [filters, isSuperAdmin, userProfile?.institution_id]
   );
 
   const updateFilters = useCallback(
     (newFilters: Partial<TimetableFilters>) => {
-      const updatedFilters = {
-        ...filters,
-        ...newFilters,
-        page: 1 // Reset to first page when filters change
-      };
-      setFilters(updatedFilters);
-      fetchTimetables(updatedFilters);
+      setFilters((currentFilters) => {
+        const updatedFilters = {
+          ...currentFilters,
+          ...newFilters,
+          page: 1 // Reset to first page when filters change
+        };
+        fetchTimetables(updatedFilters);
+        return updatedFilters;
+      });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchTimetables]
   );
 
   const changePage = useCallback(
     (page: number) => {
-      const updatedFilters = { ...filters, page };
-      setFilters(updatedFilters);
-      fetchTimetables(updatedFilters);
+      setFilters((currentFilters) => {
+        const updatedFilters = { ...currentFilters, page };
+        fetchTimetables(updatedFilters);
+        return updatedFilters;
+      });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchTimetables]
   );
 
@@ -85,7 +99,6 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchTimetables]
   );
 
@@ -106,7 +119,6 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchTimetables]
   );
 
@@ -127,7 +139,6 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchTimetables]
   );
 
@@ -148,7 +159,6 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchTimetables]
   );
 
@@ -172,7 +182,6 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchTimetables]
   );
 

@@ -37,9 +37,10 @@ export default function AcademicYearsPage() {
   } = useAcademicYears({
     page: 1,
     limit: 10,
-    institution_id: !isSuperAdmin
-      ? userProfile?.institution_id || undefined
-      : undefined
+    institution_id:
+      !isSuperAdmin && userProfile?.institution_id
+        ? userProfile.institution_id
+        : undefined
   });
 
   useEffect(() => {

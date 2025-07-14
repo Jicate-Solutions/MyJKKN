@@ -215,4 +215,116 @@ export class PeriodService {
       throw error;
     }
   }
+
+  // Add institution filtering helper method
+  private static async applyInstitutionAccess(
+    query: any,
+    userInstitutionId?: string | null
+  ): Promise<any> {
+    if (userInstitutionId) {
+      return query.eq('institution_id', userInstitutionId);
+    }
+    return query;
+  }
+
+  // Enhanced method with institution filtering
+  static async getPeriodsWithAccess(
+    filters: PeriodFilters = {},
+    userInstitutionId?: string | null,
+    isSuperAdmin: boolean = false
+  ): Promise<PeriodListResponse> {
+    try {
+      let query = this.supabase.from('periods').select(
+        `
+          *,
+          institution:institutions (
+            id,
+            name,
+            counselling_code
+          )
+          `,
+        { count: 'exact' }
+      );
+
+      // Apply institution filter based on user permissions
+      if (!isSuperAdmin && userInstitutionId) {
+        query = query.eq('institution_id', userInstitutionId);
+      } else if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+      }
+
+      // Apply search filter
+      if (filters.search) {
+        query = query.ilike('period_name', `%${filters.search}%`);
+      }
+
+      // Apply break filter
+      if (filters.isBreak !== undefined) {
+        query = query.eq('is_break', filters.isBreak);
+      }
+
+      // Apply sorting
+      query = query.order('start_time', { ascending: true });
+
+      // Apply pagination
+      const page = filters.page || 1;
+      const limit = filters.limit || 10;
+      const offset = (page - 1) * limit;
+
+      query = query.range(offset, offset + limit - 1);
+
+      const { data, error, count } = await query;
+
+      if (error) throw error;
+
+      const total = count || 0;
+      const totalPages = Math.ceil(total / limit);
+
+      return {
+        data: data || [],
+        metadata: {
+          total,
+          page,
+          limit,
+          totalPages
+        }
+      };
+    } catch (error) {
+      console.error('Error fetching periods with access control:', error);
+      throw error;
+    }
+  }
+
+  // Enhanced method for getting periods by institution with access control
+  static async getPeriodsByInstitutionWithAccess(
+    institutionId: string,
+    userInstitutionId?: string | null,
+    isSuperAdmin: boolean = false
+  ): Promise<Period[]> {
+    try {
+      // Check if user has access to the requested institution
+      if (
+        !isSuperAdmin &&
+        userInstitutionId &&
+        institutionId !== userInstitutionId
+      ) {
+        throw new Error(
+          'Access denied: You can only access your own institution data'
+        );
+      }
+
+      const { data, error } = await this.supabase
+        .from('periods')
+        .select('*')
+        .eq('institution_id', institutionId)
+        .order('start_time', { ascending: true });
+
+      if (error) throw error;
+
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching periods by institution:', error);
+      throw error;
+    }
+  }
 }

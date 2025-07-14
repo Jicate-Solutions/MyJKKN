@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { PeriodService } from '@/lib/services/academic/period-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import type {
   Period,
   PeriodFilters,
@@ -8,6 +9,7 @@ import type {
 } from '@/types/academics';
 
 export function usePeriods(initialFilters: PeriodFilters = {}) {
+  const { isSuperAdmin, userProfile } = usePermissions();
   const [periods, setPeriods] = useState<Period[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,14 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
         setError(null);
         const currentFilters = newFilters || filters;
 
-        const result = await PeriodService.getPeriods(currentFilters);
+        // Use institution-aware method if user is not super admin
+        const result = isSuperAdmin
+          ? await PeriodService.getPeriods(currentFilters)
+          : await PeriodService.getPeriodsWithAccess(
+              currentFilters,
+              userProfile?.institution_id,
+              false
+            );
         setPeriods(result.data);
         setMetadata(result.metadata);
 
@@ -40,31 +49,32 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [filters, isSuperAdmin, userProfile?.institution_id]
   );
 
   const updateFilters = useCallback(
     (newFilters: Partial<PeriodFilters>) => {
-      const updatedFilters = {
-        ...filters,
-        ...newFilters,
-        page: 1 // Reset to first page when filters change
-      };
-      setFilters(updatedFilters);
-      fetchPeriods(updatedFilters);
+      setFilters((currentFilters) => {
+        const updatedFilters = {
+          ...currentFilters,
+          ...newFilters,
+          page: 1 // Reset to first page when filters change
+        };
+        fetchPeriods(updatedFilters);
+        return updatedFilters;
+      });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchPeriods]
   );
 
   const changePage = useCallback(
     (page: number) => {
-      const updatedFilters = { ...filters, page };
-      setFilters(updatedFilters);
-      fetchPeriods(updatedFilters);
+      setFilters((currentFilters) => {
+        const updatedFilters = { ...currentFilters, page };
+        fetchPeriods(updatedFilters);
+        return updatedFilters;
+      });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchPeriods]
   );
 
@@ -84,7 +94,6 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchPeriods]
   );
 
@@ -104,7 +113,6 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchPeriods]
   );
 
@@ -124,7 +132,6 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchPeriods]
   );
 

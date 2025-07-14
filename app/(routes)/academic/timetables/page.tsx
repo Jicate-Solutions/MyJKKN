@@ -24,6 +24,8 @@ import { TimetableFilters } from './_components/timetable-filters';
 import { TimetableEmptyState } from './_components/timetable-empty-state';
 
 export default function TimetablesPage() {
+  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+
   const {
     timetables,
     loading,
@@ -34,9 +36,13 @@ export default function TimetablesPage() {
     changePage,
     fetchTimetables,
     deleteTimetable
-  } = useTimetables({ limit: 10 });
-
-  const { canAccess, isSuperAdmin } = usePermissions();
+  } = useTimetables({
+    limit: 10,
+    ...(!isSuperAdmin &&
+      userProfile?.institution_id && {
+        institution_id: userProfile.institution_id
+      })
+  });
 
   const canViewTimetables =
     isSuperAdmin || canAccess('academic.timetables', 'view');
