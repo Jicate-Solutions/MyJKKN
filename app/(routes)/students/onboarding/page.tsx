@@ -17,7 +17,8 @@ import {
   CalendarIcon,
   SlidersHorizontal,
   Trash2,
-  MoreHorizontal
+  MoreHorizontal,
+  AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -139,7 +140,8 @@ export default function StudentOnboardingPage() {
     data: studentsData,
     isLoading,
     refetch,
-    isError
+    isError,
+    error
   } = useStudents({
     ...filters,
     page: currentPage
@@ -814,6 +816,31 @@ export default function StudentOnboardingPage() {
     onPageSizeChange: handlePageSizeChange,
     isLoading: isLoading
   };
+
+  if (isError) {
+    console.error('[StudentOnboardingPage] Render Error:', error);
+    return (
+      <ContentLayout title='Student Onboarding'>
+        <div className='p-4'>
+          <Alert variant='destructive'>
+            <AlertCircle className='h-4 w-4' />
+            <AlertTitle>Error Loading Students</AlertTitle>
+            <AlertDescription>
+              {error?.message || 'An unexpected error occurred.'}
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => refetch()}
+                className='mt-4'
+              >
+                Try Again
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title='Student Onboarding'>

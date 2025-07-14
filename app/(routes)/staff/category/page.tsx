@@ -21,10 +21,10 @@ import { CategoryList } from './_components/category-list';
 import DownloadCategoryTemplateButton from './_components/download-category-template';
 import BulkUploadCategories from './_components/bulk-upload-categories';
 import { usePermissions } from '@/hooks/use-permissions';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertCircle } from 'lucide-react';
 
 export default function CategoriesPage() {
-  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
-
   const {
     categories,
     loading,
@@ -36,12 +36,11 @@ export default function CategoriesPage() {
     fetchCategories
   } = useCategories();
 
-  // Use waitForLoad to ensure permissions are fully loaded before making decisions
   const {
     canAccess,
     isSuperAdmin,
     isLoading: permissionsLoading
-  } = usePermissions([], { waitForLoad: true });
+  } = usePermissions();
 
   const canViewCategories =
     isSuperAdmin || canAccess('staff.categories', 'view');
@@ -52,30 +51,6 @@ export default function CategoriesPage() {
   const canDeleteCategories =
     isSuperAdmin || canAccess('staff.categories', 'delete');
 
-  // Track when permissions are loaded
-  useEffect(() => {
-    if (!permissionsLoading) {
-      console.log('Staff Categories permissions debug:', {
-        isSuperAdmin,
-        canViewCategories: canAccess('staff.categories', 'view'),
-        canCreateCategories: canAccess('staff.categories', 'create'),
-        canEditCategories: canAccess('staff.categories', 'edit'),
-        canDeleteCategories: canAccess('staff.categories', 'delete')
-      });
-      setPermissionsLoaded(true);
-    }
-  }, [permissionsLoading, isSuperAdmin, canAccess]);
-
-  // Only fetch categories when permissions are loaded and user has view permission
-  useEffect(() => {
-    if (permissionsLoaded && canViewCategories) {
-      fetchCategories().catch((err) => {
-        console.error('Error fetching categories:', err);
-      });
-    }
-  }, [permissionsLoaded, canViewCategories, fetchCategories]);
-
-  // Show loading state while permissions are loading
   if (permissionsLoading) {
     return (
       <ContentLayout title='Staff Categories'>
@@ -86,8 +61,7 @@ export default function CategoriesPage() {
     );
   }
 
-  // Check if user has permission to view categories
-  if (!canViewCategories) {
+  if (!permissionsLoading && !canViewCategories) {
     return (
       <ContentLayout title='Staff Categories'>
         <div className='text-center py-8'>
@@ -103,17 +77,25 @@ export default function CategoriesPage() {
   }
 
   if (error) {
+    console.error('[CategoriesPage] Render Error:', error);
     return (
       <ContentLayout title='Staff Categories'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchCategories()}
-            className='mt-4'
-          >
-            Try Again
-          </Button>
+        <div className='p-4'>
+          <Alert variant='destructive'>
+            <AlertCircle className='h-4 w-4' />
+            <AlertTitle>Error Loading Categories</AlertTitle>
+            <AlertDescription>
+              {error || 'An unexpected error occurred.'}
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => fetchCategories()}
+                className='mt-4'
+              >
+                Try Again
+              </Button>
+            </AlertDescription>
+          </Alert>
         </div>
       </ContentLayout>
     );

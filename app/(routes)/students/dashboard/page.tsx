@@ -82,6 +82,7 @@ export default function StudentDashboardPage() {
   ];
 
   if (error) {
+    console.error('[StudentDashboardPage] Render Error:', error);
     return (
       <ContentLayout title='Student Analytics Dashboard'>
         <PageBreadcrumb items={breadcrumbItems} />
@@ -94,7 +95,8 @@ export default function StudentDashboardPage() {
               Failed to Load Dashboard
             </h3>
             <p className='text-muted-foreground mb-4'>
-              There was an error loading the dashboard data.
+              {error.message ||
+                'There was an error loading the dashboard data.'}
             </p>
             <Button onClick={handleRefresh} variant='outline'>
               <RefreshCw className='h-4 w-4 mr-2' />

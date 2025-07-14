@@ -1,8 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { EmploymentCategory, CategoryFilters } from '@/types/staff';
 import { CategoryService } from '@/lib/services/staff/category-service';
+import { useAuth } from '../use-auth';
+import { usePermissions } from '../use-permissions';
 
 export function useCategories(initialFilters: CategoryFilters = {}) {
+  const { user, isLoading: authLoading } = useAuth();
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [categories, setCategories] = useState<EmploymentCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,10 +20,16 @@ export function useCategories(initialFilters: CategoryFilters = {}) {
 
   const fetchCategories = useCallback(
     async (newFilters?: CategoryFilters) => {
+      if (authLoading || permissionsLoading) return;
+
       try {
         setLoading(true);
         setError(null);
-        const currentFilters = newFilters || filters;
+        const currentFilters = {
+          ...(newFilters || filters)
+          // Note: Staff Categories are global and not tied to institutions,
+          // so no userId or bypass filter is needed here.
+        };
 
         const result = await CategoryService.getCategories(currentFilters);
         setCategories(result.data);
@@ -29,14 +39,20 @@ export function useCategories(initialFilters: CategoryFilters = {}) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching categories:', err);
+        console.error('[useCategories] Fetch Error:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
       }
     },
-    [filters]
+    [filters, authLoading, permissionsLoading]
   );
+
+  useEffect(() => {
+    if (!authLoading && !permissionsLoading) {
+      fetchCategories();
+    }
+  }, [authLoading, permissionsLoading, fetchCategories]);
 
   const updateFilters = useCallback(
     (newFilters: Partial<CategoryFilters>) => {

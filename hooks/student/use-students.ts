@@ -143,14 +143,21 @@ export const useStudentStats = () => {
 };
 
 // Get student dashboard statistics
-export const useStudentDashboardStats = (filters?: any) => {
+export function useStudentDashboardStats(filters?: any) {
   return useQuery({
-    queryKey: studentKeys.dashboardStats(filters),
-    queryFn: () => StudentService.getDashboardStats(filters),
+    queryKey: ['studentDashboardStats', filters],
+    queryFn: async () => {
+      try {
+        return await StudentService.getDashboardStats(filters);
+      } catch (error) {
+        console.error('[useStudentDashboardStats] Fetch Error:', error);
+        throw new Error('Failed to load dashboard statistics.');
+      }
+    },
     staleTime: 5 * 60 * 1000, // 5 minutes
     refetchOnWindowFocus: false
   });
-};
+}
 
 // Add the promotion hook
 export function useStudentsPromotion(options: { limit?: number } = {}) {
@@ -206,9 +213,11 @@ export function useStudentsPromotion(options: { limit?: number } = {}) {
         limit: responseMetadata.limit,
         totalPages: Math.ceil(responseMetadata.total / responseMetadata.limit)
       });
-    } catch (error) {
-      console.error('Error fetching students:', error);
-      setError('Failed to load students');
+    } catch (err) {
+      console.error('[useStudentsPromotion] Fetch Error:', err);
+      setError(
+        'Failed to fetch students. Please check your network and try again.'
+      );
     } finally {
       setLoading(false);
     }
