@@ -133,9 +133,8 @@ const flattenPermissions = (
         if (actionKey === '_') {
           finalKey = moduleKey; // Single-level key
         } else {
-          // Convert underscores back to dots for multi-level keys
-          const parts = actionKey.split('_');
-          finalKey = `${moduleKey}.${parts.join('.')}`;
+          // Keep underscores as underscores - don't convert to dots
+          finalKey = `${moduleKey}.${actionKey}`;
         }
         flat[finalKey] = Boolean(value);
       });
