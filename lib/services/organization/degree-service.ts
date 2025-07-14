@@ -13,6 +13,42 @@ import type {
 export class DegreeService {
   private static supabase = createClientSupabaseClient();
 
+  /**
+   * Helper method to get accessible institution IDs for a user
+   */
+  private static async getUserAccessibleInstitutionIds(
+    userId: string
+  ): Promise<string[]> {
+    console.log(
+      'DegreeService: Getting accessible institution IDs for user:',
+      userId
+    );
+    try {
+      // Import the service to avoid circular dependency
+      const { UserInstitutionAccessService } = await import(
+        '@/lib/services/users/user-institution-access-service'
+      );
+      console.log(
+        'DegreeService: UserInstitutionAccessService imported, calling getUserAccessibleInstitutionIds'
+      );
+      const result =
+        await UserInstitutionAccessService.getUserAccessibleInstitutionIds(
+          userId
+        );
+      console.log(
+        'DegreeService: getUserAccessibleInstitutionIds returned:',
+        result
+      );
+      return result;
+    } catch (error) {
+      console.error(
+        'DegreeService: Error getting user accessible institution IDs:',
+        error
+      );
+      return [];
+    }
+  }
+
   static async createDegree(data: CreateDegreeDto): Promise<Degree> {
     try {
       const { data: degree, error } = await this.supabase
@@ -86,6 +122,7 @@ export class DegreeService {
   static async getDegrees(
     filters: DegreeFilters = {}
   ): Promise<DegreeListResponse> {
+    console.log('DegreeService.getDegrees called with filters:', filters);
     try {
       let query = this.supabase.from('degrees').select(
         `
@@ -118,6 +155,47 @@ export class DegreeService {
         query = query.eq('is_active', filters.isActive);
       }
 
+      // Apply institution filtering based on user access if userId is provided
+      if (filters.userId && !filters.bypassInstitutionFilter) {
+        console.log(
+          'DegreeService: Applying institution filtering for user:',
+          filters.userId
+        );
+        const accessibleInstitutionIds =
+          await this.getUserAccessibleInstitutionIds(filters.userId);
+        console.log(
+          'DegreeService: User accessible institution IDs:',
+          accessibleInstitutionIds
+        );
+
+        if (accessibleInstitutionIds.length > 0) {
+          query = query.in('institution_id', accessibleInstitutionIds);
+          console.log('DegreeService: Applied institution filter');
+        } else {
+          console.log(
+            'DegreeService: User has no accessible institutions, returning empty result'
+          );
+          // If user has no accessible institutions, return empty result
+          return {
+            data: [],
+            metadata: {
+              total: 0,
+              page: filters.page || 1,
+              limit: filters.limit || 10,
+              totalPages: 0
+            }
+          };
+        }
+      } else if (filters.bypassInstitutionFilter) {
+        console.log(
+          'DegreeService: Bypassing institution filter for super admin'
+        );
+      } else {
+        console.log(
+          'DegreeService: No userId provided, not applying institution filtering'
+        );
+      }
+
       // Apply pagination
       const page = filters.page || 1;
       const limit = filters.limit || 10;
@@ -126,9 +204,25 @@ export class DegreeService {
 
       query = query.range(from, to).order('created_at', { ascending: false });
 
+      console.log('DegreeService: Executing query with pagination:', {
+        page,
+        limit,
+        from,
+        to
+      });
       const { data: degrees, error, count } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('DegreeService: Query error:', error);
+        throw error;
+      }
+
+      console.log(
+        'DegreeService: Query successful, got',
+        degrees?.length || 0,
+        'degrees, total count:',
+        count
+      );
 
       return {
         data: degrees || [],

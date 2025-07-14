@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { UserService } from '@/lib/services/users/user-service';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { SYSTEM_ROLES } from '@/types/auth';
 import { Profile, StudentStatus } from '@/types/auth';
+import { useAuth } from './use-auth';
 
 interface UsePermissionsOptions {
   /**
@@ -33,12 +33,14 @@ export function usePermissions(
   requiredPermissions: string[] = [],
   options: UsePermissionsOptions = {}
 ) {
+  const { user, isLoading: authLoading, error: authError } = useAuth();
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [userProfile, setUserProfile] = useState<Profile | null>(null);
   const { waitForLoad = false } = options;
+
+  const userProfile = user;
 
   // Student-specific properties
   const isStudent = useMemo(
@@ -108,22 +110,24 @@ export function usePermissions(
   // Load permissions from role
   useEffect(() => {
     let mounted = true;
+
     const fetchPermissions = async () => {
+      // If there's no user, reset states and finish loading.
+      if (!user) {
+        if (mounted) {
+          setPermissions({});
+          setIsSuperAdmin(false);
+          setError(authError);
+          setIsLoading(false);
+        }
+        return;
+      }
+
       try {
         setIsLoading(true);
         setError(null);
 
-        // Get current user profile (now includes student status)
-        const { data: profile, error: profileError } =
-          await UserService.getCurrentUserProfile();
-
-        if (profileError) throw profileError;
-        if (!profile) throw new Error('User profile not found');
-
-        // Set user profile
-        if (mounted) {
-          setUserProfile(profile);
-        }
+        const profile = user;
 
         // Check if user is a super admin
         const isSuperAdminUser = profile.role === SYSTEM_ROLES.SUPER_ADMIN;
@@ -133,7 +137,6 @@ export function usePermissions(
 
         // Get role permissions
         const role = await RoleService.getRoleByKey(profile.role);
-
         if (!role) throw new Error(`Role ${profile.role} not found`);
 
         if (mounted) {
@@ -151,11 +154,15 @@ export function usePermissions(
       }
     };
 
-    fetchPermissions();
+    // Only fetch permissions once authentication is complete.
+    if (!authLoading) {
+      fetchPermissions();
+    }
+
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [user, authLoading, authError]);
 
   // Check if user has all required permissions (using enhanced permissions)
   const hasAllPermissions = useMemo(() => {

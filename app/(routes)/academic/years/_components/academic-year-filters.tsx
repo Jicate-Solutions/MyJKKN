@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/use-debounce';
 import { usePermissions } from '@/hooks/use-permissions';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import type { AcademicYearFilters } from '@/types/academics';
 
 interface AcademicYearFiltersProps {
@@ -26,23 +26,11 @@ export function AcademicYearFilters({
   filters,
   onFilterChange
 }: AcademicYearFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string; counselling_code: string }>
-  >([]);
-
   const { isSuperAdmin, userProfile } = usePermissions();
-
-  useEffect(() => {
-    async function loadInstitutions() {
-      try {
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
-      } catch (error) {
-        console.error('Error loading institutions:', error);
-      }
-    }
-    loadInstitutions();
-  }, []);
+  const { institutions, loading: institutionsLoading } =
+    useInstitutionsWithAccess({
+      isActive: true
+    });
 
   // Auto-set institution filter for faculty users
   useEffect(() => {

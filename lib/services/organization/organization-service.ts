@@ -249,6 +249,26 @@ export class OrganizationService {
         query = query.eq('is_active', filters.isActive);
       }
 
+      // Apply institution filtering based on user access if userId is provided
+      if (filters.userId && !filters.bypassInstitutionFilter) {
+        const accessibleInstitutionIds =
+          await this.getUserAccessibleInstitutionIds(filters.userId);
+        if (accessibleInstitutionIds.length > 0) {
+          query = query.in('id', accessibleInstitutionIds);
+        } else {
+          // If user has no accessible institutions, return empty result
+          return {
+            data: [],
+            metadata: {
+              total: 0,
+              page: filters.page || 1,
+              limit: filters.limit || 10,
+              totalPages: 0
+            }
+          };
+        }
+      }
+
       // Calculate pagination
       const page = filters.page || 1;
       const limit = filters.limit || 10;
@@ -278,6 +298,26 @@ export class OrganizationService {
         error instanceof Error ? error.message : 'Failed to fetch institutions'
       );
       throw error;
+    }
+  }
+
+  /**
+   * Helper method to get accessible institution IDs for a user
+   */
+  private static async getUserAccessibleInstitutionIds(
+    userId: string
+  ): Promise<string[]> {
+    try {
+      // Import the service to avoid circular dependency
+      const { UserInstitutionAccessService } = await import(
+        '@/lib/services/users/user-institution-access-service'
+      );
+      return await UserInstitutionAccessService.getUserAccessibleInstitutionIds(
+        userId
+      );
+    } catch (error) {
+      console.error('Error getting user accessible institution IDs:', error);
+      return [];
     }
   }
 
@@ -320,9 +360,24 @@ export class OrganizationService {
   }
 
   static async getInstitutionNames(
-    isActive?: boolean
+    isActive?: boolean,
+    userId?: string
   ): Promise<{ id: string; name: string; counselling_code: string }[]> {
     try {
+      // If userId is provided, use institution filtering
+      if (userId) {
+        const { data: institutions } = await this.getInstitutions({
+          isActive,
+          userId
+        });
+        return institutions.map((inst) => ({
+          id: inst.id,
+          name: inst.name,
+          counselling_code: inst.counselling_code
+        }));
+      }
+
+      // Fallback to direct query (for super admin or service contexts)
       let query = this.supabase
         .from('institutions')
         .select('id, name, counselling_code');

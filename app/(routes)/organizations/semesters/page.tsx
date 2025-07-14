@@ -36,22 +36,18 @@ export default function SemestersPage() {
   const canViewSemesters =
     isSuperAdmin || canAccess('organizations.semesters', 'view');
 
-  useEffect(() => {
-    fetchSemesters();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   if (error) {
+    console.error('[SemestersPage] Render Error:', error);
     return (
       <ContentLayout title='Semesters'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
           <Button
             variant='outline'
-            onClick={() => fetchSemesters()}
+            onClick={() => window.location.reload()}
             className='mt-4'
-            disabled={!canViewSemesters}
           >
-            Try Again
+            Refresh Page
           </Button>
         </div>
       </ContentLayout>
@@ -88,10 +84,7 @@ export default function SemestersPage() {
           </p>
         </div>
 
-        <SemesterFilters
-          filters={filters}
-          onFilterChange={updateFilters}
-        />
+        <SemesterFilters filters={filters} onFilterChange={updateFilters} />
 
         {loading ? (
           <div className='flex justify-center items-center p-8'>

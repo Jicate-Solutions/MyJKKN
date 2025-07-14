@@ -57,6 +57,8 @@ export interface InstitutionFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  userId?: string; // For applying user-based institution filtering
+  bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
 }
 
 export interface OrganizationListResponse<T> {
@@ -108,6 +110,8 @@ export interface DegreeFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  userId?: string; // For applying user-based institution filtering
+  bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
 }
 
 export interface DegreeListResponse {
@@ -162,6 +166,8 @@ export interface DepartmentFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  userId?: string; // For applying user-based institution filtering
+  bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
 }
 
 export interface DepartmentListResponse {
@@ -223,6 +229,8 @@ export interface ProgramFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  userId?: string; // For applying user-based institution filtering
+  bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
 }
 
 export interface ProgramListResponse {
@@ -266,6 +274,8 @@ export interface CourseFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  userId?: string; // For applying user-based institution filtering
+  bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
 }
 
 export interface CourseListResponse {
@@ -333,6 +343,8 @@ export interface SemesterFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  userId?: string; // For applying user-based institution filtering
+  bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
 }
 
 export interface SemesterListResponse {
@@ -403,6 +415,8 @@ export interface SectionFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  userId?: string; // For applying user-based institution filtering
+  bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
 }
 
 export interface SectionListResponse {
@@ -481,6 +495,8 @@ export interface CourseMappingFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  userId?: string; // For applying user-based institution filtering
+  bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
 }
 
 export interface CourseMappingListResponse {

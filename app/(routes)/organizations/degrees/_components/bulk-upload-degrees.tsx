@@ -24,7 +24,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { DegreeService } from '@/lib/services/organization/degree-service';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 interface ValidationResult {
   isValid: boolean;
@@ -79,6 +79,7 @@ export default function BulkUploadDegrees() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const { institutions } = useInstitutionsWithAccess();
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -95,9 +96,6 @@ export default function BulkUploadDegrees() {
 
   const processFile = async (file: File) => {
     try {
-      // First fetch all institutions for validation
-      const institutions = await OrganizationService.getInstitutionNames(true);
-
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];

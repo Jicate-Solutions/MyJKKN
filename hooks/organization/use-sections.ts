@@ -1,8 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { SectionService } from '@/lib/services/organization/section-service';
 import type { Section, SectionFilters } from '@/types/organizations';
+import { useAuth } from '../use-auth';
+import { usePermissions } from '../use-permissions';
 
 export function useSections(initialFilters: SectionFilters = {}) {
+  const { user, isLoading: authLoading } = useAuth();
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
   const [paginationLoading, setPaginationLoading] = useState(false);
@@ -17,6 +21,8 @@ export function useSections(initialFilters: SectionFilters = {}) {
 
   const fetchSections = useCallback(
     async (newFilters?: SectionFilters, isPagination = false) => {
+      if (authLoading || permissionsLoading) return;
+
       try {
         if (isPagination) {
           setPaginationLoading(true);
@@ -24,7 +30,11 @@ export function useSections(initialFilters: SectionFilters = {}) {
           setLoading(true);
         }
         setError(null);
-        const currentFilters = newFilters || filters;
+        const currentFilters = {
+          ...(newFilters || filters),
+          userId: user?.id,
+          bypassInstitutionFilter: isSuperAdmin
+        };
 
         const result = await SectionService.getSections(currentFilters);
         setSections(result.data);
@@ -34,8 +44,12 @@ export function useSections(initialFilters: SectionFilters = {}) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching sections:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
+        console.error('[useSections] Fetch Error:', err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'An error occurred while fetching sections.'
+        );
       } finally {
         if (isPagination) {
           setPaginationLoading(false);
@@ -44,8 +58,14 @@ export function useSections(initialFilters: SectionFilters = {}) {
         }
       }
     },
-    [filters]
+    [filters, user?.id, isSuperAdmin, authLoading, permissionsLoading]
   );
+
+  useEffect(() => {
+    if (!authLoading && !permissionsLoading) {
+      fetchSections();
+    }
+  }, [authLoading, permissionsLoading, fetchSections]);
 
   const updateFilters = useCallback(
     (newFilters: Partial<SectionFilters>) => {

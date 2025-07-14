@@ -36,22 +36,18 @@ export default function CourseMappingsPage() {
   const canViewCourseMappings =
     isSuperAdmin || canAccess('organizations.course_mappings', 'view');
 
-  useEffect(() => {
-    fetchCourseMappings();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   if (error) {
+    console.error('[CourseMappingsPage] Render Error:', error);
     return (
       <ContentLayout title='Course Mappings'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
           <Button
             variant='outline'
-            onClick={() => fetchCourseMappings()}
+            onClick={() => window.location.reload()}
             className='mt-4'
-            disabled={!canViewCourseMappings}
           >
-            Try Again
+            Refresh Page
           </Button>
         </div>
       </ContentLayout>
