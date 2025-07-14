@@ -23,6 +23,8 @@ import Loading from '@/components/Loading/Loading';
 
 export default function StaffPlanningPage() {
   const [isPageLoading, setIsPageLoading] = useState(true);
+  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+
   const {
     staffPlans,
     loading,
@@ -32,9 +34,12 @@ export default function StaffPlanningPage() {
     updateFilters,
     changePage,
     fetchStaffPlans
-  } = useStaffPlans();
-
-  const { canAccess, isSuperAdmin } = usePermissions();
+  } = useStaffPlans({
+    ...(!isSuperAdmin &&
+      userProfile?.institution_id && {
+        institution_id: userProfile.institution_id
+      })
+  });
 
   const canViewStaffPlans =
     isSuperAdmin || canAccess('academic.staff.planning', 'view');
