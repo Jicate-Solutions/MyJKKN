@@ -38,22 +38,18 @@ export default function SectionsPage() {
   const canCreateSections =
     isSuperAdmin || canAccess('organizations.sections', 'create');
 
-  useEffect(() => {
-    fetchSections();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   if (error) {
+    console.error('[SectionsPage] Render Error:', error);
     return (
       <ContentLayout title='Sections'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
           <Button
             variant='outline'
-            onClick={() => fetchSections()}
+            onClick={() => window.location.reload()}
             className='mt-4'
-            disabled={!canViewSections}
           >
-            Try Again
+            Refresh Page
           </Button>
         </div>
       </ContentLayout>

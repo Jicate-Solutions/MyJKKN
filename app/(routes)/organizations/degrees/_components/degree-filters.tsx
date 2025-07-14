@@ -2,7 +2,6 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -10,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DegreeFilters as DegreeFilterType } from '@/types/organizations';
 import ExportDegrees from './export-degrees';
 import BulkUploadDegrees from './bulk-upload-degrees';
@@ -23,24 +22,10 @@ interface DegreeFiltersProps {
 }
 
 export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
+  const { institutions } = useInstitutionsWithAccess();
   const { canAccess, isSuperAdmin } = usePermissions();
   const canEditDegrees =
     isSuperAdmin || canAccess('organizations.degrees', 'edit');
-
-  useEffect(() => {
-    async function loadInstitutions() {
-      try {
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
-      } catch (error) {
-        console.error('Error loading institutions:', error);
-      }
-    }
-    loadInstitutions();
-  }, []);
 
   return (
     <div className='space-y-4 mb-6'>

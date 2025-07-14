@@ -20,6 +20,7 @@ import { format } from 'date-fns';
 import { AdmissionFilters as FilterType } from '@/types/admission';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/hooks/use-auth';
 
 // Define a type for the simplified institution returned by getInstitutionNames
 type InstitutionName = {
@@ -37,6 +38,7 @@ export function AdmissionFilter({
   filters,
   onFilterChange
 }: AdmissionFilterProps) {
+  const { user } = useAuth();
   const [localFilters, setLocalFilters] = useState<FilterType>(filters);
   const [fromDate, setFromDate] = useState<Date | undefined>(
     filters.fromDate ? new Date(filters.fromDate) : undefined
@@ -65,15 +67,25 @@ export function AdmissionFilter({
     return () => clearTimeout(timer);
   }, [localFilters, filters, onFilterChange]);
 
-  // Fetch institutions when component mounts
+  // Fetch institutions when component mounts with institution access filtering
   useEffect(() => {
     async function fetchInstitutions() {
       try {
         setLoadingInstitutions(true);
-        const institutionsData = await OrganizationService.getInstitutionNames(
-          true
-        );
-        setInstitutions(institutionsData);
+        // Use the new getInstitutions method that respects user access
+        const { data: institutionsData } =
+          await OrganizationService.getInstitutions({
+            isActive: true,
+            // Add current user context for filtering
+            userId: user?.id
+          });
+        // Map to the expected format
+        const mappedInstitutions = institutionsData.map((inst) => ({
+          id: inst.id,
+          name: inst.name,
+          counselling_code: inst.counselling_code
+        }));
+        setInstitutions(mappedInstitutions);
       } catch (error) {
         console.error('Error fetching institutions:', error);
       } finally {
@@ -82,7 +94,7 @@ export function AdmissionFilter({
     }
 
     fetchInstitutions();
-  }, []);
+  }, [user?.id]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

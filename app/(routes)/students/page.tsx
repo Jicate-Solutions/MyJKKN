@@ -111,7 +111,7 @@ const STUDENT_STATUS_OPTIONS = [
 
 export default function StudentsPage() {
   const router = useRouter();
-  const { canAccess, isSuperAdmin, permissions } = usePermissions();
+  const { canAccess, isSuperAdmin } = usePermissions();
   const [filters, setFilters] = useState<StudentFilters>({
     search: '',
     student_name: '',
@@ -170,6 +170,7 @@ export default function StudentsPage() {
     to: undefined
   });
 
+  // Use the refactored hook
   const { data: studentsData, isLoading, refetch } = useStudents(filters);
 
   // Load institutions on mount
@@ -300,22 +301,7 @@ export default function StudentsPage() {
     }
   }, [filters.institution]);
 
-  // Redirect if no access permission
-  useEffect(() => {
-    // Skip permission check while permissions are still loading
-    if (!permissions || Object.keys(permissions).length === 0) {
-      return;
-    }
-
-    const shouldRedirect = !isSuperAdmin && !canAccess('students', 'view');
-
-    if (shouldRedirect) {
-      console.log('Access denied for students page');
-      router.push('/unauthorized');
-    } else {
-      console.log('Permission check passed! User can access students page');
-    }
-  }, [isSuperAdmin, canAccess, router, permissions]);
+  // No longer need a useEffect to check permissions, as the hook handles it.
 
   const handleFilterChange = (newFilters: Partial<StudentFilters>) => {
     setFilters((prev) => ({

@@ -8,6 +8,8 @@ import {
 } from '@/types/student';
 import { StudentService } from '@/lib/services/student/student-service';
 import { useState, useCallback, useEffect } from 'react';
+import { useAuth } from '../use-auth';
+import { usePermissions } from '../use-permissions';
 
 export type StudentData = Student;
 
@@ -25,27 +27,29 @@ export const studentKeys = {
     [...studentKeys.all, 'dashboard-stats', filters] as const
 };
 
-// Get a list of students with filters
+// Get a list of students with filters (now relies on RLS)
 export function useStudents(filters: StudentFilters = {}) {
+  const { user, isLoading: authLoading } = useAuth();
+
+  const queryFn = async () => {
+    try {
+      // We pass the user's auth context implicitly through the session cookie,
+      // and RLS will handle the filtering on the database side.
+      return await StudentService.getStudents(filters);
+    } catch (error) {
+      console.error('[useStudents] Fetch Error:', error);
+      // Re-throw the error so React Query can handle it
+      throw new Error(
+        'Failed to fetch students. Please check the console for details.'
+      );
+    }
+  };
+
   return useQuery({
     queryKey: ['students', filters],
-    queryFn: async () => {
-      // Prepare query params
-      const queryParams: Record<string, any> = {
-        ...filters
-      };
-
-      // Format dates if present
-      if (filters.created_from) {
-        queryParams.created_from = filters.created_from.toISOString();
-      }
-      if (filters.created_to) {
-        queryParams.created_to = filters.created_to.toISOString();
-      }
-
-      const result = await StudentService.getStudents(queryParams);
-      return result;
-    }
+    queryFn,
+    // The query will only be enabled after the user has been authenticated.
+    enabled: !authLoading && !!user
   });
 }
 

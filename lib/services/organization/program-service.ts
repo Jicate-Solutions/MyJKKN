@@ -11,6 +11,26 @@ import type {
 export class ProgramService {
   private static supabase = createClientSupabaseClient();
 
+  /**
+   * Helper method to get accessible institution IDs for a user
+   */
+  private static async getUserAccessibleInstitutionIds(
+    userId: string
+  ): Promise<string[]> {
+    try {
+      // Import the service to avoid circular dependency
+      const { UserInstitutionAccessService } = await import(
+        '@/lib/services/users/user-institution-access-service'
+      );
+      return await UserInstitutionAccessService.getUserAccessibleInstitutionIds(
+        userId
+      );
+    } catch (error) {
+      console.error('Error getting user accessible institution IDs:', error);
+      return [];
+    }
+  }
+
   static async createProgram(data: CreateProgramDto): Promise<Program> {
     try {
       const { data: program, error } = await this.supabase
@@ -130,6 +150,26 @@ export class ProgramService {
         query = query.eq('is_active', filters.isActive);
       }
 
+      // Apply institution filtering based on user access if userId is provided
+      if (filters.userId && !filters.bypassInstitutionFilter) {
+        const accessibleInstitutionIds =
+          await this.getUserAccessibleInstitutionIds(filters.userId);
+        if (accessibleInstitutionIds.length > 0) {
+          query = query.in('institution_id', accessibleInstitutionIds);
+        } else {
+          // If user has no accessible institutions, return empty result
+          return {
+            data: [],
+            metadata: {
+              total: 0,
+              page: filters.page || 1,
+              limit: filters.limit || 10,
+              totalPages: 0
+            }
+          };
+        }
+      }
+
       // Apply pagination
       const page = filters.page || 1;
       const limit = filters.limit || 10;
@@ -196,10 +236,13 @@ export class ProgramService {
   static async getProgramsByDepartment(departmentId: string) {
     try {
       // Check if departmentId is a UUID or a name/label
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(departmentId);
-      
+      const isUUID =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          departmentId
+        );
+
       let query;
-      
+
       if (isUUID) {
         // If it's a UUID, use it directly with eq
         query = this.supabase
@@ -210,13 +253,13 @@ export class ProgramService {
       } else {
         // If it's not a UUID, try to find the department by name first
         console.log('Searching for department with name:', departmentId);
-        
+
         const { data: department } = await this.supabase
           .from('departments')
           .select('id')
           .ilike('department_name', departmentId)
           .single();
-        
+
         if (department) {
           console.log('Found department with ID:', department.id);
           query = this.supabase

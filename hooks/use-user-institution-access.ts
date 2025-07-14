@@ -14,6 +14,11 @@ export interface InstitutionAccessHook {
   hasAccessToInstitution: (institutionId: string) => boolean;
   getAccessibleInstitutionIds: () => string[];
   canAccessAllInstitutions: boolean;
+  createInstitutionFilter: <T extends { institution_id?: string }>(
+    items: T[]
+  ) => T[];
+  getInstitutionFilterClause: () => string;
+  isUserRestrictedToInstitutions: boolean;
 }
 
 export function useUserInstitutionAccess(): InstitutionAccessHook {
@@ -73,6 +78,39 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
     return isSuperAdmin || user?.institution_id === null;
   }, [isSuperAdmin, user?.institution_id]);
 
+  const isUserRestrictedToInstitutions = useCallback((): boolean => {
+    return !canAccessAllInstitutions();
+  }, [canAccessAllInstitutions]);
+
+  const createInstitutionFilter = useCallback(
+    <T extends { institution_id?: string }>(items: T[]): T[] => {
+      if (canAccessAllInstitutions()) {
+        return items;
+      }
+
+      const accessibleIds = getAccessibleInstitutionIds();
+      return items.filter(
+        (item) =>
+          item.institution_id && accessibleIds.includes(item.institution_id)
+      );
+    },
+    [canAccessAllInstitutions, getAccessibleInstitutionIds]
+  );
+
+  const getInstitutionFilterClause = useCallback((): string => {
+    if (canAccessAllInstitutions()) {
+      return '1=1'; // No filtering needed
+    }
+
+    const accessibleIds = getAccessibleInstitutionIds();
+    if (accessibleIds.length === 0) {
+      return '1=0'; // No access to any institution
+    }
+
+    const quotedIds = accessibleIds.map((id) => `'${id}'`).join(',');
+    return `institution_id IN (${quotedIds})`;
+  }, [canAccessAllInstitutions, getAccessibleInstitutionIds]);
+
   return {
     institutions,
     loading,
@@ -80,6 +118,9 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
     refresh: fetchAccessibleInstitutions,
     hasAccessToInstitution,
     getAccessibleInstitutionIds,
-    canAccessAllInstitutions: canAccessAllInstitutions()
+    canAccessAllInstitutions: canAccessAllInstitutions(),
+    createInstitutionFilter,
+    getInstitutionFilterClause,
+    isUserRestrictedToInstitutions: isUserRestrictedToInstitutions()
   };
 }

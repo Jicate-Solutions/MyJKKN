@@ -8,6 +8,19 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
+
+    // Apply institution filtering based on user permissions
+    const { createApiInstitutionFilter, applyInstitutionFilterToQuery } =
+      await import('@/lib/auth/api-institution-filter');
+    const institutionFilter = await createApiInstitutionFilter(request);
+
+    if (!institutionFilter.isAllowed) {
+      return NextResponse.json(
+        { error: `Access denied: ${institutionFilter.reason}` },
+        { status: 403 }
+      );
+    }
+
     const {
       data: { user },
       error: authError
@@ -63,6 +76,32 @@ export async function GET(request: NextRequest) {
       // This is handled in the service layer
     }
     // Super admins can see all logs (no additional filtering needed)
+
+    // Apply institution filtering for non-super-admin users
+    if (
+      !institutionFilter.isSuperAdmin &&
+      institutionFilter.institutionIds.length > 0
+    ) {
+      // If institution_id filter is not already set and user has restricted institution access
+      if (!filters.institution_id) {
+        // For single institution access, set the filter
+        if (institutionFilter.institutionIds.length === 1) {
+          filters.institution_id = institutionFilter.institutionIds[0];
+        }
+        // For multiple institutions, the service layer should handle the filtering
+        // We could extend the ActivityService to accept multiple institution IDs if needed
+      } else {
+        // Verify the requested institution is accessible to the user
+        if (
+          !institutionFilter.institutionIds.includes(filters.institution_id)
+        ) {
+          return NextResponse.json(
+            { error: 'Access denied to the requested institution' },
+            { status: 403 }
+          );
+        }
+      }
+    }
 
     const result = await ActivityService.getActivityLogs({
       filters,

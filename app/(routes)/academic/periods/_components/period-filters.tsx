@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { PeriodFilters as PeriodFiltersType } from '@/types/academics';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface PeriodFiltersProps {
@@ -24,35 +24,13 @@ export function PeriodFilters({ filters, onFilterChange }: PeriodFiltersProps) {
   const [searchTerm, setSearchTerm] = useState(filters.search || '');
   const debouncedSearchTerm = useDebounceValue(searchTerm, 500);
 
-  // State for institutions data
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
-  const [institutionsLoading, setInstitutionsLoading] = useState(true);
-
   const { isSuperAdmin, userProfile } = usePermissions();
 
-  // Fetch institutions data (only for super admin)
-  useEffect(() => {
-    const fetchInstitutions = async () => {
-      if (!isSuperAdmin) {
-        setInstitutionsLoading(false);
-        return;
-      }
-
-      try {
-        setInstitutionsLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
-      } catch (error) {
-        console.error('Error loading institutions:', error);
-      } finally {
-        setInstitutionsLoading(false);
-      }
-    };
-
-    fetchInstitutions();
-  }, [isSuperAdmin]);
+  // Fetch institutions with proper access control
+  const { institutions, loading: institutionsLoading } =
+    useInstitutionsWithAccess({
+      isActive: true
+    });
 
   // Auto-set institution filter for faculty users
   useEffect(() => {

@@ -36,25 +36,18 @@ export default function CoursesPage() {
   const canViewCourses =
     isSuperAdmin || canAccess('organizations.courses', 'view');
 
-  useEffect(() => {
-    // Only fetch courses if user has permission
-    if (canViewCourses) {
-      fetchCourses();
-    }
-  }, [fetchCourses, canViewCourses]);
-
   if (error) {
+    console.error('[CoursesPage] Render Error:', error);
     return (
       <ContentLayout title='Courses'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
           <Button
             variant='outline'
-            onClick={() => fetchCourses()}
+            onClick={() => window.location.reload()}
             className='mt-4'
-            disabled={!canViewCourses}
           >
-            Try Again
+            Refresh Page
           </Button>
         </div>
       </ContentLayout>

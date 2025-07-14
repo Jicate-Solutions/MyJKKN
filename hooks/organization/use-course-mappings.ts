@@ -1,11 +1,15 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
 import type {
   CourseMapping,
   CourseMappingFilters
 } from '@/types/organizations';
+import { useAuth } from '../use-auth';
+import { usePermissions } from '../use-permissions';
 
 export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
+  const { user, isLoading: authLoading } = useAuth();
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [courseMappings, setCourseMappings] = useState<CourseMapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [paginationLoading, setPaginationLoading] = useState(false);
@@ -20,6 +24,8 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
 
   const fetchCourseMappings = useCallback(
     async (newFilters?: CourseMappingFilters, isPagination = false) => {
+      if (authLoading || permissionsLoading) return;
+
       try {
         if (isPagination) {
           setPaginationLoading(true);
@@ -27,7 +33,11 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
           setLoading(true);
         }
         setError(null);
-        const currentFilters = newFilters || filters;
+        const currentFilters = {
+          ...(newFilters || filters),
+          userId: user?.id,
+          bypassInstitutionFilter: isSuperAdmin
+        };
 
         const result = await CourseMappingService.getCourseMappings(
           currentFilters
@@ -39,8 +49,12 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching course mappings:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
+        console.error('[useCourseMappings] Fetch Error:', err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'An error occurred while fetching course mappings.'
+        );
       } finally {
         if (isPagination) {
           setPaginationLoading(false);
@@ -49,8 +63,14 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
         }
       }
     },
-    [filters]
+    [filters, user?.id, isSuperAdmin, authLoading, permissionsLoading]
   );
+
+  useEffect(() => {
+    if (!authLoading && !permissionsLoading) {
+      fetchCourseMappings();
+    }
+  }, [authLoading, permissionsLoading, fetchCourseMappings]);
 
   const updateFilters = useCallback(
     (newFilters: Partial<CourseMappingFilters>) => {

@@ -31,7 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { useEffect } from 'react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 const degreeSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -59,9 +59,8 @@ interface DegreeFormProps {
 export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string; counselling_code: string }>
-  >([]);
+  const { institutions, loading: institutionsLoading } =
+    useInstitutionsWithAccess();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(degreeSchema),
@@ -73,20 +72,6 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
       is_active: degree?.is_active ?? true
     }
   });
-
-  // Load institutions
-  useEffect(() => {
-    async function loadInstitutions() {
-      try {
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
-      } catch (error) {
-        console.error('Error loading institutions:', error);
-        toast.error('Failed to load institutions');
-      }
-    }
-    loadInstitutions();
-  }, []);
 
   const onSubmit = async (values: FormValues) => {
     try {

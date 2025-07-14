@@ -1,8 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import type { Semester, SemesterFilters } from '@/types/organizations';
+import { useAuth } from '../use-auth';
+import { usePermissions } from '../use-permissions';
 
 export function useSemesters(initialFilters: SemesterFilters = {}) {
+  const { user, isLoading: authLoading } = useAuth();
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [loading, setLoading] = useState(true);
   const [paginationLoading, setPaginationLoading] = useState(false);
@@ -17,6 +21,8 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
 
   const fetchSemesters = useCallback(
     async (newFilters?: SemesterFilters, isPagination = false) => {
+      if (authLoading || permissionsLoading) return;
+
       try {
         if (isPagination) {
           setPaginationLoading(true);
@@ -24,7 +30,11 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
           setLoading(true);
         }
         setError(null);
-        const currentFilters = newFilters || filters;
+        const currentFilters = {
+          ...(newFilters || filters),
+          userId: user?.id,
+          bypassInstitutionFilter: isSuperAdmin
+        };
 
         const result = await SemesterService.getSemesters(currentFilters);
         setSemesters(result.data);
@@ -34,8 +44,12 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching semesters:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
+        console.error('[useSemesters] Fetch Error:', err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'An error occurred while fetching semesters.'
+        );
       } finally {
         if (isPagination) {
           setPaginationLoading(false);
@@ -44,8 +58,14 @@ export function useSemesters(initialFilters: SemesterFilters = {}) {
         }
       }
     },
-    [filters]
+    [filters, user?.id, isSuperAdmin, authLoading, permissionsLoading]
   );
+
+  useEffect(() => {
+    if (!authLoading && !permissionsLoading) {
+      fetchSemesters();
+    }
+  }, [authLoading, permissionsLoading, fetchSemesters]);
 
   const updateFilters = useCallback(
     (newFilters: Partial<SemesterFilters>) => {
