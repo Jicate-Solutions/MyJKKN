@@ -1,6 +1,6 @@
 // hooks/staff/use-staff.ts
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type {
   Staff,
@@ -9,88 +9,57 @@ import type {
   StaffDashboardStats
 } from '@/types/staff';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { useAuth } from '../use-auth';
+import { usePermissions } from '../use-permissions';
 
 export function useStaff(initialFilters: StaffFilters = {}) {
-  const [staff, setStaff] = useState<Staff[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { user, isLoading: authLoading } = useAuth();
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [filters, setFilters] = useState<StaffFilters>(initialFilters);
-  const [metadata, setMetadata] = useState({
-    total: 0,
-    page: 1,
-    limit: 10,
-    totalPages: 0
+
+  const queryKey = ['staff', filters];
+
+  const queryFn = async () => {
+    const finalFilters = {
+      ...filters,
+      userId: user?.id,
+      bypassInstitutionFilter: isSuperAdmin
+    };
+    return await StaffService.getStaff(finalFilters);
+  };
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey,
+    queryFn,
+    enabled: !authLoading && !permissionsLoading
   });
 
-  const fetchStaff = useCallback(
-    async (newFilters?: StaffFilters) => {
-      try {
-        setLoading(true);
-        setError(null);
-        const currentFilters = newFilters || filters;
+  const updateFilters = useCallback((newFilters: Partial<StaffFilters>) => {
+    setFilters((prev) => ({
+      ...prev,
+      ...newFilters,
+      page: 1
+    }));
+  }, []);
 
-        const result = await StaffService.getStaff(currentFilters);
-        setStaff(result.data);
-        setMetadata(result.metadata);
+  const changePage = useCallback((page: number) => {
+    setFilters((prev) => ({ ...prev, page }));
+  }, []);
 
-        if (newFilters) {
-          setFilters(newFilters);
-        }
-      } catch (err) {
-        console.error('Error fetching staff:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [filters]
-  );
-
-  const updateFilters = useCallback(
-    (newFilters: Partial<StaffFilters>) => {
-      const updatedFilters = {
-        ...filters,
-        ...newFilters,
-        page: 1 // Reset to first page when filters change
-      };
-      setFilters(updatedFilters);
-      fetchStaff(updatedFilters);
-    },
-    [filters, fetchStaff]
-  );
-
-  const changePage = useCallback(
-    (page: number) => {
-      const updatedFilters = { ...filters, page };
-      setFilters(updatedFilters);
-      fetchStaff(updatedFilters);
-    },
-    [filters, fetchStaff]
-  );
-
-  const updateLimit = useCallback(
-    (limit: number) => {
-      const updatedFilters = {
-        ...filters,
-        limit,
-        page: 1 // Reset to first page when limit changes
-      };
-      setFilters(updatedFilters);
-      fetchStaff(updatedFilters);
-    },
-    [filters, fetchStaff]
-  );
+  const updateLimit = useCallback((limit: number) => {
+    setFilters((prev) => ({ ...prev, limit, page: 1 }));
+  }, []);
 
   return {
-    staff,
-    loading,
-    error,
-    metadata,
+    staff: data?.data || [],
+    metadata: data?.metadata || { total: 0, page: 1, limit: 10, totalPages: 0 },
+    loading: isLoading,
+    error: error?.message || null,
     filters,
     updateFilters,
     changePage,
     updateLimit,
-    fetchStaff
+    fetchStaff: refetch
   };
 }
 

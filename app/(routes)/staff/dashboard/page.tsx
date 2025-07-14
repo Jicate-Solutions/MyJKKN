@@ -107,6 +107,7 @@ export default function StaffDashboardPage() {
   };
 
   if (error) {
+    console.error('[StaffDashboardPage] Render Error:', error);
     return (
       <div className='container mx-auto p-6'>
         <div className='text-center'>
@@ -114,9 +115,7 @@ export default function StaffDashboardPage() {
             Error Loading Dashboard
           </h1>
           <p className='text-muted-foreground mb-4'>
-            {error instanceof Error
-              ? error.message
-              : 'An unexpected error occurred'}
+            {error.message || 'An unexpected error occurred'}
           </p>
           <Button onClick={handleRefresh}>Try Again</Button>
         </div>

@@ -70,6 +70,7 @@ export default function StudentPromotionPage() {
   }
 
   if (error && hasSearched) {
+    console.error('[StudentPromotionPage] Render Error:', error);
     return (
       <ContentLayout title='Student Promotion'>
         <div className='text-center py-8'>

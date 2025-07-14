@@ -89,6 +89,7 @@ import {
 } from '@/components/auth/permission-guard';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import toast from 'react-hot-toast';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 // Define the DateRange type
 type DateRange = {
@@ -171,7 +172,13 @@ export default function StudentsPage() {
   });
 
   // Use the refactored hook
-  const { data: studentsData, isLoading, refetch } = useStudents(filters);
+  const {
+    data: studentsData,
+    isLoading,
+    refetch,
+    isError,
+    error
+  } = useStudents(filters);
 
   // Load institutions on mount
   useEffect(() => {
@@ -313,6 +320,10 @@ export default function StudentsPage() {
 
   const handlePageChange = (page: number) => {
     setFilters((prev) => ({ ...prev, page }));
+  };
+
+  const handlePageSizeChange = (pageSize: number) => {
+    setFilters((prev) => ({ ...prev, limit: pageSize, page: 1 }));
   };
 
   // Handle refreshing the student list
@@ -836,11 +847,34 @@ export default function StudentsPage() {
     hasNextPage: (metadata.page || 1) < (metadata.totalPages || 1),
     hasPreviousPage: (metadata.page || 1) > 1,
     onPageChange: handlePageChange,
-    onPageSizeChange: (pageSize: number) => {
-      setFilters((prev) => ({ ...prev, limit: pageSize, page: 1 }));
-    },
+    onPageSizeChange: handlePageSizeChange,
     isLoading: isLoading
   };
+
+  if (isError) {
+    console.error('[StudentsPage] Render Error:', error);
+    return (
+      <ContentLayout title='Students'>
+        <div className='p-4'>
+          <Alert variant='destructive'>
+            <AlertCircle className='h-4 w-4' />
+            <AlertTitle>Error Loading Students</AlertTitle>
+            <AlertDescription>
+              {error?.message || 'An unexpected error occurred.'}
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => refetch()}
+                className='mt-4'
+              >
+                Try Again
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title='Students'>

@@ -25,8 +25,9 @@ import ExportStaff from './_components/export-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info, Users } from 'lucide-react';
+import { Info, Users, AlertCircle } from 'lucide-react';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
+import { Button } from '@/components/ui/button';
 
 export default function StaffPage() {
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
@@ -44,38 +45,17 @@ export default function StaffPage() {
     updateLimit
   } = useStaff();
 
-  // Use waitForLoad to ensure permissions are fully loaded before making decisions
   const {
     canAccess,
     isSuperAdmin,
     isLoading: permissionsLoading
-  } = usePermissions([], { waitForLoad: true });
+  } = usePermissions();
 
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
   const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
 
-  // Debug permission values
-  useEffect(() => {
-    if (!permissionsLoading) {
-      console.log('Staff permissions debug:', {
-        isSuperAdmin,
-        canViewStaff: canAccess('staff', 'view'),
-        rawCheck: canViewStaff,
-        permissionsLoaded: !permissionsLoading
-      });
-      setPermissionsLoaded(true);
-    }
-  }, [permissionsLoading, isSuperAdmin, canAccess, canViewStaff]);
-
-  // Only fetch staff when permissions are loaded and user has view permission
-  useEffect(() => {
-    if (permissionsLoaded && (isSuperAdmin || canAccess('staff', 'view'))) {
-      fetchStaff().catch((err) => {
-        console.error('Error fetching staff:', err);
-      });
-    }
-  }, [permissionsLoaded, isSuperAdmin, canAccess, fetchStaff]);
+  // No longer need useEffect for fetching, the useStaff hook handles it.
 
   // Handle page change with loading state
   const handlePageChange = async (page: number) => {
@@ -102,7 +82,6 @@ export default function StaffPage() {
     await fetchStaff();
   };
 
-  // Show loading state while permissions are loading
   if (permissionsLoading) {
     return (
       <ContentLayout title='Staff List'>
@@ -114,10 +93,25 @@ export default function StaffPage() {
   }
 
   if (error) {
+    console.error('[StaffPage] Render Error:', error);
     return (
       <ContentLayout title='Staff List'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
+        <div className='p-4'>
+          <Alert variant='destructive'>
+            <AlertCircle className='h-4 w-4' />
+            <AlertTitle>Error Loading Staff</AlertTitle>
+            <AlertDescription>
+              {error || 'An unexpected error occurred.'}
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => fetchStaff()}
+                className='mt-4'
+              >
+                Try Again
+              </Button>
+            </AlertDescription>
+          </Alert>
         </div>
       </ContentLayout>
     );
