@@ -1,5 +1,9 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
+import {
+  createApiInstitutionFilter,
+  applyInstitutionFilterToQuery
+} from '@/lib/auth/api-institution-filter';
 import type {
   Period,
   CreatePeriodDto,
