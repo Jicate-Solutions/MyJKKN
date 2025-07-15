@@ -35,6 +35,9 @@ export default function StaffPage() {
   const [forceShowContent, setForceShowContent] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [loadingStartTime] = useState(Date.now());
+  const [connectivityTestResult, setConnectivityTestResult] =
+    useState<any>(null);
+  const [isTestingConnectivity, setIsTestingConnectivity] = useState(false);
 
   // Initialize the staff hook with stable initial filters
   const initialFilters = useMemo(() => ({}), []);
@@ -51,7 +54,7 @@ export default function StaffPage() {
     updateLimit
   } = useStaff(initialFilters);
 
-  const { user, isLoading: authLoading, error: authError } = useAuth();
+  const { user, isLoading: authLoading, error: authError, profile } = useAuth();
 
   const {
     canAccess,
@@ -119,6 +122,23 @@ export default function StaffPage() {
     }
   };
 
+  const runConnectivityTest = async () => {
+    setIsTestingConnectivity(true);
+    setConnectivityTestResult(null);
+    try {
+      const response = await fetch('/api/debug/auth-test');
+      const data = await response.json();
+      setConnectivityTestResult(data);
+    } catch (error) {
+      setConnectivityTestResult({
+        error: 'Fetch failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    } finally {
+      setIsTestingConnectivity(false);
+    }
+  };
+
   // Add debugging for refresh issues
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
@@ -145,9 +165,9 @@ export default function StaffPage() {
     loadingDuration: Math.round((Date.now() - loadingStartTime) / 1000),
     authLoading,
     permissionsLoading,
-    hasUser: !!user,
-    userRole: user?.role,
-    authError: authError?.message,
+    hasUser: !!profile,
+    userRole: profile?.role,
+    authError: authError,
     permissionsError: permissionsError?.message,
     environment: process.env.NODE_ENV,
     timestamp: new Date().toISOString()
@@ -192,12 +212,12 @@ export default function StaffPage() {
                     <div>Duration: {diagnosticInfo.loadingDuration}s</div>
                     <div>Auth Loading: {String(authLoading)}</div>
                     <div>Permissions Loading: {String(permissionsLoading)}</div>
-                    <div>Has User: {String(diagnosticInfo.hasUser)}</div>
+                    <div>Has Profile: {String(diagnosticInfo.hasUser)}</div>
                     <div>User Role: {diagnosticInfo.userRole || 'None'}</div>
                     <div>Environment: {diagnosticInfo.environment}</div>
                     {authError && (
                       <div className='text-red-500'>
-                        Auth Error: {authError.message}
+                        Auth Error: {authError}
                       </div>
                     )}
                     {permissionsError && (
@@ -206,6 +226,22 @@ export default function StaffPage() {
                       </div>
                     )}
                   </div>
+                  <Button
+                    size='sm'
+                    variant='secondary'
+                    className='mt-4 w-full'
+                    onClick={runConnectivityTest}
+                    disabled={isTestingConnectivity}
+                  >
+                    {isTestingConnectivity
+                      ? 'Testing...'
+                      : 'Run Connectivity Test'}
+                  </Button>
+                  {connectivityTestResult && (
+                    <pre className='text-xs mt-2 bg-muted p-2 rounded text-left'>
+                      {JSON.stringify(connectivityTestResult, null, 2)}
+                    </pre>
+                  )}
                 </CardContent>
               </Card>
             )}
