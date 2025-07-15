@@ -559,8 +559,8 @@ export class StaffService {
     filters: StaffDashboardFilters = {}
   ): Promise<StaffDashboardStats> {
     try {
-      // Use admin client for dashboard stats (read-only operations)
-      const supabase = createAdminClient();
+      // Use the standard client to respect RLS policies
+      const supabase = createClientSupabaseClient();
 
       // Execute all queries in parallel for better performance
       const [
@@ -604,7 +604,7 @@ export class StaffService {
 
   private static async getOverviewStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createAdminClient>
+    supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffOverviewStats> {
     let query = supabase.from('staff').select('*');
 
@@ -722,7 +722,7 @@ export class StaffService {
 
   private static async getRegistrationTrends(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createAdminClient>
+    supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffRegistrationTrend[]> {
     let query = supabase.from('staff').select('date_of_joining');
 
@@ -778,7 +778,7 @@ export class StaffService {
 
   private static async getInstitutionStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createAdminClient>
+    supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffInstitutionStats[]> {
     let query = supabase.from('staff').select(`
         institution_id,
@@ -818,7 +818,7 @@ export class StaffService {
 
   private static async getDepartmentStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createAdminClient>
+    supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffDepartmentStats[]> {
     let query = supabase.from('staff').select(`
         department_id,
@@ -862,7 +862,7 @@ export class StaffService {
 
   private static async getCategoryStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createAdminClient>
+    supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffCategoryStats[]> {
     let query = supabase.from('staff').select(`
         category_id,
@@ -915,7 +915,7 @@ export class StaffService {
 
   private static async getGeographicStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createAdminClient>
+    supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffGeographicStats> {
     let query = supabase.from('staff').select('state, district');
 
@@ -938,7 +938,7 @@ export class StaffService {
 
   private static async getDemographicStats(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createAdminClient>
+    supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffDemographicStats> {
     let query = supabase
       .from('staff')
@@ -977,7 +977,7 @@ export class StaffService {
 
   private static async getTenureAnalytics(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createAdminClient>
+    supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffTenureAnalytics> {
     let query = supabase.from('staff').select(`
         date_of_joining,
@@ -1129,7 +1129,7 @@ export class StaffService {
 
   private static async getProfileAnalytics(
     filters: StaffDashboardFilters,
-    supabase: ReturnType<typeof createAdminClient>
+    supabase: ReturnType<typeof createClientSupabaseClient>
   ): Promise<StaffProfileAnalytics> {
     let query = supabase.from('staff').select(`
         *,

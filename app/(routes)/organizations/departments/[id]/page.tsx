@@ -20,6 +20,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface DepartmentDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -32,6 +33,11 @@ export default function DepartmentDetailsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [department, setDepartment] = useState<Department | null>(null);
+
+  // Get permissions
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canEditDepartment =
+    isSuperAdmin || canAccess('organizations.departments', 'edit');
 
   useEffect(() => {
     async function fetchDepartment() {
@@ -116,12 +122,19 @@ export default function DepartmentDetailsPage({
               Department Details
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/organizations/departments/${id}/edit`}>
+          {canEditDepartment ? (
+            <Button asChild>
+              <Link href={`/organizations/departments/${id}/edit`}>
+                <PenSquare className='mr-2 h-4 w-4' />
+                Edit Department
+              </Link>
+            </Button>
+          ) : (
+            <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
               Edit Department
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         <Card>

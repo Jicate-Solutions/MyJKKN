@@ -708,21 +708,75 @@ export class AttendanceService {
         return false;
       }
 
-      // Check if staff is assigned to the slot
+      // First check: Is staff specifically assigned to this slot?
       const isAssigned = await this.isStaffAssignedToSlot(
         staffId,
         timetableSlotId
       );
 
-      if (!isAssigned) {
-        console.log(
-          `Staff ${staffId} is not assigned to slot ${timetableSlotId}`
-        );
+      if (isAssigned) {
+        console.log(`Staff ${staffId} is assigned to slot ${timetableSlotId}`);
+        return true;
       }
 
-      return isAssigned;
+      // Second check: Does user have faculty role with attendance permissions?
+      // This allows faculty members to mark attendance even if not specifically assigned
+      const hasRolePermission = await this.checkFacultyAttendancePermission();
+
+      if (hasRolePermission) {
+        console.log(
+          `Staff ${staffId} has faculty role permissions to mark attendance for any slot`
+        );
+        return true;
+      }
+
+      console.log(
+        `Staff ${staffId} is not assigned to slot ${timetableSlotId} and lacks sufficient permissions`
+      );
+      return false;
     } catch (error) {
       console.error('Error checking attendance permission for slot:', error);
+      return false;
+    }
+  }
+
+  // New helper method to check faculty role permissions
+  static async checkFacultyAttendancePermission(): Promise<boolean> {
+    try {
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
+
+      if (userError || !userData.user) {
+        return false;
+      }
+
+      // Get user's profile and role
+      const { data: profile, error: profileError } = await this.supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userData.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        return false;
+      }
+
+      // Check if user has faculty role with attendance permissions
+      const { data: roleData, error: roleError } = await this.supabase
+        .from('custom_roles')
+        .select('permissions')
+        .eq('role_key', profile.role)
+        .single();
+
+      if (roleError || !roleData) {
+        return false;
+      }
+
+      // Check if role has attendance marking permission
+      const permissions = roleData.permissions as any;
+      return permissions && permissions['academic.attendance.mark'] === true;
+    } catch (error) {
+      console.error('Error checking faculty attendance permission:', error);
       return false;
     }
   }

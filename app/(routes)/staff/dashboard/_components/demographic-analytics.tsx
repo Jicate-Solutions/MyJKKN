@@ -45,6 +45,29 @@ const COLORS = [
   '#6366f1'
 ];
 
+// Move CustomTooltip outside the component to prevent recreation on every render
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className='bg-background border rounded-lg shadow-lg p-3'>
+        <p className='font-medium'>{data.name}</p>
+        <div className='space-y-1 mt-2'>
+          <div className='flex items-center justify-between gap-4'>
+            <span className='text-sm text-muted-foreground'>Count:</span>
+            <span className='font-medium'>{data.count.toLocaleString()}</span>
+          </div>
+          <div className='flex items-center justify-between gap-4'>
+            <span className='text-sm text-muted-foreground'>Percentage:</span>
+            <span className='font-medium'>{data.percentage.toFixed(1)}%</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export function DemographicAnalytics({
   data,
   isLoading
@@ -112,28 +135,6 @@ export function DemographicAnalytics({
     );
   }
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className='bg-background border rounded-lg shadow-lg p-3'>
-          <p className='font-medium'>{data.name}</p>
-          <div className='space-y-1 mt-2'>
-            <div className='flex items-center justify-between gap-4'>
-              <span className='text-sm text-muted-foreground'>Count:</span>
-              <span className='font-medium'>{data.count.toLocaleString()}</span>
-            </div>
-            <div className='flex items-center justify-between gap-4'>
-              <span className='text-sm text-muted-foreground'>Percentage:</span>
-              <span className='font-medium'>{data.percentage.toFixed(1)}%</span>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -195,7 +196,7 @@ export function DemographicAnalytics({
                 <div className='space-y-3'>
                   {genderChartData.map((item, index) => (
                     <div
-                      key={item.name}
+                      key={`gender-breakdown-${item.name}`}
                       className='flex items-center justify-between p-3 border rounded-lg'
                     >
                       <div className='flex items-center gap-3'>
@@ -265,7 +266,7 @@ export function DemographicAnalytics({
               <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
                 {ageChartData.map((group, index) => (
                   <div
-                    key={group.name}
+                    key={`age-group-${group.name}`}
                     className='text-center p-3 bg-muted/50 rounded-lg'
                   >
                     <div
@@ -322,7 +323,7 @@ export function DemographicAnalytics({
                 <div className='space-y-3'>
                   {maritalChartData.map((item, index) => (
                     <div
-                      key={item.name}
+                      key={`marital-breakdown-${item.name}`}
                       className='flex items-center justify-between p-3 border rounded-lg'
                     >
                       <div className='flex items-center gap-3'>

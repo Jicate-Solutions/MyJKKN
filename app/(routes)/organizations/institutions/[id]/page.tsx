@@ -24,6 +24,7 @@ import {
   INSTITUTION_CATEGORIES,
   TIMETABLE_TYPES
 } from '@/lib/constants/institutions';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface InstitutionDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -39,6 +40,11 @@ export default function InstitutionDetailsPage({
     institution: Institution;
     departments: Record<string, any>;
   } | null>(null);
+
+  // Get permissions
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canEditInstitution =
+    isSuperAdmin || canAccess('organizations.institutions', 'edit');
 
   useEffect(() => {
     async function fetchInstitution() {
@@ -153,12 +159,19 @@ export default function InstitutionDetailsPage({
               Institution Details
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/organizations/institutions/${id}/edit`}>
+          {canEditInstitution ? (
+            <Button asChild>
+              <Link href={`/organizations/institutions/${id}/edit`}>
+                <PenSquare className='mr-2 h-4 w-4' />
+                Edit Institution
+              </Link>
+            </Button>
+          ) : (
+            <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
               Edit Institution
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         {/* Basic Information */}

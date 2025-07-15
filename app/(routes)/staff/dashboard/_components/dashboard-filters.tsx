@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { CalendarIcon, Filter, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -46,7 +46,20 @@ export function DashboardFilters({
   categories = [],
   isLoading = false
 }: DashboardFiltersProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
+  const [filteredDepartments, setFilteredDepartments] = useState(departments);
+
+  useEffect(() => {
+    if (filters.institutionId) {
+      setFilteredDepartments(
+        departments.filter(
+          (dept) => dept.institution_id === filters.institutionId
+        )
+      );
+    } else {
+      setFilteredDepartments(departments);
+    }
+  }, [filters.institutionId, departments]);
 
   const updateFilters = (newFilters: Partial<StaffDashboardFilters>) => {
     onFiltersChange({ ...filters, ...newFilters });
@@ -67,13 +80,7 @@ export function DashboardFilters({
     return count;
   };
 
-  const filteredDepartments = filters.institutionId
-    ? departments.filter(
-        (dept) => dept.institution_id === filters.institutionId
-      )
-    : departments;
-
-  const activeFiltersCount = getActiveFiltersCount();
+  const activeFiltersCount = useMemo(getActiveFiltersCount, [filters]);
 
   return (
     <Card>

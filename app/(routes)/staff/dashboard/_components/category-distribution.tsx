@@ -45,6 +45,49 @@ const COLORS = [
   '#6366f1'
 ];
 
+// Move CustomTooltip outside the component to prevent recreation on every render
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className='bg-background border rounded-lg shadow-lg p-3'>
+        <p className='font-medium'>{data.name}</p>
+        <div className='space-y-1 mt-2'>
+          <div className='flex items-center justify-between gap-4'>
+            <span className='text-sm text-muted-foreground'>Staff Count:</span>
+            <span className='font-medium'>
+              {data.staffCount.toLocaleString()}
+            </span>
+          </div>
+          <div className='flex items-center justify-between gap-4'>
+            <span className='text-sm text-muted-foreground'>Percentage:</span>
+            <span className='font-medium'>{data.percentage.toFixed(1)}%</span>
+          </div>
+          <div className='flex items-center justify-between gap-4'>
+            <span className='text-sm text-green-600'>Active:</span>
+            <span className='font-medium'>
+              {data.activeCount.toLocaleString()}
+            </span>
+          </div>
+          <div className='flex items-center justify-between gap-4'>
+            <span className='text-sm text-red-600'>Inactive:</span>
+            <span className='font-medium'>
+              {data.inactiveCount.toLocaleString()}
+            </span>
+          </div>
+          <div className='flex items-center justify-between gap-4'>
+            <span className='text-sm text-blue-600'>Avg. Tenure:</span>
+            <span className='font-medium'>
+              {data.averageTenure.toFixed(1)} yrs
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export function CategoryDistribution({
   data,
   isLoading
@@ -100,50 +143,6 @@ export function CategoryDistribution({
   }
 
   const totalStaff = data.reduce((sum, item) => sum + item.staffCount, 0);
-
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className='bg-background border rounded-lg shadow-lg p-3'>
-          <p className='font-medium'>{data.name}</p>
-          <div className='space-y-1 mt-2'>
-            <div className='flex items-center justify-between gap-4'>
-              <span className='text-sm text-muted-foreground'>
-                Staff Count:
-              </span>
-              <span className='font-medium'>
-                {data.staffCount.toLocaleString()}
-              </span>
-            </div>
-            <div className='flex items-center justify-between gap-4'>
-              <span className='text-sm text-muted-foreground'>Percentage:</span>
-              <span className='font-medium'>{data.percentage.toFixed(1)}%</span>
-            </div>
-            <div className='flex items-center justify-between gap-4'>
-              <span className='text-sm text-green-600'>Active:</span>
-              <span className='font-medium'>
-                {data.activeCount.toLocaleString()}
-              </span>
-            </div>
-            <div className='flex items-center justify-between gap-4'>
-              <span className='text-sm text-red-600'>Inactive:</span>
-              <span className='font-medium'>
-                {data.inactiveCount.toLocaleString()}
-              </span>
-            </div>
-            <div className='flex items-center justify-between gap-4'>
-              <span className='text-sm text-blue-600'>Avg. Tenure:</span>
-              <span className='font-medium'>
-                {data.averageTenure.toFixed(1)} yrs
-              </span>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <Card>

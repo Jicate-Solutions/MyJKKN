@@ -131,7 +131,7 @@ export function RegistrationTrends({
           <div className='space-y-1 mt-2'>
             {payload.map((entry: any, index: number) => (
               <div
-                key={`tooltip-${entry.dataKey}-${index}`}
+                key={`tooltip-entry-${entry.dataKey}-${index}`}
                 className='flex items-center justify-between gap-4'
               >
                 <span className='text-sm' style={{ color: entry.color }}>

@@ -18,6 +18,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface SemesterDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -30,6 +31,11 @@ export default function SemesterDetailsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [semester, setSemester] = useState<Semester | null>(null);
+
+  // Get permissions
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canEditSemester =
+    isSuperAdmin || canAccess('organizations.semesters', 'edit');
 
   useEffect(() => {
     async function fetchSemester() {
@@ -114,12 +120,19 @@ export default function SemesterDetailsPage({
               Semester Details
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/organizations/semesters/${id}/edit`}>
+          {canEditSemester ? (
+            <Button asChild>
+              <Link href={`/organizations/semesters/${id}/edit`}>
+                <PenSquare className='mr-2 h-4 w-4' />
+                Edit Semester
+              </Link>
+            </Button>
+          ) : (
+            <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
               Edit Semester
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         <Card>

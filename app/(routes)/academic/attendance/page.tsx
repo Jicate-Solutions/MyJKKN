@@ -142,7 +142,7 @@ export default function AttendancePage() {
   const canMarkAttendance =
     isSuperAdmin || canAccess('academic.attendance', 'mark');
 
-  // Check staff permission for specific periods
+  // Check staff permission for the selected period
   const checkStaffPermissionForPeriod = async (
     timetableSlotId: string
   ): Promise<boolean> => {
@@ -642,7 +642,7 @@ export default function AttendancePage() {
         const canMark = await checkStaffPermissionForPeriod(selectedPeriod);
         if (!canMark) {
           toast.error(
-            'You are not authorized to mark attendance for this period'
+            'You are not authorized to mark attendance for this period. Please contact your administrator if you believe this is an error.'
           );
           return;
         }

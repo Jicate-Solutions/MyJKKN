@@ -47,6 +47,55 @@ const COLORS = [
   '#6366f1'
 ];
 
+// Move CustomTooltip outside the component to prevent recreation on every render
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className='bg-background border rounded-lg shadow-lg p-3'>
+        <p className='font-medium'>{data.range || data.year || data.name}</p>
+        <div className='space-y-1 mt-2'>
+          {data.count !== undefined && (
+            <div className='flex items-center justify-between gap-4'>
+              <span className='text-sm text-muted-foreground'>
+                Staff Count:
+              </span>
+              <span className='font-medium'>{data.count.toLocaleString()}</span>
+            </div>
+          )}
+          {data.percentage !== undefined && (
+            <div className='flex items-center justify-between gap-4'>
+              <span className='text-sm text-muted-foreground'>Percentage:</span>
+              <span className='font-medium'>{data.percentage.toFixed(1)}%</span>
+            </div>
+          )}
+          {data.averageTenure !== undefined && (
+            <div className='flex items-center justify-between gap-4'>
+              <span className='text-sm text-muted-foreground'>
+                Avg. Tenure:
+              </span>
+              <span className='font-medium'>
+                {data.averageTenure.toFixed(1)} yrs
+              </span>
+            </div>
+          )}
+          {data.retentionRate !== undefined && (
+            <div className='flex items-center justify-between gap-4'>
+              <span className='text-sm text-muted-foreground'>
+                Retention Rate:
+              </span>
+              <span className='font-medium'>
+                {data.retentionRate.toFixed(1)}%
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export function TenureAnalytics({ data, isLoading }: TenureAnalyticsProps) {
   const tenureDistributionData = useMemo(() => {
     if (!data?.tenureDistribution) return [];
@@ -111,60 +160,6 @@ export function TenureAnalytics({ data, isLoading }: TenureAnalyticsProps) {
     );
   }
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className='bg-background border rounded-lg shadow-lg p-3'>
-          <p className='font-medium'>{data.range || data.year || data.name}</p>
-          <div className='space-y-1 mt-2'>
-            {data.count !== undefined && (
-              <div className='flex items-center justify-between gap-4'>
-                <span className='text-sm text-muted-foreground'>
-                  Staff Count:
-                </span>
-                <span className='font-medium'>
-                  {data.count.toLocaleString()}
-                </span>
-              </div>
-            )}
-            {data.percentage !== undefined && (
-              <div className='flex items-center justify-between gap-4'>
-                <span className='text-sm text-muted-foreground'>
-                  Percentage:
-                </span>
-                <span className='font-medium'>
-                  {data.percentage.toFixed(1)}%
-                </span>
-              </div>
-            )}
-            {data.averageTenure !== undefined && (
-              <div className='flex items-center justify-between gap-4'>
-                <span className='text-sm text-muted-foreground'>
-                  Avg. Tenure:
-                </span>
-                <span className='font-medium'>
-                  {data.averageTenure.toFixed(1)} yrs
-                </span>
-              </div>
-            )}
-            {data.retentionRate !== undefined && (
-              <div className='flex items-center justify-between gap-4'>
-                <span className='text-sm text-muted-foreground'>
-                  Retention Rate:
-                </span>
-                <span className='font-medium'>
-                  {data.retentionRate.toFixed(1)}%
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -211,7 +206,10 @@ export function TenureAnalytics({ data, isLoading }: TenureAnalyticsProps) {
                       dataKey='count'
                     >
                       {tenureDistributionData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                        <Cell
+                          key={`tenure-pie-${entry.range}-${index}`}
+                          fill={entry.fill}
+                        />
                       ))}
                     </Pie>
                     <Tooltip content={<CustomTooltip />} />
@@ -225,7 +223,7 @@ export function TenureAnalytics({ data, isLoading }: TenureAnalyticsProps) {
                 <div className='space-y-3'>
                   {tenureDistributionData.map((item, index) => (
                     <div
-                      key={item.range}
+                      key={`tenure-breakdown-${item.range}`}
                       className='flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors'
                     >
                       <div className='flex items-center gap-3'>

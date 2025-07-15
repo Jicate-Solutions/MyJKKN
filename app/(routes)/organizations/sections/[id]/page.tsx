@@ -33,22 +33,14 @@ export default function SectionDetailsPage({
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<Section | null>(null);
 
+  // Get permissions
   const { canAccess, isSuperAdmin } = usePermissions();
-
-  const canViewSections =
-    isSuperAdmin || canAccess('organizations.sections', 'view');
-  const canEditSections =
+  const canEditSection =
     isSuperAdmin || canAccess('organizations.sections', 'edit');
 
   useEffect(() => {
     async function fetchSection() {
       try {
-        if (!canViewSections) {
-          setError("You don't have permission to view sections");
-          setLoading(false);
-          return;
-        }
-
         setLoading(true);
         setError(null);
         const data = await SectionService.getSection(id);
@@ -64,7 +56,7 @@ export default function SectionDetailsPage({
     }
 
     fetchSection();
-  }, [id, canViewSections]);
+  }, [id]);
 
   const formatDate = (date: string) => {
     return format(new Date(date), 'PPpp');
@@ -131,7 +123,7 @@ export default function SectionDetailsPage({
               Section Details
             </p>
           </div>
-          {canEditSections ? (
+          {canEditSection ? (
             <Button asChild>
               <Link href={`/organizations/sections/${id}/edit`}>
                 <PenSquare className='mr-2 h-4 w-4' />
@@ -139,7 +131,7 @@ export default function SectionDetailsPage({
               </Link>
             </Button>
           ) : (
-            <Button variant='outline' disabled className='opacity-50'>
+            <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
               Edit
             </Button>
