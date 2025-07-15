@@ -13,7 +13,7 @@ import { useAuth } from '../use-auth';
 import { usePermissions } from '../use-permissions';
 
 export function useStaff(initialFilters: StaffFilters = {}) {
-  const { user, isLoading: authLoading } = useAuth();
+  const { profile, isLoading: authLoading } = useAuth();
   const {
     isSuperAdmin,
     isLoading: permissionsLoading,
@@ -28,16 +28,16 @@ export function useStaff(initialFilters: StaffFilters = {}) {
   const queryFn = useCallback(async () => {
     const finalFilters = {
       ...filters,
-      userId: user?.id,
+      userId: profile?.id,
       bypassInstitutionFilter: isSuperAdmin
     };
     return await StaffService.getStaff(finalFilters);
-  }, [filters, user?.id, isSuperAdmin]);
+  }, [filters, profile?.id, isSuperAdmin]);
 
   // Only enable the query when auth and permissions are loaded and we have a user
   const isQueryEnabled = useMemo(() => {
-    return !authLoading && !permissionsLoading && !!user;
-  }, [authLoading, permissionsLoading, user]);
+    return !authLoading && !permissionsLoading && !!profile;
+  }, [authLoading, permissionsLoading, profile]);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey,
@@ -80,7 +80,7 @@ export function useStaff(initialFilters: StaffFilters = {}) {
       console.log('useStaff state:', {
         authLoading,
         permissionsLoading,
-        hasUser: !!user,
+        hasProfile: !!profile,
         isSuperAdmin,
         isQueryEnabled,
         isLoading,
@@ -91,7 +91,7 @@ export function useStaff(initialFilters: StaffFilters = {}) {
   }, [
     authLoading,
     permissionsLoading,
-    user,
+    profile,
     isSuperAdmin,
     isQueryEnabled,
     isLoading,
