@@ -1,108 +1,116 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { Profile } from '@/types/supabase';
+import type { Profile } from '@/types/auth';
+import type { User } from '@supabase/supabase-js';
+
+// A simpler, more robust authentication hook.
 
 export function useAuth() {
-  const [user, setUser] = useState<(Profile & { id: string }) | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const supabase = createClientSupabaseClient();
 
-  useEffect(() => {
-    // Track if component is mounted to prevent state updates after unmount
-    let isMounted = true;
-
-    // Keep track of auth checks to prevent loops
-    let authCheckCount = 0;
-    const MAX_AUTH_CHECKS = 2; // Limit the number of auth checks
-
-    const fetchUserProfile = async (userId: string) => {
+  const fetchProfile = useCallback(
+    async (user: User) => {
       try {
-        // Only fetch profile if component is still mounted
-        if (!isMounted) return;
-
-        authCheckCount++;
-        if (authCheckCount > MAX_AUTH_CHECKS) {
-          console.warn('Too many auth checks, stopping to prevent loop');
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
+        const { data, error } = await supabase
           .from('profiles')
           .select('*')
-          .eq('id', userId)
+          .eq('id', user.id)
           .single();
 
-        if (profileError) {
-          console.error('Error fetching profile:', profileError);
-          if (isMounted) {
-            setError(new Error('Failed to fetch user profile'));
-            setIsLoading(false);
-          }
-          return;
+        if (error) {
+          throw new Error(`Failed to fetch profile: ${error.message}`);
         }
 
-        if (profile && isMounted) {
-          setUser({ ...profile, id: userId });
-          setIsLoading(false);
+        return data;
+      } catch (e) {
+        // Re-throw the error to be caught by the caller
+        throw e;
+      }
+    },
+    [supabase]
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function getInitialSession() {
+      try {
+        // Get the initial user session
+        const {
+          data: { session },
+          error: sessionError
+        } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          throw new Error(`Session Error: ${sessionError.message}`);
+        }
+
+        if (session?.user && isMounted) {
+          setUser(session.user);
+          const userProfile = await fetchProfile(session.user);
+          if (isMounted) {
+            setProfile(userProfile);
+          }
         }
       } catch (err) {
-        console.error('Profile fetch error:', err);
         if (isMounted) {
-          setError(err instanceof Error ? err : new Error('Unknown error'));
+          setError(
+            err instanceof Error ? err.message : 'An unknown error occurred'
+          );
+        }
+      } finally {
+        // This is critical to ensure loading state is always resolved.
+        if (isMounted) {
           setIsLoading(false);
         }
       }
-    };
+    }
 
-    // Just use the subscription and handle initial state there
+    getInitialSession();
+
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.id);
-
-      if (session?.user) {
-        await fetchUserProfile(session.user.id);
-      } else {
-        if (isMounted) {
-          setUser(null);
-          setIsLoading(false);
+      if (isMounted) {
+        // When auth state changes, update the user and refetch the profile.
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          try {
+            const userProfile = await fetchProfile(session.user);
+            if (isMounted) {
+              setProfile(userProfile);
+              setError(null);
+            }
+          } catch (err) {
+            if (isMounted) {
+              setError(
+                err instanceof Error ? err.message : 'An unknown error occurred'
+              );
+            }
+          }
+        } else {
+          setProfile(null);
         }
+        setIsLoading(false);
       }
     });
-
-    // Initial auth check
-    const checkInitialAuth = async () => {
-      try {
-        const { data, error } = await supabase.auth.getUser();
-
-        if (error || !data.user) {
-          if (isMounted) {
-            setUser(null);
-            setIsLoading(false);
-          }
-          return;
-        }
-
-        await fetchUserProfile(data.user.id);
-      } catch (err) {
-        console.error('Initial auth check error:', err);
-        if (isMounted) {
-          setError(err instanceof Error ? err : new Error('Unknown error'));
-          setIsLoading(false);
-        }
-      }
-    };
-
-    checkInitialAuth();
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, [supabase, fetchProfile]);
 
-  return { user, isLoading, error };
+  return {
+    user, // The raw auth user from Supabase
+    profile, // The user's profile from the 'profiles' table
+    isLoading,
+    error
+  };
 }
