@@ -20,6 +20,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface DegreeDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -30,6 +31,11 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [degree, setDegree] = useState<Degree | null>(null);
+
+  // Get permissions
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canEditDegree =
+    isSuperAdmin || canAccess('organizations.degrees', 'edit');
 
   useEffect(() => {
     async function fetchDegree() {
@@ -108,12 +114,19 @@ export default function DegreeDetailsPage({ params }: DegreeDetailsPageProps) {
               Degree Details
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/organizations/degrees/${id}/edit`}>
+          {canEditDegree ? (
+            <Button asChild>
+              <Link href={`/organizations/degrees/${id}/edit`}>
+                <PenSquare className='mr-2 h-4 w-4' />
+                Edit Degree
+              </Link>
+            </Button>
+          ) : (
+            <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
               Edit Degree
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         <Card>

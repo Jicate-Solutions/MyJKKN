@@ -157,6 +157,7 @@ export default function StaffDashboardPage() {
 
       {/* Filters */}
       <DashboardFilters
+        key={JSON.stringify(filters)}
         filters={filters}
         onFiltersChange={setFilters}
         onReset={resetFilters}

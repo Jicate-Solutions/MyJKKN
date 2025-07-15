@@ -18,6 +18,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface CourseDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -28,6 +29,11 @@ export default function CourseDetailsPage({ params }: CourseDetailsPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [course, setCourse] = useState<Course | null>(null);
+
+  // Get permissions
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canEditCourse =
+    isSuperAdmin || canAccess('organizations.courses', 'edit');
 
   useEffect(() => {
     async function fetchCourse() {
@@ -106,12 +112,19 @@ export default function CourseDetailsPage({ params }: CourseDetailsPageProps) {
               Course Details
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/organizations/courses/${id}/edit`}>
+          {canEditCourse ? (
+            <Button asChild>
+              <Link href={`/organizations/courses/${id}/edit`}>
+                <PenSquare className='mr-2 h-4 w-4' />
+                Edit Course
+              </Link>
+            </Button>
+          ) : (
+            <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
               Edit Course
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         <Card>

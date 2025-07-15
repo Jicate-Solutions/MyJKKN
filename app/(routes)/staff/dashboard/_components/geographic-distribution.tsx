@@ -45,6 +45,29 @@ const COLORS = [
   '#6366f1'
 ];
 
+// Move CustomTooltip outside the component to prevent recreation on every render
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className='bg-background border rounded-lg shadow-lg p-3'>
+        <p className='font-medium'>{data.name}</p>
+        <div className='space-y-1 mt-2'>
+          <div className='flex items-center justify-between gap-4'>
+            <span className='text-sm text-muted-foreground'>Staff Count:</span>
+            <span className='font-medium'>{data.count.toLocaleString()}</span>
+          </div>
+          <div className='flex items-center justify-between gap-4'>
+            <span className='text-sm text-muted-foreground'>Percentage:</span>
+            <span className='font-medium'>{data.percentage.toFixed(1)}%</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export function GeographicDistribution({
   data,
   isLoading
@@ -117,30 +140,6 @@ export function GeographicDistribution({
     );
   }
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className='bg-background border rounded-lg shadow-lg p-3'>
-          <p className='font-medium'>{data.name}</p>
-          <div className='space-y-1 mt-2'>
-            <div className='flex items-center justify-between gap-4'>
-              <span className='text-sm text-muted-foreground'>
-                Staff Count:
-              </span>
-              <span className='font-medium'>{data.count.toLocaleString()}</span>
-            </div>
-            <div className='flex items-center justify-between gap-4'>
-              <span className='text-sm text-muted-foreground'>Percentage:</span>
-              <span className='font-medium'>{data.percentage.toFixed(1)}%</span>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -197,7 +196,10 @@ export function GeographicDistribution({
                   <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey='count' radius={[4, 4, 0, 0]}>
                     {stateChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                      <Cell
+                        key={`state-cell-${entry.name}-${index}`}
+                        fill={entry.fill}
+                      />
                     ))}
                   </Bar>
                 </BarChart>
@@ -230,7 +232,10 @@ export function GeographicDistribution({
                   <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey='count' radius={[4, 4, 0, 0]}>
                     {districtChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                      <Cell
+                        key={`district-cell-${entry.name}-${index}`}
+                        fill={entry.fill}
+                      />
                     ))}
                   </Bar>
                 </BarChart>

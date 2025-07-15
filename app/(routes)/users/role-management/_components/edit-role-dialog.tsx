@@ -98,13 +98,18 @@ const nestPermissions = (
     const parts = key.split('.');
     const moduleKey = parts[0];
 
-    // Create a normalized version of the action key by replacing dots with underscores
-    // This ensures we don't have property names with dots in them
+    // FIXED: Handle modern dot notation properly
     let actionKey;
     if (parts.length > 1) {
-      // For multi-part keys, replace dots with underscores after the first dot
-      const remainingParts = parts.slice(1);
-      actionKey = remainingParts.join('_');
+      // For modern format like "users.view", keep the action as "view"
+      // For complex format like "academic.attendance.view", use "attendance_view"
+      if (parts.length === 2) {
+        actionKey = parts[1]; // Simple case: users.view -> "view"
+      } else {
+        // Complex case: academic.attendance.view -> "attendance_view"
+        const remainingParts = parts.slice(1);
+        actionKey = remainingParts.join('_');
+      }
     } else {
       actionKey = '_'; // Default for keys without dots
     }
@@ -115,6 +120,7 @@ const nestPermissions = (
     nested[moduleKey][actionKey] = Boolean(value);
   });
 
+  console.log('Nested permissions result:', nested);
   return nested;
 };
 
@@ -128,12 +134,23 @@ const flattenPermissions = (
   Object.entries(nested).forEach(([moduleKey, actions]) => {
     if (typeof actions === 'object' && actions !== null) {
       Object.entries(actions).forEach(([actionKey, value]) => {
-        // Reconstruct the original permission key
+        // FIXED: Reconstruct the original permission key correctly
         let finalKey;
         if (actionKey === '_') {
           finalKey = moduleKey; // Single-level key
+        } else if (actionKey.includes('_')) {
+          // Handle complex nested keys by converting underscores back to dots
+          // But only for the action part, not the module part
+          const actionParts = actionKey.split('_');
+          if (actionParts.length > 1) {
+            // This is a complex action like "attendance_view" -> "attendance.view"
+            finalKey = `${moduleKey}.${actionParts.join('.')}`;
+          } else {
+            // Simple action like "view" -> "users.view"
+            finalKey = `${moduleKey}.${actionKey}`;
+          }
         } else {
-          // Keep underscores as underscores - don't convert to dots
+          // Simple case: users + view = "users.view"
           finalKey = `${moduleKey}.${actionKey}`;
         }
         flat[finalKey] = Boolean(value);
@@ -141,6 +158,7 @@ const flattenPermissions = (
     }
   });
 
+  console.log('Flattened permissions result:', flat);
   return flat;
 };
 
@@ -177,12 +195,11 @@ export function EditRoleDialog({
 
     const nestedPerms = nestPermissions(role.permissions || {});
 
-    // Ensure all possible keys are present in the nested structure
+    // FIXED: Ensure all possible keys are present in the nested structure
     PERMISSION_CATEGORIES.forEach((category) => {
       if (!nestedPerms[category.key]) nestedPerms[category.key] = {};
 
       category.permissions.forEach((permission) => {
-        // For multi-part permissions like "application_hub.guidelines.view"
         const fullKey = permission.key;
         const parts = fullKey.split('.');
         const moduleKey = parts[0];
@@ -192,12 +209,17 @@ export function EditRoleDialog({
           nestedPerms[moduleKey] = {};
         }
 
-        // Normalize action key with underscores instead of dots
+        // FIXED: Handle simple vs complex permission keys correctly
         let actionKey;
-        if (parts.length > 1) {
+        if (parts.length === 2) {
+          // Simple case: "users.view" -> use "view" directly
+          actionKey = parts[1];
+        } else if (parts.length > 2) {
+          // Complex case: "academic.attendance.view" -> use "attendance_view"
           const remainingParts = parts.slice(1);
           actionKey = remainingParts.join('_');
         } else {
+          // Single word: "dashboard" -> use "_"
           actionKey = '_';
         }
 
@@ -207,9 +229,9 @@ export function EditRoleDialog({
             role.permissions?.[fullKey] || false;
 
           // Debug when setting a specific permission
-          if (fullKey === 'application_hub.guidelines.view') {
+          if (fullKey === 'users.view') {
             console.log(
-              'Setting application_hub.guidelines.view to:',
+              'Setting users.view permission to:',
               role.permissions?.[fullKey],
               'Path:',
               `${moduleKey}.${actionKey}`
@@ -722,28 +744,31 @@ export function EditRoleDialog({
                             </div>
                             <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
                               {filteredPermissions.map((permission) => {
-                                // Construct the correct path for nested form
-                                // This is the critical part for multi-level permissions
+                                // FIXED: Construct the correct path for nested form
                                 const fullKey = permission.key;
                                 const parts = fullKey.split('.');
                                 const moduleKey = parts[0];
 
-                                // Normalize the action key with underscores instead of dots
+                                // FIXED: Handle simple vs complex permission keys correctly
                                 let actionKey;
-                                if (parts.length > 1) {
+                                if (parts.length === 2) {
+                                  // Simple case: "users.view" -> use "view" directly
+                                  actionKey = parts[1];
+                                } else if (parts.length > 2) {
+                                  // Complex case: "academic.attendance.view" -> use "attendance_view"
                                   const remainingParts = parts.slice(1);
                                   actionKey = remainingParts.join('_');
                                 } else {
+                                  // Single word: "dashboard" -> use "_"
                                   actionKey = '_';
                                 }
 
                                 // Debug when rendering the specific permission
-                                if (
-                                  fullKey === 'application_hub.guidelines.view'
-                                ) {
+                                if (fullKey === 'users.view') {
                                   console.log(
-                                    'Rendering application_hub.guidelines.view',
-                                    `Current value from form: ${form.getValues(
+                                    'Rendering users.view permission',
+                                    `Field path: permissions.${moduleKey}.${actionKey}`,
+                                    `Current value: ${form.getValues(
                                       `permissions.${moduleKey}.${actionKey}`
                                     )}`
                                   );

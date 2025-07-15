@@ -263,7 +263,10 @@ export function InstitutionDistribution({
                     radius={[4, 4, 0, 0]}
                   >
                     {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                      <Cell
+                        key={`bar-cell-${entry.id}-${index}`}
+                        fill={entry.fill}
+                      />
                     ))}
                   </Bar>
                 </BarChart>
@@ -288,7 +291,10 @@ export function InstitutionDistribution({
                     dataKey='studentCount'
                   >
                     {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                      <Cell
+                        key={`pie-cell-${entry.id}-${index}`}
+                        fill={entry.fill}
+                      />
                     ))}
                   </Pie>
                   <Tooltip content={<PieTooltip />} />

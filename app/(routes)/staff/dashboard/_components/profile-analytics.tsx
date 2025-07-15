@@ -45,6 +45,51 @@ const COLORS = [
   '#6366f1'
 ];
 
+// Move CustomTooltip outside the component to prevent recreation on every render
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className='bg-background border rounded-lg shadow-lg p-3'>
+        <p className='font-medium'>{data.field || data.categoryName}</p>
+        <div className='space-y-1 mt-2'>
+          {data.completedCount !== undefined && (
+            <div className='flex items-center justify-between gap-4'>
+              <span className='text-sm text-muted-foreground'>Completed:</span>
+              <span className='font-medium'>
+                {data.completedCount.toLocaleString()}
+              </span>
+            </div>
+          )}
+          {data.totalCount !== undefined && (
+            <div className='flex items-center justify-between gap-4'>
+              <span className='text-sm text-muted-foreground'>Total:</span>
+              <span className='font-medium'>
+                {data.totalCount.toLocaleString()}
+              </span>
+            </div>
+          )}
+          {data.percentage !== undefined && (
+            <div className='flex items-center justify-between gap-4'>
+              <span className='text-sm text-muted-foreground'>Completion:</span>
+              <span className='font-medium'>{data.percentage.toFixed(1)}%</span>
+            </div>
+          )}
+          {data.missingCount !== undefined && (
+            <div className='flex items-center justify-between gap-4'>
+              <span className='text-sm text-muted-foreground'>Missing:</span>
+              <span className='font-medium'>
+                {data.missingCount.toLocaleString()}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export function ProfileAnalytics({ data, isLoading }: ProfileAnalyticsProps) {
   const completionData = useMemo(() => {
     if (!data?.profileCompletionBreakdown) return [];
@@ -109,56 +154,6 @@ export function ProfileAnalytics({ data, isLoading }: ProfileAnalyticsProps) {
     );
   }
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className='bg-background border rounded-lg shadow-lg p-3'>
-          <p className='font-medium'>{data.field || data.categoryName}</p>
-          <div className='space-y-1 mt-2'>
-            {data.completedCount !== undefined && (
-              <div className='flex items-center justify-between gap-4'>
-                <span className='text-sm text-muted-foreground'>
-                  Completed:
-                </span>
-                <span className='font-medium'>
-                  {data.completedCount.toLocaleString()}
-                </span>
-              </div>
-            )}
-            {data.totalCount !== undefined && (
-              <div className='flex items-center justify-between gap-4'>
-                <span className='text-sm text-muted-foreground'>Total:</span>
-                <span className='font-medium'>
-                  {data.totalCount.toLocaleString()}
-                </span>
-              </div>
-            )}
-            {data.percentage !== undefined && (
-              <div className='flex items-center justify-between gap-4'>
-                <span className='text-sm text-muted-foreground'>
-                  Completion:
-                </span>
-                <span className='font-medium'>
-                  {data.percentage.toFixed(1)}%
-                </span>
-              </div>
-            )}
-            {data.missingCount !== undefined && (
-              <div className='flex items-center justify-between gap-4'>
-                <span className='text-sm text-muted-foreground'>Missing:</span>
-                <span className='font-medium'>
-                  {data.missingCount.toLocaleString()}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -216,7 +211,10 @@ export function ProfileAnalytics({ data, isLoading }: ProfileAnalyticsProps) {
                     <Tooltip content={<CustomTooltip />} />
                     <Bar dataKey='percentage' radius={[4, 4, 0, 0]}>
                       {completionData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                        <Cell
+                          key={`completion-cell-${entry.field}-${index}`}
+                          fill={entry.fill}
+                        />
                       ))}
                     </Bar>
                   </BarChart>
@@ -234,7 +232,7 @@ export function ProfileAnalytics({ data, isLoading }: ProfileAnalyticsProps) {
                     <div className='space-y-3'>
                       {completionData.slice(0, 5).map((item) => (
                         <div
-                          key={item.field}
+                          key={`completion-summary-${item.field}`}
                           className='flex justify-between items-center'
                         >
                           <span className='text-sm'>{item.field}:</span>
