@@ -107,7 +107,6 @@ export default function CourseMappingsPage() {
             onPageSizeChange={changePageSize}
             onRefresh={fetchCourseMappings}
             paginationLoading={paginationLoading}
-            canViewCourseMappings={canViewCourseMappings}
           />
         )}
       </div>
