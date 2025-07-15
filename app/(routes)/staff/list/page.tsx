@@ -23,12 +23,10 @@ import DownloadStaffTemplateButton from './_components/download-staff-template';
 import BulkUploadStaff from './_components/bulk-upload-staff';
 import ExportStaff from './_components/export-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
-import { usePermissions } from '@/hooks/use-permissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Info, Users, AlertCircle, RefreshCw, Bug } from 'lucide-react';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/hooks/use-auth';
 
 export default function StaffPage() {
   const [paginationLoading, setPaginationLoading] = useState(false);
@@ -51,21 +49,13 @@ export default function StaffPage() {
     updateFilters,
     changePage,
     fetchStaff,
-    updateLimit
+    updateLimit,
+    canViewStaff,
+    canCreateStaff,
+    canEditStaff,
+    authLoading,
+    permissionsLoading
   } = useStaff(initialFilters);
-
-  const { user, isLoading: authLoading, error: authError, profile } = useAuth();
-
-  const {
-    canAccess,
-    isSuperAdmin,
-    isLoading: permissionsLoading,
-    error: permissionsError
-  } = usePermissions();
-
-  const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
-  const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
-  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
 
   // Add a fallback timeout to prevent infinite loading
   useEffect(() => {
@@ -84,14 +74,14 @@ export default function StaffPage() {
   useEffect(() => {
     if (process.env.NODE_ENV === 'production') {
       const diagnosticsTimeout = setTimeout(() => {
-        if (permissionsLoading || authLoading) {
+        if (authLoading || permissionsLoading) {
           setShowDiagnostics(true);
         }
       }, 8000); // Show diagnostics after 8 seconds in production
 
       return () => clearTimeout(diagnosticsTimeout);
     }
-  }, [permissionsLoading, authLoading]);
+  }, [authLoading, permissionsLoading]);
 
   // Handle page change with loading state
   const handlePageChange = async (page: number) => {
@@ -165,16 +155,12 @@ export default function StaffPage() {
     loadingDuration: Math.round((Date.now() - loadingStartTime) / 1000),
     authLoading,
     permissionsLoading,
-    hasUser: !!profile,
-    userRole: profile?.role,
-    authError: authError,
-    permissionsError: permissionsError?.message,
     environment: process.env.NODE_ENV,
     timestamp: new Date().toISOString()
   };
 
   // Show loading state while permissions are being determined (unless forced)
-  if (permissionsLoading && !forceShowContent) {
+  if ((authLoading || permissionsLoading) && !forceShowContent) {
     return (
       <ContentLayout title='Staff List'>
         <div className='flex items-center justify-center min-h-[400px]'>
@@ -212,19 +198,7 @@ export default function StaffPage() {
                     <div>Duration: {diagnosticInfo.loadingDuration}s</div>
                     <div>Auth Loading: {String(authLoading)}</div>
                     <div>Permissions Loading: {String(permissionsLoading)}</div>
-                    <div>Has Profile: {String(diagnosticInfo.hasUser)}</div>
-                    <div>User Role: {diagnosticInfo.userRole || 'None'}</div>
                     <div>Environment: {diagnosticInfo.environment}</div>
-                    {authError && (
-                      <div className='text-red-500'>
-                        Auth Error: {authError}
-                      </div>
-                    )}
-                    {permissionsError && (
-                      <div className='text-red-500'>
-                        Permissions Error: {permissionsError.message}
-                      </div>
-                    )}
                   </div>
                   <Button
                     size='sm'
@@ -356,10 +330,10 @@ export default function StaffPage() {
             {(canEditStaff || forceShowContent) && (
               <DownloadStaffTemplateButton />
             )}
-            {(isSuperAdmin || forceShowContent) && <ExportStaff />}
-            {(isSuperAdmin ||
-              canAccess('user', 'create') ||
-              forceShowContent) && <CreateMissingProfilesButton />}
+            {(canViewStaff || forceShowContent) && <ExportStaff />}
+            {(canCreateStaff || forceShowContent) && (
+              <CreateMissingProfilesButton />
+            )}
             {(canEditStaff || forceShowContent) && <BulkUploadStaff />}
             {(canEditStaff || forceShowContent) && <BulkUploadStaffImages />}
           </div>

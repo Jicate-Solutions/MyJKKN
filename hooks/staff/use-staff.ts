@@ -14,7 +14,11 @@ import { usePermissions } from '../use-permissions';
 
 export function useStaff(initialFilters: StaffFilters = {}) {
   const { user, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const {
+    isSuperAdmin,
+    isLoading: permissionsLoading,
+    canAccess
+  } = usePermissions();
   const [filters, setFilters] = useState<StaffFilters>(initialFilters);
 
   // Stabilize the query key by creating a memoized version
@@ -95,6 +99,10 @@ export function useStaff(initialFilters: StaffFilters = {}) {
     data
   ]);
 
+  const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
+  const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
+  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+
   return {
     staff: data?.data || [],
     metadata: data?.metadata || { total: 0, page: 1, limit: 10, totalPages: 0 },
@@ -104,7 +112,12 @@ export function useStaff(initialFilters: StaffFilters = {}) {
     updateFilters,
     changePage,
     updateLimit,
-    fetchStaff: refetch
+    fetchStaff: refetch,
+    canViewStaff,
+    canCreateStaff,
+    canEditStaff,
+    authLoading,
+    permissionsLoading
   };
 }
 
