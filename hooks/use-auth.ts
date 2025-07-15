@@ -1,103 +1,82 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { Profile } from '@/types/auth';
-import type { User } from '@supabase/supabase-js';
 
-// A simpler, more robust authentication hook.
-
+/**
+ * A robust, simplified hook for fetching the user's profile.
+ * It handles the full user -> profile loading sequence and ensures
+ * the loading state is always correctly resolved.
+ */
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const supabase = createClientSupabaseClient();
 
-  const fetchProfile = useCallback(
-    async (user: User) => {
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-
-        if (error) {
-          throw new Error(`Failed to fetch profile: ${error.message}`);
-        }
-
-        return data;
-      } catch (e) {
-        // Re-throw the error to be caught by the caller
-        throw e;
-      }
-    },
-    [supabase]
-  );
-
   useEffect(() => {
     let isMounted = true;
 
-    async function getInitialSession() {
+    const loadUserAndProfile = async () => {
       try {
-        // Get the initial user session
+        // 1. Get User from Supabase Auth
         const {
           data: { session },
           error: sessionError
         } = await supabase.auth.getSession();
 
-        if (sessionError) {
-          throw new Error(`Session Error: ${sessionError.message}`);
-        }
+        if (sessionError) throw sessionError;
 
-        if (session?.user && isMounted) {
-          setUser(session.user);
-          const userProfile = await fetchProfile(session.user);
+        // 2. If user exists, get Profile from the 'profiles' table
+        if (session?.user) {
+          const { data: userProfile, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+
+          if (profileError) throw profileError;
+
           if (isMounted) {
             setProfile(userProfile);
+            setError(null); // Clear previous errors on success
+          }
+        } else {
+          // No user session, so no profile to fetch.
+          if (isMounted) {
+            setProfile(null);
           }
         }
-      } catch (err) {
+      } catch (e) {
         if (isMounted) {
+          console.error('useAuth Error:', e);
           setError(
-            err instanceof Error ? err.message : 'An unknown error occurred'
+            e instanceof Error ? e.message : 'Failed to load user data.'
           );
+          setProfile(null);
         }
       } finally {
-        // This is critical to ensure loading state is always resolved.
+        // 3. Mark loading as complete, regardless of outcome
         if (isMounted) {
           setIsLoading(false);
         }
       }
-    }
+    };
 
-    getInitialSession();
+    // Initial load on component mount
+    loadUserAndProfile();
 
+    // Set up a listener for auth changes (login, logout)
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // When auth state changes, re-run the entire loading sequence.
+      // This is simpler and more reliable than managing state transitions.
       if (isMounted) {
-        // When auth state changes, update the user and refetch the profile.
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          try {
-            const userProfile = await fetchProfile(session.user);
-            if (isMounted) {
-              setProfile(userProfile);
-              setError(null);
-            }
-          } catch (err) {
-            if (isMounted) {
-              setError(
-                err instanceof Error ? err.message : 'An unknown error occurred'
-              );
-            }
-          }
-        } else {
-          setProfile(null);
-        }
-        setIsLoading(false);
+        console.log('Auth state changed:', event);
+        setIsLoading(true); // Start loading again
+        loadUserAndProfile();
       }
     });
 
@@ -105,10 +84,9 @@ export function useAuth() {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [supabase, fetchProfile]);
+  }, [supabase]);
 
   return {
-    user, // The raw auth user from Supabase
     profile, // The user's profile from the 'profiles' table
     isLoading,
     error
