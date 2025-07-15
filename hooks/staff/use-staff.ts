@@ -1,6 +1,6 @@
 // hooks/staff/use-staff.ts
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type {
   Staff,
@@ -17,21 +17,41 @@ export function useStaff(initialFilters: StaffFilters = {}) {
   const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [filters, setFilters] = useState<StaffFilters>(initialFilters);
 
-  const queryKey = ['staff', filters];
+  // Stabilize the query key by creating a memoized version
+  const queryKey = useMemo(() => ['staff', filters], [filters]);
 
-  const queryFn = async () => {
+  // Stabilize the query function
+  const queryFn = useCallback(async () => {
     const finalFilters = {
       ...filters,
       userId: user?.id,
       bypassInstitutionFilter: isSuperAdmin
     };
     return await StaffService.getStaff(finalFilters);
-  };
+  }, [filters, user?.id, isSuperAdmin]);
+
+  // Only enable the query when auth and permissions are loaded and we have a user
+  const isQueryEnabled = useMemo(() => {
+    return !authLoading && !permissionsLoading && !!user;
+  }, [authLoading, permissionsLoading, user]);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey,
     queryFn,
-    enabled: !authLoading && !permissionsLoading
+    enabled: isQueryEnabled,
+    staleTime: 0, // Always refetch to ensure fresh data
+    refetchOnMount: true, // Always refetch when component mounts
+    refetchOnWindowFocus: false,
+    retry: (failureCount, error) => {
+      // Don't retry on RLS policy errors or auth errors
+      if (
+        error?.message?.includes('54001') ||
+        error?.message?.includes('JWT')
+      ) {
+        return false;
+      }
+      return failureCount < 2;
+    }
   });
 
   const updateFilters = useCallback((newFilters: Partial<StaffFilters>) => {
@@ -49,6 +69,31 @@ export function useStaff(initialFilters: StaffFilters = {}) {
   const updateLimit = useCallback((limit: number) => {
     setFilters((prev) => ({ ...prev, limit, page: 1 }));
   }, []);
+
+  // Log for debugging
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('useStaff state:', {
+        authLoading,
+        permissionsLoading,
+        hasUser: !!user,
+        isSuperAdmin,
+        isQueryEnabled,
+        isLoading,
+        error: error?.message,
+        dataLength: data?.data?.length
+      });
+    }
+  }, [
+    authLoading,
+    permissionsLoading,
+    user,
+    isSuperAdmin,
+    isQueryEnabled,
+    isLoading,
+    error,
+    data
+  ]);
 
   return {
     staff: data?.data || [],

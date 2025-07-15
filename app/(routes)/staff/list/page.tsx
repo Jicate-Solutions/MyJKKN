@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,13 +25,15 @@ import ExportStaff from './_components/export-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Info, Users, AlertCircle } from 'lucide-react';
+import { Info, Users, AlertCircle, RefreshCw } from 'lucide-react';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
 import { Button } from '@/components/ui/button';
 
 export default function StaffPage() {
-  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [paginationLoading, setPaginationLoading] = useState(false);
+
+  // Initialize the staff hook with stable initial filters
+  const initialFilters = useMemo(() => ({}), []);
 
   const {
     staff,
@@ -43,7 +45,7 @@ export default function StaffPage() {
     changePage,
     fetchStaff,
     updateLimit
-  } = useStaff();
+  } = useStaff(initialFilters);
 
   const {
     canAccess,
@@ -54,8 +56,6 @@ export default function StaffPage() {
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
   const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
-
-  // No longer need useEffect for fetching, the useStaff hook handles it.
 
   // Handle page change with loading state
   const handlePageChange = async (page: number) => {
@@ -79,19 +79,60 @@ export default function StaffPage() {
 
   // Handle refresh
   const handleRefresh = async () => {
-    await fetchStaff();
+    try {
+      await fetchStaff();
+    } catch (err) {
+      console.error('Error refreshing staff data:', err);
+    }
   };
 
+  // Add debugging for refresh issues
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('StaffPage render:', {
+        permissionsLoading,
+        loading,
+        staffCount: staff?.length,
+        error,
+        canViewStaff
+      });
+    }
+  }, [permissionsLoading, loading, staff?.length, error, canViewStaff]);
+
+  // Show loading state while permissions are being determined
   if (permissionsLoading) {
     return (
       <ContentLayout title='Staff List'>
         <div className='flex items-center justify-center min-h-[400px]'>
-          <BeatLoader color='#00e902' />
+          <div className='text-center'>
+            <BeatLoader color='#00e902' />
+            <p className='mt-4 text-sm text-muted-foreground'>
+              Loading permissions...
+            </p>
+          </div>
         </div>
       </ContentLayout>
     );
   }
 
+  // Show access denied if user doesn't have permissions
+  if (!canViewStaff) {
+    return (
+      <ContentLayout title='Staff List'>
+        <div className='p-4'>
+          <Alert variant='destructive'>
+            <AlertCircle className='h-4 w-4' />
+            <AlertTitle>Access Denied</AlertTitle>
+            <AlertDescription>
+              You don&apos;t have permission to view the staff list.
+            </AlertDescription>
+          </Alert>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // Show error state with better error handling
   if (error) {
     console.error('[StaffPage] Render Error:', error);
     return (
@@ -101,15 +142,27 @@ export default function StaffPage() {
             <AlertCircle className='h-4 w-4' />
             <AlertTitle>Error Loading Staff</AlertTitle>
             <AlertDescription>
-              {error || 'An unexpected error occurred.'}
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => fetchStaff()}
-                className='mt-4'
-              >
-                Try Again
-              </Button>
+              <div className='space-y-2'>
+                <p>{error || 'An unexpected error occurred.'}</p>
+                {error?.includes('54001') && (
+                  <p className='text-sm'>
+                    This appears to be a database configuration issue. Please
+                    contact support.
+                  </p>
+                )}
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={handleRefresh}
+                  className='mt-4'
+                  disabled={loading}
+                >
+                  <RefreshCw
+                    className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`}
+                  />
+                  Try Again
+                </Button>
+              </div>
             </AlertDescription>
           </Alert>
         </div>
@@ -165,7 +218,10 @@ export default function StaffPage() {
                   <Users className='h-4 w-4 text-muted-foreground' />
                   <span className='text-sm font-medium'>
                     {loading ? (
-                      'Loading...'
+                      <span className='flex items-center gap-2'>
+                        <BeatLoader size={8} color='#00e902' />
+                        Loading...
+                      </span>
                     ) : (
                       <>
                         Showing {staff?.length || 0} of{' '}
@@ -202,7 +258,12 @@ export default function StaffPage() {
 
             {loading && !paginationLoading ? (
               <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
+                <div className='text-center'>
+                  <BeatLoader color='#00e902' />
+                  <p className='mt-4 text-sm text-muted-foreground'>
+                    Loading staff data...
+                  </p>
+                </div>
               </div>
             ) : (
               <StaffList

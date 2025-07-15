@@ -18,6 +18,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface ProgramDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -30,6 +31,11 @@ export default function ProgramDetailsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [program, setProgram] = useState<Program | null>(null);
+
+  // Get permissions
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canEditProgram =
+    isSuperAdmin || canAccess('organizations.programs', 'edit');
 
   useEffect(() => {
     async function fetchProgram() {
@@ -112,12 +118,19 @@ export default function ProgramDetailsPage({
               Program Details
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/organizations/programs/${id}/edit`}>
+          {canEditProgram ? (
+            <Button asChild>
+              <Link href={`/organizations/programs/${id}/edit`}>
+                <PenSquare className='mr-2 h-4 w-4' />
+                Edit Program
+              </Link>
+            </Button>
+          ) : (
+            <Button disabled variant='outline'>
               <PenSquare className='mr-2 h-4 w-4' />
               Edit Program
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
 
         <Card>
