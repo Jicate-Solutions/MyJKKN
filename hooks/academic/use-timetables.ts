@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type {
@@ -21,16 +21,20 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
     totalPages: 0
   });
 
+  // Use ref to track the current filters to avoid stale closures
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
   const fetchTimetables = useCallback(
-    async (newFilters?: TimetableFilters) => {
+    async (currentFilters?: TimetableFilters) => {
       try {
         setLoading(true);
         setError(null);
-        const currentFilters = newFilters || filters;
+        const filtersToUse = currentFilters || filtersRef.current;
 
         // Apply institution filtering for non-super admin users
         const filtersWithInstitution = {
-          ...currentFilters,
+          ...filtersToUse,
           ...(!isSuperAdmin &&
             userProfile?.institution_id && {
               institution_id: userProfile.institution_id
@@ -43,8 +47,8 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
         setTimetables(result.data);
         setMetadata(result.metadata);
 
-        if (newFilters) {
-          setFilters(newFilters);
+        if (currentFilters) {
+          setFilters(currentFilters);
         }
       } catch (err) {
         console.error('Error fetching timetables:', err);
@@ -53,7 +57,7 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
         setLoading(false);
       }
     },
-    [filters, isSuperAdmin, userProfile?.institution_id]
+    [isSuperAdmin, userProfile?.institution_id] // Removed filters from dependencies
   );
 
   const updateFilters = useCallback(

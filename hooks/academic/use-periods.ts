@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { PeriodService } from '@/lib/services/academic/period-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type {
@@ -21,12 +21,17 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
     totalPages: 0
   });
 
+  // Use ref to track the current filters to avoid stale closure issues
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
   const fetchPeriods = useCallback(
     async (newFilters?: PeriodFilters) => {
       try {
         setLoading(true);
         setError(null);
-        const currentFilters = newFilters || filters;
+        // Use the passed filters or the current filters from ref
+        const currentFilters = newFilters || filtersRef.current;
 
         // Use institution-aware method if user is not super admin
         const result = isSuperAdmin
@@ -49,7 +54,7 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
         setLoading(false);
       }
     },
-    [filters, isSuperAdmin, userProfile?.institution_id]
+    [isSuperAdmin, userProfile?.institution_id] // Removed 'filters' dependency
   );
 
   const updateFilters = useCallback(
@@ -60,7 +65,10 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
           ...newFilters,
           page: 1 // Reset to first page when filters change
         };
-        fetchPeriods(updatedFilters);
+        // Use setTimeout to break the synchronous update cycle
+        setTimeout(() => {
+          fetchPeriods(updatedFilters);
+        }, 0);
         return updatedFilters;
       });
     },
@@ -71,12 +79,22 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
     (page: number) => {
       setFilters((currentFilters) => {
         const updatedFilters = { ...currentFilters, page };
-        fetchPeriods(updatedFilters);
+        // Use setTimeout to break the synchronous update cycle
+        setTimeout(() => {
+          fetchPeriods(updatedFilters);
+        }, 0);
         return updatedFilters;
       });
     },
     [fetchPeriods]
   );
+
+  // Update filtersRef when initialFilters change
+  useEffect(() => {
+    if (JSON.stringify(initialFilters) !== JSON.stringify(filtersRef.current)) {
+      setFilters(initialFilters);
+    }
+  }, [initialFilters]);
 
   const createPeriod = useCallback(
     async (data: CreatePeriodDto) => {
