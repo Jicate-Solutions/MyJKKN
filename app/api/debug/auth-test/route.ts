@@ -1,0 +1,72 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
+
+export async function GET(request: NextRequest) {
+  try {
+    const supabase = createRouteHandlerClient({ cookies });
+
+    // Test auth
+    console.log('Testing auth...');
+    const authStart = Date.now();
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const authDuration = Date.now() - authStart;
+
+    if (authError || !authData.user) {
+      return NextResponse.json(
+        {
+          error: 'No authenticated user',
+          authError: authError?.message,
+          authDuration
+        },
+        { status: 401 }
+      );
+    }
+
+    const userId = authData.user.id;
+    console.log('Auth successful, testing profile fetch for:', userId);
+
+    // Test profile fetch
+    const profileStart = Date.now();
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    const profileDuration = Date.now() - profileStart;
+
+    // Test simple count
+    const countStart = Date.now();
+    const { count, error: countError } = await supabase
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('id', userId);
+    const countDuration = Date.now() - countStart;
+
+    return NextResponse.json({
+      success: true,
+      userId,
+      authDuration,
+      profileDuration,
+      countDuration,
+      results: {
+        hasProfile: !!profile,
+        profileError: profileError?.message,
+        profileErrorCode: profileError?.code,
+        count,
+        countError: countError?.message
+      },
+      userEmail: authData.user.email,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: 'Debug test failed',
+        details: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      },
+      { status: 500 }
+    );
+  }
+}

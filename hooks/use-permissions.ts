@@ -33,14 +33,16 @@ export function usePermissions(
   requiredPermissions: string[] = [],
   options: UsePermissionsOptions = {}
 ) {
-  const { user, isLoading: authLoading, error: authError } = useAuth();
+  const {
+    profile: userProfile,
+    isLoading: authLoading,
+    error: authError
+  } = useAuth();
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const { waitForLoad = false } = options;
-
-  const userProfile = user;
 
   // Student-specific properties
   const isStudent = useMemo(
@@ -112,12 +114,12 @@ export function usePermissions(
     let mounted = true;
 
     const fetchPermissions = async () => {
-      // If there's no user, reset states and finish loading.
-      if (!user) {
+      // If there's no user profile, reset states and finish loading.
+      if (!userProfile) {
         if (mounted) {
           setPermissions({});
           setIsSuperAdmin(false);
-          setError(authError);
+          setError(authError ? new Error(authError) : null);
           setIsLoading(false);
         }
         return;
@@ -127,25 +129,45 @@ export function usePermissions(
         setIsLoading(true);
         setError(null);
 
-        const profile = user;
-
         // Check if user is a super admin
-        const isSuperAdminUser = profile.role === SYSTEM_ROLES.SUPER_ADMIN;
+        const isSuperAdminUser = userProfile.role === SYSTEM_ROLES.SUPER_ADMIN;
         if (mounted) {
           setIsSuperAdmin(isSuperAdminUser);
         }
 
-        // Get role permissions
-        const role = await RoleService.getRoleByKey(profile.role);
-        if (!role) throw new Error(`Role ${profile.role} not found`);
+        // Super admins have all permissions, no need to fetch.
+        if (isSuperAdminUser) {
+          if (mounted) {
+            setPermissions({}); // No specific permissions needed, isSuperAdmin flag is enough
+            setIsLoading(false);
+          }
+          return;
+        }
 
-        if (mounted) {
-          setPermissions(role.permissions || {});
+        // Get role permissions
+        const role = await RoleService.getRoleByKey(userProfile.role);
+
+        if (!role || typeof role !== 'object' || !('permissions' in role)) {
+          console.warn(
+            `Role ${userProfile.role} not found, using empty permissions`
+          );
+          if (mounted) {
+            setPermissions({});
+          }
+        } else {
+          if (mounted) {
+            setPermissions((role as any).permissions || {});
+          }
         }
       } catch (err) {
         console.error('Error fetching permissions:', err);
         if (mounted) {
-          setError(err instanceof Error ? err : new Error('Unknown error'));
+          setError(
+            err instanceof Error
+              ? err
+              : new Error('Unknown error fetching permissions')
+          );
+          setPermissions({});
         }
       } finally {
         if (mounted) {
@@ -162,7 +184,22 @@ export function usePermissions(
     return () => {
       mounted = false;
     };
-  }, [user, authLoading, authError]);
+  }, [userProfile, authLoading, authError]);
+
+  // Add effect to log state changes in development
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('usePermissions state update:', {
+        authLoading,
+        isLoading,
+        hasProfile: !!userProfile,
+        userRole: userProfile?.role,
+        isSuperAdmin,
+        permissionCount: Object.keys(permissions).length,
+        error: error?.message
+      });
+    }
+  }, [authLoading, isLoading, userProfile, isSuperAdmin, permissions, error]);
 
   // Check if user has all required permissions (using enhanced permissions)
   const hasAllPermissions = useMemo(() => {
