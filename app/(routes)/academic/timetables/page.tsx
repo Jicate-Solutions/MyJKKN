@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -22,9 +22,22 @@ import { TimetableTable } from './_components/timetable-table';
 import { Pagination } from '../periods/_components/pagination';
 import { TimetableFilters } from './_components/timetable-filters';
 import { TimetableEmptyState } from './_components/timetable-empty-state';
+import type { TimetableFilters as TimetableFiltersType } from '@/types/academics';
 
 export default function TimetablesPage() {
   const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+
+  // Memoize the initial filters to prevent recreation on every render
+  const initialFilters = useMemo(
+    () => ({
+      limit: 10,
+      ...(!isSuperAdmin &&
+        userProfile?.institution_id && {
+          institution_id: userProfile.institution_id
+        })
+    }),
+    [isSuperAdmin, userProfile?.institution_id]
+  );
 
   const {
     timetables,
@@ -36,13 +49,7 @@ export default function TimetablesPage() {
     changePage,
     fetchTimetables,
     deleteTimetable
-  } = useTimetables({
-    limit: 10,
-    ...(!isSuperAdmin &&
-      userProfile?.institution_id && {
-        institution_id: userProfile.institution_id
-      })
-  });
+  } = useTimetables(initialFilters);
 
   const canViewTimetables =
     isSuperAdmin || canAccess('academic.timetables', 'view');
@@ -52,6 +59,14 @@ export default function TimetablesPage() {
     isSuperAdmin || canAccess('academic.timetables', 'edit');
   const canDeleteTimetables =
     isSuperAdmin || canAccess('academic.timetables', 'delete');
+
+  // Memoize the filter change handler to prevent infinite loops
+  const handleFilterChange = useCallback(
+    (newFilters: Partial<TimetableFiltersType>) => {
+      updateFilters(newFilters);
+    },
+    [updateFilters]
+  );
 
   useEffect(() => {
     fetchTimetables();
@@ -132,7 +147,7 @@ export default function TimetablesPage() {
           <CardContent className='p-6'>
             <TimetableFilters
               filters={filters}
-              onFilterChange={updateFilters}
+              onFilterChange={handleFilterChange}
             />
 
             {loading && <Loading title='Loading timetables...' />}

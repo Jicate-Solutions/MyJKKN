@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -26,28 +26,40 @@ export function PeriodFilters({ filters, onFilterChange }: PeriodFiltersProps) {
 
   const { isSuperAdmin, userProfile } = usePermissions();
 
+  // Use ref to track if we've already auto-set the institution to prevent loops
+  const hasAutoSetInstitution = useRef(false);
+
+  // Memoize the institutions hook options to prevent recreation
+  const institutionsOptions = useMemo(
+    () => ({
+      isActive: true
+    }),
+    []
+  );
+
   // Fetch institutions with proper access control
   const { institutions, loading: institutionsLoading } =
-    useInstitutionsWithAccess({
-      isActive: true
-    });
+    useInstitutionsWithAccess(institutionsOptions);
 
-  // Auto-set institution filter for faculty users
+  // Auto-set institution filter for faculty users (only once)
   useEffect(() => {
     if (
       !isSuperAdmin &&
       userProfile?.institution_id &&
-      !filters.institution_id
+      !filters.institution_id &&
+      !hasAutoSetInstitution.current
     ) {
+      hasAutoSetInstitution.current = true;
       onFilterChange({ institution_id: userProfile.institution_id });
     }
-  }, [userProfile, isSuperAdmin, filters.institution_id, onFilterChange]);
+  }, [userProfile?.institution_id, isSuperAdmin, filters.institution_id]);
 
+  // Handle search term changes
   useEffect(() => {
     if (debouncedSearchTerm !== filters.search) {
       onFilterChange({ search: debouncedSearchTerm || undefined });
     }
-  }, [debouncedSearchTerm, filters.search, onFilterChange]);
+  }, [debouncedSearchTerm, filters.search]);
 
   const handleInstitutionChange = (value: string) => {
     if (value === 'all') {

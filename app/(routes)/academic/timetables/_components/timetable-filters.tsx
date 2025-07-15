@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -25,27 +25,34 @@ export function TimetableFilters({
   const [searchTerm, setSearchTerm] = useState(filters.search || '');
   const debouncedSearchTerm = useDebounceValue(searchTerm, 500);
 
+  // Memoize the filter change handlers to prevent unnecessary re-renders
+  const handleIsActiveChange = useCallback(
+    (value: string) => {
+      if (value === 'all') {
+        onFilterChange({ is_active: undefined });
+      } else {
+        onFilterChange({ is_active: value === 'true' });
+      }
+    },
+    [onFilterChange]
+  );
+
+  const handleIsTemplateChange = useCallback(
+    (value: string) => {
+      if (value === 'all') {
+        onFilterChange({ is_template: undefined });
+      } else {
+        onFilterChange({ is_template: value === 'true' });
+      }
+    },
+    [onFilterChange]
+  );
+
   useEffect(() => {
     if (debouncedSearchTerm !== filters.search) {
       onFilterChange({ search: debouncedSearchTerm || undefined });
     }
   }, [debouncedSearchTerm, filters.search, onFilterChange]);
-
-  const handleIsActiveChange = (value: string) => {
-    if (value === 'all') {
-      onFilterChange({ is_active: undefined });
-    } else {
-      onFilterChange({ is_active: value === 'true' });
-    }
-  };
-
-  const handleIsTemplateChange = (value: string) => {
-    if (value === 'all') {
-      onFilterChange({ is_template: undefined });
-    } else {
-      onFilterChange({ is_template: value === 'true' });
-    }
-  };
 
   return (
     <div className='space-y-4'>

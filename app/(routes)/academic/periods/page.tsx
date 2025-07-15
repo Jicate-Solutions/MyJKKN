@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -17,6 +17,7 @@ import { usePeriods } from '@/hooks/academic/use-periods';
 import { PeriodTable } from './_components/period-table';
 import { Pagination } from './_components/pagination';
 import { PeriodFilters } from './_components/period-filters';
+import type { PeriodFilters as PeriodFiltersType } from '@/types/academics';
 import Loading from '@/components/Loading/Loading';
 import { PeriodEmptyState } from './_components/period-empty-state';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -24,6 +25,19 @@ import { Card, CardContent } from '@/components/ui/card';
 
 export default function PeriodsPage() {
   const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+
+  // Memoize the initial filters to prevent recreation on every render
+  const initialFilters = useMemo(
+    () => ({
+      page: 1,
+      limit: 10,
+      institution_id:
+        !isSuperAdmin && userProfile?.institution_id
+          ? userProfile.institution_id
+          : undefined
+    }),
+    [isSuperAdmin, userProfile?.institution_id]
+  );
 
   const {
     periods,
@@ -35,14 +49,7 @@ export default function PeriodsPage() {
     changePage,
     fetchPeriods,
     deletePeriod
-  } = usePeriods({
-    page: 1,
-    limit: 10,
-    institution_id:
-      !isSuperAdmin && userProfile?.institution_id
-        ? userProfile.institution_id
-        : undefined
-  });
+  } = usePeriods(initialFilters);
 
   const canViewPeriods = isSuperAdmin || canAccess('academic.periods', 'view');
   const canCreatePeriods =
@@ -50,6 +57,14 @@ export default function PeriodsPage() {
   const canEditPeriods = isSuperAdmin || canAccess('academic.periods', 'edit');
   const canDeletePeriods =
     isSuperAdmin || canAccess('academic.periods', 'delete');
+
+  // Memoize the filter change handler to prevent infinite loops
+  const handleFilterChange = useCallback(
+    (newFilters: Partial<PeriodFiltersType>) => {
+      updateFilters(newFilters);
+    },
+    [updateFilters]
+  );
 
   useEffect(() => {
     fetchPeriods();
@@ -128,7 +143,10 @@ export default function PeriodsPage() {
 
         <Card>
           <CardContent className='p-6'>
-            <PeriodFilters filters={filters} onFilterChange={updateFilters} />
+            <PeriodFilters
+              filters={filters}
+              onFilterChange={handleFilterChange}
+            />
 
             {loading && <Loading title='Loading periods...' />}
 

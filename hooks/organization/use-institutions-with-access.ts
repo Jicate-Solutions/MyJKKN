@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
@@ -21,6 +21,7 @@ export function useInstitutionsWithAccess(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Memoize the fetch function dependencies to prevent unnecessary recreations
   const fetchInstitutions = useCallback(async () => {
     if (!user?.id) {
       setInstitutions([]);
@@ -58,11 +59,17 @@ export function useInstitutionsWithAccess(
     }
   }, [user?.id, isSuperAdmin, isActive]);
 
+  // Memoize the effect dependencies to prevent unnecessary re-runs
+  const shouldFetch = useMemo(
+    () => autoFetch && user?.id,
+    [autoFetch, user?.id]
+  );
+
   useEffect(() => {
-    if (autoFetch) {
+    if (shouldFetch) {
       fetchInstitutions();
     }
-  }, [fetchInstitutions, autoFetch]);
+  }, [shouldFetch, fetchInstitutions]);
 
   return {
     institutions,
