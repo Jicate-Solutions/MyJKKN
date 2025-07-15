@@ -42,7 +42,8 @@ export function AttendanceRoster({
   checkSlotPermission = false
 }: AttendanceRosterProps) {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { profile } = useAuth();
+  const user = profile;
   const { userProfile, isSuperAdmin } = usePermissions();
   const [searchTerm, setSearchTerm] = useState('');
   const [students, setStudents] = useState<AttendanceRosterStudent[]>(

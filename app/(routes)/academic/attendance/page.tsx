@@ -84,7 +84,8 @@ export default function AttendancePage() {
   } = useAttendanceRoster();
 
   const { canAccess, isSuperAdmin, userProfile } = usePermissions();
-  const { user } = useAuth();
+  const { profile } = useAuth();
+  const user = profile;
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
   const [studentsForSection, setStudentsForSection] = useState<any[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);

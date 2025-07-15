@@ -43,9 +43,11 @@ export function useStaff(initialFilters: StaffFilters = {}) {
     queryKey,
     queryFn,
     enabled: isQueryEnabled,
-    staleTime: 0, // Always refetch to ensure fresh data
-    refetchOnMount: true, // Always refetch when component mounts
+    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+    refetchOnMount: false, // Don't auto-refetch on mount
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false, // Don't auto-refetch on reconnect
     retry: (failureCount, error) => {
       // Don't retry on RLS policy errors or auth errors
       if (
