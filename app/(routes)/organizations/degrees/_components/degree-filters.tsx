@@ -2,6 +2,7 @@
 
 'use client';
 
+import { useEffect, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -9,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeFilters as DegreeFilterType } from '@/types/organizations';
 import ExportDegrees from './export-degrees';
 import BulkUploadDegrees from './bulk-upload-degrees';
@@ -22,15 +23,33 @@ interface DegreeFiltersProps {
 }
 
 export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
-  const { institutions } = useInstitutionsWithAccess();
+  const [institutions, setInstitutions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [loading, setLoading] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
   const canEditDegrees =
     isSuperAdmin || canAccess('organizations.degrees', 'edit');
 
+  useEffect(() => {
+    async function loadInstitutions() {
+      try {
+        setLoading(true);
+        const data = await OrganizationService.getInstitutionNames(true);
+        setInstitutions(data);
+      } catch (error) {
+        console.error('Error loading institutions:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadInstitutions();
+  }, []);
+
   return (
     <div className='space-y-4 mb-6'>
       <div className='grid gap-4 md:grid-cols-2'>
-        <div className='flex items-center justify-between gap-2 w-full'>
+        <div className='grid gap-4 md:grid-cols-2'>
           <Select
             value={filters.institution_id || 'all'}
             onValueChange={(value) =>
@@ -38,9 +57,12 @@ export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
                 institution_id: value === 'all' ? undefined : value
               })
             }
+            disabled={loading}
           >
             <SelectTrigger>
-              <SelectValue placeholder='Select institution' />
+              <SelectValue
+                placeholder={loading ? 'Loading...' : 'Select institution'}
+              />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
               <SelectItem value='all'>All Institutions</SelectItem>
@@ -71,6 +93,7 @@ export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
             </SelectContent>
           </Select>
         </div>
+
         <div className='flex items-center justify-end gap-2 w-full'>
           {canEditDegrees && <DownloadDegreeTemplateButton />}
           {isSuperAdmin && <ExportDegrees />}

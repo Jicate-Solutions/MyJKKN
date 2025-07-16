@@ -30,24 +30,28 @@ export default function CoursesPage() {
     changePage,
     changePageSize,
     fetchCourses
-  } = useCourses({ page: 1, limit: 10 });
+  } = useCourses();
 
   const { canAccess, isSuperAdmin } = usePermissions();
   const canViewCourses =
     isSuperAdmin || canAccess('organizations.courses', 'view');
 
+  useEffect(() => {
+    fetchCourses();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (error) {
-    console.error('[CoursesPage] Render Error:', error);
     return (
       <ContentLayout title='Courses'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
           <Button
             variant='outline'
-            onClick={() => window.location.reload()}
+            onClick={() => fetchCourses()}
             className='mt-4'
+            disabled={!canViewCourses}
           >
-            Refresh Page
+            Try Again
           </Button>
         </div>
       </ContentLayout>

@@ -2,6 +2,7 @@
 
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -31,28 +32,29 @@ export default function DegreesPage() {
     changePage,
     changePageSize,
     fetchDegrees
-  } = useDegrees({
-    page: 1,
-    limit: 10
-  });
+  } = useDegrees();
 
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewDegrees =
     isSuperAdmin || canAccess('organizations.degrees', 'view');
 
+  useEffect(() => {
+    fetchDegrees();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (error) {
-    console.error('[DegreesPage] Render Error:', error);
     return (
       <ContentLayout title='Degrees'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
           <Button
             variant='outline'
-            onClick={() => window.location.reload()}
+            onClick={() => fetchDegrees()}
             className='mt-4'
+            disabled={!canViewDegrees}
           >
-            Refresh Page
+            Try Again
           </Button>
         </div>
       </ContentLayout>

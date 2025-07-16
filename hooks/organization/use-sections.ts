@@ -1,12 +1,12 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { SectionService } from '@/lib/services/organization/section-service';
 import type { Section, SectionFilters } from '@/types/organizations';
 import { useAuth } from '../use-auth';
 import { usePermissions } from '../use-permissions';
 
 export function useSections(initialFilters: SectionFilters = {}) {
-  const { user, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
   const [paginationLoading, setPaginationLoading] = useState(false);
@@ -21,8 +21,6 @@ export function useSections(initialFilters: SectionFilters = {}) {
 
   const fetchSections = useCallback(
     async (newFilters?: SectionFilters, isPagination = false) => {
-      if (authLoading || permissionsLoading) return;
-
       try {
         if (isPagination) {
           setPaginationLoading(true);
@@ -32,7 +30,7 @@ export function useSections(initialFilters: SectionFilters = {}) {
         setError(null);
         const currentFilters = {
           ...(newFilters || filters),
-          userId: user?.id,
+          userId: profile?.id,
           bypassInstitutionFilter: isSuperAdmin
         };
 
@@ -44,7 +42,7 @@ export function useSections(initialFilters: SectionFilters = {}) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('[useSections] Fetch Error:', err);
+        console.error('Error fetching sections:', err);
         setError(
           err instanceof Error
             ? err.message
@@ -58,14 +56,8 @@ export function useSections(initialFilters: SectionFilters = {}) {
         }
       }
     },
-    [filters, user?.id, isSuperAdmin, authLoading, permissionsLoading]
+    [filters, profile?.id, isSuperAdmin]
   );
-
-  useEffect(() => {
-    if (!authLoading && !permissionsLoading) {
-      fetchSections();
-    }
-  }, [authLoading, permissionsLoading, fetchSections]);
 
   const updateFilters = useCallback(
     (newFilters: Partial<SectionFilters>) => {

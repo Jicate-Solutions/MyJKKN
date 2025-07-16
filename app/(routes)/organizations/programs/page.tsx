@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePrograms } from '@/hooks/organization/use-programs';
@@ -29,24 +30,28 @@ export default function ProgramsPage() {
     changePage,
     changePageSize,
     fetchPrograms
-  } = usePrograms({ page: 1, limit: 10 });
+  } = usePrograms();
 
   const { canAccess, isSuperAdmin } = usePermissions();
   const canViewPrograms =
     isSuperAdmin || canAccess('organizations.programs', 'view');
 
+  useEffect(() => {
+    fetchPrograms();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (error) {
-    console.error('[ProgramsPage] Render Error:', error);
     return (
       <ContentLayout title='Programs'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
           <Button
             variant='outline'
-            onClick={() => window.location.reload()}
+            onClick={() => fetchPrograms()}
             className='mt-4'
+            disabled={!canViewPrograms}
           >
-            Refresh Page
+            Try Again
           </Button>
         </div>
       </ContentLayout>

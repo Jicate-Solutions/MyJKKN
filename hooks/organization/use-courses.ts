@@ -1,12 +1,12 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { CourseService } from '@/lib/services/organization/course-service';
 import type { Course, CourseFilters } from '@/types/organizations';
 import { useAuth } from '../use-auth';
 import { usePermissions } from '../use-permissions';
 
 export function useCourses(initialFilters: CourseFilters = {}) {
-  const { user, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [paginationLoading, setPaginationLoading] = useState(false);
@@ -21,8 +21,6 @@ export function useCourses(initialFilters: CourseFilters = {}) {
 
   const fetchCourses = useCallback(
     async (newFilters?: CourseFilters, isPagination = false) => {
-      if (authLoading || permissionsLoading) return;
-
       try {
         if (isPagination) {
           setPaginationLoading(true);
@@ -32,7 +30,7 @@ export function useCourses(initialFilters: CourseFilters = {}) {
         setError(null);
         const currentFilters = {
           ...(newFilters || filters),
-          userId: user?.id,
+          userId: profile?.id,
           bypassInstitutionFilter: isSuperAdmin
         };
 
@@ -44,7 +42,7 @@ export function useCourses(initialFilters: CourseFilters = {}) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('[useCourses] Fetch Error:', err);
+        console.error('Error fetching courses:', err);
         setError(
           err instanceof Error
             ? err.message
@@ -58,14 +56,8 @@ export function useCourses(initialFilters: CourseFilters = {}) {
         }
       }
     },
-    [filters, user?.id, isSuperAdmin, authLoading, permissionsLoading]
+    [filters, profile?.id, isSuperAdmin]
   );
-
-  useEffect(() => {
-    if (!authLoading && !permissionsLoading) {
-      fetchCourses();
-    }
-  }, [authLoading, permissionsLoading, fetchCourses]);
 
   const updateFilters = useCallback(
     (newFilters: Partial<CourseFilters>) => {

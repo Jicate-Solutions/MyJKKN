@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select';
 
 import { DegreeService } from '@/lib/services/organization/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramFilters as ProgramFilterType } from '@/types/organizations';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import DownloadProgramTemplateButton from './download-program-template';
@@ -61,6 +62,8 @@ export function ProgramFilters({
             filters.institution_id
           );
           setDegrees(degreesData);
+        } else {
+          setDegrees([]);
         }
       } catch (error) {
         console.error('Error loading filter data:', error);
@@ -68,6 +71,24 @@ export function ProgramFilters({
     }
     loadData();
   }, [filters.institution_id]);
+
+  useEffect(() => {
+    async function loadDepartments() {
+      if (filters.degree_id) {
+        try {
+          const departmentsData =
+            await DepartmentService.getDepartmentsByDegree(filters.degree_id);
+          setDepartments(departmentsData);
+        } catch (error) {
+          console.error('Error loading departments:', error);
+          setDepartments([]);
+        }
+      } else {
+        setDepartments([]);
+      }
+    }
+    loadDepartments();
+  }, [filters.degree_id]);
 
   return (
     <div className='space-y-4 mb-6'>
@@ -114,6 +135,28 @@ export function ProgramFilters({
               {degrees.map((degree: Degree) => (
                 <SelectItem key={degree.id} value={degree.id}>
                   {degree.degree_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={filters.department_id || 'all'}
+            onValueChange={(value) =>
+              onFilterChange({
+                department_id: value === 'all' ? undefined : value
+              })
+            }
+            disabled={!filters.degree_id}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Select department' />
+            </SelectTrigger>
+            <SelectContent className='max-h-60 overflow-y-auto'>
+              <SelectItem value='all'>All Departments</SelectItem>
+              {departments.map((dept: Department) => (
+                <SelectItem key={dept.id} value={dept.id}>
+                  {dept.department_name}
                 </SelectItem>
               ))}
             </SelectContent>

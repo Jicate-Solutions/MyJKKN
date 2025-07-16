@@ -41,7 +41,6 @@ export default function StaffPage() {
     search: '',
     category_id: '',
     institution_id: '',
-    degree_id: '',
     department_id: '',
     isActive: undefined,
     page: 1,
