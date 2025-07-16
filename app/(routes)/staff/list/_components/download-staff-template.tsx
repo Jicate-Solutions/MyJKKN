@@ -114,8 +114,7 @@ const ID_BASED_INSTRUCTIONS = [
   ['8. Designation (Required)'],
   ['9. Category ID (Required) - Must be a valid UUID from the list below'],
   ['10. Institution ID (Required) - Must be a valid UUID from the list below'],
-  ['11. Degree ID (Required) - Must be a valid UUID from the list below'],
-  ['12. Department ID (Required) - Must be a valid UUID from the list below'],
+  ['11. Department ID (Required) - Must be a valid UUID from the list below'],
   [''],
   ['Optional Fields:'],
   ['1. Staff ID - Must be unique if provided'],
@@ -172,10 +171,7 @@ const NAME_BASED_INSTRUCTIONS = [
     '10. Institution Name (Required) - Must match exactly an institution name from the list below'
   ],
   [
-    '11. Degree Name (Required) - Must match exactly a degree name from the list below'
-  ],
-  [
-    '12. Department Name (Required) - Must match exactly a department name from the list below'
+    '11. Department Name (Required) - Must match exactly a department name from the list below'
   ],
   [''],
   ['Optional Fields:'],

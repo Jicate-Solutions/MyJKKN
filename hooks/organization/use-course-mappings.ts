@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
 import type {
   CourseMapping,
@@ -8,8 +8,8 @@ import { useAuth } from '../use-auth';
 import { usePermissions } from '../use-permissions';
 
 export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
-  const { user, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const [courseMappings, setCourseMappings] = useState<CourseMapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [paginationLoading, setPaginationLoading] = useState(false);
@@ -24,8 +24,6 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
 
   const fetchCourseMappings = useCallback(
     async (newFilters?: CourseMappingFilters, isPagination = false) => {
-      if (authLoading || permissionsLoading) return;
-
       try {
         if (isPagination) {
           setPaginationLoading(true);
@@ -35,7 +33,7 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
         setError(null);
         const currentFilters = {
           ...(newFilters || filters),
-          userId: user?.id,
+          userId: profile?.id,
           bypassInstitutionFilter: isSuperAdmin
         };
 
@@ -49,7 +47,7 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('[useCourseMappings] Fetch Error:', err);
+        console.error('Error fetching course mappings:', err);
         setError(
           err instanceof Error
             ? err.message
@@ -63,14 +61,8 @@ export function useCourseMappings(initialFilters: CourseMappingFilters = {}) {
         }
       }
     },
-    [filters, user?.id, isSuperAdmin, authLoading, permissionsLoading]
+    [filters, profile?.id, isSuperAdmin]
   );
-
-  useEffect(() => {
-    if (!authLoading && !permissionsLoading) {
-      fetchCourseMappings();
-    }
-  }, [authLoading, permissionsLoading, fetchCourseMappings]);
 
   const updateFilters = useCallback(
     (newFilters: Partial<CourseMappingFilters>) => {

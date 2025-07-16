@@ -716,12 +716,7 @@ export default function BulkUploadStaff() {
       for (const batch of batches) {
         const promises = batch.map((row) => {
           // Validate IDs one more time as a safeguard
-          if (
-            !row.category_id ||
-            !row.institution_id ||
-            !row.degree_id ||
-            !row.department_id
-          ) {
+          if (!row.category_id || !row.institution_id || !row.department_id) {
             errorCount++;
             errorDetails.push(`Row ${row.rowNumber}: Missing required IDs`);
             return Promise.resolve(); // Skip this row
@@ -748,7 +743,6 @@ export default function BulkUploadStaff() {
             designation: row.designation,
             category_id: row.category_id,
             institution_id: row.institution_id,
-            degree_id: row.degree_id,
             department_id: row.department_id,
             is_active: row.is_active === 'false' ? false : true
           };

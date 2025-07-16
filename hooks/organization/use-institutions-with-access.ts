@@ -12,7 +12,7 @@ export function useInstitutionsWithAccess(
   options: UseInstitutionsWithAccessOptions = {}
 ) {
   const { isActive = true, autoFetch = true } = options;
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
 
   const [institutions, setInstitutions] = useState<
@@ -23,7 +23,7 @@ export function useInstitutionsWithAccess(
 
   // Memoize the fetch function dependencies to prevent unnecessary recreations
   const fetchInstitutions = useCallback(async () => {
-    if (!user?.id) {
+    if (!profile?.id) {
       setInstitutions([]);
       return;
     }
@@ -43,7 +43,7 @@ export function useInstitutionsWithAccess(
         // Regular users see only accessible institutions - pass userId for filtering
         institutionNames = await OrganizationService.getInstitutionNames(
           isActive,
-          user.id
+          profile.id
         );
       }
 
@@ -57,12 +57,12 @@ export function useInstitutionsWithAccess(
     } finally {
       setLoading(false);
     }
-  }, [user?.id, isSuperAdmin, isActive]);
+  }, [profile?.id, isSuperAdmin, isActive]);
 
   // Memoize the effect dependencies to prevent unnecessary re-runs
   const shouldFetch = useMemo(
-    () => autoFetch && user?.id,
-    [autoFetch, user?.id]
+    () => autoFetch && profile?.id,
+    [autoFetch, profile?.id]
   );
 
   useEffect(() => {

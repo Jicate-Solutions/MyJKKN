@@ -30,24 +30,28 @@ export default function SemestersPage() {
     changePage,
     changePageSize,
     fetchSemesters
-  } = useSemesters({ page: 1, limit: 10 });
+  } = useSemesters();
 
   const { canAccess, isSuperAdmin } = usePermissions();
   const canViewSemesters =
     isSuperAdmin || canAccess('organizations.semesters', 'view');
 
+  useEffect(() => {
+    fetchSemesters();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (error) {
-    console.error('[SemestersPage] Render Error:', error);
     return (
       <ContentLayout title='Semesters'>
         <div className='text-center py-8'>
           <p className='text-destructive'>{error}</p>
           <Button
             variant='outline'
-            onClick={() => window.location.reload()}
+            onClick={() => fetchSemesters()}
             className='mt-4'
+            disabled={!canViewSemesters}
           >
-            Refresh Page
+            Try Again
           </Button>
         </div>
       </ContentLayout>

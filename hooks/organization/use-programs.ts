@@ -1,13 +1,13 @@
 // hooks/use-programs.ts
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import type { Program, ProgramFilters } from '@/types/organizations';
 import { useAuth } from '../use-auth';
 import { usePermissions } from '../use-permissions';
 
 export function usePrograms(initialFilters: ProgramFilters = {}) {
-  const { user, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
   const [paginationLoading, setPaginationLoading] = useState(false);
@@ -22,8 +22,6 @@ export function usePrograms(initialFilters: ProgramFilters = {}) {
 
   const fetchPrograms = useCallback(
     async (newFilters?: ProgramFilters, isPagination = false) => {
-      if (authLoading || permissionsLoading) return;
-
       try {
         if (isPagination) {
           setPaginationLoading(true);
@@ -33,7 +31,7 @@ export function usePrograms(initialFilters: ProgramFilters = {}) {
         setError(null);
         const currentFilters = {
           ...(newFilters || filters),
-          userId: user?.id,
+          userId: profile?.id,
           bypassInstitutionFilter: isSuperAdmin
         };
 
@@ -45,7 +43,7 @@ export function usePrograms(initialFilters: ProgramFilters = {}) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('[usePrograms] Fetch Error:', err);
+        console.error('Error fetching programs:', err);
         setError(
           err instanceof Error
             ? err.message
@@ -59,14 +57,8 @@ export function usePrograms(initialFilters: ProgramFilters = {}) {
         }
       }
     },
-    [filters, user?.id, isSuperAdmin, authLoading, permissionsLoading]
+    [filters, profile?.id, isSuperAdmin]
   );
-
-  useEffect(() => {
-    if (!authLoading && !permissionsLoading) {
-      fetchPrograms();
-    }
-  }, [authLoading, permissionsLoading, fetchPrograms]);
 
   const updateFilters = useCallback(
     (newFilters: Partial<ProgramFilters>) => {
