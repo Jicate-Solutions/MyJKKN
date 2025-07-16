@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -77,7 +77,8 @@ export function DemographicAnalytics({
 
     return data.genderDistribution.map((item, index) => ({
       ...item,
-      fill: COLORS[index % COLORS.length]
+      fill: COLORS[index % COLORS.length],
+      uniqueKey: `gender-${item.name}-${index}` // Ensure unique keys
     }));
   }, [data?.genderDistribution]);
 
@@ -86,7 +87,8 @@ export function DemographicAnalytics({
 
     return data.ageGroups.map((item, index) => ({
       ...item,
-      fill: COLORS[index % COLORS.length]
+      fill: COLORS[index % COLORS.length],
+      uniqueKey: `age-${item.name}-${index}` // Ensure unique keys
     }));
   }, [data?.ageGroups]);
 
@@ -95,9 +97,29 @@ export function DemographicAnalytics({
 
     return data.maritalStatusDistribution.map((item, index) => ({
       ...item,
-      fill: COLORS[index % COLORS.length]
+      fill: COLORS[index % COLORS.length],
+      uniqueKey: `marital-${item.name}-${index}` // Ensure unique keys
     }));
   }, [data?.maritalStatusDistribution]);
+
+  // Memoize the chart cell renderers to prevent recreation
+  const renderGenderPieCells = useCallback(() => {
+    return genderChartData.map((entry, index) => (
+      <Cell key={`gender-pie-${entry.uniqueKey}`} fill={entry.fill} />
+    ));
+  }, [genderChartData]);
+
+  const renderAgeBarCells = useCallback(() => {
+    return ageChartData.map((entry, index) => (
+      <Cell key={`age-bar-${entry.uniqueKey}`} fill={entry.fill} />
+    ));
+  }, [ageChartData]);
+
+  const renderMaritalPieCells = useCallback(() => {
+    return maritalChartData.map((entry, index) => (
+      <Cell key={`marital-pie-${entry.uniqueKey}`} fill={entry.fill} />
+    ));
+  }, [maritalChartData]);
 
   if (isLoading) {
     return (
@@ -178,12 +200,7 @@ export function DemographicAnalytics({
                       paddingAngle={2}
                       dataKey='count'
                     >
-                      {genderChartData.map((entry, index) => (
-                        <Cell
-                          key={`gender-pie-${entry.name}-${index}`}
-                          fill={entry.fill}
-                        />
-                      ))}
+                      {renderGenderPieCells()}
                     </Pie>
                     <Tooltip content={<CustomTooltip />} />
                     <Legend />
@@ -196,7 +213,7 @@ export function DemographicAnalytics({
                 <div className='space-y-3'>
                   {genderChartData.map((item, index) => (
                     <div
-                      key={`gender-breakdown-${item.name}`}
+                      key={`gender-breakdown-${item.uniqueKey}`}
                       className='flex items-center justify-between p-3 border rounded-lg'
                     >
                       <div className='flex items-center gap-3'>
@@ -252,12 +269,7 @@ export function DemographicAnalytics({
                     />
                     <Tooltip content={<CustomTooltip />} />
                     <Bar dataKey='count' radius={[4, 4, 0, 0]}>
-                      {ageChartData.map((entry, index) => (
-                        <Cell
-                          key={`age-bar-${entry.name}-${index}`}
-                          fill={entry.fill}
-                        />
-                      ))}
+                      {renderAgeBarCells()}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -266,7 +278,7 @@ export function DemographicAnalytics({
               <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
                 {ageChartData.map((group, index) => (
                   <div
-                    key={`age-group-${group.name}`}
+                    key={`age-group-${group.uniqueKey}`}
                     className='text-center p-3 bg-muted/50 rounded-lg'
                   >
                     <div
@@ -303,12 +315,7 @@ export function DemographicAnalytics({
                       paddingAngle={2}
                       dataKey='count'
                     >
-                      {maritalChartData.map((entry, index) => (
-                        <Cell
-                          key={`marital-pie-${entry.name}-${index}`}
-                          fill={entry.fill}
-                        />
-                      ))}
+                      {renderMaritalPieCells()}
                     </Pie>
                     <Tooltip content={<CustomTooltip />} />
                     <Legend />
@@ -323,7 +330,7 @@ export function DemographicAnalytics({
                 <div className='space-y-3'>
                   {maritalChartData.map((item, index) => (
                     <div
-                      key={`marital-breakdown-${item.name}`}
+                      key={`marital-breakdown-${item.uniqueKey}`}
                       className='flex items-center justify-between p-3 border rounded-lg'
                     >
                       <div className='flex items-center gap-3'>
@@ -365,7 +372,7 @@ export function DemographicAnalytics({
                     <div className='space-y-2'>
                       {genderChartData.slice(0, 3).map((item) => (
                         <div
-                          key={`gender-${item.name}`}
+                          key={`gender-summary-${item.uniqueKey}`}
                           className='flex justify-between text-sm'
                         >
                           <span className='capitalize'>{item.name}:</span>
@@ -389,7 +396,7 @@ export function DemographicAnalytics({
                     <div className='space-y-2'>
                       {ageChartData.slice(0, 3).map((item) => (
                         <div
-                          key={item.name}
+                          key={`age-summary-${item.uniqueKey}`}
                           className='flex justify-between text-sm'
                         >
                           <span>{item.name}:</span>
@@ -413,7 +420,7 @@ export function DemographicAnalytics({
                     <div className='space-y-2'>
                       {maritalChartData.slice(0, 3).map((item) => (
                         <div
-                          key={item.name}
+                          key={`marital-summary-${item.uniqueKey}`}
                           className='flex justify-between text-sm'
                         >
                           <span className='capitalize'>{item.name}:</span>
