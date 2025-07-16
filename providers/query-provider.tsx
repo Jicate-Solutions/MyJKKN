@@ -12,10 +12,11 @@ export function QueryClientProvider({ children }: { children: ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 30 * 1000, // 30 seconds - reduced from 1 minute for fresher data
-            refetchOnWindowFocus: false,
-            refetchOnMount: true, // Always refetch when component mounts
-            refetchOnReconnect: true,
+            staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh longer
+            gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
+            refetchOnWindowFocus: false, // Don't refetch when window gains focus
+            refetchOnMount: false, // Don't refetch when component mounts - THIS WAS THE MAIN ISSUE
+            refetchOnReconnect: false, // Don't refetch on network reconnect
             retry: (failureCount, error) => {
               // Don't retry on auth errors or RLS policy errors
               const errorMessage = error?.message?.toLowerCase() || '';
@@ -31,11 +32,13 @@ export function QueryClientProvider({ children }: { children: ReactNode }) {
               ) {
                 return false;
               }
-              // Retry up to 2 times for other errors
-              return failureCount < 2;
+              // Retry only once for other errors (reduced from 2)
+              return failureCount < 1;
             },
             retryDelay: (attemptIndex) =>
-              Math.min(1000 * 2 ** attemptIndex, 30000)
+              Math.min(1000 * 2 ** attemptIndex, 30000),
+            // Only notify components when these specific props change
+            notifyOnChangeProps: ['data', 'error', 'isLoading', 'isFetching']
           },
           mutations: {
             retry: 1,

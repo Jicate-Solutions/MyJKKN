@@ -269,7 +269,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       }
 
       router.push('/staff/list');
-      router.refresh();
+      // Remove router.refresh() - React Query will handle data refresh automatically
     } catch (error) {
       console.error('Form submission error:', error);
 

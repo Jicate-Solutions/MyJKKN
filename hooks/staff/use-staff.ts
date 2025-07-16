@@ -1,10 +1,12 @@
 // hooks/staff/use-staff.ts
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type {
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
   Staff,
   StaffFilters,
+  StaffListResponse,
+  CreateStaffDto,
+  UpdateStaffDto,
   StaffDashboardFilters,
   StaffDashboardStats
 } from '@/types/staff';
@@ -12,140 +14,111 @@ import { StaffService } from '@/lib/services/staff/staff-service';
 import { useAuth } from '../use-auth';
 import { usePermissions } from '../use-permissions';
 
-export function useStaff(initialFilters: StaffFilters = {}) {
+export type StaffData = Staff;
+
+// Query key factory for staff
+export const staffKeys = {
+  all: ['staff'] as const,
+  lists: () => [...staffKeys.all, 'list'] as const,
+  list: (filters: StaffFilters) => [...staffKeys.lists(), filters] as const,
+  details: () => [...staffKeys.all, 'detail'] as const,
+  detail: (id: string) => [...staffKeys.details(), id] as const,
+  stats: () => [...staffKeys.all, 'stats'] as const,
+  dashboardStats: (filters?: StaffDashboardFilters) =>
+    [...staffKeys.all, 'dashboard-stats', filters] as const
+};
+
+// Get a list of staff with filters (follows student module pattern)
+export function useStaff(filters: StaffFilters = {}) {
   const { profile, isLoading: authLoading } = useAuth();
-  const {
-    isSuperAdmin,
-    isLoading: permissionsLoading,
-    canAccess
-  } = usePermissions();
-  const [filters, setFilters] = useState<StaffFilters>(initialFilters);
 
-  // Stabilize the query key by creating a memoized version
-  const queryKey = useMemo(() => ['staff', filters], [filters]);
-
-  // Stabilize the query function
-  const queryFn = useCallback(async () => {
-    const finalFilters = {
-      ...filters,
-      userId: profile?.id,
-      bypassInstitutionFilter: isSuperAdmin
-    };
-    return await StaffService.getStaff(finalFilters);
-  }, [filters, profile?.id, isSuperAdmin]);
-
-  // Only enable the query when auth and permissions are loaded and we have a user
-  const isQueryEnabled = useMemo(() => {
-    return !authLoading && !permissionsLoading && !!profile;
-  }, [authLoading, permissionsLoading, profile]);
-
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey,
-    queryFn,
-    enabled: isQueryEnabled,
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
-    refetchOnMount: false, // Don't auto-refetch on mount
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false, // Don't auto-refetch on reconnect
-    retry: (failureCount, error) => {
-      // Don't retry on RLS policy errors or auth errors
-      if (
-        error?.message?.includes('54001') ||
-        error?.message?.includes('JWT')
-      ) {
-        return false;
-      }
-      return failureCount < 2;
+  const queryFn = async () => {
+    try {
+      return await StaffService.getStaff(filters);
+    } catch (error) {
+      console.error('[useStaff] Fetch Error:', error);
+      throw new Error(
+        'Failed to fetch staff. Please check the console for details.'
+      );
     }
-  });
-
-  const updateFilters = useCallback((newFilters: Partial<StaffFilters>) => {
-    setFilters((prev) => ({
-      ...prev,
-      ...newFilters,
-      page: 1
-    }));
-  }, []);
-
-  const changePage = useCallback((page: number) => {
-    setFilters((prev) => ({ ...prev, page }));
-  }, []);
-
-  const updateLimit = useCallback((limit: number) => {
-    setFilters((prev) => ({ ...prev, limit, page: 1 }));
-  }, []);
-
-  // Log for debugging
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('useStaff state:', {
-        authLoading,
-        permissionsLoading,
-        hasProfile: !!profile,
-        isSuperAdmin,
-        isQueryEnabled,
-        isLoading,
-        error: error?.message,
-        dataLength: data?.data?.length
-      });
-    }
-  }, [
-    authLoading,
-    permissionsLoading,
-    profile,
-    isSuperAdmin,
-    isQueryEnabled,
-    isLoading,
-    error,
-    data
-  ]);
-
-  const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
-  const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
-  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
-
-  return {
-    staff: data?.data || [],
-    metadata: data?.metadata || { total: 0, page: 1, limit: 10, totalPages: 0 },
-    loading: isLoading,
-    error: error?.message || null,
-    filters,
-    updateFilters,
-    changePage,
-    updateLimit,
-    fetchStaff: refetch,
-    canViewStaff,
-    canCreateStaff,
-    canEditStaff,
-    authLoading,
-    permissionsLoading
   };
+
+  return useQuery({
+    queryKey: ['staff', filters],
+    queryFn,
+    // Simple enabled logic like student module
+    enabled: !authLoading && !!profile
+  });
 }
 
-// Staff Dashboard Analytics Hook
+// Get a single staff member by ID
+export const useStaffMember = (id: string) => {
+  return useQuery({
+    queryKey: staffKeys.detail(id),
+    queryFn: () => StaffService.getStaffById(id),
+    enabled: !!id
+  });
+};
+
+// Create a new staff member
+export const useCreateStaff = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: any) => StaffService.createStaff(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: staffKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: staffKeys.stats() });
+    }
+  });
+};
+
+// Update an existing staff member
+export const useUpdateStaff = (id: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: any) => StaffService.updateStaff(id, data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: staffKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: staffKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: staffKeys.stats() });
+      queryClient.setQueryData(staffKeys.detail(id), data);
+    }
+  });
+};
+
+// Delete a staff member
+export const useDeleteStaff = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => StaffService.deleteStaff(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: staffKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: staffKeys.stats() });
+    }
+  });
+};
+
+// Get staff dashboard statistics
 export function useStaffDashboardStats(filters: StaffDashboardFilters = {}) {
-  return useQuery<StaffDashboardStats, Error>({
-    queryKey: ['staff-dashboard-stats', filters],
-    queryFn: async () => {
-      const response = await fetch('/api/staff/dashboard-stats', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(filters)
-      });
+  const { profile, isLoading: authLoading } = useAuth();
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to fetch dashboard stats');
-      }
+  const queryFn = async () => {
+    try {
+      return await StaffService.getDashboardStats(filters);
+    } catch (error) {
+      console.error('[useStaffDashboardStats] Fetch Error:', error);
+      throw new Error(
+        'Failed to fetch staff dashboard stats. Please check the console for details.'
+      );
+    }
+  };
 
-      return response.json();
-    },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000, // 10 minutes
-    refetchOnWindowFocus: false,
-    retry: 2
+  return useQuery({
+    queryKey: staffKeys.dashboardStats(filters),
+    queryFn,
+    enabled: !authLoading && !!profile
   });
 }

@@ -1,8 +1,8 @@
-// app/(routes)/staff/page.tsx
+// app/(routes)/staff/list/page.tsx
 
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,104 +21,97 @@ import { StaffFilters } from './_components/staff-filters';
 import { StaffList } from './_components/staff-list';
 import DownloadStaffTemplateButton from './_components/download-staff-template';
 import BulkUploadStaff from './_components/bulk-upload-staff';
-import ExportStaff from './_components/export-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Users, AlertCircle, RefreshCw } from 'lucide-react';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
+import { StaffFilters as StaffFiltersType } from '@/types/staff';
+import { usePermissions } from '@/hooks/use-permissions';
+import { Plus, Users, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default function StaffPage() {
-  const [paginationLoading, setPaginationLoading] = useState(false);
-
-  // Initialize the staff hook with stable initial filters
-  const initialFilters = useMemo(() => ({}), []);
-
   const {
-    staff,
-    loading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    fetchStaff,
-    updateLimit,
-    canViewStaff,
-    canCreateStaff,
-    canEditStaff,
-    authLoading,
-    permissionsLoading
-  } = useStaff(initialFilters);
+    canAccess,
+    isSuperAdmin,
+    isLoading: permissionsLoading
+  } = usePermissions();
 
-  // Handle page change with loading state
-  const handlePageChange = async (page: number) => {
-    setPaginationLoading(true);
-    try {
-      await changePage(page);
-    } finally {
-      setPaginationLoading(false);
-    }
-  };
+  // Simple filter state like student module
+  const [filters, setFilters] = useState<StaffFiltersType>({
+    search: '',
+    category_id: '',
+    institution_id: '',
+    degree_id: '',
+    department_id: '',
+    isActive: undefined,
+    page: 1,
+    limit: 10
+  });
 
-  // Handle page size change
-  const handlePageSizeChange = async (pageSize: number) => {
-    setPaginationLoading(true);
-    try {
-      await updateLimit(pageSize);
-    } finally {
-      setPaginationLoading(false);
-    }
-  };
+  // Use the simplified staff hook
+  const {
+    data: staffData,
+    isLoading,
+    refetch,
+    isError,
+    error
+  } = useStaff(filters);
+
+  // Permission checks
+  const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
+  const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
+  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+  const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
+
+  // Simple filter change handler like student module
+  const handleFilterChange = useCallback(
+    (newFilters: Partial<StaffFiltersType>) => {
+      setFilters((prev) => ({
+        ...prev,
+        ...newFilters,
+        page: 1 // Reset to first page when filters change
+      }));
+    },
+    []
+  );
+
+  // Simple page change handler
+  const handlePageChange = useCallback((page: number) => {
+    setFilters((prev) => ({ ...prev, page }));
+  }, []);
+
+  // Simple page size change handler
+  const handlePageSizeChange = useCallback((pageSize: number) => {
+    setFilters((prev) => ({ ...prev, limit: pageSize, page: 1 }));
+  }, []);
 
   // Handle refresh
-  const handleRefresh = async () => {
-    try {
-      await fetchStaff();
-    } catch (err) {
-      console.error('Error refreshing staff data:', err);
-    }
-  };
+  const handleRefresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
 
-  // Add debugging for refresh issues
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('StaffPage render:', {
-        permissionsLoading,
-        loading,
-        staffCount: staff?.length,
-        error,
-        canViewStaff
-      });
-    }
-  }, [permissionsLoading, loading, staff?.length, error, canViewStaff]);
-
-  // Show loading state while permissions are being determined
-  if (authLoading || permissionsLoading) {
+  // Show loading while permissions are loading
+  if (permissionsLoading) {
     return (
-      <ContentLayout title='Staff List'>
+      <ContentLayout title='Staff'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <div className='text-center'>
-            <BeatLoader color='#00e902' />
-            <p className='mt-4 text-sm text-muted-foreground'>
-              Loading permissions...
-            </p>
+            <BeatLoader className='text-primary' size={8} />
           </div>
         </div>
       </ContentLayout>
     );
   }
 
-  // Show access denied if user doesn't have permissions
   if (!canViewStaff) {
     return (
-      <ContentLayout title='Staff List'>
+      <ContentLayout title='Staff'>
         <div className='p-4'>
           <Alert variant='destructive'>
             <AlertCircle className='h-4 w-4' />
             <AlertTitle>Access Denied</AlertTitle>
             <AlertDescription>
-              You don&apos;t have permission to view the staff list.
+              You don&apos;t have permission to view staff data.
             </AlertDescription>
           </Alert>
         </div>
@@ -126,37 +119,23 @@ export default function StaffPage() {
     );
   }
 
-  // Show error state with better error handling
-  if (error) {
-    console.error('[StaffPage] Render Error:', error);
+  if (isError) {
     return (
-      <ContentLayout title='Staff List'>
+      <ContentLayout title='Staff'>
         <div className='p-4'>
           <Alert variant='destructive'>
             <AlertCircle className='h-4 w-4' />
             <AlertTitle>Error Loading Staff</AlertTitle>
             <AlertDescription>
-              <div className='space-y-2'>
-                <p>{error || 'An unexpected error occurred.'}</p>
-                {error?.includes('54001') && (
-                  <p className='text-sm'>
-                    This appears to be a database configuration issue. Please
-                    contact support.
-                  </p>
-                )}
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={handleRefresh}
-                  className='mt-4'
-                  disabled={loading}
-                >
-                  <RefreshCw
-                    className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`}
-                  />
-                  Try Again
-                </Button>
-              </div>
+              {error?.message || 'An unexpected error occurred.'}
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={handleRefresh}
+                className='mt-4'
+              >
+                Try Again
+              </Button>
             </AlertDescription>
           </Alert>
         </div>
@@ -165,107 +144,103 @@ export default function StaffPage() {
   }
 
   return (
-    <ContentLayout title='Staff List'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Staff List</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    <ContentLayout title='Staff'>
+      <div className='space-y-6'>
+        {/* Breadcrumb */}
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/dashboard'>Dashboard</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Staff</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
 
-      <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 justify-between items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Staff List</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage staff members
-            </p>
-          </div>
-
-          {/* Additional Tools Row */}
-          <div className='flex flex-col sm:flex-row gap-2 sm:items-end w-full'>
-            {canEditStaff && <DownloadStaffTemplateButton />}
-            {canViewStaff && <ExportStaff />}
-            {canCreateStaff && <CreateMissingProfilesButton />}
-            {canEditStaff && <BulkUploadStaff />}
-            {canEditStaff && <BulkUploadStaffImages />}
-          </div>
-        </div>
-
+        {/* Main Content */}
         <Card>
           <CardContent className='p-6'>
-            <StaffFilters filters={filters} onFilterChange={updateFilters} />
+            {/* Header */}
+            <div className='flex items-center justify-between mb-6'>
+              <div className='flex items-center gap-3'>
+                <div className='p-2 bg-primary/10 rounded-lg'>
+                  <Users className='h-6 w-6 text-primary' />
+                </div>
+                <div>
+                  <h1 className='text-2xl font-semibold'>Staff Management</h1>
+                  <p className='text-muted-foreground'>
+                    Manage staff members and their information
+                  </p>
+                </div>
+              </div>
+            </div>
 
-            {/* Filter-based count display */}
-            <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
-              <div className='flex items-center gap-2'>
-                <div className='flex items-center gap-1'>
+            {/* Action Buttons */}
+            <div className='flex flex-wrap items-center gap-2 mb-6'>
+              <DownloadStaffTemplateButton />
+              <BulkUploadStaff />
+              <CreateMissingProfilesButton />
+              <BulkUploadStaffImages />
+            </div>
+
+            {/* Stats */}
+            {!isLoading && staffData && (
+              <div className='flex items-center gap-4 mb-6 p-4 bg-muted/50 rounded-lg'>
+                <div className='flex items-center gap-2'>
                   <Users className='h-4 w-4 text-muted-foreground' />
                   <span className='text-sm font-medium'>
-                    {loading ? (
-                      <span className='flex items-center gap-2'>
-                        <BeatLoader size={8} color='#00e902' />
-                        Loading...
-                      </span>
-                    ) : (
-                      <>
-                        Showing {staff?.length || 0} of{' '}
-                        <span className='font-semibold text-primary'>
-                          {metadata.total || 0}
-                        </span>{' '}
-                        staff member{metadata.total !== 1 ? 's' : ''}
-                        {metadata.total > 0 && (
-                          <span className='text-muted-foreground'>
-                            {' '}
-                            (Page {metadata.page} of {metadata.totalPages})
-                          </span>
-                        )}
-                      </>
-                    )}
+                    Total: {staffData.metadata?.total || 0} staff members
                   </span>
                 </div>
-                {!loading && metadata.total > 0 && (
-                  <Badge variant='secondary' className='ml-2'>
-                    {(
-                      ((staff?.length || 0) / (metadata.total || 1)) *
-                      100
-                    ).toFixed(1)}
-                    % of total
+                {staffData.metadata && staffData.metadata.total > 0 && (
+                  <Badge variant='secondary'>
+                    Page {staffData.metadata.page} of{' '}
+                    {staffData.metadata.totalPages}
                   </Badge>
                 )}
               </div>
-              {!loading && metadata.total === 0 && (
-                <div className='text-sm text-muted-foreground'>
-                  No staff members found matching the current filters
-                </div>
-              )}
-            </div>
+            )}
 
-            {loading && !paginationLoading ? (
-              <div className='flex justify-center items-center p-8'>
+            {/* Loading State */}
+            {isLoading && (
+              <div className='flex items-center justify-center py-12'>
                 <div className='text-center'>
-                  <BeatLoader color='#00e902' />
-                  <p className='mt-4 text-sm text-muted-foreground'>
+                  <BeatLoader color='#2563eb' size={8} />
+                  <p className='text-sm text-muted-foreground mt-2'>
                     Loading staff data...
                   </p>
                 </div>
               </div>
-            ) : (
+            )}
+
+            {/* Filters */}
+            {!isLoading && (
+              <StaffFilters
+                filters={filters}
+                onFilterChange={handleFilterChange}
+              />
+            )}
+
+            {/* Staff List */}
+            {!isLoading && staffData && (
               <StaffList
-                staff={staff}
-                metadata={metadata}
+                staff={staffData.data || []}
+                metadata={
+                  staffData.metadata || {
+                    total: 0,
+                    page: 1,
+                    limit: 10,
+                    totalPages: 0
+                  }
+                }
                 onPageChange={handlePageChange}
                 onPageSizeChange={handlePageSizeChange}
                 onRefresh={handleRefresh}
                 canEdit={canEditStaff}
-                paginationLoading={paginationLoading}
               />
             )}
           </CardContent>

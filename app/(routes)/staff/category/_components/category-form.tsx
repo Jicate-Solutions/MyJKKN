@@ -21,7 +21,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
-import { CategoryService } from '@/lib/services/staff/category-service';
+import {
+  useCreateCategory,
+  useUpdateCategory
+} from '@/hooks/staff/use-categories';
 
 const categorySchema = z.object({
   category_name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -38,7 +41,10 @@ interface CategoryFormProps {
 
 export function CategoryForm({ category, isEditing }: CategoryFormProps) {
   const router = useRouter();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Use React Query mutations
+  const createCategory = useCreateCategory();
+  const updateCategory = useUpdateCategory(category?.id || '');
 
   const form = useForm<FormValues>({
     resolver: zodResolver(categorySchema),
@@ -51,27 +57,24 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      setIsSubmitting(true);
-
       if (isEditing && category) {
-        await CategoryService.updateCategory(category.id, values);
+        await updateCategory.mutateAsync(values);
         toast.success('Category updated successfully');
       } else {
-        await CategoryService.createCategory(values);
+        await createCategory.mutateAsync(values);
         toast.success('Category created successfully');
       }
 
       router.push('/staff/category');
-      router.refresh();
     } catch (error) {
       console.error('Form submission error:', error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to save category'
       );
-    } finally {
-      setIsSubmitting(false);
     }
   };
+
+  const isSubmitting = createCategory.isPending || updateCategory.isPending;
 
   return (
     <Form {...form}>
