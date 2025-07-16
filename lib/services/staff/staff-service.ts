@@ -61,7 +61,6 @@ interface CreateStaffDto {
   institution_email: string;
   category_id: string;
   institution_id: string;
-  degree_id: string;
   department_id: string;
   is_active: boolean;
 }
@@ -375,11 +374,6 @@ export class StaffService {
             name,
             counselling_code
           ),
-          degree:degrees(
-            id,
-            degree_id,
-            degree_name
-          ),
           department:departments(
             id,
             department_name
@@ -401,10 +395,6 @@ export class StaffService {
 
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
-      }
-
-      if (filters.degree_id) {
-        query = query.eq('degree_id', filters.degree_id);
       }
 
       if (filters.department_id) {
@@ -457,11 +447,6 @@ export class StaffService {
             id,
             name,
             counselling_code
-          ),
-          degree:degrees(
-            id,
-            degree_id,
-            degree_name
           ),
           department:departments(
             id,
