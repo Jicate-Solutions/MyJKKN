@@ -76,7 +76,6 @@ export interface Staff {
   // Foreign keys
   category_id: string;
   institution_id: string;
-  degree_id: string;
   department_id: string;
 
   // Related data
@@ -85,11 +84,6 @@ export interface Staff {
     id: string;
     name: string;
     counselling_code: string;
-  };
-  degree?: {
-    id: string;
-    degree_id: string;
-    degree_name: string;
   };
   department?: {
     id: string;
@@ -123,7 +117,6 @@ export interface CreateStaffDto {
   designation: string;
   category_id: string;
   institution_id: string;
-  degree_id: string;
   institution_email: string;
   department_id: string;
   is_active?: boolean;
@@ -135,7 +128,6 @@ export interface StaffFilters {
   search?: string;
   category_id?: string;
   institution_id?: string;
-  degree_id?: string;
   institution_email?: string;
   department_id?: string;
   isActive?: boolean;
@@ -161,7 +153,6 @@ export interface StaffDashboardFilters {
     to: Date | undefined;
   };
   institutionId?: string;
-  degreeId?: string;
   departmentId?: string;
   categoryId?: string;
   status?: string[];

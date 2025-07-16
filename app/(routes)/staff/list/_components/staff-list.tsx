@@ -209,14 +209,7 @@ export function StaffList({
           return staff.institution?.name || '-';
         }
       },
-      {
-        id: 'degree',
-        header: 'Degree',
-        cell: ({ row }) => {
-          const staff = row.original;
-          return staff.degree?.degree_name || '-';
-        }
-      },
+
       {
         id: 'department',
         header: 'Department',
