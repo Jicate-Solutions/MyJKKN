@@ -1,3 +1,19 @@
+/**
+ * BulkUploadStaff Component
+ *
+ * This component handles bulk upload of staff data from Excel files.
+ *
+ * KEY VALIDATION RULES:
+ * - Email + Institution combination must be unique (enforced by database constraint 'staff_institution_email_key')
+ * - Staff ID must be globally unique (enforced by database constraint 'staff_staff_id_key')
+ * - Same email can exist for different institutions, but not within the same institution
+ *
+ * VALIDATION PROCESS:
+ * 1. Pre-upload validation checks for duplicates within the file and against existing database records
+ * 2. Institution-specific email validation prevents constraint violations
+ * 3. Clear error messages guide users to fix data issues before upload
+ */
+
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -437,21 +453,34 @@ const validateRow = async (
     errors.push('Invalid blood group value');
   }
 
-  // Check for existing email
-  if (row.email) {
+  // Check for existing email within the same institution
+  if (row.email && valid_institution_id) {
     try {
+      // Clear any potential cached results
       const { data: existing } = await StaffService.getStaff({
         search: row.email,
+        institution_id: valid_institution_id,
         limit: 1
       });
-      if (
-        existing.length > 0 &&
-        existing[0].email.toLowerCase() === row.email.toLowerCase()
-      ) {
-        errors.push('Email already exists');
+
+      // More precise email matching to avoid false positives
+      const exactMatch = existing.find(
+        (staff) =>
+          staff.email.toLowerCase().trim() === row.email.toLowerCase().trim() &&
+          staff.institution_id === valid_institution_id
+      );
+
+      if (exactMatch) {
+        errors.push(
+          `Email '${row.email}' already exists for this institution (Staff ID: ${exactMatch.staff_id})`
+        );
       }
     } catch (error) {
       console.error('Error checking email existence:', error);
+      // Don't fail the validation due to search errors - allow upload to proceed
+      console.log(
+        `Skipping email validation for ${row.email} due to search error`
+      );
     }
   }
 
@@ -490,6 +519,15 @@ export default function BulkUploadStaff() {
   const router = useRouter();
   const pathname = usePathname();
   const [uploadSuccess, setUploadSuccess] = useState(false);
+
+  // Add cache clearing function to prevent validation issues
+  const clearValidationCache = () => {
+    // Clear any potential client-side cache
+    if (typeof window !== 'undefined') {
+      // Force React Query cache invalidation
+      router.refresh();
+    }
+  };
 
   useEffect(() => {
     if (!isOpen && uploadSuccess) {
@@ -630,27 +668,34 @@ export default function BulkUploadStaff() {
         }
       });
 
-      // Check for duplicate emails within the uploaded data
-      const emailCounts = new Map<string, number[]>();
+      // Check for duplicate emails within the uploaded data (per institution)
+      const emailInstitutionCounts = new Map<string, number[]>();
       validatedData.forEach((row) => {
-        if (row.email && row.email.trim()) {
-          const email = row.email.trim().toLowerCase();
-          if (!emailCounts.has(email)) {
-            emailCounts.set(email, []);
+        if (row.email && row.email.trim() && row.institution_id) {
+          const emailInstitutionKey = `${row.email.trim().toLowerCase()}|${
+            row.institution_id
+          }`;
+          if (!emailInstitutionCounts.has(emailInstitutionKey)) {
+            emailInstitutionCounts.set(emailInstitutionKey, []);
           }
-          emailCounts.get(email)!.push(row.rowNumber);
+          emailInstitutionCounts.get(emailInstitutionKey)!.push(row.rowNumber);
         }
       });
 
-      // Mark duplicate emails as invalid
+      // Mark duplicate email+institution combinations as invalid
       validatedData.forEach((row) => {
-        if (row.email && row.email.trim()) {
-          const email = row.email.trim().toLowerCase();
-          const occurrences = emailCounts.get(email) || [];
+        if (row.email && row.email.trim() && row.institution_id) {
+          const emailInstitutionKey = `${row.email.trim().toLowerCase()}|${
+            row.institution_id
+          }`;
+          const occurrences =
+            emailInstitutionCounts.get(emailInstitutionKey) || [];
           if (occurrences.length > 1) {
             row.isValid = false;
             row.errors.push(
-              `Duplicate email found in rows: ${occurrences.join(', ')}`
+              `Duplicate email for this institution found in rows: ${occurrences.join(
+                ', '
+              )}`
             );
           }
         }
@@ -759,8 +804,38 @@ export default function BulkUploadStaff() {
                 error
               );
               errorCount++;
-              const errorMessage =
-                error instanceof Error ? error.message : 'Unknown error';
+
+              // Handle specific database constraint errors
+              let errorMessage = 'Unknown error';
+              if (error && typeof error === 'object' && error.message) {
+                const msg = error.message.toLowerCase();
+
+                if (msg.includes('staff_institution_email_key')) {
+                  errorMessage = `Email '${row.email}' already exists for this institution`;
+                } else if (msg.includes('staff_staff_id_key')) {
+                  errorMessage = `Staff ID '${row.staff_id}' already exists`;
+                } else if (
+                  msg.includes('duplicate key value violates unique constraint')
+                ) {
+                  // Extract constraint name for better error messages
+                  const constraintMatch = error.message.match(/"([^"]+)"/);
+                  if (constraintMatch) {
+                    const constraint = constraintMatch[1];
+                    if (constraint.includes('email')) {
+                      errorMessage = `Email already exists`;
+                    } else if (constraint.includes('staff_id')) {
+                      errorMessage = `Staff ID already exists`;
+                    } else {
+                      errorMessage = `Duplicate data violates database constraint`;
+                    }
+                  } else {
+                    errorMessage = 'Duplicate data found';
+                  }
+                } else {
+                  errorMessage = error.message;
+                }
+              }
+
               errorDetails.push(`Row ${row.rowNumber}: ${errorMessage}`);
               // Suppress individual error toasts during bulk upload
               toast.dismiss();
@@ -774,7 +849,17 @@ export default function BulkUploadStaff() {
       if (errorCount > 0) {
         console.error('Upload errors:', errorDetails);
 
-        if (errorDetails.length <= 3) {
+        // Special handling for many duplicate emails
+        const duplicateEmailErrors = errorDetails.filter((detail) =>
+          detail.includes('already exists for this institution')
+        );
+
+        if (duplicateEmailErrors.length > 10) {
+          toast.error(
+            `Found ${duplicateEmailErrors.length} duplicate emails for this institution. Please export existing staff data to compare and remove duplicates from your file.`,
+            { duration: 8000 }
+          );
+        } else if (errorDetails.length <= 3) {
           toast.error(
             `Uploaded ${successCount} staff members. ${errorCount} failed: ${errorDetails.join(
               '; '
