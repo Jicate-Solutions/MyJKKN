@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -23,25 +23,33 @@ import BulkUploadCategories from './_components/bulk-upload-categories';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
+import { CategoryFilters as CategoryFiltersType } from '@/types/staff';
 
 export default function CategoriesPage() {
-  const {
-    categories,
-    loading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    fetchCategories
-  } = useCategories();
-
   const {
     canAccess,
     isSuperAdmin,
     isLoading: permissionsLoading
   } = usePermissions();
 
+  // Simple filter state like staff/student modules
+  const [filters, setFilters] = useState<CategoryFiltersType>({
+    search: '',
+    isActive: undefined,
+    page: 1,
+    limit: 10
+  });
+
+  // Use the simplified category hook
+  const {
+    data: categoriesData,
+    isLoading,
+    refetch,
+    isError,
+    error
+  } = useCategories(filters);
+
+  // Permission checks
   const canViewCategories =
     isSuperAdmin || canAccess('staff.categories', 'view');
   const canCreateCategories =
@@ -51,33 +59,63 @@ export default function CategoriesPage() {
   const canDeleteCategories =
     isSuperAdmin || canAccess('staff.categories', 'delete');
 
+  // Simple filter change handler like staff/student modules
+  const handleFilterChange = useCallback(
+    (newFilters: Partial<CategoryFiltersType>) => {
+      setFilters((prev) => ({
+        ...prev,
+        ...newFilters,
+        page: 1 // Reset to first page when filters change
+      }));
+    },
+    []
+  );
+
+  // Simple page change handler
+  const handlePageChange = useCallback((page: number) => {
+    setFilters((prev) => ({ ...prev, page }));
+  }, []);
+
+  // Simple page size change handler
+  const handlePageSizeChange = useCallback((pageSize: number) => {
+    setFilters((prev) => ({ ...prev, limit: pageSize, page: 1 }));
+  }, []);
+
+  // Handle refresh
+  const handleRefresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+
+  // Show loading while permissions are loading
   if (permissionsLoading) {
     return (
       <ContentLayout title='Staff Categories'>
         <div className='flex items-center justify-center min-h-[400px]'>
-          <BeatLoader color='#00e902' />
+          <div className='text-center'>
+            <BeatLoader className='text-primary' size={8} />
+          </div>
         </div>
       </ContentLayout>
     );
   }
 
-  if (!permissionsLoading && !canViewCategories) {
+  if (!canViewCategories) {
     return (
       <ContentLayout title='Staff Categories'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>
-            You don&apos;t have permission to view staff categories
-          </p>
-          <Button variant='outline' asChild className='mt-4'>
-            <Link href='/'>Go to Dashboard</Link>
-          </Button>
+        <div className='p-4'>
+          <Alert variant='destructive'>
+            <AlertCircle className='h-4 w-4' />
+            <AlertTitle>Access Denied</AlertTitle>
+            <AlertDescription>
+              You don&apos;t have permission to view staff categories.
+            </AlertDescription>
+          </Alert>
         </div>
       </ContentLayout>
     );
   }
 
-  if (error) {
-    console.error('[CategoriesPage] Render Error:', error);
+  if (isError) {
     return (
       <ContentLayout title='Staff Categories'>
         <div className='p-4'>
@@ -85,11 +123,11 @@ export default function CategoriesPage() {
             <AlertCircle className='h-4 w-4' />
             <AlertTitle>Error Loading Categories</AlertTitle>
             <AlertDescription>
-              {error || 'An unexpected error occurred.'}
+              {error?.message || 'An unexpected error occurred.'}
               <Button
                 variant='outline'
                 size='sm'
-                onClick={() => fetchCategories()}
+                onClick={handleRefresh}
                 className='mt-4'
               >
                 Try Again
@@ -107,7 +145,7 @@ export default function CategoriesPage() {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
+              <Link href='/dashboard'>Dashboard</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -156,18 +194,38 @@ export default function CategoriesPage() {
 
         <Card>
           <CardContent className='p-6'>
-            <CategoryFilters filters={filters} onFilterChange={updateFilters} />
-
-            {loading ? (
+            {/* Loading State */}
+            {isLoading && (
               <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
+                <div className='text-center'>
+                  <BeatLoader className='text-lime-500' size={8} />
+                </div>
               </div>
-            ) : (
+            )}
+
+            {/* Filters */}
+            {!isLoading && (
+              <CategoryFilters
+                filters={filters}
+                onFilterChange={handleFilterChange}
+              />
+            )}
+
+            {/* Category List */}
+            {!isLoading && categoriesData && (
               <CategoryList
-                categories={categories}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchCategories}
+                categories={categoriesData.data || []}
+                metadata={
+                  categoriesData.metadata || {
+                    total: 0,
+                    page: 1,
+                    limit: 10,
+                    totalPages: 0
+                  }
+                }
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+                onRefresh={handleRefresh}
                 canEdit={canEditCategories}
                 canDelete={canDeleteCategories}
               />

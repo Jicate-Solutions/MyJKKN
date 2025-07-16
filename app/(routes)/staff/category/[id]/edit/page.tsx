@@ -8,7 +8,6 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { CategoryForm } from '../../_components/category-form';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import type { EmploymentCategory } from '@/types/staff';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -17,7 +16,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { CategoryService } from '@/lib/services/staff/category-service';
+import { useCategory } from '@/hooks/staff/use-categories';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
 
@@ -28,75 +27,57 @@ interface EditCategoryPageProps {
 export default function EditCategoryPage({ params }: EditCategoryPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [category, setCategory] = useState<EmploymentCategory | null>(null);
-  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
-  const {
-    canAccess,
-    isSuperAdmin,
-    isLoading: permissionsLoading
-  } = usePermissions([], { waitForLoad: true });
+  const { canAccess, isSuperAdmin } = usePermissions();
 
-  // Track when permissions are loaded
+  // Use the new React Query hook
+  const { data: category, isLoading, isError, error } = useCategory(id);
+
+  // Permission checks
+  const canEditCategories =
+    isSuperAdmin || canAccess('staff.categories', 'edit');
+
   useEffect(() => {
-    if (!permissionsLoading) {
-      setPermissionsLoaded(true);
-      console.log('Edit Category permissions debug:', {
-        isSuperAdmin,
-        canEditCategories: canAccess('staff.categories', 'edit')
-      });
-    }
-  }, [permissionsLoading, isSuperAdmin, canAccess]);
-
-  // Fetch category data after permissions are loaded
-  useEffect(() => {
-    if (!permissionsLoaded) return;
-
-    const canEditCategories =
-      isSuperAdmin || canAccess('staff.categories', 'edit');
     if (!canEditCategories) {
-      console.log('User does not have permission to edit categories');
       router.push('/unauthorized');
-      return;
     }
+  }, [canEditCategories, router]);
 
-    async function fetchCategory() {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await CategoryService.getCategory(id);
-        setCategory(data);
-      } catch (err) {
-        console.error('Error fetching category:', err);
-        setError(
-          err instanceof Error ? err.message : 'Failed to fetch category'
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchCategory();
-  }, [id, permissionsLoaded, isSuperAdmin, canAccess, router]);
-
-  // Show loading when permissions or data are loading
-  if (permissionsLoading || (loading && permissionsLoaded)) {
+  if (!canEditCategories) {
     return (
       <ContentLayout title='Edit Category'>
-        <div className='flex items-center justify-center min-h-[400px]'>
-          <BeatLoader color='#00e902' className='mr-2' />
+        <div className='text-center py-8'>
+          <p className='text-destructive'>
+            You don&apos;t have permission to edit categories
+          </p>
+          <Button variant='outline' asChild className='mt-4'>
+            <Link href='/staff/category'>Back to Categories</Link>
+          </Button>
         </div>
       </ContentLayout>
     );
   }
 
-  if (error || !category) {
+  if (isLoading) {
+    return (
+      <ContentLayout title='Edit Category'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <div className='text-center'>
+            <BeatLoader color='#2563eb' size={8} />
+            <p className='text-sm text-muted-foreground mt-2'>
+              Loading category...
+            </p>
+          </div>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (isError || !category) {
     return (
       <ContentLayout title='Edit Category'>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
-            {error || 'Category not found'}
+            {error?.message || 'Category not found'}
           </p>
           <Button variant='outline' asChild>
             <Link href='/staff/category'>Back to Categories</Link>
@@ -112,7 +93,7 @@ export default function EditCategoryPage({ params }: EditCategoryPageProps) {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
+              <Link href='/dashboard'>Dashboard</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

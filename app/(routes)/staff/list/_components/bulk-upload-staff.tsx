@@ -494,9 +494,9 @@ export default function BulkUploadStaff() {
   useEffect(() => {
     if (!isOpen && uploadSuccess) {
       setUploadSuccess(false);
-      router.refresh();
+      // Remove router.refresh() - React Query will handle data refresh automatically
     }
-  }, [isOpen, uploadSuccess, router]);
+  }, [isOpen, uploadSuccess]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -716,7 +716,12 @@ export default function BulkUploadStaff() {
       for (const batch of batches) {
         const promises = batch.map((row) => {
           // Validate IDs one more time as a safeguard
-          if (!row.category_id || !row.institution_id || !row.department_id) {
+          if (
+            !row.category_id ||
+            !row.institution_id ||
+            !row.degree_id ||
+            !row.department_id
+          ) {
             errorCount++;
             errorDetails.push(`Row ${row.rowNumber}: Missing required IDs`);
             return Promise.resolve(); // Skip this row
@@ -743,6 +748,7 @@ export default function BulkUploadStaff() {
             designation: row.designation,
             category_id: row.category_id,
             institution_id: row.institution_id,
+            degree_id: row.degree_id,
             department_id: row.department_id,
             is_active: row.is_active === 'false' ? false : true
           };
@@ -793,14 +799,10 @@ export default function BulkUploadStaff() {
       if (successCount > 0) {
         setUploadSuccess(true);
 
-        // Force an immediate refresh before closing the dialog
-        router.refresh();
-
-        // Add a small delay before closing the dialog to ensure the refresh is triggered
-        setTimeout(() => {
-          setIsOpen(false);
-          clearFile();
-        }, 500);
+        // Close dialog immediately without router.refresh()
+        // The parent component will handle data refresh via React Query
+        setIsOpen(false);
+        clearFile();
       } else {
         setIsOpen(false);
         clearFile();
@@ -815,9 +817,7 @@ export default function BulkUploadStaff() {
 
   const handleDialogChange = (open: boolean) => {
     setIsOpen(open);
-    if (!open && uploadSuccess) {
-      router.refresh();
-    }
+    // Remove router.refresh() - React Query will handle data refresh automatically
   };
 
   return (
