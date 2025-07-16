@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -77,7 +77,8 @@ export function GeographicDistribution({
 
     return data.stateDistribution.map((item, index) => ({
       ...item,
-      fill: COLORS[index % COLORS.length]
+      fill: COLORS[index % COLORS.length],
+      uniqueKey: `state-${item.name}-${index}` // Ensure unique keys
     }));
   }, [data?.stateDistribution]);
 
@@ -86,7 +87,8 @@ export function GeographicDistribution({
 
     return data.districtDistribution.slice(0, 10).map((item, index) => ({
       ...item,
-      fill: COLORS[index % COLORS.length]
+      fill: COLORS[index % COLORS.length],
+      uniqueKey: `district-${item.name}-${index}` // Ensure unique keys
     }));
   }, [data?.districtDistribution]);
 
@@ -103,6 +105,19 @@ export function GeographicDistribution({
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
   }, [data?.districtDistribution]);
+
+  // Memoize the chart cell renderers to prevent recreation
+  const renderStateCells = useCallback(() => {
+    return stateChartData.map((entry, index) => (
+      <Cell key={`state-bar-${entry.uniqueKey}`} fill={entry.fill} />
+    ));
+  }, [stateChartData]);
+
+  const renderDistrictCells = useCallback(() => {
+    return districtChartData.map((entry, index) => (
+      <Cell key={`district-bar-${entry.uniqueKey}`} fill={entry.fill} />
+    ));
+  }, [districtChartData]);
 
   if (isLoading) {
     return (
@@ -195,12 +210,7 @@ export function GeographicDistribution({
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey='count' radius={[4, 4, 0, 0]}>
-                    {stateChartData.map((entry, index) => (
-                      <Cell
-                        key={`state-cell-${entry.name}-${index}`}
-                        fill={entry.fill}
-                      />
-                    ))}
+                    {renderStateCells()}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -231,12 +241,7 @@ export function GeographicDistribution({
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey='count' radius={[4, 4, 0, 0]}>
-                    {districtChartData.map((entry, index) => (
-                      <Cell
-                        key={`district-cell-${entry.name}-${index}`}
-                        fill={entry.fill}
-                      />
-                    ))}
+                    {renderDistrictCells()}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -254,7 +259,7 @@ export function GeographicDistribution({
                 <div className='space-y-3'>
                   {topStates.map((state, index) => (
                     <div
-                      key={state.name}
+                      key={`state-top-${state.name}-${index}`}
                       className='flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors'
                     >
                       <div className='flex items-center gap-3'>
@@ -288,7 +293,7 @@ export function GeographicDistribution({
                 <div className='space-y-3'>
                   {topDistricts.map((district, index) => (
                     <div
-                      key={district.name}
+                      key={`district-top-${district.name}-${index}`}
                       className='flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors'
                     >
                       <div className='flex items-center gap-3'>

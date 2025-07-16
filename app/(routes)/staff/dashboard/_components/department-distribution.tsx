@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -99,7 +99,8 @@ export function DepartmentDistribution({
 
     return data.map((item, index) => ({
       ...item,
-      fill: COLORS[index % COLORS.length]
+      fill: COLORS[index % COLORS.length],
+      uniqueKey: `department-${item.id}-${index}` // Ensure unique keys
     }));
   }, [data]);
 
@@ -107,6 +108,19 @@ export function DepartmentDistribution({
     if (!data) return [];
     return [...data].sort((a, b) => b.staffCount - a.staffCount).slice(0, 5);
   }, [data]);
+
+  // Memoize the chart cell renderers to prevent recreation
+  const renderBarCells = useCallback(() => {
+    return chartData.map((entry, index) => (
+      <Cell key={`bar-${entry.uniqueKey}`} fill={entry.fill} />
+    ));
+  }, [chartData]);
+
+  const renderPieCells = useCallback(() => {
+    return chartData.map((entry, index) => (
+      <Cell key={`pie-${entry.uniqueKey}`} fill={entry.fill} />
+    ));
+  }, [chartData]);
 
   if (isLoading) {
     return (
@@ -196,12 +210,7 @@ export function DepartmentDistribution({
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey='staffCount' radius={[4, 4, 0, 0]}>
-                    {chartData.map((entry, index) => (
-                      <Cell
-                        key={`dept-cell-${entry.id}-${index}`}
-                        fill={entry.fill}
-                      />
-                    ))}
+                    {renderBarCells()}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -221,12 +230,7 @@ export function DepartmentDistribution({
                     paddingAngle={2}
                     dataKey='staffCount'
                   >
-                    {chartData.map((entry, index) => (
-                      <Cell
-                        key={`dept-pie-${entry.id}-${index}`}
-                        fill={entry.fill}
-                      />
-                    ))}
+                    {renderPieCells()}
                   </Pie>
                   <Tooltip content={<CustomTooltip />} />
                   <Legend />
@@ -239,7 +243,7 @@ export function DepartmentDistribution({
             <div className='space-y-4'>
               {topDepartments.map((department, index) => (
                 <div
-                  key={department.id}
+                  key={`department-list-${department.id}`}
                   className='flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors'
                 >
                   <div className='flex items-center gap-3'>
