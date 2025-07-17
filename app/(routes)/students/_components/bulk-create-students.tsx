@@ -722,6 +722,13 @@ type DuplicateCheckResult = {
   existingStudentInfo?: string;
 };
 
+interface ValidationProgress {
+  current: number;
+  total: number;
+  currentRow: any;
+  percentage: number;
+}
+
 // Function to check for existing students using direct Supabase queries
 const checkForDuplicateStudent = async (
   studentData: NewStudentData
@@ -830,6 +837,13 @@ export function BulkCreateStudents() {
   );
   const [validRows, setValidRows] = useState<NewStudentData[]>([]); // Use NewStudentData type
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [validationProgress, setValidationProgress] =
+    useState<ValidationProgress>({
+      current: 0,
+      total: 0,
+      currentRow: null,
+      percentage: 0
+    });
   const [uploadResult, setUploadResult] = useState<{
     success: boolean;
     message: string;
@@ -852,6 +866,12 @@ export function BulkCreateStudents() {
     setValidationErrors([]);
     setValidRows([]);
     setUploadProgress(0);
+    setValidationProgress({
+      current: 0,
+      total: 0,
+      currentRow: null,
+      percentage: 0
+    });
     setUploadResult(null);
     if (!keepOpen) {
       setIsOpen(false);
@@ -864,6 +884,15 @@ export function BulkCreateStudents() {
       setValidationErrors([]);
       setValidRows([]);
       setUploadResult(null);
+
+      // Reset validation progress
+      setValidationProgress({
+        current: 0,
+        total: 0,
+        currentRow: null,
+        percentage: 0
+      });
+
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
@@ -908,6 +937,15 @@ export function BulkCreateStudents() {
             resetState(true);
             return;
           }
+
+          // Initialize validation progress
+          setValidationProgress({
+            current: 0,
+            total: parsedData.length,
+            currentRow: null,
+            percentage: 0
+          });
+
           const errors: ValidationError[] = [];
           const valid: NewStudentData[] = [];
           const duplicateErrors: ValidationError[] = [];
@@ -922,6 +960,14 @@ export function BulkCreateStudents() {
           // Process each row with validation and duplicate checking
           for (let index = 0; index < parsedData.length; index++) {
             const row = parsedData[index];
+
+            // Update validation progress
+            setValidationProgress({
+              current: index + 1,
+              total: parsedData.length,
+              currentRow: row,
+              percentage: Math.round(((index + 1) / parsedData.length) * 100)
+            });
 
             try {
               // Clean the row keys to remove asterisks and normalize data
@@ -1108,6 +1154,12 @@ export function BulkCreateStudents() {
           resetState(true);
         } finally {
           setIsValidating(false);
+          setValidationProgress({
+            current: 0,
+            total: 0,
+            currentRow: null,
+            percentage: 0
+          });
         }
       };
       reader.onerror = () => {
@@ -1614,11 +1666,49 @@ export function BulkCreateStudents() {
               <div className='flex-1 overflow-auto'>
                 {isValidating ? (
                   <div className='flex items-center justify-center h-64'>
-                    <div className='text-center space-y-4'>
+                    <div className='text-center space-y-4 w-full max-w-md px-4'>
                       <Loader2 className='h-8 w-8 animate-spin mx-auto text-primary' />
                       <p className='text-muted-foreground'>
-                        Validating data...
+                        Validating student data...
                       </p>
+
+                      {/* Validation Progress */}
+                      {validationProgress.total > 0 && (
+                        <div className='space-y-3 p-4 border rounded-lg bg-muted/50'>
+                          <div className='flex items-center justify-between text-sm'>
+                            <span className='font-medium'>
+                              Processing rows...
+                            </span>
+                            <span className='text-muted-foreground'>
+                              {validationProgress.current} /{' '}
+                              {validationProgress.total}
+                            </span>
+                          </div>
+
+                          <Progress
+                            value={validationProgress.percentage}
+                            className='h-2'
+                          />
+
+                          <div className='text-xs text-muted-foreground'>
+                            {validationProgress.percentage}% complete
+                          </div>
+
+                          {validationProgress.currentRow && (
+                            <div className='text-xs text-muted-foreground'>
+                              Currently validating:{' '}
+                              <span className='font-medium'>
+                                {validationProgress.currentRow.student_name ||
+                                  'Student'}
+                                {validationProgress.currentRow.roll_number &&
+                                  ` (${validationProgress.currentRow.roll_number})`}
+                                {validationProgress.currentRow.college_email &&
+                                  ` - ${validationProgress.currentRow.college_email}`}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : validRows.length === 0 && validationErrors.length === 0 ? (

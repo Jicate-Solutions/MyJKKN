@@ -125,14 +125,15 @@ export async function POST(request: Request) {
       userId = authCreationResponse.user.id;
     }
 
-    // Then check if email exists in profiles table just in case of inconsistency
-    const { data: profile, error: profileCheckError } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .eq('email', email)
-      .single();
+    // Check if email exists in profiles table
+    const { data: existingProfile, error: profileCheckError } =
+      await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle(); // Use maybeSingle to avoid error when no row is found
 
-    if (profile) {
+    if (existingProfile) {
       return NextResponse.json(
         {
           error: `User with email ${email} already exists in profiles.`,
@@ -281,15 +282,17 @@ export async function POST(request: Request) {
         );
       }
 
-      // Check for unique constraint violation (profile already exists)
+      // Check for unique constraint violation or custom profile exists error
       if (
-        rpcError.message.includes('unique constraint') &&
-        (rpcError.message.includes('profiles_pkey') ||
-          rpcError.message.includes('profiles_email_key'))
+        rpcError.message.includes('unique constraint') ||
+        rpcError.message.includes('Profile with email') ||
+        rpcError.code === '23505' || // unique_violation error code
+        rpcError.message.includes('profiles_pkey') ||
+        rpcError.message.includes('profiles_email_key')
       ) {
         return NextResponse.json(
           {
-            error: `A profile for email ${email} already exists.`,
+            error: `A user with this email address has already been registered`,
             details: rpcError.message
           },
           { status: 409 }
