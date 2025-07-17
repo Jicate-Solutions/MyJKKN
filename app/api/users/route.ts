@@ -84,23 +84,45 @@ export async function POST(request: Request) {
       );
     }
 
+    // Handle existing vs new auth users
+    let userId: string;
+    let existingAuthUser = false;
+
     // First check if email exists in auth
     const {
-      data: { users: authUsers }
+      data: { users: existingAuthUsers }
     } = await supabaseAdmin.auth.admin.listUsers();
-    const authUser = authUsers.find((user) => user.email === email);
+    const foundAuthUser = existingAuthUsers.find(
+      (user) => user.email === email
+    );
 
-    if (authUser) {
-      // If auth user exists, we should not proceed.
-      // The email is already taken in the auth system.
-      // The client-side validation should prevent this, but this is a server-side guard.
-      return NextResponse.json(
-        {
-          error: `User with email ${email} already exists in the authentication system.`,
-          details: 'An authentication user with this email already exists.'
-        },
-        { status: 409 }
+    if (foundAuthUser) {
+      console.log(
+        `Auth user with email ${email} already exists. Using existing user ID.`
       );
+      userId = foundAuthUser.id;
+      existingAuthUser = true;
+    } else {
+      // Only create a new auth user if one doesn't already exist
+      const { data: authCreationResponse, error: authCreationError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            full_name,
+            role
+          }
+        });
+
+      if (authCreationError) {
+        // If there's an error here, it's a real problem
+        return NextResponse.json(
+          { error: authCreationError.message },
+          { status: 500 }
+        );
+      }
+      userId = authCreationResponse.user.id;
     }
 
     // Then check if email exists in profiles table just in case of inconsistency
@@ -225,71 +247,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Prepare user creation data
-    const userToCreate = {
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        full_name,
-        role
-      }
-    };
-
-    let userId: string;
-    let existingAuthUser = false;
-
-    // Attempt to create the user in auth
-    const { data: authCreationResponse, error: authCreationError } =
-      await supabaseAdmin.auth.admin.createUser(userToCreate);
-
-    if (authCreationError) {
-      // If the error is that the user already exists, we can recover
-      if (
-        authCreationError.message.includes(
-          'duplicate key value violates unique constraint'
-        ) ||
-        authCreationError.message.includes('already registered')
-      ) {
-        existingAuthUser = true;
-
-        // Find the existing user by email
-        const {
-          data: { users },
-          error: listError
-        } = await supabaseAdmin.auth.admin.listUsers();
-
-        if (listError || !users || users.length === 0) {
-          return NextResponse.json(
-            { error: 'User exists in auth, but could not be retrieved.' },
-            { status: 500 }
-          );
-        }
-
-        const targetUser = users.find((u) => u.email === email);
-        if (!targetUser) {
-          return NextResponse.json(
-            {
-              error:
-                'Could not resolve existing user. Please try again or contact support.'
-            },
-            { status: 500 }
-          );
-        }
-
-        userId = targetUser.id;
-      } else {
-        // For any other auth error, we should fail
-        return NextResponse.json(
-          { error: authCreationError.message },
-          { status: 500 }
-        );
-      }
-    } else {
-      userId = authCreationResponse.user.id;
-    }
-
-    // Now, call the RPC function to create the profile, which will handle its own checks
+    // Now, call the RPC function to create the profile
     const { data: profileData, error: rpcError } = await supabaseAdmin.rpc(
       'create_user_profile',
       {
@@ -303,39 +261,38 @@ export async function POST(request: Request) {
     );
 
     if (rpcError) {
-      console.error('Profile creation error:', rpcError);
-
+      console.error('Error creating profile via RPC:', rpcError);
       // If the profile creation fails, we need to clean up the auth user we might have just created
       if (!existingAuthUser && userId) {
-        console.log(
-          'Cleaning up created auth user due to profile creation failure'
-        );
         await supabaseAdmin.auth.admin.deleteUser(userId);
       }
 
-      // Check if it's a duplicate email error (profile already exists)
+      // Check for specific foreign key violation error (institution_id)
       if (
-        rpcError.code === '23505' &&
-        rpcError.message.includes('profiles_email_key')
+        rpcError.message.includes('foreign key constraint') &&
+        rpcError.message.includes('profiles_institution_id_fkey')
       ) {
         return NextResponse.json(
           {
-            error: `A user with email ${email} already exists.`,
-            details: 'A profile with this email already exists in the system.'
+            error: 'Invalid institution ID provided.',
+            details: rpcError.message
           },
-          { status: 409 }
+          { status: 400 }
         );
       }
 
-      // For foreign key violations, provide more helpful error
-      if (rpcError.code === '23503') {
+      // Check for unique constraint violation (profile already exists)
+      if (
+        rpcError.message.includes('unique constraint') &&
+        (rpcError.message.includes('profiles_pkey') ||
+          rpcError.message.includes('profiles_email_key'))
+      ) {
         return NextResponse.json(
           {
-            error: 'Invalid reference data provided.',
-            details: rpcError.message,
-            hint: 'Please check that institution_id and other referenced IDs are valid.'
+            error: `A profile for email ${email} already exists.`,
+            details: rpcError.message
           },
-          { status: 400 }
+          { status: 409 }
         );
       }
 
@@ -346,13 +303,16 @@ export async function POST(request: Request) {
           code: rpcError.code,
           hint: rpcError.hint
         },
-        { status: 409 } // Conflict is a good status code here
+        { status: 500 } // Use 500 for other RPC errors
       );
     }
 
-    // Log the user creation activity
-    const actorName = currentUser?.full_name || 'Unknown';
-    const template = ActivityTemplates.userCreated(actorName, email, role);
+    // Log activity
+    const template = ActivityTemplates.userCreated(
+      currentUser?.full_name || 'Unknown',
+      email,
+      role
+    );
 
     await logActivity({
       userId: session.user.id,
@@ -373,9 +333,8 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({
-      success: true,
-      data: profileData,
-      message: 'User created successfully'
+      message: 'User and profile created successfully',
+      userId: userId
     });
   } catch (error) {
     console.error('Error in POST /api/users:', error);

@@ -147,6 +147,63 @@ export default function StudentOnboardingPage() {
     page: currentPage
   });
 
+  // Debug logging to diagnose the data fetching issue
+  useEffect(() => {
+    console.log('Student Onboarding Debug Info:', {
+      filters: { ...filters, page: currentPage },
+      isLoading,
+      isError,
+      error: error?.message,
+      dataCount: studentsData?.data?.length,
+      totalCount: studentsData?.metadata?.total,
+      canViewOnboarding,
+      isSuperAdmin
+    });
+  }, [
+    studentsData,
+    isLoading,
+    isError,
+    error,
+    filters,
+    currentPage,
+    canViewOnboarding,
+    isSuperAdmin
+  ]);
+
+  // Direct database check for debugging
+  useEffect(() => {
+    const checkDatabase = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('students')
+          .select(
+            'id, student_name, is_profile_complete, college_email, roll_number'
+          )
+          .eq('is_profile_complete', false)
+          .limit(5);
+
+        console.log('Direct DB Query - Incomplete Students:', {
+          data,
+          error,
+          count: data?.length
+        });
+
+        // Also check total count of all students
+        const { count } = await supabase
+          .from('students')
+          .select('*', { count: 'exact', head: true });
+
+        console.log('Total students in database:', count);
+      } catch (err) {
+        console.error('Direct DB check failed:', err);
+      }
+    };
+
+    if (canViewOnboarding) {
+      checkDatabase();
+    }
+  }, [supabase, canViewOnboarding]);
+
   // Load institutions on mount
   useEffect(() => {
     async function loadInstitutions() {
@@ -1205,6 +1262,33 @@ export default function StudentOnboardingPage() {
             )}
 
             {renderFilterChips()}
+
+            {/* Debug information */}
+            {isError && (
+              <Alert variant='destructive' className='mb-4'>
+                <AlertCircle className='h-4 w-4' />
+                <AlertTitle>Error Loading Students</AlertTitle>
+                <AlertDescription>
+                  Failed to load student data. Please check the console for
+                  details.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isLoading && (
+              <div className='flex items-center justify-center p-8'>
+                <Loader2 className='h-8 w-8 animate-spin' />
+                <span className='ml-2'>Loading students...</span>
+              </div>
+            )}
+
+            {!isLoading && !isError && (
+              <div className='mb-4 text-sm text-muted-foreground'>
+                {studentsData?.metadata?.total === 0
+                  ? 'No incomplete student profiles found.'
+                  : `Found ${studentsData?.metadata?.total} incomplete student profile(s)`}
+              </div>
+            )}
 
             {/* DataTable component replaces the custom table */}
             <DataTable

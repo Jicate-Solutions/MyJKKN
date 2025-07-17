@@ -948,11 +948,12 @@ export class StudentService {
       let userCreated = false;
       let userError: string | undefined = undefined;
 
-      // Auto-create user if college_email exists
-      if (student.college_email) {
+      // Only attempt user creation if profile is complete AND college_email exists
+      // This prevents trying to create users during bulk upload when profiles are incomplete
+      if (student.college_email && is_profile_complete) {
         try {
           console.log(
-            `Creating user account for student ${student.id} with email ${student.college_email}`
+            `Profile is complete. Creating user account for student ${student.id} with email ${student.college_email}`
           );
           const tempPassword = generateTemporaryPassword();
           const userPayload: CreateUserRequest = {
@@ -1019,6 +1020,11 @@ export class StudentService {
               ? apiError.message
               : 'Unknown error creating user';
         }
+      } else if (student.college_email && !is_profile_complete) {
+        console.log(
+          `Profile incomplete for student ${student.id}. User creation will be handled when profile is completed.`
+        );
+        userError = 'Profile incomplete - user creation deferred';
       } else {
         console.log('No college_email provided, skipping user creation');
       }

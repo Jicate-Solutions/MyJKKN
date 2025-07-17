@@ -123,7 +123,7 @@ export default function StudentsPage() {
     semester: '',
     section: '',
     academic_year: '',
-    is_profile_complete: true,
+    is_profile_complete: true, // Show only complete profiles in the main student list
     page: 1,
     limit: 10
   });
@@ -474,7 +474,7 @@ export default function StudentsPage() {
       status: undefined,
       created_from: undefined,
       created_to: undefined,
-      is_profile_complete: true,
+      is_profile_complete: undefined,
       page: 1,
       limit: 10
     });

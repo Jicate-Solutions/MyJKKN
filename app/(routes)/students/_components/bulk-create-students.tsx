@@ -34,7 +34,8 @@ import {
   Loader2,
   Upload,
   X,
-  XCircle
+  XCircle,
+  FileText
 } from 'lucide-react';
 import { useRouter } from 'next/navigation'; // Import useRouter
 import {
@@ -45,6 +46,7 @@ import {
 } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import { StudentService } from '@/lib/services/student/student-service';
+import { DownloadNewStudentTemplateButton } from './download-new-student-template-button';
 
 // Helper function to parse and normalize date formats
 const parseAndNormalizeDate = (dateString: string): string | null => {
@@ -1288,7 +1290,11 @@ export function BulkCreateStudents() {
                   message: result.userError
                 });
 
-                if (result.userCreated) {
+                // Only count as user created if actually created (not deferred)
+                if (
+                  result.userCreated &&
+                  !result.userError?.includes('Profile incomplete')
+                ) {
                   usersCreatedCount++;
                 }
               }
@@ -1322,7 +1328,17 @@ export function BulkCreateStudents() {
       // Prepare result message
       const successMessage = `Created ${createdCount} students successfully.`;
       const failureMessage = failedCount > 0 ? ` Failed: ${failedCount}.` : '';
-      const userMessage = ` ${usersCreatedCount} user accounts created.`;
+
+      // Count students with college_email for user creation messaging
+      const studentsWithEmail = validRows.filter(
+        (row) => row.college_email
+      ).length;
+      const userMessage =
+        usersCreatedCount > 0
+          ? ` ${usersCreatedCount} user accounts created immediately.`
+          : studentsWithEmail > 0
+          ? ` User accounts will be created automatically when profiles are completed.`
+          : '';
 
       // Set the upload result
       setUploadResult({
@@ -1336,7 +1352,13 @@ export function BulkCreateStudents() {
 
       // Show a single consolidated success/error toast
       if (createdCount > 0) {
-        toast.success(successMessage + userMessage);
+        const toastMessage =
+          usersCreatedCount > 0
+            ? `${successMessage} ${usersCreatedCount} user accounts created.`
+            : studentsWithEmail > 0
+            ? `${successMessage} User accounts will be created when profiles are completed.`
+            : successMessage;
+        toast.success(toastMessage);
       }
 
       if (failedCount > 0) {
@@ -1497,189 +1519,474 @@ export function BulkCreateStudents() {
           Bulk Create Students
         </Button>
       </DialogTrigger>
-      <DialogContent className='max-w-3xl max-h-[80vh] flex flex-col'>
-        <DialogHeader>
-          <DialogTitle>Bulk Create New Students</DialogTitle>
+      <DialogContent className='w-[95vw] max-w-6xl h-[90vh] flex flex-col p-0'>
+        <DialogHeader className='px-4 py-3 border-b bg-muted/50 rounded-t-lg'>
+          <DialogTitle className='text-lg sm:text-xl'>
+            Student Bulk Upload
+          </DialogTitle>
+          <p className='text-sm text-muted-foreground'>
+            Upload student data from Excel (.xlsx) or CSV (.csv) file
+          </p>
         </DialogHeader>
-        <div className='flex-1 overflow-y-auto pr-2 space-y-4'>
-          {!file && (
-            <div
-              {...getRootProps()}
-              className={`mt-4 p-6 border-2 border-dashed rounded-md text-center cursor-pointer hover:border-primary transition-colors ${
-                isDragActive ? 'border-primary bg-primary/10' : 'border-muted'
-              }`}
-            >
-              <input {...getInputProps()} />
-              <FileUp className='mx-auto h-10 w-10 text-muted-foreground mb-2' />
-              {isDragActive ? (
-                <p>Drop the file here ...</p>
-              ) : (
-                <p>Drag & drop CSV/Excel file here, or click to select</p>
-              )}
-              <p className='text-xs text-muted-foreground mt-1'>
-                Upload file with new student data.
-              </p>
-            </div>
-          )}
 
-          {file && (
-            <div className='space-y-2'>
-              <div className='flex items-center justify-between text-sm'>
-                <p className='font-medium'>Selected file: {file.name}</p>
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  onClick={() => resetState(true)}
-                  className='text-xs h-6'
-                >
-                  <X className='h-3 w-3 mr-1' /> Change File
-                </Button>
+        <div className='flex-1 overflow-hidden flex flex-col'>
+          {!file ? (
+            // File Upload Section
+            <div className='flex-1 flex items-center justify-center p-6'>
+              <div
+                {...getRootProps()}
+                className={`w-full max-w-md mx-auto p-8 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors ${
+                  isDragActive
+                    ? 'border-primary bg-primary/5'
+                    : 'border-muted-foreground/25 hover:border-primary/50'
+                }`}
+              >
+                <input {...getInputProps()} />
+                <div className='flex flex-col items-center space-y-4'>
+                  <div className='w-16 h-16 bg-muted rounded-full flex items-center justify-center'>
+                    <Upload className='h-8 w-8 text-muted-foreground' />
+                  </div>
+                  <div className='space-y-2'>
+                    <h3 className='text-lg font-medium'>
+                      {isDragActive
+                        ? 'Drop your file here'
+                        : 'Upload Student Data'}
+                    </h3>
+                    <p className='text-sm text-muted-foreground'>
+                      {isDragActive
+                        ? 'Release to upload'
+                        : 'Drag & drop or click to select Excel/CSV file'}
+                    </p>
+                  </div>
+                  <div className='text-xs text-muted-foreground space-y-1'>
+                    <p>Supported formats: .xlsx, .xls, .csv</p>
+                    <p>Maximum file size: 10MB</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            // File Preview Section with Enhanced Validation Display
+            <div className='flex-1 flex flex-col overflow-hidden'>
+              {/* File Info Header */}
+              <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b bg-muted/25'>
+                <div className='flex items-center space-x-3 min-w-0'>
+                  <FileText className='h-5 w-5 text-muted-foreground flex-shrink-0' />
+                  <div className='min-w-0'>
+                    <p className='text-sm font-medium truncate'>{file.name}</p>
+                    <p className='text-xs text-muted-foreground'>
+                      {validRows.length + validationErrors.length} row
+                      {validRows.length + validationErrors.length !== 1
+                        ? 's'
+                        : ''}{' '}
+                      found
+                      {(validRows.length > 0 ||
+                        validationErrors.length > 0) && (
+                        <>
+                          {' • '}
+                          <span className='text-green-600'>
+                            {validRows.length} valid
+                          </span>
+                          {' • '}
+                          <span className='text-red-600'>
+                            {validationErrors.length} invalid
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className='flex gap-2'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => resetState(true)}
+                    className='flex-shrink-0'
+                    disabled={isValidating || isUploading}
+                  >
+                    <X className='h-4 w-4 mr-2' />
+                    Clear File
+                  </Button>
+                </div>
               </div>
 
-              {isValidating && (
-                <div className='flex items-center space-x-2 text-sm text-muted-foreground'>
-                  <Loader2 className='h-4 w-4 animate-spin' />
-                  <span>Validating file and checking for duplicates...</span>
-                </div>
-              )}
-              {isUploading && (
-                <div className='space-y-1'>
-                  <p className='text-sm text-muted-foreground'>Uploading...</p>
-                  <Progress value={uploadProgress} className='w-full h-2' />
-                </div>
-              )}
-              {uploadResult && (
-                <Alert
-                  variant={uploadResult.success ? 'default' : 'destructive'}
-                >
-                  {uploadResult.success ? (
-                    <CheckCircle className='h-4 w-4' />
-                  ) : (
-                    <XCircle className='h-4 w-4' />
-                  )}
-                  <AlertTitle>
-                    {uploadResult.success ? 'Upload Complete' : 'Upload Failed'}
-                  </AlertTitle>
-                  <AlertDescription>
-                    {uploadResult.message}
-                    {uploadResult.created !== undefined && (
-                      <span className='ml-2 text-xs'>
-                        (Created: {uploadResult.created})
-                      </span>
-                    )}
-                    {uploadResult.failed !== undefined &&
-                      uploadResult.failed > 0 && (
-                        <span className='ml-2 text-xs'>
-                          (Failed: {uploadResult.failed})
-                        </span>
-                      )}
-                    {uploadResult.usersCreated !== undefined && (
-                      <span className='ml-2 text-xs'>
-                        (User Accounts: {uploadResult.usersCreated})
-                      </span>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
+              {/* Content Section */}
+              <div className='flex-1 overflow-auto'>
+                {isValidating ? (
+                  <div className='flex items-center justify-center h-64'>
+                    <div className='text-center space-y-4'>
+                      <Loader2 className='h-8 w-8 animate-spin mx-auto text-primary' />
+                      <p className='text-muted-foreground'>
+                        Validating data...
+                      </p>
+                    </div>
+                  </div>
+                ) : validRows.length === 0 && validationErrors.length === 0 ? (
+                  <div className='flex items-center justify-center h-32'>
+                    <p className='text-muted-foreground'>Processing file...</p>
+                  </div>
+                ) : (
+                  <div className='overflow-auto'>
+                    {/* Enhanced Validation Results Display */}
 
-              {/* Add user creation details */}
-              {getUserCreationSummary()}
-            </div>
-          )}
+                    {/* Mobile View - Card Layout */}
+                    <div className='block md:hidden space-y-3 p-4'>
+                      {/* Valid Rows */}
+                      {validRows.map((row, index) => (
+                        <div
+                          key={`valid-${index}`}
+                          className='border border-green-200 bg-green-50 rounded-lg p-4 space-y-3'
+                        >
+                          <div className='flex items-center justify-between'>
+                            <span className='text-sm font-medium'>
+                              Row {index + 2} {/* Assuming header row */}
+                            </span>
+                            <Badge variant='default' className='bg-green-600'>
+                              Valid
+                            </Badge>
+                          </div>
+                          <div className='grid grid-cols-1 gap-2 text-sm'>
+                            <div>
+                              <span className='font-medium'>Name: </span>
+                              <span>{row.student_name || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Roll Number: </span>
+                              <span>{row.roll_number || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Email: </span>
+                              <span className='break-all'>
+                                {row.college_email || 'N/A'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Institution: </span>
+                              <span>{row.institution_name || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Program: </span>
+                              <span>{row.program_name || 'N/A'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
 
-          {validationErrors.length > 0 && (
-            <div className='space-y-2'>
-              <h4 className='font-semibold text-destructive'>
-                Validation Errors ({validationErrors.length}):
-              </h4>
-              <Alert variant='destructive'>
-                <AlertCircle className='h-4 w-4' />
-                <AlertTitle>Please fix the errors in your file</AlertTitle>
-                <AlertDescription>
-                  <ScrollArea className='h-[150px] mt-2'>
-                    <Table className='table-fixed text-xs'>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className='w-[50px]'>Row</TableHead>
-                          <TableHead className='w-[120px]'>Field</TableHead>
-                          <TableHead>Error</TableHead>
-                          <TableHead>Value Found</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {validationErrors.map((err, index) => (
-                          <React.Fragment key={`error-group-${index}`}>
-                            {Object.entries(err.errors).map(
-                              ([field, messages]) =>
-                                messages?.map((msg, msgIdx) => (
-                                  <TableRow
-                                    key={`error-${index}-${field}-${msgIdx}`}
-                                  >
-                                    {msgIdx === 0 && (
-                                      <TableCell
-                                        rowSpan={
-                                          Object.values(err.errors).flat()
-                                            .length
-                                        }
-                                        className='align-top font-medium'
-                                      >
-                                        {err.row}
-                                      </TableCell>
+                      {/* Invalid Rows */}
+                      {validationErrors.map((error, index) => (
+                        <div
+                          key={`error-${index}`}
+                          className='border border-red-200 bg-red-50 rounded-lg p-4 space-y-3'
+                        >
+                          <div className='flex items-center justify-between'>
+                            <span className='text-sm font-medium'>
+                              Row {error.row}
+                            </span>
+                            <Badge variant='destructive'>Invalid</Badge>
+                          </div>
+                          <div className='grid grid-cols-1 gap-2 text-sm'>
+                            <div>
+                              <span className='font-medium'>Name: </span>
+                              <span>
+                                {error.rowData?.student_name || 'N/A'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Roll Number: </span>
+                              <span>{error.rowData?.roll_number || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className='font-medium'>Email: </span>
+                              <span className='break-all'>
+                                {error.rowData?.college_email || 'N/A'}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Error Details */}
+                          <div className='mt-2 p-2 bg-red-100 rounded text-red-700 text-xs'>
+                            <span className='font-medium'>Errors: </span>
+                            <div className='mt-1 space-y-1'>
+                              {Object.entries(error.errors).map(
+                                ([field, messages]) =>
+                                  Array.isArray(messages) ? (
+                                    messages.map((msg, msgIdx) => (
+                                      <div key={`${field}-${msgIdx}`}>
+                                        <span className='font-medium'>
+                                          {field}:
+                                        </span>{' '}
+                                        {msg}
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <div key={field}>
+                                      <span className='font-medium'>
+                                        {field}:
+                                      </span>{' '}
+                                      {messages}
+                                    </div>
+                                  )
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Desktop View - Table Layout */}
+                    <div className='hidden md:block'>
+                      <Table>
+                        <TableHeader className='sticky top-0 bg-background z-10'>
+                          <TableRow>
+                            <TableHead className='w-16'>Row</TableHead>
+                            <TableHead className='min-w-[160px]'>
+                              Name
+                            </TableHead>
+                            <TableHead className='min-w-[120px]'>
+                              Roll Number
+                            </TableHead>
+                            <TableHead className='min-w-[200px]'>
+                              Email
+                            </TableHead>
+                            <TableHead className='min-w-[180px]'>
+                              Institution
+                            </TableHead>
+                            <TableHead className='min-w-[150px]'>
+                              Program
+                            </TableHead>
+                            <TableHead className='w-20'>Status</TableHead>
+                            <TableHead className='min-w-[250px]'>
+                              Validation Details
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {/* Valid Rows */}
+                          {validRows.map((row, index) => (
+                            <TableRow
+                              key={`valid-${index}`}
+                              className='bg-green-50/50'
+                            >
+                              <TableCell className='font-medium'>
+                                {index + 2} {/* Assuming header row */}
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[160px]'>
+                                  <p className='truncate'>
+                                    {row.student_name || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[120px]'>
+                                  <p className='truncate font-mono text-xs'>
+                                    {row.roll_number || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[200px]'>
+                                  <p className='truncate text-xs'>
+                                    {row.college_email || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[180px]'>
+                                  <p className='truncate text-xs'>
+                                    {row.institution_name || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[150px]'>
+                                  <p className='truncate text-xs'>
+                                    {row.program_name || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant='default'
+                                  className='text-xs bg-green-600'
+                                >
+                                  Valid
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <span className='text-xs text-green-600'>
+                                  All validations passed
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+
+                          {/* Invalid Rows */}
+                          {validationErrors.map((error, index) => (
+                            <TableRow
+                              key={`error-${index}`}
+                              className='bg-red-50'
+                            >
+                              <TableCell className='font-medium'>
+                                {error.row}
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[160px]'>
+                                  <p className='truncate'>
+                                    {error.rowData?.student_name || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[120px]'>
+                                  <p className='truncate font-mono text-xs'>
+                                    {error.rowData?.roll_number || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[200px]'>
+                                  <p className='truncate text-xs'>
+                                    {error.rowData?.college_email || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[180px]'>
+                                  <p className='truncate text-xs'>
+                                    {error.rowData?.institution_name || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[150px]'>
+                                  <p className='truncate text-xs'>
+                                    {error.rowData?.program_name || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant='destructive'
+                                  className='text-xs'
+                                >
+                                  Invalid
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[250px]'>
+                                  <div className='space-y-1'>
+                                    {Object.entries(error.errors).map(
+                                      ([field, messages]) =>
+                                        Array.isArray(messages) ? (
+                                          messages.map((msg, msgIdx) => (
+                                            <p
+                                              key={`${field}-${msgIdx}`}
+                                              className='text-xs text-red-600 break-words'
+                                            >
+                                              <span className='font-medium'>
+                                                {field}:
+                                              </span>{' '}
+                                              {msg}
+                                            </p>
+                                          ))
+                                        ) : (
+                                          <p
+                                            key={field}
+                                            className='text-xs text-red-600 break-words'
+                                          >
+                                            <span className='font-medium'>
+                                              {field}:
+                                            </span>{' '}
+                                            {messages}
+                                          </p>
+                                        )
                                     )}
-                                    <TableCell className='font-mono break-words'>
-                                      {field}
-                                    </TableCell>
-                                    <TableCell className='break-words'>
-                                      {msg}
-                                    </TableCell>
-                                    <TableCell className='font-mono break-words'>
-                                      {String(
-                                        err.rowData[field] !== undefined &&
-                                          err.rowData[field] !== null
-                                          ? err.rowData[field]
-                                          : '[empty]'
-                                      )}
-                                    </TableCell>
-                                  </TableRow>
-                                ))
-                            )}
-                          </React.Fragment>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
-                </AlertDescription>
-              </Alert>
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
-        <DialogFooter className='mt-4 pt-4 border-t'>
-          <DialogClose asChild>
-            <Button
-              variant='outline'
-              onClick={() => resetState()}
-              disabled={isUploading}
-            >
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button
-            onClick={handleUpload}
-            disabled={
-              !file ||
-              validRows.length === 0 ||
-              validationErrors.length > 0 ||
-              isUploading ||
-              isValidating
-            }
-          >
-            {isUploading ? (
-              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-            ) : null}
-            Upload {validRows.length > 0 ? `(${validRows.length})` : ''} Valid
-            Records
-          </Button>
-        </DialogFooter>
+
+        {/* Enhanced Footer with Summary Statistics */}
+        <div className='border-t bg-muted/50 p-4'>
+          <div className='flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center'>
+            {/* Enhanced Summary */}
+            {file && (validRows.length > 0 || validationErrors.length > 0) && (
+              <div className='text-sm text-muted-foreground'>
+                <span className='block sm:inline'>
+                  Total: {validRows.length + validationErrors.length} rows
+                </span>
+                <span className='block sm:inline sm:ml-4'>
+                  Valid:{' '}
+                  <span className='text-green-600 font-medium'>
+                    {validRows.length}
+                  </span>
+                </span>
+                <span className='block sm:inline sm:ml-4'>
+                  Invalid:{' '}
+                  <span className='text-red-600 font-medium'>
+                    {validationErrors.length}
+                  </span>
+                </span>
+                {validationErrors.length > 0 && (
+                  <span className='block sm:inline sm:ml-4 text-amber-600'>
+                    Fix validation errors before uploading
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
+              <DialogClose asChild>
+                <Button
+                  variant='outline'
+                  onClick={() => resetState()}
+                  disabled={isUploading}
+                  className='w-full sm:w-auto'
+                >
+                  Cancel
+                </Button>
+              </DialogClose>
+              <DownloadNewStudentTemplateButton />
+              {validRows.length > 0 && validationErrors.length === 0 && (
+                <Button
+                  onClick={handleUpload}
+                  disabled={
+                    !file ||
+                    validRows.length === 0 ||
+                    validationErrors.length > 0 ||
+                    isUploading ||
+                    isValidating
+                  }
+                  className='w-full sm:w-auto'
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className='mr-2 h-4 w-4' />
+                      Upload {validRows.length} Valid Student
+                      {validRows.length !== 1 ? 's' : ''}
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

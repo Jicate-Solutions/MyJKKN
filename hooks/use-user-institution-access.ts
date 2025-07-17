@@ -26,11 +26,11 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
 
   const fetchAccessibleInstitutions = useCallback(async () => {
-    if (!user?.id) {
+    if (!profile?.id) {
       setInstitutions([]);
       setLoading(false);
       return;
@@ -42,7 +42,7 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
 
       const accessibleInstitutions =
         await UserInstitutionAccessService.getUserAccessibleInstitutions(
-          user.id
+          profile.id
         );
       setInstitutions(accessibleInstitutions);
     } catch (err) {
@@ -56,7 +56,7 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [profile?.id]);
 
   useEffect(() => {
     fetchAccessibleInstitutions();
@@ -75,8 +75,8 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
 
   const canAccessAllInstitutions = useCallback((): boolean => {
     // Super admins and users with no primary institution (like accounts with null institution_id) can access all
-    return isSuperAdmin || user?.institution_id === null;
-  }, [isSuperAdmin, user?.institution_id]);
+    return isSuperAdmin || profile?.institution_id === null;
+  }, [isSuperAdmin, profile?.institution_id]);
 
   const isUserRestrictedToInstitutions = useCallback((): boolean => {
     return !canAccessAllInstitutions();

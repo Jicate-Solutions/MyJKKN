@@ -1243,7 +1243,11 @@ export function CreateMissingStudentProfilesButton() {
                   message: result.userError
                 });
 
-                if (result.userCreated) {
+                // Only count as user created if actually created (not deferred)
+                if (
+                  result.userCreated &&
+                  !result.userError?.includes('Profile incomplete')
+                ) {
                   usersCreatedCount++;
                 }
               }
@@ -1277,7 +1281,17 @@ export function CreateMissingStudentProfilesButton() {
       // Prepare result message
       const successMessage = `Created ${createdCount} students successfully.`;
       const failureMessage = failedCount > 0 ? ` Failed: ${failedCount}.` : '';
-      const userMessage = ` ${usersCreatedCount} user accounts created.`;
+
+      // Count students with college_email for user creation messaging
+      const studentsWithEmail = validRows.filter(
+        (row) => row.college_email
+      ).length;
+      const userMessage =
+        usersCreatedCount > 0
+          ? ` ${usersCreatedCount} user accounts created immediately.`
+          : studentsWithEmail > 0
+          ? ` User accounts will be created automatically when profiles are completed.`
+          : '';
 
       // Set the upload result
       setUploadResult({
@@ -1291,7 +1305,13 @@ export function CreateMissingStudentProfilesButton() {
 
       // Show a single consolidated success/error toast
       if (createdCount > 0) {
-        toast.success(successMessage + userMessage);
+        const toastMessage =
+          usersCreatedCount > 0
+            ? `${successMessage} ${usersCreatedCount} user accounts created.`
+            : studentsWithEmail > 0
+            ? `${successMessage} User accounts will be created when profiles are completed.`
+            : successMessage;
+        toast.success(toastMessage);
       }
 
       if (failedCount > 0) {
