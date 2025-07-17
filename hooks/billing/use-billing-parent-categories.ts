@@ -22,12 +22,12 @@ export function useBillingParentCategories(
     totalPages: 0
   });
 
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
 
   const fetchCategories = useCallback(
     async (newFilters?: BillingParentCategoryFilters) => {
-      if (!user?.id) {
+      if (!profile?.id) {
         setLoading(false);
         return;
       }
@@ -43,7 +43,7 @@ export function useBillingParentCategories(
               currentFilters
             )
           : await BillingParentCategoryService.getBillingParentCategoriesForUser(
-              user.id,
+              profile.id,
               currentFilters
             );
 
@@ -60,7 +60,7 @@ export function useBillingParentCategories(
         setLoading(false);
       }
     },
-    [filters, user?.id, isSuperAdmin]
+    [filters, profile?.id, isSuperAdmin]
   );
 
   const updateFilters = useCallback(

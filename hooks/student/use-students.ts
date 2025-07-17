@@ -29,7 +29,7 @@ export const studentKeys = {
 
 // Get a list of students with filters (now relies on RLS)
 export function useStudents(filters: StudentFilters = {}) {
-  const { user, isLoading: authLoading } = useAuth();
+  const { profile, isLoading: authLoading } = useAuth();
 
   const queryFn = async () => {
     try {
@@ -49,7 +49,7 @@ export function useStudents(filters: StudentFilters = {}) {
     queryKey: ['students', filters],
     queryFn,
     // The query will only be enabled after the user has been authenticated.
-    enabled: !authLoading && !!user
+    enabled: !authLoading && !!profile
   });
 }
 
