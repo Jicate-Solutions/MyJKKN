@@ -114,8 +114,55 @@ export class StaffService {
       if (staff.institution_email) {
         try {
           console.log(
-            `Creating user account for staff ${staff.id} with email ${staff.institution_email}`
+            `Checking profile creation for staff ${staff.id} with email ${staff.institution_email}`
           );
+
+          // Give the trigger a moment to complete
+          await new Promise((resolve) => setTimeout(resolve, 100));
+
+          // Check if trigger already created a profile
+          const { data: existingProfile } = await this.supabase
+            .from('profiles')
+            .select('id, email')
+            .eq('email', staff.institution_email)
+            .single();
+
+          if (existingProfile) {
+            console.log(
+              `Profile already exists for ${staff.institution_email}, trigger worked successfully`
+            );
+            if (!suppressToast) {
+              toast.success(
+                `Staff created successfully with existing user account`
+              );
+            }
+            return staff;
+          }
+
+          // Profile doesn't exist, check if auth user exists
+          const { data: authUsers } =
+            await this.supabase.auth.admin.listUsers();
+          const existingAuthUser = authUsers.users?.find(
+            (user) => user.email === staff.institution_email
+          );
+
+          if (existingAuthUser) {
+            console.log(
+              `Auth user exists but no profile for ${staff.institution_email}, trigger should have created it`
+            );
+            if (!suppressToast) {
+              toast(
+                `Staff created. User account exists but profile needs manual sync.`
+              );
+            }
+            return staff;
+          }
+
+          // Neither auth user nor profile exists, create via API
+          console.log(
+            `Creating new user account for staff ${staff.id} with email ${staff.institution_email}`
+          );
+
           const tempPassword = generateTemporaryPassword();
           const userPayload: CreateUserRequest = {
             email: staff.institution_email,
@@ -168,10 +215,28 @@ export class StaffService {
             // Check for 409 Conflict (User already exists)
             if (userResponse.status === 409) {
               console.warn(
-                `User with email ${userPayload.email} already exists. Skipping automatic creation.`
+                `User with email ${userPayload.email} already exists. This shouldn't happen since we checked.`
               );
               if (!suppressToast) {
                 toast(`User account for ${userPayload.email} already exists`);
+              }
+            } else if (userResponse.status === 400) {
+              // Handle validation errors
+              console.error(
+                'User creation validation error:',
+                userData.error || userData.details || userData.message,
+                'Status:',
+                userResponse.status
+              );
+              if (!suppressToast) {
+                toast.error(
+                  `Staff created, but user account validation failed: ${
+                    userData.error ||
+                    userData.details ||
+                    userData.message ||
+                    'Validation error'
+                  }`
+                );
               }
             } else {
               // Handle other errors
@@ -182,7 +247,9 @@ export class StaffService {
                   userData.message ||
                   'Unknown API error',
                 'Status:',
-                userResponse.status
+                userResponse.status,
+                'Full response:',
+                userData
               );
               if (!suppressToast) {
                 toast.error(
@@ -200,16 +267,14 @@ export class StaffService {
               `Successfully created user for staff ${staff.id} with email ${staff.institution_email}`
             );
             if (!suppressToast) {
-              toast.success(
-                `Staff user account created with email ${staff.institution_email}`
-              );
+              toast.success(`Staff and user account created successfully`);
             }
           }
         } catch (apiError) {
-          console.error('Error calling user creation API:', apiError);
+          console.error('Error in staff user creation process:', apiError);
           if (!suppressToast) {
             toast.error(
-              `Staff created, but encountered an error creating user account: ${
+              `Staff created, but encountered an error in user account process: ${
                 apiError instanceof Error ? apiError.message : 'Unknown error'
               }`
             );

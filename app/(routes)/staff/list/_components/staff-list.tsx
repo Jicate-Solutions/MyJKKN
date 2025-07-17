@@ -66,9 +66,6 @@ export function StaffList({
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedStaffForDelete, setSelectedStaffForDelete] =
     useState<Staff | null>(null);
-  const [selectedRowsForBulkDelete, setSelectedRowsForBulkDelete] = useState<
-    Staff[]
-  >([]);
 
   // Handle bulk delete
   const handleBulkDelete = async (selectedRows: Staff[]) => {
@@ -77,52 +74,53 @@ export function StaffList({
       return;
     }
 
-    setSelectedStaffForDelete(null); // Clear single delete selection
-    setSelectedRowsForBulkDelete(selectedRows);
-    setIsDeleteConfirmOpen(true);
-  };
-
-  // Actual delete function that handles both single and bulk delete
-  const performDelete = async () => {
     try {
-      if (selectedStaffForDelete) {
-        // Single delete
-        await StaffService.deleteStaff(selectedStaffForDelete.id);
-        toast.success('Staff member deleted successfully');
-      } else if (selectedRowsForBulkDelete.length > 0) {
-        // Bulk delete
-        const staffIds = selectedRowsForBulkDelete.map((staff) => staff.id);
-        const result = await StaffService.bulkDeleteStaff(staffIds);
+      const staffIds = selectedRows.map((staff) => staff.id);
+      const result = await StaffService.bulkDeleteStaff(staffIds);
 
-        if (result.success.length > 0) {
-          toast.success(
-            `Successfully deleted ${result.success.length} staff member${
-              result.success.length > 1 ? 's' : ''
-            }`
-          );
-        }
+      if (result.success.length > 0) {
+        toast.success(
+          `Successfully deleted ${result.success.length} staff member${
+            result.success.length > 1 ? 's' : ''
+          } and their profiles`
+        );
+      }
 
-        if (result.failed.length > 0) {
-          toast.error(
-            `Failed to delete ${result.failed.length} staff member${
-              result.failed.length > 1 ? 's' : ''
-            }`
-          );
-          console.error('Failed deletions:', result.failed);
-        }
+      if (result.failed.length > 0) {
+        toast.error(
+          `Failed to delete ${result.failed.length} staff member${
+            result.failed.length > 1 ? 's' : ''
+          }`
+        );
+        console.error('Failed deletions:', result.failed);
       }
 
       onRefresh();
     } catch (error) {
+      console.error('Error performing bulk delete:', error);
       toast.error(
         error instanceof Error
           ? error.message
-          : 'Failed to delete staff member(s)'
+          : 'Failed to delete staff members'
+      );
+    }
+  };
+
+  // Handle single delete
+  const performSingleDelete = async () => {
+    try {
+      if (selectedStaffForDelete) {
+        await StaffService.deleteStaff(selectedStaffForDelete.id);
+        toast.success('Staff member and their profile deleted successfully');
+        onRefresh();
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete staff member'
       );
     } finally {
       setIsDeleteConfirmOpen(false);
       setSelectedStaffForDelete(null);
-      setSelectedRowsForBulkDelete([]);
     }
   };
 
@@ -346,6 +344,20 @@ export function StaffList({
     </div>
   );
 
+  // Bulk action configuration
+  const bulkActionConfig = {
+    label: 'Delete',
+    icon: Trash2,
+    variant: 'destructive' as const,
+    confirmTitle: 'Delete Staff Members',
+    confirmDescription:
+      'This will permanently delete {count} staff member{plural} and their associated user profiles. This action cannot be undone.',
+    successMessage:
+      'Successfully deleted {count} staff member{plural} and their profiles',
+    errorMessage: 'Failed to delete selected staff members',
+    loadingText: 'Deleting...'
+  };
+
   return (
     <>
       <DataTable
@@ -357,12 +369,13 @@ export function StaffList({
           module: 'staff',
           actions: {
             view: true,
-            delete: true
+            delete: canDeleteStaff
           },
           showPermissionError: true
         }}
         tableTools={tableTools}
-        onDeleteSelected={canDeleteStaff ? handleBulkDelete : undefined}
+        onBulkAction={canDeleteStaff ? handleBulkDelete : undefined}
+        bulkActionConfig={canDeleteStaff ? bulkActionConfig : undefined}
         getRowId={(row) => row.id}
         onRefresh={onRefresh}
         showRefresh={true}
@@ -387,27 +400,16 @@ export function StaffList({
           <AlertDialogHeader>
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedStaffForDelete ? (
+              {selectedStaffForDelete && (
                 <>
                   This action cannot be undone. This will permanently delete the
                   staff member{' '}
                   <strong>
                     &ldquo;{selectedStaffForDelete.first_name}{' '}
                     {selectedStaffForDelete.last_name}&rdquo;
-                  </strong>
-                  .
+                  </strong>{' '}
+                  and their associated user profile.
                 </>
-              ) : selectedRowsForBulkDelete.length > 0 ? (
-                <>
-                  This action cannot be undone. This will permanently delete{' '}
-                  <strong>
-                    {selectedRowsForBulkDelete.length} staff member
-                    {selectedRowsForBulkDelete.length > 1 ? 's' : ''}
-                  </strong>
-                  .
-                </>
-              ) : (
-                'This action cannot be undone. This will permanently delete the selected staff member(s).'
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -416,7 +418,7 @@ export function StaffList({
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={performDelete}
+              onClick={performSingleDelete}
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               Delete

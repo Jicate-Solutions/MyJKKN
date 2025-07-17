@@ -327,6 +327,14 @@ const validateRow = async (
   } else if (!validateEmail(row.email)) {
     errors.push('Invalid email format');
   }
+
+  if (row.institution_email) {
+    row.institution_email = row.institution_email.toLowerCase().trim();
+    if (!validateEmail(row.institution_email)) {
+      errors.push('Invalid institution email format');
+    }
+  }
+
   if (!row.phone) {
     errors.push('Phone is required');
   } else if (!validatePhone(row.phone)) {
