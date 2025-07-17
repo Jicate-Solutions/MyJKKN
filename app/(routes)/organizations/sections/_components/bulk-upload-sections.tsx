@@ -22,6 +22,7 @@ import {
   TableRow
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -39,6 +40,13 @@ interface ValidationResult {
     program_id?: string;
     semester_id?: string;
   };
+}
+
+interface ValidationProgress {
+  current: number;
+  total: number;
+  currentRow: any;
+  percentage: number;
 }
 
 const validateRow = async (row: any): Promise<ValidationResult> => {
@@ -183,6 +191,13 @@ export default function BulkUploadSections() {
   const [previewData, setPreviewData] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
+  const [validationProgress, setValidationProgress] =
+    useState<ValidationProgress>({
+      current: 0,
+      total: 0,
+      currentRow: null,
+      percentage: 0
+    });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -203,23 +218,46 @@ export default function BulkUploadSections() {
   const processFile = async (file: File) => {
     try {
       setIsValidating(true);
+      setPreviewData([]);
+
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
+      // Initialize progress
+      setValidationProgress({
+        current: 0,
+        total: jsonData.length,
+        currentRow: null,
+        percentage: 0
+      });
+
       // Process each row with validation
       const validatedData = [];
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i] as any;
+
+        // Update progress
+        setValidationProgress({
+          current: i + 1,
+          total: jsonData.length,
+          currentRow: row,
+          percentage: Math.round(((i + 1) / jsonData.length) * 100)
+        });
+
         const validation = await validateRow(row);
-        validatedData.push({
+        const validatedRow = {
           ...row,
           rowNumber: i + 2,
           isValid: validation.isValid,
           errors: validation.errors,
           resolvedIds: validation.resolvedIds
-        });
+        };
+
+        validatedData.push(validatedRow);
+        // Update preview data as we go
+        setPreviewData([...validatedData]);
       }
 
       setPreviewData(validatedData);
@@ -229,12 +267,24 @@ export default function BulkUploadSections() {
       toast.error('Error processing file. Please check the file format.');
     } finally {
       setIsValidating(false);
+      setValidationProgress({
+        current: 0,
+        total: 0,
+        currentRow: null,
+        percentage: 0
+      });
     }
   };
 
   const clearFile = () => {
     setSelectedFile(null);
     setPreviewData([]);
+    setValidationProgress({
+      current: 0,
+      total: 0,
+      currentRow: null,
+      percentage: 0
+    });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -333,11 +383,48 @@ export default function BulkUploadSections() {
                     <Badge variant='secondary'>Validating...</Badge>
                   )}
                 </div>
-                <Button variant='ghost' size='sm' onClick={clearFile}>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={clearFile}
+                  disabled={isValidating}
+                >
                   <X className='h-4 w-4 mr-2' />
                   Clear
                 </Button>
               </div>
+
+              {/* Validation Progress */}
+              {isValidating && (
+                <div className='space-y-3 p-4 border rounded-lg bg-muted/50'>
+                  <div className='flex items-center justify-between text-sm'>
+                    <span className='font-medium'>Validating rows...</span>
+                    <span className='text-muted-foreground'>
+                      {validationProgress.current} / {validationProgress.total}
+                    </span>
+                  </div>
+
+                  <Progress
+                    value={validationProgress.percentage}
+                    className='h-2'
+                  />
+
+                  <div className='text-xs text-muted-foreground'>
+                    {validationProgress.percentage}% complete
+                  </div>
+
+                  {validationProgress.currentRow && (
+                    <div className='text-xs text-muted-foreground'>
+                      Currently validating:{' '}
+                      <span className='font-medium'>
+                        {validationProgress.currentRow.section_name}
+                        {validationProgress.currentRow.institution_name &&
+                          ` in ${validationProgress.currentRow.institution_name}`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {previewData.length > 0 && (
                 <div className='rounded-md border max-h-96 overflow-auto'>
@@ -395,7 +482,7 @@ export default function BulkUploadSections() {
                 setIsOpen(false);
                 clearFile();
               }}
-              disabled={isUploading}
+              disabled={isUploading || isValidating}
             >
               Cancel
             </Button>
