@@ -4,28 +4,43 @@ import * as XLSX from 'xlsx';
 
 const SAMPLE_DATA = [
   {
-    section_name: 'Section A'
+    institution_name: 'JKKN College of Engineering and Technology',
+    degree_name: 'Postgraduate',
+    department_name: 'Master of Business Administration',
+    program_name: 'MBA',
+    semester_name: 'Semester 1',
+    section_name: 'Section A',
+    is_active: 'Yes'
   },
   {
-    section_name: 'Section B'
+    institution_name: 'JKKN College of Engineering and Technology',
+    degree_name: 'Postgraduate',
+    department_name: 'Master of Business Administration',
+    program_name: 'MBA',
+    semester_name: 'Semester 1',
+    section_name: 'Section B',
+    is_active: 'Yes'
+  },
+  {
+    institution_name: 'JKKN College of Engineering and Technology',
+    degree_name: 'Undergraduate',
+    department_name: 'Computer Science and Engineering',
+    program_name: 'B.Tech CSE',
+    semester_name: 'Semester 1',
+    section_name: 'Section A',
+    is_active: 'Yes'
   }
 ];
 
 const COLUMN_WIDTHS = {
-  A: 30 // section_name
+  A: 40, // institution_name
+  B: 25, // degree_name
+  C: 35, // department_name
+  D: 25, // program_name
+  E: 20, // semester_name
+  F: 20, // section_name
+  G: 15 // is_active
 };
-
-const INSTRUCTIONS = [
-  ['Instructions for filling the template:'],
-  [''],
-  ['1. Section Name:'],
-  ['   - Descriptive name for the section'],
-  ['   - Example: Section A'],
-  [''],
-  ['Note:'],
-  ['- All fields are required'],
-  ['- Each section name should be unique']
-];
 
 export default function DownloadSectionTemplateButton() {
   const handleDownload = () => {
@@ -41,34 +56,8 @@ export default function DownloadSectionTemplateButton() {
         wch: width
       }));
 
-      // Add notes/comments to explain fields
-      ws['A1'].c = [{ a: 'Author', t: 'Descriptive name for the section' }];
-
-      // Add sheet protection
-      ws['!protect'] = {
-        password: '',
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        insertHyperlinks: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false
-      };
-
-      // Create instructions sheet
-      const instructionsWs = XLSX.utils.aoa_to_sheet(INSTRUCTIONS);
-
-      // Set column width for instructions
-      instructionsWs['!cols'] = [{ wch: 100 }];
-
-      // Add sheets to workbook
-      XLSX.utils.book_append_sheet(wb, instructionsWs, 'Instructions');
-      XLSX.utils.book_append_sheet(wb, ws, 'Template');
+      // Add to workbook
+      XLSX.utils.book_append_sheet(wb, ws, 'Section Template');
 
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().split('T')[0];

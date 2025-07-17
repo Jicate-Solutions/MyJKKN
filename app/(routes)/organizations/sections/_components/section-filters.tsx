@@ -18,8 +18,6 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionFilters as SectionFilterType } from '@/types/organizations';
 import DownloadSectionTemplateButton from './download-section-template';
-import { ExportSections } from './export-sections';
-import BulkUploadSections from './bulk-upload-sections';
 
 interface SectionFiltersProps {
   filters: SectionFilterType;
@@ -405,8 +403,6 @@ export function SectionFilters({
       <div className='flex items-center justify-between gap-2 w-full'>
         <div className='flex items-center gap-2'>
           {canViewSections && <DownloadSectionTemplateButton />}
-          {isSuperAdmin && <ExportSections />}
-          {canViewSections && <BulkUploadSections />}
         </div>
       </div>
     </div>
