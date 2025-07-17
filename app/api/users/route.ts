@@ -303,9 +303,40 @@ export async function POST(request: Request) {
     );
 
     if (rpcError) {
+      console.error('Profile creation error:', rpcError);
+
       // If the profile creation fails, we need to clean up the auth user we might have just created
       if (!existingAuthUser && userId) {
+        console.log(
+          'Cleaning up created auth user due to profile creation failure'
+        );
         await supabaseAdmin.auth.admin.deleteUser(userId);
+      }
+
+      // Check if it's a duplicate email error (profile already exists)
+      if (
+        rpcError.code === '23505' &&
+        rpcError.message.includes('profiles_email_key')
+      ) {
+        return NextResponse.json(
+          {
+            error: `A user with email ${email} already exists.`,
+            details: 'A profile with this email already exists in the system.'
+          },
+          { status: 409 }
+        );
+      }
+
+      // For foreign key violations, provide more helpful error
+      if (rpcError.code === '23503') {
+        return NextResponse.json(
+          {
+            error: 'Invalid reference data provided.',
+            details: rpcError.message,
+            hint: 'Please check that institution_id and other referenced IDs are valid.'
+          },
+          { status: 400 }
+        );
       }
 
       return NextResponse.json(
