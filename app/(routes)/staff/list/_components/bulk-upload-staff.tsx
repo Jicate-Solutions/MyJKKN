@@ -507,6 +507,36 @@ const validateRow = async (
     }
   }
 
+  // Check for existing email across all institutions
+  if (row.institution_email) {
+    try {
+      // Clear any potential cached results
+      const { data: existing } = await StaffService.getStaff({
+        search: row.institution_email,
+        limit: 1
+      });
+
+      // More precise email matching to avoid false positives
+      const exactMatch = existing.find(
+        (staff) =>
+          staff.institution_email?.toLowerCase().trim() ===
+          row.institution_email.toLowerCase().trim()
+      );
+
+      if (exactMatch) {
+        errors.push(
+          `Institution Email '${row.institution_email}' already exists (Staff ID: ${exactMatch.staff_id})`
+        );
+      }
+    } catch (error) {
+      console.error('Error checking institution email existence:', error);
+      // Don't fail the validation due to search errors - allow upload to proceed
+      console.log(
+        `Skipping institution email validation for ${row.institution_email} due to search error`
+      );
+    }
+  }
+
   return {
     isValid: errors.length === 0,
     errors,
