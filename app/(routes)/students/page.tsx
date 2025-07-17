@@ -57,16 +57,6 @@ import {
   PopoverContent,
   PopoverTrigger
 } from '@/components/ui/popover';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -81,6 +71,7 @@ import { DownloadNewStudentTemplateButton } from './_components/download-new-stu
 import { ExportStudents } from './_components/export-students';
 import { CreateMissingStudentProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadStudentImages } from './_components/bulk-upload-student-images';
+import { BulkCreateStudents } from './_components/bulk-create-students';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   CanCreate,
@@ -909,6 +900,9 @@ export default function StudentsPage() {
                   Onboarding
                 </Button>
               </Link>
+            </CanCreate>
+            <CanCreate module='students'>
+              <BulkCreateStudents />
             </CanCreate>
             <CanCreate module='students'>
               <CreateMissingStudentProfilesButton />

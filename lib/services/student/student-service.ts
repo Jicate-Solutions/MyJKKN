@@ -380,11 +380,15 @@ export class StudentService {
           if (!userResponse.ok) {
             // Check for 409 Conflict (User already exists)
             if (userResponse.status === 409) {
-              console.warn(
-                `User with email ${userPayload.email} already exists. Skipping automatic creation.`
+              console.log(
+                `User account for ${userPayload.email} already exists. Profile completion successful.`
               );
-              // Optionally show a less alarming toast or skip it
-              // toast.info(`User account for ${userPayload.email} already exists.`);
+              // User already exists, this is actually a success case for profile completion
+              if (!options?.suppressToast) {
+                toast.success(
+                  `Student profile completed successfully. User account already exists.`
+                );
+              }
             } else {
               // Handle other errors
               console.error(
@@ -397,9 +401,12 @@ export class StudentService {
                 userResponse.status
               );
               if (!options?.suppressToast) {
-                toast(
-                  `Student profile updated, but failed to create user account: ${
-                    userData.error || userData.details || userData.message
+                toast.error(
+                  `Profile updated successfully, but failed to create user account: ${
+                    userData.error ||
+                    userData.details ||
+                    userData.message ||
+                    'Unknown error'
                   }`
                 );
               }
@@ -989,11 +996,11 @@ export class StudentService {
           if (!userResponse.ok) {
             // Check for 409 Conflict (User already exists)
             if (userResponse.status === 409) {
-              console.warn(
-                `User with email ${userPayload.email} already exists. Skipping automatic creation.`
+              console.log(
+                `User account for ${userPayload.email} already exists. Student creation successful.`
               );
               userCreated = true; // Consider existing user as a success for reporting
-              userError = 'User already exists';
+              userError = 'User account already exists';
             } else {
               // Handle other errors
               const errorMessage =
@@ -1003,7 +1010,9 @@ export class StudentService {
                 'Unknown API error';
               console.error(
                 'Failed to automatically create user:',
-                errorMessage
+                errorMessage,
+                'Status:',
+                userResponse.status
               );
               userError = errorMessage;
             }
