@@ -79,7 +79,9 @@ export async function POST() {
       );
     }
 
-    // Get students without profiles
+    // Get students with completed profiles who need user accounts
+    // Only students with is_profile_complete = true should be considered for user account creation
+    // Students with is_profile_complete = false are in onboarding process, not missing profiles
     const { data: studentsWithoutProfiles, error: studentError } =
       await supabaseAdmin
         .from('students')
@@ -89,9 +91,11 @@ export async function POST() {
         student_name,
         college_email,
         student_mobile,
-        institution_id
+        institution_id,
+        is_profile_complete
       `
         )
+        .eq('is_profile_complete', true)
         .not('college_email', 'is', null)
         .not('college_email', 'eq', '');
 

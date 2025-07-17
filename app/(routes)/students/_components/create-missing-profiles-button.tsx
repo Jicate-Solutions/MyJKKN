@@ -135,7 +135,7 @@ export function CreateMissingStudentProfilesButton() {
       // Show success message
       if (data.summary.successful > 0) {
         toast.success(
-          `Successfully created ${data.summary.successful} user profile(s)!`
+          `Successfully created ${data.summary.successful} user account(s) for completed profiles!`
         );
         // Refresh the page to update student lists
         router.refresh();
@@ -143,13 +143,14 @@ export function CreateMissingStudentProfilesButton() {
 
       if (data.summary.failed > 0) {
         toast.error(
-          `Failed to create ${data.summary.failed} profile(s). Check the results below.`
+          `Failed to create ${data.summary.failed} user account(s). Check the results below.`
         );
       }
 
       if (data.summary.already_existed > 0) {
-        toast.error(
-          `${data.summary.already_existed} profile(s) already existed.`
+        toast(
+          `${data.summary.already_existed} user account(s) already existed.`,
+          { icon: 'ℹ️' }
         );
       }
     } catch (error) {
@@ -188,8 +189,9 @@ export function CreateMissingStudentProfilesButton() {
         <DialogHeader>
           <DialogTitle>Create Missing User Profiles</DialogTitle>
           <DialogDescription>
-            Check for students who have college emails but no user accounts, and
-            create their profiles automatically.
+            Check for students who have <strong>completed profiles</strong> with
+            college emails but no user accounts. Students with incomplete
+            profiles are in the onboarding process and are not included.
           </DialogDescription>
         </DialogHeader>
 
@@ -206,12 +208,16 @@ export function CreateMissingStudentProfilesButton() {
             <div className='space-y-4'>
               <Alert>
                 <AlertCircle className='h-4 w-4' />
-                <AlertTitle>Profile Status Summary</AlertTitle>
+                <AlertTitle>Completed Profile Status Summary</AlertTitle>
                 <AlertDescription className='space-y-2'>
+                  <p className='text-sm text-muted-foreground mb-2'>
+                    Only showing students with completed profiles
+                    (is_profile_complete = true)
+                  </p>
                   <div className='grid grid-cols-2 gap-4 mt-3'>
                     <div>
                       <Badge variant='secondary' className='mb-1'>
-                        Total Students:{' '}
+                        Completed Profiles:{' '}
                         {missingProfilesInfo.summary.total_students}
                       </Badge>
                     </div>
@@ -242,7 +248,7 @@ export function CreateMissingStudentProfilesButton() {
                   0 && (
                   <div>
                     <h4 className='font-medium mb-3'>
-                      Students Missing Profiles (
+                      Completed Profiles Missing User Accounts (
                       {
                         missingProfilesInfo.details.students_without_profiles
                           .length
@@ -262,7 +268,9 @@ export function CreateMissingStudentProfilesButton() {
                                 {student.email}
                               </div>
                             </div>
-                            <Badge variant='outline'>Missing Profile</Badge>
+                            <Badge variant='outline'>
+                              Missing User Account
+                            </Badge>
                           </div>
                         )
                       )}
@@ -277,8 +285,9 @@ export function CreateMissingStudentProfilesButton() {
                   <CheckCircle className='h-4 w-4' />
                   <AlertTitle>All Good!</AlertTitle>
                   <AlertDescription>
-                    All students with college emails already have user profiles.
-                    No action needed.
+                    All students with completed profiles already have user
+                    accounts. No action needed. Students with incomplete
+                    profiles are handled through the onboarding process.
                   </AlertDescription>
                 </Alert>
               )}
@@ -410,7 +419,7 @@ export function CreateMissingStudentProfilesButton() {
                 {isCreating ? (
                   <>
                     <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                    Creating Profiles...
+                    Creating User Accounts...
                   </>
                 ) : (
                   <>
@@ -420,7 +429,7 @@ export function CreateMissingStudentProfilesButton() {
                       missingProfilesInfo.details.students_without_profiles
                         .length
                     }{' '}
-                    Profile(s)
+                    User Account(s)
                   </>
                 )}
               </Button>

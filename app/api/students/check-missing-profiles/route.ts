@@ -67,7 +67,9 @@ export async function GET() {
       );
     }
 
-    // Get all students with college emails
+    // Get students with completed profiles and college emails
+    // Only students with is_profile_complete = true should be considered for user account creation
+    // Students with is_profile_complete = false are in onboarding process, not missing profiles
     const { data: allStudents, error: studentError } = await supabaseAdmin
       .from('students')
       .select(
@@ -76,9 +78,11 @@ export async function GET() {
         student_name,
         college_email,
         student_mobile,
-        institution_id
+        institution_id,
+        is_profile_complete
       `
       )
+      .eq('is_profile_complete', true)
       .not('college_email', 'is', null)
       .not('college_email', 'eq', '');
 
