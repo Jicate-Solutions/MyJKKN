@@ -692,7 +692,7 @@ export function DataTable<TData, TValue>({
         <div className='flex flex-wrap items-center gap-2'>
           {bulkActionFunction &&
             canPerformBulkAction &&
-            selectedRows.length >= 2 && (
+            selectedRows.length > 0 && (
               <Button
                 variant={finalBulkActionConfig.variant}
                 size='sm'
