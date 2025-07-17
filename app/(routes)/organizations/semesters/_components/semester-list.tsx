@@ -1,9 +1,16 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { MoreVertical, Edit, Trash2, FileText, Plus } from 'lucide-react';
+import {
+  MoreVertical,
+  Edit,
+  Trash2,
+  FileText,
+  Plus,
+  Loader2
+} from 'lucide-react';
 import { Semester } from '@/types/organizations';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -46,6 +53,7 @@ export function SemesterList({
   paginationLoading
 }: SemesterListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const canViewSemesters =
     isSuperAdmin || canAccess('organizations.semesters', 'view');
@@ -55,23 +63,56 @@ export function SemesterList({
     isSuperAdmin || canAccess('organizations.semesters', 'delete');
 
   // Handle bulk delete
-  const handleBulkDelete = async (selectedRows: Semester[]) => {
-    try {
-      // Process deletions sequentially to handle potential storage cleanup properly
-      for (const semester of selectedRows) {
-        await SemesterService.deleteSemester(semester.id);
-      }
+  const handleBulkDelete = useCallback(
+    async (selectedRows: Semester[]) => {
+      if (isDeleting) return; // Prevent multiple simultaneous deletions
 
-      toast.success(`${selectedRows.length} semesters deleted successfully`);
-      onRefresh();
-    } catch (error) {
-      console.error('Error deleting semesters:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to delete semesters'
-      );
-      throw error; // Re-throw to let DataTable handle the error state
-    }
-  };
+      try {
+        setIsDeleting(true);
+
+        // Process deletions sequentially to handle potential storage cleanup properly
+        let successCount = 0;
+        let errorCount = 0;
+
+        for (const semester of selectedRows) {
+          try {
+            await SemesterService.deleteSemester(semester.id);
+            successCount++;
+          } catch (error) {
+            console.error(`Error deleting semester ${semester.id}:`, error);
+            errorCount++;
+          }
+        }
+
+        if (successCount > 0) {
+          toast.success(
+            `Successfully deleted ${successCount} semester${
+              successCount > 1 ? 's' : ''
+            }`
+          );
+        }
+
+        if (errorCount > 0) {
+          toast.error(
+            `Failed to delete ${errorCount} semester${
+              errorCount > 1 ? 's' : ''
+            }`
+          );
+        }
+
+        onRefresh();
+      } catch (error) {
+        console.error('Error deleting semesters:', error);
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to delete semesters'
+        );
+        throw error; // Re-throw to let DataTable handle the error state
+      } finally {
+        setIsDeleting(false);
+      }
+    },
+    [onRefresh, isDeleting]
+  );
 
   // Handle single delete
   const handleSingleDelete = useCallback(
@@ -284,6 +325,19 @@ export function SemesterList({
     </div>
   );
 
+  // Bulk action configuration with loading state
+  const bulkActionConfig = {
+    label: 'Delete',
+    icon: Trash2,
+    variant: 'destructive' as const,
+    confirmTitle: 'Delete Semesters',
+    confirmDescription:
+      'This will permanently delete {count} semester{s}. This action cannot be undone.',
+    successMessage: 'Successfully deleted {count} semester{plural}',
+    errorMessage: 'Failed to delete selected semesters',
+    loadingText: 'Deleting...'
+  };
+
   return (
     <DataTable
       columns={columns}
@@ -299,7 +353,8 @@ export function SemesterList({
         showPermissionError: true
       }}
       tableTools={tableTools}
-      onDeleteSelected={canDeleteSemesters ? handleBulkDelete : undefined}
+      onBulkAction={canDeleteSemesters ? handleBulkDelete : undefined}
+      bulkActionConfig={bulkActionConfig}
       getRowId={(row) => row.id}
       onRefresh={onRefresh}
       showRefresh={true}
@@ -312,7 +367,7 @@ export function SemesterList({
         hasPreviousPage: metadata.page > 1,
         onPageChange: onPageChange,
         onPageSizeChange: onPageSizeChange,
-        isLoading: paginationLoading
+        isLoading: paginationLoading || isDeleting
       }}
     />
   );
