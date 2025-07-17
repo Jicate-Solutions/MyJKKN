@@ -792,11 +792,10 @@ export default function BulkUploadStaff() {
             is_active: row.is_active === 'false' ? false : true
           };
 
-          return StaffService.createStaff(staffData)
+          return StaffService.createStaff(staffData, true) // suppressToast = true for bulk upload
             .then(() => {
               successCount++;
-              // Suppress individual success toasts
-              toast.dismiss();
+              // Individual toasts are now suppressed at service level
             })
             .catch((error) => {
               console.error(
@@ -837,8 +836,7 @@ export default function BulkUploadStaff() {
               }
 
               errorDetails.push(`Row ${row.rowNumber}: ${errorMessage}`);
-              // Suppress individual error toasts during bulk upload
-              toast.dismiss();
+              // Individual toasts are now suppressed at service level
             });
         });
 

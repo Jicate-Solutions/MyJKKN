@@ -72,7 +72,10 @@ interface UpdateStaffDto extends Partial<CreateStaffDto> {
 export class StaffService {
   private static supabase = createClientSupabaseClient();
 
-  static async createStaff(data: CreateStaffDto): Promise<Staff> {
+  static async createStaff(
+    data: CreateStaffDto,
+    suppressToast: boolean = false
+  ): Promise<Staff> {
     try {
       const { data: userData, error: userError } =
         await this.supabase.auth.getUser();
@@ -167,7 +170,9 @@ export class StaffService {
               console.warn(
                 `User with email ${userPayload.email} already exists. Skipping automatic creation.`
               );
-              toast(`User account for ${userPayload.email} already exists`);
+              if (!suppressToast) {
+                toast(`User account for ${userPayload.email} already exists`);
+              }
             } else {
               // Handle other errors
               console.error(
@@ -179,30 +184,36 @@ export class StaffService {
                 'Status:',
                 userResponse.status
               );
-              toast.error(
-                `Staff created, but failed to create user account: ${
-                  userData.error ||
-                  userData.details ||
-                  userData.message ||
-                  'Unknown error'
-                }`
-              );
+              if (!suppressToast) {
+                toast.error(
+                  `Staff created, but failed to create user account: ${
+                    userData.error ||
+                    userData.details ||
+                    userData.message ||
+                    'Unknown error'
+                  }`
+                );
+              }
             }
           } else {
             console.log(
               `Successfully created user for staff ${staff.id} with email ${staff.institution_email}`
             );
-            toast.success(
-              `Staff user account created with email ${staff.institution_email}`
-            );
+            if (!suppressToast) {
+              toast.success(
+                `Staff user account created with email ${staff.institution_email}`
+              );
+            }
           }
         } catch (apiError) {
           console.error('Error calling user creation API:', apiError);
-          toast.error(
-            `Staff created, but encountered an error creating user account: ${
-              apiError instanceof Error ? apiError.message : 'Unknown error'
-            }`
-          );
+          if (!suppressToast) {
+            toast.error(
+              `Staff created, but encountered an error creating user account: ${
+                apiError instanceof Error ? apiError.message : 'Unknown error'
+              }`
+            );
+          }
         }
       } else {
         console.log('No institution_email provided, skipping user creation');
