@@ -359,7 +359,9 @@ export function StudentDetail({ student }: StudentDetailProps) {
                       <div className='relative h-full w-full'>
                         <Image
                           src={student.student_photo_url}
-                          alt={student.student_name}
+                          alt={`${student.first_name} ${
+                            student.last_name || ''
+                          }`}
                           className='rounded-lg object-cover'
                           fill
                           unoptimized={true}
@@ -373,9 +375,11 @@ export function StudentDetail({ student }: StudentDetailProps) {
                     )}
                   </div>
                   <div>
-                    <h2 className='text-lg font-semibold'>
-                      {student.student_name}
-                    </h2>
+                    <h1 className='text-2xl font-bold'>
+                      {`${student.first_name} ${
+                        student.last_name || ''
+                      }`.trim()}
+                    </h1>
                     <p className='text-sm text-muted-foreground'>
                       {student.roll_number
                         ? `Roll No: ${student.roll_number}`

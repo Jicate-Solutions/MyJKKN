@@ -2,8 +2,10 @@ import { z } from 'zod';
 
 export interface Student {
   id: string;
-  admission_id: string; // Reference to the original admission record
-  student_name: string;
+  admission_id: string; // Foreign key to admissions table
+  application_id?: string; // Human-readable application ID
+  first_name: string;
+  last_name?: string;
   father_name: string;
   father_occupation: string;
   father_mobile: string;
@@ -112,7 +114,8 @@ export interface Student {
 
 // Zod schema for validation
 export const studentSchema = z.object({
-  student_name: z.string().min(2, 'Name is required'),
+  first_name: z.string().min(2, 'First name is required'),
+  last_name: z.string().optional(),
   father_name: z.string().min(2, "Father's name is required"),
   mother_name: z.string().min(2, "Mother's name is required"),
   roll_number: z.string().optional(),
@@ -120,16 +123,59 @@ export const studentSchema = z.object({
   student_photo_url: z.string().optional(),
   academic_year_id: z.string().optional(),
   semester_id: z.string().optional(),
-  section_id: z.string().optional()
+  section_id: z.string().optional(),
+
+  // Fields from admission record
+  father_occupation: z.string().optional(),
+  father_mobile: z.string().optional(),
+  mother_occupation: z.string().optional(),
+  mother_mobile: z.string().optional(),
+  date_of_birth: z.string().optional(),
+  gender: z.string().optional(),
+  religion: z.string().optional(),
+  community: z.string().optional(),
+  caste: z.string().optional(),
+  annual_income: z.string().optional(),
+  last_school: z.string().optional(),
+  board_of_study: z.string().optional(),
+  tenth_marks: z.any().optional(),
+  twelfth_marks: z.any().optional(),
+  medical_cutoff_marks: z.string().optional(),
+  engineering_cutoff_marks: z.string().optional(),
+  neet_roll_number: z.string().optional(),
+  counseling_applied: z.boolean().optional(),
+  counseling_number: z.string().optional(),
+  first_graduate: z.boolean().optional(),
+  quota: z.string().optional(),
+  category: z.string().optional(),
+  institution_id: z.string().nullable().optional(),
+  degree_id: z.string().nullable().optional(),
+  department_id: z.string().nullable().optional(),
+  program_id: z.string().nullable().optional(),
+  entry_type: z.string().optional(),
+  permanent_address_street: z.string().optional(),
+  permanent_address_taluk: z.string().optional(),
+  permanent_address_district: z.string().optional(),
+  permanent_address_pin_code: z.string().optional(),
+  permanent_address_state: z.string().optional(),
+  student_mobile: z.string().optional(),
+  student_email: z.string().optional(),
+  accommodation_type: z.string().optional(),
+  hostel_type: z.string().optional(),
+  bus_required: z.boolean().optional(),
+  bus_route: z.string().optional(),
+  bus_pickup_location: z.string().optional(),
+  reference_type: z.string().optional(),
+  reference_name: z.string().optional(),
+  reference_contact: z.string().optional()
 });
 
-export interface CreateStudentDto
-  extends Omit<
-    Student,
-    'id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by'
-  > {
-  // Additional properties specific to creation if needed
-}
+export type CreateStudentDto = z.infer<typeof studentSchema> & {
+  admission_id: string | null;
+  application_id?: string; // Add application_id here
+  status: 'active' | 'inactive' | 'pending' | 'exited' | 'graduated';
+  is_profile_complete: boolean;
+};
 
 export interface UpdateStudentDto
   extends Partial<
@@ -148,7 +194,8 @@ export interface UpdateStudentDto
 
 export interface StudentFilters {
   search?: string;
-  student_name?: string;
+  first_name?: string;
+  last_name?: string;
   institution?: string;
   degree?: string;
   department?: string;

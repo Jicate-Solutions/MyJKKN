@@ -407,7 +407,7 @@ export function StudentPromotionTable({
           href={`/students/${row.original.id}`}
           className='font-medium hover:underline hover:text-primary'
         >
-          {row.original.student_name}
+          {`${row.original.first_name} ${row.original.last_name || ''}`.trim()}
         </Link>
       ),
       enableSorting: true

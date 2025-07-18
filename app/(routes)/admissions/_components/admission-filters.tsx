@@ -21,6 +21,7 @@ import { AdmissionFilters as FilterType } from '@/types/admission';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/use-auth';
+import { toast } from 'sonner';
 
 // Define a type for the simplified institution returned by getInstitutionNames
 type InstitutionName = {
@@ -265,6 +266,28 @@ export function AdmissionFilter({
             className='flex-1 w-full'
           >
             Reset Filters
+          </Button>
+          {/* TEMPORARY TEST BUTTON */}
+          <Button
+            variant='destructive'
+            onClick={async () => {
+              const { AdmissionService } = await import(
+                '@/lib/services/admission/admission-service'
+              );
+              toast.promise(
+                AdmissionService.updateAdmissionStatus(
+                  'bd943f71-2f83-4c83-b6a7-44ddbb65d5ca',
+                  'approved'
+                ),
+                {
+                  loading: 'Approving test admission...',
+                  success: 'Test approval successful!',
+                  error: 'Test approval failed.'
+                }
+              );
+            }}
+          >
+            Test Approve
           </Button>
         </div>
       </div>

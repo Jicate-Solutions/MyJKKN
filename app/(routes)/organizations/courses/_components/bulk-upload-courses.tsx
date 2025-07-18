@@ -309,18 +309,6 @@ export default function BulkUploadCourses() {
                   Make sure to use our template with valid institution names
                 </p>
               </div>
-              <div className='mt-2'>
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  onClick={() =>
-                    (window.location.href = '/organizations/courses/template')
-                  }
-                >
-                  <FileDown className='mr-2 h-4 w-4' />
-                  Download Template First
-                </Button>
-              </div>
             </div>
           ) : (
             <div className='space-y-4'>

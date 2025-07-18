@@ -484,7 +484,8 @@ export default function StudentDashboardPage() {
                         (
                           institution: {
                             id: string;
-                            name: string;
+                            first_name: string;
+                            last_name: string;
                             studentCount: number;
                             percentage: number;
                           },
@@ -502,7 +503,9 @@ export default function StudentDashboardPage() {
                               </div>
                               <div>
                                 <div className='font-medium'>
-                                  {institution.name}
+                                  {`${institution.first_name} ${
+                                    institution.last_name || ''
+                                  }`.trim()}
                                 </div>
                                 <div className='text-sm text-muted-foreground'>
                                   {institution.studentCount.toLocaleString()}{' '}

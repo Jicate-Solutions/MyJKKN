@@ -447,7 +447,9 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
 
       form.reset(
         {
-          student_name: student.student_name || '',
+          student_name: `${student.first_name} ${
+            student.last_name || ''
+          }`.trim(),
           father_name: student.father_name || '',
           father_occupation: student.father_occupation || '',
           father_mobile: student.father_mobile || '',
@@ -920,7 +922,10 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
           items={[
             { label: 'Home', href: '/' },
             { label: 'Students', href: '/students' },
-            { label: student.student_name, href: `/students/${id}` },
+            {
+              label: `${student.first_name} ${student.last_name || ''}`.trim(),
+              href: `/students/${id}`
+            },
             { label: 'Edit' }
           ]}
         />
@@ -928,7 +933,8 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
         <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>
-              Edit Student: {student.student_name}
+              Edit Student:{' '}
+              {`${student.first_name} ${student.last_name || ''}`.trim()}
             </h1>
             <p className='text-muted-foreground'>Update student information</p>
           </div>

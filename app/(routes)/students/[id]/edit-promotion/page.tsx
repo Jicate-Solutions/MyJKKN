@@ -231,7 +231,10 @@ export default function EditStudentPromotionPage({
         items={[
           { label: 'Home', href: '/' },
           { label: 'Students', href: '/students' },
-          { label: student.student_name, href: `/students/${id}` },
+          {
+            label: `${student.first_name} ${student.last_name || ''}`.trim(),
+            href: `/students/${id}`
+          },
           { label: 'Edit Promotion' }
         ]}
       />
@@ -241,7 +244,8 @@ export default function EditStudentPromotionPage({
           <div>
             <h1 className='text-2xl font-bold py-1'>Edit Student Promotion</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Update {student.student_name}&apos;s semester and section
+              Update {`${student.first_name} ${student.last_name || ''}`.trim()}
+              &apos;s semester and section
             </p>
           </div>
 
@@ -260,7 +264,9 @@ export default function EditStudentPromotionPage({
               <div className='grid grid-cols-1 gap-4'>
                 <div className='text-sm'>
                   <div className='font-medium'>Student Name</div>
-                  <div>{student.student_name}</div>
+                  <div>
+                    {`${student.first_name} ${student.last_name || ''}`.trim()}
+                  </div>
                 </div>
 
                 <div className='text-sm'>

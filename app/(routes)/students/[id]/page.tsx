@@ -108,20 +108,24 @@ export default function StudentDetailPage({ params }: StudentDetailPageProps) {
   }
 
   return (
-    <ContentLayout title={`Student: ${student.student_name}`}>
+    <ContentLayout
+      title={`Student: ${student.first_name} ${student.last_name || ''}`.trim()}
+    >
       <div className='space-y-6'>
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
             { label: 'Students', href: '/students' },
-            { label: student.student_name }
+            {
+              label: `${student.first_name} ${student.last_name || ''}`.trim()
+            }
           ]}
         />
 
         <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>
-              {student.student_name}
+              {`${student.first_name} ${student.last_name || ''}`.trim()}
             </h1>
             <p className='text-muted-foreground'>
               {student.roll_number

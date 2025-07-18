@@ -657,7 +657,7 @@ function DetailItem({ label, value }: DetailItemProps) {
   return (
     <div className='space-y-1'>
       <p className='text-sm font-medium text-muted-foreground'>{label}</p>
-      <p className='font-medium'>{value || 'Not provided'}</p>
+      <p className='font-medium text-[14px]'>{value || 'Not provided'}</p>
     </div>
   );
 }

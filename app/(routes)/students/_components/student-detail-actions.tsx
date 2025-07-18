@@ -135,10 +135,11 @@ export function StudentDetailActions({ student }: StudentDetailActionsProps) {
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              student record for {student.student_name}.
+              student profile for{' '}
+              {`${student.first_name} ${student.last_name || ''}`.trim()}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
