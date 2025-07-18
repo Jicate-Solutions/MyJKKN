@@ -245,7 +245,9 @@ export default function StudentBillDetailPage() {
                     <label className='text-sm font-medium text-muted-foreground'>
                       Student Name
                     </label>
-                    <p className='font-medium'>{bill.student?.student_name}</p>
+                    <p className='font-medium'>
+                      {`${bill.student?.first_name} ${bill.student?.last_name}`}
+                    </p>
                   </div>
                   <div>
                     <label className='text-sm font-medium text-muted-foreground'>
@@ -257,7 +259,7 @@ export default function StudentBillDetailPage() {
                     <label className='text-sm font-medium text-muted-foreground'>
                       Email
                     </label>
-                    <p className='font-medium'>{bill.student?.student_email}</p>
+                    <p className='font-medium'>{bill.student?.college_email}</p>
                   </div>
                   <div>
                     <label className='text-sm font-medium text-muted-foreground'>

@@ -544,7 +544,9 @@ export default function RefundEditPage({ params }: RefundEditPageProps) {
                       Name
                     </Label>
                     <p className='font-semibold'>
-                      {refund.receipt.student.student_name}
+                      {`${refund.receipt.student.first_name} ${
+                        refund.receipt.student.last_name || ''
+                      }`.trim()}
                     </p>
                   </div>
                   <div>
@@ -553,13 +555,13 @@ export default function RefundEditPage({ params }: RefundEditPageProps) {
                     </Label>
                     <p>{refund.receipt.student.roll_number}</p>
                   </div>
-                  {refund.receipt.student.student_email && (
+                  {refund.receipt.student.college_email && (
                     <div>
                       <Label className='text-sm font-medium text-muted-foreground'>
                         Email
                       </Label>
                       <p className='text-sm break-all'>
-                        {refund.receipt.student.student_email}
+                        {refund.receipt.student.college_email}
                       </p>
                     </div>
                   )}

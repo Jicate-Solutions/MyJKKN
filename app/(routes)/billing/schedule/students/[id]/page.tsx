@@ -261,7 +261,7 @@ export default function StudentBillingDetailPage() {
             { label: 'Billing', href: '/billing/schedule' },
             { label: 'Students', href: '/billing/schedule/students' },
             {
-              label: student.student_name,
+              label: `${student.first_name} ${student.last_name}`,
               href: `/billing/schedule/students/${studentId}`
             }
           ]}
@@ -281,7 +281,7 @@ export default function StudentBillingDetailPage() {
             </Button>
             <div className='min-w-0 flex-1'>
               <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100'>
-                {student.student_name}
+                {`${student.first_name} ${student.last_name}`}
               </h1>
               <p className='text-sm text-muted-foreground mt-1'>
                 Student billing information and transaction history
@@ -314,7 +314,7 @@ export default function StudentBillingDetailPage() {
               <div className='flex flex-col sm:flex-row lg:flex-col items-center lg:items-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-0 lg:space-y-4 lg:w-64 shrink-0'>
                 <Avatar className='h-20 w-20 sm:h-16 sm:w-16 lg:h-24 lg:w-24'>
                   <AvatarFallback className='text-lg font-semibold bg-gradient-to-br from-blue-400 to-indigo-600 text-white'>
-                    {student.student_name
+                    {`${student.first_name} ${student.last_name}`
                       .split(' ')
                       .map((n) => n[0])
                       .join('')}
@@ -322,7 +322,7 @@ export default function StudentBillingDetailPage() {
                 </Avatar>
                 <div className='text-center sm:text-left lg:text-center'>
                   <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
-                    {student.student_name}
+                    {`${student.first_name} ${student.last_name}`}
                   </h3>
                   <p className='text-sm text-muted-foreground'>
                     Roll No: {student.roll_number || 'N/A'}
@@ -348,7 +348,7 @@ export default function StudentBillingDetailPage() {
                           Mobile
                         </p>
                         <p className='text-sm text-muted-foreground truncate'>
-                          {student.student_mobile}
+                          {student.mobile_number}
                         </p>
                       </div>
                     </div>
@@ -359,7 +359,7 @@ export default function StudentBillingDetailPage() {
                           Email
                         </p>
                         <p className='text-sm text-muted-foreground truncate'>
-                          {student.student_email}
+                          {student.college_email}
                         </p>
                       </div>
                     </div>

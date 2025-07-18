@@ -219,13 +219,15 @@ export default function StudentBillDetailPage() {
             <div>
               <h3 className='font-semibold mb-1'>Student Information</h3>
               <p>
-                <strong>Name:</strong> {bill.student?.student_name || 'N/A'}
+                <strong>Name:</strong>{' '}
+                {`${bill.student?.first_name} ${bill.student?.last_name}` ||
+                  'N/A'}
               </p>
               <p>
                 <strong>Roll No:</strong> {bill.student?.roll_number || 'N/A'}
               </p>
               <p>
-                <strong>Email:</strong> {bill.student?.student_email || 'N/A'}
+                <strong>Email:</strong> {bill.student?.college_email || 'N/A'}
               </p>
               {bill.student && (
                 <Button variant='link' className='p-0 h-auto' asChild>

@@ -113,7 +113,10 @@ export function AttendanceRoster({
 
     return students.filter(
       (student) =>
-        student.student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        `${student.first_name} ${student.last_name || ''}`
+          .trim()
+          .toLowerCase()
+          .includes(searchTerm.toLowerCase()) ||
         student.roll_number?.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [students, searchTerm]);
@@ -425,7 +428,9 @@ export function AttendanceRoster({
                 <TableCell className='font-medium'>
                   {student.roll_number || 'N/A'}
                 </TableCell>
-                <TableCell>{student.student_name}</TableCell>
+                <TableCell>
+                  {`${student.first_name} ${student.last_name || ''}`.trim()}
+                </TableCell>
                 <TableCell>
                   <Badge
                     variant={

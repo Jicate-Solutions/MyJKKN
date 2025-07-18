@@ -64,9 +64,10 @@ export interface StudentBill {
   // Related data
   student?: {
     id: string;
-    student_name: string;
+    first_name: string;
+    last_name: string;
     roll_number?: string;
-    student_email: string;
+    college_email: string;
     student_mobile: string;
   };
   institution?: {
@@ -165,9 +166,10 @@ export interface BillingReceipt {
   // Related data
   student?: {
     id: string;
-    student_name: string;
+    first_name: string;
+    last_name: string;
     roll_number?: string;
-    student_email: string;
+    college_email: string;
   };
   institution?: {
     id: string;
@@ -415,9 +417,10 @@ export interface BillingInvoice {
   // Related data
   student?: {
     id: string;
-    student_name: string;
+    first_name: string;
+    last_name: string;
     roll_number?: string;
-    student_email: string;
+    college_email: string;
   };
   institution?: {
     id: string;
@@ -497,7 +500,8 @@ export interface StudentSearchFilters {
   academic_year_id?: string;
   semester_id?: string;
   department_id?: string;
-  student_name?: string;
+  first_name?: string;
+  last_name?: string;
   roll_number?: string;
   mobile_number?: string;
   is_profile_complete?: boolean;
@@ -508,10 +512,11 @@ export interface StudentSearchFilters {
 export interface StudentForBilling {
   id: string;
   roll_number?: string;
-  student_name: string;
+  first_name: string;
+  last_name: string;
   father_name: string;
-  student_mobile: string;
-  student_email: string;
+  mobile_number: string;
+  college_email: string;
   institution_id: string;
   department_id?: string;
   program_id?: string;
@@ -611,7 +616,8 @@ export interface BillingReportFilters {
 // Detailed Report Interfaces
 export interface OutstandingReport {
   student_id: string;
-  student_name: string;
+  first_name: string;
+  last_name?: string;
   roll_number?: string;
   institution_name: string;
   department_name?: string;
@@ -630,7 +636,8 @@ export interface CollectionReport {
   receipt_id: string;
   receipt_number: string;
   receipt_date: string;
-  student_name: string;
+  first_name: string;
+  last_name?: string;
   roll_number?: string;
   institution_name: string;
   payment_mode: PaymentMode;
@@ -643,7 +650,8 @@ export interface CollectionReport {
 
 export interface DiscountReport {
   discount_id: string;
-  student_name: string;
+  first_name: string;
+  last_name?: string;
   roll_number?: string;
   institution_name: string;
   bill_description: string;
@@ -659,7 +667,8 @@ export interface DiscountReport {
 export interface RefundReport {
   refund_id: string;
   receipt_number: string;
-  student_name: string;
+  first_name: string;
+  last_name?: string;
   roll_number?: string;
   institution_name: string;
   refund_category: RefundCategory;
@@ -675,7 +684,8 @@ export interface InvoiceReport {
   invoice_id: string;
   invoice_number: string;
   invoice_date: string;
-  student_name: string;
+  first_name: string;
+  last_name?: string;
   roll_number?: string;
   institution_name: string;
   invoice_type: InvoiceType;

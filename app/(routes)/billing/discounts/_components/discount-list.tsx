@@ -331,7 +331,9 @@ export function DiscountList({
                   <TableCell>
                     <div className='flex flex-col'>
                       <span className='font-medium'>
-                        {discount.bill?.student?.student_name}
+                        {`${discount.bill?.student?.first_name} ${
+                          discount.bill?.student?.last_name || ''
+                        }`.trim()}
                       </span>
                       <span className='text-sm text-muted-foreground'>
                         {discount.bill?.student?.roll_number}
@@ -485,7 +487,10 @@ export function DiscountList({
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              discount for &quot;{discountToDelete?.bill?.student?.student_name}
+              discount for &quot;
+              {`${discountToDelete?.bill?.student?.first_name} ${
+                discountToDelete?.bill?.student?.last_name || ''
+              }`.trim()}
               &quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>

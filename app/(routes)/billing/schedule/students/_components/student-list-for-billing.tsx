@@ -178,18 +178,20 @@ export function StudentListForBilling({
                 </TableCell>
                 <TableCell>
                   <div className='space-y-1'>
-                    <div className='font-medium'>{student.student_name}</div>
+                    <div className='font-medium'>
+                      {`${student.first_name} ${student.last_name}`}
+                    </div>
                     <div className='flex items-center gap-2 text-xs text-muted-foreground'>
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger>
                             <div className='flex items-center gap-1'>
                               <Phone className='h-3 w-3' />
-                              {student.student_mobile}
+                              {student.mobile_number}
                             </div>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>Mobile: {student.student_mobile}</p>
+                            <p>Mobile: {student.mobile_number}</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -198,11 +200,11 @@ export function StudentListForBilling({
                           <TooltipTrigger>
                             <div className='flex items-center gap-1'>
                               <Mail className='h-3 w-3' />
-                              {student.student_email?.substring(0, 15)}...
+                              {student.college_email?.substring(0, 15)}...
                             </div>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>Email: {student.student_email}</p>
+                            <p>Email: {student.college_email}</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>

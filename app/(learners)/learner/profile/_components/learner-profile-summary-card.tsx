@@ -30,15 +30,17 @@ export function LearnerProfileSummaryCard({
           <Avatar className='h-24 w-24 border-4 border-white shadow-lg'>
             <AvatarImage
               src={student.student_photo_url || ''}
-              alt={student.student_name}
+              alt={`${student.first_name} ${student.last_name || ''}`.trim()}
             />
             <AvatarFallback className='bg-primary/20 text-primary font-semibold text-2xl'>
-              {getInitials(student.student_name)}
+              {getInitials(
+                `${student.first_name} ${student.last_name || ''}`.trim()
+              )}
             </AvatarFallback>
           </Avatar>
         </div>
         <h2 className='text-2xl font-bold text-gray-900'>
-          {student.student_name}
+          {`${student.first_name} ${student.last_name || ''}`.trim()}
         </h2>
         <p className='text-muted-foreground'>
           {student.program?.program_name || 'Program not assigned'}

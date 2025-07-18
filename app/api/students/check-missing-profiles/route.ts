@@ -1,7 +1,5 @@
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,142 +17,56 @@ const supabaseAdmin = createClient(
 
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set(name: string, value: string, options: any) {
-            cookieStore.set(name, value, options);
-          },
-          remove(name: string, options: any) {
-            cookieStore.set(name, '', { ...options, maxAge: 0 });
-          }
-        }
-      }
-    );
-
-    // Check if user is admin
-    const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: currentUser, error: userError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', session.user.id)
-      .single();
-
-    if (userError || !currentUser) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    if (!['super_admin', 'administrator'].includes(currentUser.role)) {
-      return NextResponse.json(
-        {
-          error: 'Only super admin and administrator can check missing profiles'
-        },
-        { status: 403 }
-      );
-    }
-
-    // Get students with completed profiles and college emails
-    // Only students with is_profile_complete = true should be considered for user account creation
-    // Students with is_profile_complete = false are in onboarding process, not missing profiles
-    const { data: allStudents, error: studentError } = await supabaseAdmin
+    // 1. Get all students with complete profiles and a college email
+    const { data: students, error: studentsError } = await supabaseAdmin
       .from('students')
-      .select(
-        `
-        id,
-        student_name,
-        college_email,
-        student_mobile,
-        institution_id,
-        is_profile_complete
-      `
-      )
+      .select('id, college_email')
       .eq('is_profile_complete', true)
-      .not('college_email', 'is', null)
-      .not('college_email', 'eq', '');
+      .not('college_email', 'is', null);
 
-    if (studentError) {
-      throw studentError;
+    if (studentsError) {
+      throw new Error(`Failed to fetch students: ${studentsError.message}`);
     }
 
-    // Get existing profiles
-    const { data: existingProfiles, error: profilesError } = await supabaseAdmin
+    if (!students || students.length === 0) {
+      return NextResponse.json({
+        message: 'No students with complete profiles found.',
+        count: 0,
+        missing_profiles: []
+      });
+    }
+
+    // 2. Get all existing profiles
+    const { data: profiles, error: profilesError } = await supabaseAdmin
       .from('profiles')
-      .select('email, id')
-      .in(
-        'email',
-        allStudents.map((s) => s.college_email)
-      );
+      .select('email');
 
     if (profilesError) {
-      throw profilesError;
+      throw new Error(`Failed to fetch profiles: ${profilesError.message}`);
     }
 
-    // Get existing auth users
-    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers();
-    const existingAuthEmails = new Set(
-      authUsers.users.map((user) => user.email)
+    const existingProfileEmails = new Set(profiles.map((p) => p.email));
+
+    // 3. Find students who are missing a profile
+    const missingProfiles = students.filter(
+      (student) => !existingProfileEmails.has(student.college_email!)
     );
 
-    const existingProfileEmails = new Set(existingProfiles.map((p) => p.email));
-
-    const studentsWithProfiles = allStudents.filter((student) =>
-      existingProfileEmails.has(student.college_email)
-    );
-
-    const studentsWithoutProfiles = allStudents.filter(
-      (student) => !existingProfileEmails.has(student.college_email)
-    );
-
-    const studentsWithAuthButNoProfile = studentsWithoutProfiles.filter(
-      (student) => existingAuthEmails.has(student.college_email)
-    );
-
-    const studentsWithoutAuthOrProfile = studentsWithoutProfiles.filter(
-      (student) => !existingAuthEmails.has(student.college_email)
-    );
+    // Construct the response in the format expected by the frontend component
+    const summaryMessage = `Found ${missingProfiles.length} students with complete profiles who are missing a user profile.`;
 
     return NextResponse.json({
       success: true,
-      summary: {
-        total_students: allStudents.length,
-        with_profiles: studentsWithProfiles.length,
-        without_profiles: studentsWithoutProfiles.length,
-        with_auth_but_no_profile: studentsWithAuthButNoProfile.length,
-        without_auth_or_profile: studentsWithoutAuthOrProfile.length
-      },
-      details: {
-        students_with_profiles: studentsWithProfiles.map((s) => ({
-          name: s.student_name,
-          email: s.college_email
-        })),
-        students_without_profiles: studentsWithoutProfiles.map((s) => ({
-          name: s.student_name,
-          email: s.college_email,
-          has_auth_user: existingAuthEmails.has(s.college_email)
-        }))
-      }
+      summary: summaryMessage,
+      details: missingProfiles.map((s) => ({
+        student_id: s.id,
+        college_email: s.college_email
+      }))
     });
   } catch (error) {
-    console.error('Error in check-missing-profiles:', error);
+    console.error('Error checking for missing profiles:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'An internal server error occurred.' },
       { status: 500 }
     );
   }

@@ -237,14 +237,14 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
       </div>
 
       {/* Refund Report Table */}
-    <Card>
-      <CardHeader>
-        <div className='flex justify-between items-center'>
-          <CardTitle className='flex items-center gap-2'>
-            <CreditCard className='h-5 w-5' />
-            Refund Report
-          </CardTitle>
-          {canExport && (
+      <Card>
+        <CardHeader>
+          <div className='flex justify-between items-center'>
+            <CardTitle className='flex items-center gap-2'>
+              <CreditCard className='h-5 w-5' />
+              Refund Report
+            </CardTitle>
+            {canExport && (
               <div className='flex items-center gap-2'>
                 <select
                   value={exportFormat}
@@ -267,24 +267,24 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                     <BeatLoader size={8} color='currentColor' />
                   ) : (
                     <>
-              <Download className='h-4 w-4 mr-2' />
-              Export
+                      <Download className='h-4 w-4 mr-2' />
+                      Export
                     </>
                   )}
-            </Button>
+                </Button>
               </div>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
           {report.length === 0 ? (
             <div className='text-center py-8'>
-          <CreditCard className='h-12 w-12 text-muted-foreground mx-auto mb-4' />
+              <CreditCard className='h-12 w-12 text-muted-foreground mx-auto mb-4' />
               <h3 className='text-lg font-semibold mb-2'>No Refunds</h3>
-          <p className='text-muted-foreground'>
+              <p className='text-muted-foreground'>
                 No refunds found matching the current filters.
-          </p>
-        </div>
+              </p>
+            </div>
           ) : (
             <div className='overflow-x-auto'>
               <Table>
@@ -311,7 +311,9 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                       <TableCell>
                         <div>
                           <div className='font-medium'>
-                            {refund.student_name}
+                            {`${refund.first_name} ${
+                              refund.last_name || ''
+                            }`.trim()}
                           </div>
                           {refund.roll_number && (
                             <div className='text-sm text-muted-foreground'>
@@ -346,8 +348,8 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
               </Table>
             </div>
           )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
     </div>
   );
 }

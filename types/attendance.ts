@@ -103,7 +103,8 @@ export interface AttendanceListResponse {
 // For the attendance roster view
 export interface AttendanceRosterStudent {
   id: string;
-  student_name: string;
+  first_name: string;
+  last_name?: string;
   roll_number?: string;
   status: 'Present' | 'Absent';
   attendance_id?: string; // If attendance record exists

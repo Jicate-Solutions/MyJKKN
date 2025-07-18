@@ -103,13 +103,13 @@ export function InvoiceList({
   };
 
   const handleSendInvoice = async (invoice: BillingInvoice) => {
-    if (!invoice.student?.student_email) {
+    if (!invoice.student?.college_email) {
       console.error('No email address available for student');
       return;
     }
 
     try {
-      await sendInvoice(invoice.id, invoice.student.student_email);
+      await sendInvoice(invoice.id, invoice.student.college_email);
     } catch (error) {
       console.error('Error sending invoice:', error);
     }
@@ -321,7 +321,9 @@ export function InvoiceList({
                 <TableCell>
                   <div className='space-y-1'>
                     <div className='font-medium'>
-                      {invoice.student?.student_name}
+                      {`${invoice.student?.first_name} ${
+                        invoice.student?.last_name || ''
+                      }`.trim()}
                     </div>
                     {invoice.student?.roll_number && (
                       <div className='text-sm text-muted-foreground'>
@@ -400,7 +402,7 @@ export function InvoiceList({
                         <Download className='mr-2 h-4 w-4' />
                         Download PDF
                       </DropdownMenuItem>
-                      {canSendInvoices && invoice.student?.student_email && (
+                      {canSendInvoices && invoice.student?.college_email && (
                         <DropdownMenuItem
                           onClick={() => handleSendInvoice(invoice)}
                           disabled={sendLoading}

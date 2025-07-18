@@ -106,7 +106,8 @@ export default function StudentsPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [filters, setFilters] = useState<StudentFilters>({
     search: '',
-    student_name: '',
+    first_name: '',
+    last_name: '',
     institution: '',
     degree: '',
     department: '',
@@ -736,7 +737,6 @@ export default function StudentsPage() {
     {
       id: 'student_name',
       header: 'Student Name',
-      accessorKey: 'student_name',
       cell: ({ row }) => (
         <Link
           href={`/students/${row.original.id}`}
@@ -1378,7 +1378,7 @@ export default function StudentsPage() {
               columns={columns}
               data={studentsData?.data || []}
               searchPlaceholder='Search students...'
-              filterColumn='student_name'
+              filterColumn='first_name'
               permissions={{
                 module: 'students',
                 actions: {
@@ -1390,7 +1390,7 @@ export default function StudentsPage() {
                 showPermissionError: true
               }}
               onBulkAction={getBulkActionFunction()}
-              bulkActionConfig={getBulkActionConfig()}
+              bulkActionConfig={getBulkActionConfig()[bulkActionMode]}
               getRowId={(row) => row.id}
               onRefresh={handleRefresh}
               showRefresh={true}
@@ -1448,8 +1448,10 @@ export default function StudentsPage() {
                   <div className='max-h-32 overflow-y-auto border rounded-md p-2'>
                     {selectedStudentsForStatus.map((student) => (
                       <div key={student.id} className='text-sm py-1'>
-                        {student.student_name} (
-                        {student.roll_number || 'No roll number'})
+                        {`${student.first_name} ${
+                          student.last_name || ''
+                        }`.trim()}{' '}
+                        ({student.roll_number || 'No roll number'})
                       </div>
                     ))}
                   </div>

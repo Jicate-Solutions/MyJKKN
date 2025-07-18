@@ -332,7 +332,9 @@ export function ReceiptList({
                   <TableCell>
                     <div className='flex flex-col'>
                       <span className='font-medium'>
-                        {receipt.student?.student_name}
+                        {`${receipt.student?.first_name} ${
+                          receipt.student?.last_name || ''
+                        }`.trim()}
                       </span>
                       <span className='text-sm text-muted-foreground'>
                         {receipt.student?.roll_number}

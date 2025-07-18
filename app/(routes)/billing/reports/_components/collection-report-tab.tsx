@@ -232,7 +232,9 @@ export function CollectionReportTab({
                       <TableCell>
                         <div>
                           <div className='font-medium'>
-                            {collection.student_name}
+                            {`${collection.first_name} ${
+                              collection.last_name || ''
+                            }`.trim()}
                           </div>
                           {collection.roll_number && (
                             <div className='text-sm text-muted-foreground'>

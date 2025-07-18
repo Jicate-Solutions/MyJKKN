@@ -1,7 +1,5 @@
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,319 +15,134 @@ const supabaseAdmin = createClient(
   }
 );
 
-// Function to generate temporary password
-function generateTemporaryPassword(): string {
-  const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let password = 'Student_';
-  for (let i = 0; i < 8; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
+// Helper function to generate a random password
+function generateTemporaryPassword(length = 12): string {
+  const charset =
+    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=';
+  let password = '';
+  for (let i = 0, n = charset.length; i < length; ++i) {
+    password += charset.charAt(Math.floor(Math.random() * n));
   }
-  return password + '!';
+  if (!/\d/.test(password)) {
+    password += Math.floor(Math.random() * 10);
+  }
+  if (!/[A-Z]/.test(password)) {
+    password += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+  }
+  return password.slice(0, length);
 }
 
 export async function POST() {
   try {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set(name: string, value: string, options: any) {
-            cookieStore.set(name, value, options);
-          },
-          remove(name: string, options: any) {
-            cookieStore.set(name, '', { ...options, maxAge: 0 });
-          }
-        }
-      }
-    );
+    // 1. Find students with complete profiles who are missing a user profile
+    const { data: checkData, error: checkError } = await fetch(
+      `${
+        process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      }/api/students/check-missing-profiles`
+    ).then((res) => res.json());
 
-    // Check if user is admin
-    const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: currentUser, error: userError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', session.user.id)
-      .single();
-
-    if (userError || !currentUser) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    if (!['super_admin', 'administrator'].includes(currentUser.role)) {
-      return NextResponse.json(
-        {
-          error:
-            'Only super admin and administrator can create missing profiles'
-        },
-        { status: 403 }
+    if (checkError || !checkData) {
+      throw new Error(
+        `Failed to check for missing profiles: ${
+          (checkError as any)?.message || 'Unknown error'
+        }`
       );
     }
 
-    // Get students with completed profiles who need user accounts
-    // Only students with is_profile_complete = true should be considered for user account creation
-    // Students with is_profile_complete = false are in onboarding process, not missing profiles
-    const { data: studentsWithoutProfiles, error: studentError } =
-      await supabaseAdmin
-        .from('students')
-        .select(
-          `
-        id,
-        student_name,
-        college_email,
-        student_mobile,
-        institution_id,
-        is_profile_complete
-      `
-        )
-        .eq('is_profile_complete', true)
-        .not('college_email', 'is', null)
-        .not('college_email', 'eq', '');
+    const studentsToCreate = checkData.missing_profiles;
 
-    if (studentError) {
-      throw studentError;
+    if (!studentsToCreate || studentsToCreate.length === 0) {
+      return NextResponse.json({
+        message: 'No missing profiles to create.'
+      });
     }
 
-    // Get existing profiles to avoid duplicates
-    const { data: existingProfiles, error: profilesError } = await supabaseAdmin
-      .from('profiles')
-      .select('email, id')
-      .in(
-        'email',
-        studentsWithoutProfiles.map((s) => s.college_email)
+    const createdProfiles = [];
+    const failedProfiles = [];
+
+    // 2. Fetch full student details for those missing profiles
+    const studentIds = studentsToCreate.map((s: any) => s.student_id);
+    const { data: students, error: studentsError } = await supabaseAdmin
+      .from('students')
+      .select('*')
+      .in('id', studentIds);
+
+    if (studentsError) {
+      throw new Error(
+        `Failed to fetch student details: ${studentsError.message}`
       );
-
-    if (profilesError) {
-      throw profilesError;
     }
 
-    // Get existing auth users to avoid duplicates
-    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers();
-    const existingAuthEmails = new Set(
-      authUsers.users.map((user) => user.email)
-    );
-
-    const existingProfileEmails = new Set(existingProfiles.map((p) => p.email));
-    const studentsNeedingProfiles = studentsWithoutProfiles.filter(
-      (student) => !existingProfileEmails.has(student.college_email)
-    );
-
-    console.log(
-      `Found ${studentsNeedingProfiles.length} students needing profiles`
-    );
-    console.log(`Existing auth users: ${existingAuthEmails.size}`);
-    console.log(`Existing profiles: ${existingProfileEmails.size}`);
-
-    const results = [];
-    const errors = [];
-
-    // Process each student
-    for (const student of studentsNeedingProfiles) {
+    // 3. Loop through and create each user and profile
+    for (const student of students) {
       try {
         const tempPassword = generateTemporaryPassword();
-        const fullName = student.student_name || 'Unknown Student';
-
-        console.log(`Processing: ${fullName} (${student.college_email})`);
-
-        // Double-check if profile already exists (real-time check)
-        const { data: existingProfileCheck } = await supabaseAdmin
-          .from('profiles')
-          .select('id, email')
-          .eq('email', student.college_email)
-          .maybeSingle();
-
-        if (existingProfileCheck) {
-          console.log(
-            `Profile already exists for ${student.college_email}, skipping`
-          );
-          results.push({
-            student_id: student.id,
+        const { data: authUser, error: authError } =
+          await supabaseAdmin.auth.admin.createUser({
             email: student.college_email,
-            full_name: fullName,
-            user_id: existingProfileCheck.id,
-            temp_password: 'Profile already existed',
-            auth_user_existed: true,
-            success: true
-          });
-          continue; // Skip to next student
-        }
-
-        let authUserId = null;
-        const authUserExists = existingAuthEmails.has(student.college_email);
-
-        if (authUserExists) {
-          // Find the existing auth user
-          const existingAuthUser = authUsers.users.find(
-            (user) => user.email === student.college_email
-          );
-          if (existingAuthUser) {
-            authUserId = existingAuthUser.id;
-            console.log(`Using existing auth user: ${authUserId}`);
-          } else {
-            throw new Error('Auth user found in list but not retrievable');
-          }
-        } else {
-          // Create new auth user
-          console.log(`Creating new auth user for: ${student.college_email}`);
-          const { data: authData, error: authError } =
-            await supabaseAdmin.auth.admin.createUser({
-              email: student.college_email,
-              password: tempPassword,
-              email_confirm: true,
-              user_metadata: {
-                full_name: fullName,
-                role: 'student',
-                phone_number: student.student_mobile,
-                institution_id: student.institution_id
-              }
-            });
-
-          if (authError) {
-            throw authError;
-          }
-
-          authUserId = authData.user.id;
-          console.log(`Created new auth user: ${authUserId}`);
-        }
-
-        // Always try to create profile (since we filtered out existing ones)
-        console.log(`Creating profile for user: ${authUserId}`);
-
-        // Use upsert instead of insert to handle race conditions
-        const { data: profileData, error: profileError } = await supabaseAdmin
-          .from('profiles')
-          .upsert(
-            {
-              id: authUserId,
-              email: student.college_email,
-              full_name: fullName,
-              role: 'student',
-              phone_number: student.student_mobile,
-              institution_id: student.institution_id,
-              is_active: true,
-              profile_completed: 'false'
-            },
-            {
-              onConflict: 'id' // Handle conflicts on id column
+            password: tempPassword,
+            email_confirm: true,
+            user_metadata: {
+              full_name: `${student.first_name} ${
+                student.last_name || ''
+              }`.trim(),
+              role: 'student'
             }
-          )
-          .select()
-          .single();
+          });
+
+        if (authError) {
+          throw new Error(
+            `Failed to create auth user for ${student.college_email}: ${authError.message}`
+          );
+        }
+
+        const { error: profileError } = await supabaseAdmin
+          .from('profiles')
+          .insert({
+            id: authUser.user.id,
+            email: student.college_email,
+            full_name: `${student.first_name} ${
+              student.last_name || ''
+            }`.trim(),
+            phone_number: student.student_mobile,
+            role: 'student',
+            institution_id: student.institution_id,
+            profile_completed: true,
+            is_active: true
+          });
 
         if (profileError) {
-          console.error(
-            `Profile upsert error for ${student.college_email}:`,
-            profileError
+          // Clean up by deleting the auth user if profile creation fails
+          await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+          throw new Error(
+            `Failed to create profile for ${student.college_email}: ${profileError.message}`
           );
-          // Only clean up auth user if we created it
-          if (!authUserExists) {
-            console.log(
-              `Cleaning up auth user ${authUserId} due to profile error`
-            );
-            await supabaseAdmin.auth.admin.deleteUser(authUserId);
-          }
-          throw profileError;
         }
 
-        console.log(`Successfully created/updated profile for: ${fullName}`);
-
-        results.push({
+        createdProfiles.push({
           student_id: student.id,
-          email: student.college_email,
-          full_name: fullName,
-          user_id: authUserId,
-          temp_password: authUserExists
-            ? 'Using existing password'
-            : tempPassword,
-          auth_user_existed: authUserExists,
-          success: true
+          email: student.college_email
         });
       } catch (error) {
-        console.error(
-          `Error creating profile for ${student.college_email}:`,
-          error
-        );
-
-        // Handle specific duplicate key errors
-        if (error && typeof error === 'object' && 'code' in error) {
-          const dbError = error as any;
-          if (
-            dbError.code === '23505' &&
-            dbError.message?.includes('profiles_pkey')
-          ) {
-            // This profile already exists, let's check if we can retrieve it
-            try {
-              const { data: existingProfile } = await supabaseAdmin
-                .from('profiles')
-                .select('*')
-                .eq('email', student.college_email)
-                .single();
-
-              if (existingProfile) {
-                console.log(
-                  `Found existing profile for ${student.college_email}, marking as success`
-                );
-                results.push({
-                  student_id: student.id,
-                  email: student.college_email,
-                  full_name: student.student_name || 'Unknown Student',
-                  user_id: existingProfile.id,
-                  temp_password: 'Profile already existed',
-                  auth_user_existed: true,
-                  success: true
-                });
-                continue; // Skip to next student
-              }
-            } catch (retrieveError) {
-              console.error(
-                `Could not retrieve existing profile for ${student.college_email}:`,
-                retrieveError
-              );
-            }
-          }
-        }
-
-        errors.push({
+        failedProfiles.push({
           student_id: student.id,
           email: student.college_email,
-          full_name: student.student_name || 'Unknown Student',
-          error: error instanceof Error ? error.message : 'Unknown error',
-          success: false
+          error: (error as Error).message
         });
       }
     }
 
     return NextResponse.json({
-      success: true,
-      message: `Processed ${studentsNeedingProfiles.length} students`,
-      results: {
-        total_processed: studentsNeedingProfiles.length,
-        successful: results.length,
-        failed: errors.length,
-        created_profiles: results,
-        errors: errors
-      }
+      message: 'Missing profile creation process completed.',
+      created_count: createdProfiles.length,
+      failed_count: failedProfiles.length,
+      created_profiles: createdProfiles,
+      failed_profiles: failedProfiles
     });
   } catch (error) {
-    console.error('Error in create-missing-profiles:', error);
+    console.error('Error creating missing profiles:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'An internal server error occurred.' },
       { status: 500 }
     );
   }

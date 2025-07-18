@@ -216,7 +216,9 @@ export function ReceiptRefundDialog({
                 <div>
                   <Label className='text-blue-700'>Student</Label>
                   <p className='font-semibold text-blue-900'>
-                    {receipt.student?.student_name}
+                    {`${receipt.student?.first_name} ${
+                      receipt.student?.last_name || ''
+                    }`.trim()}
                   </p>
                 </div>
                 <div>

@@ -42,6 +42,7 @@ import {
 import { StorageService } from '@/lib/storage/storage-service';
 import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import Image from 'next/image';
 
 interface FilePreview {
   file: File;
@@ -657,10 +658,12 @@ export function BulkUploadStudentImagesDebug() {
                         <CardContent className='p-4'>
                           <div className='flex items-start gap-4'>
                             <div className='w-16 h-16 relative flex-shrink-0'>
-                              <img
+                              <Image
                                 src={file.preview_url}
                                 alt={file.file.name}
                                 className='w-full h-full object-cover rounded'
+                                width={100}
+                                height={100}
                               />
                               <Button
                                 variant='destructive'

@@ -116,13 +116,13 @@ export default function InvoiceDetailsPage({
   };
 
   const handleSendInvoice = async () => {
-    if (!invoice.student?.student_email) {
+    if (!invoice.student?.college_email) {
       toast.error('No email address available for this student');
       return;
     }
 
     try {
-      await sendInvoice(invoice.id, invoice.student.student_email);
+      await sendInvoice(invoice.id, invoice.student.college_email);
     } catch (error) {
       console.error('Error sending invoice:', error);
     }
@@ -202,7 +202,7 @@ export default function InvoiceDetailsPage({
               {downloadLoading ? 'Downloading...' : 'Download PDF'}
             </Button>
 
-            {canSendInvoices && invoice.student?.student_email && (
+            {canSendInvoices && invoice.student?.college_email && (
               <Button
                 variant='outline'
                 size='sm'
@@ -292,14 +292,16 @@ export default function InvoiceDetailsPage({
                     </h3>
                     <div className='space-y-2 text-gray-700'>
                       <div className='font-semibold text-gray-900'>
-                        {invoice.student?.student_name || 'N/A'}
+                        {`${invoice.student?.first_name} ${
+                          invoice.student?.last_name || ''
+                        }`.trim()}
                       </div>
                       {invoice.student?.roll_number && (
                         <div>Roll No: {invoice.student.roll_number}</div>
                       )}
-                      {invoice.student?.student_email && (
+                      {invoice.student?.college_email && (
                         <div className='text-sm'>
-                          {invoice.student.student_email}
+                          {invoice.student.college_email}
                         </div>
                       )}
                     </div>

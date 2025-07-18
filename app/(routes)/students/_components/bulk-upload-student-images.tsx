@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { StorageService } from '@/lib/storage/storage-service';
 import { toast } from 'react-hot-toast';
+import Image from 'next/image';
 
 interface FilePreview {
   file: File;
@@ -332,10 +333,12 @@ ME20045.jpeg - Will be matched to student with roll number ME20045
                       <Card key={index} className='relative'>
                         <CardContent className='p-3'>
                           <div className='aspect-square relative mb-2'>
-                            <img
+                            <Image
                               src={file.preview_url}
                               alt={file.file.name}
                               className='w-full h-full object-cover rounded'
+                              width={100}
+                              height={100}
                             />
                             <Button
                               variant='destructive'
