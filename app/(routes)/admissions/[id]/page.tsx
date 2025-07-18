@@ -275,7 +275,8 @@ export default function AdmissionDetailsPage() {
             </Badge>
           </div>
           <p className='text-muted-foreground'>
-            Application ID: {admission.id}
+            Application ID:{' '}
+            {admission.application_id || `ID: ${admission.id.slice(0, 8)}`}
           </p>
           <p className='text-sm text-muted-foreground'>
             Submitted on: {format(new Date(admission.created_at), 'PPP')}
@@ -300,7 +301,9 @@ export default function AdmissionDetailsPage() {
                 <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                   <DetailItem
                     label='Student Name'
-                    value={admission.student_name}
+                    value={`${admission.first_name}${
+                      admission.last_name ? ` ${admission.last_name}` : ''
+                    }`.trim()}
                   />
                   <DetailItem
                     label='Date of Birth'

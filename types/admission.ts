@@ -1,6 +1,8 @@
 export interface Admission {
   id: string;
-  student_name: string;
+  application_id?: string; // Auto-generated unique ID like JKKN-2024-0001
+  first_name: string;
+  last_name?: string;
   father_name: string;
   father_occupation: string;
   father_mobile: string;

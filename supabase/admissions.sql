@@ -1,8 +1,9 @@
 -- Create the admissions table
 CREATE TABLE public.admissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_name TEXT NOT NULL,
-    father_name TEXT NOT NULL,
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  first_name TEXT NOT NULL,
+  last_name TEXT DEFAULT '',
+  father_name TEXT NOT NULL,
     father_occupation TEXT,
     father_mobile TEXT NOT NULL,
     mother_name TEXT NOT NULL,
@@ -61,7 +62,8 @@ CREATE TABLE public.admissions (
 );
 
 -- Create indexes for performance
-CREATE INDEX idx_admissions_student_name ON public.admissions(student_name);
+CREATE INDEX idx_admissions_first_name ON public.admissions(first_name);
+CREATE INDEX idx_admissions_last_name ON public.admissions(last_name);
 CREATE INDEX idx_admissions_status ON public.admissions(status);
 CREATE INDEX idx_admissions_student_mobile ON public.admissions(student_mobile);
 CREATE INDEX idx_admissions_student_email ON public.admissions(student_email);

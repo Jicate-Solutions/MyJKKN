@@ -157,6 +157,11 @@ export class AdmissionService {
     filters: AdmissionFilters = {}
   ): Promise<AdmissionListResponse> {
     try {
+      console.log(
+        'AdmissionService.getAdmissions called with filters:',
+        filters
+      );
+
       // Use Supabase's built-in join capabilities
       let query = this.supabase.from('admissions').select(
         `
@@ -170,12 +175,14 @@ export class AdmissionService {
       // Apply filters
       if (filters.search) {
         query = query.or(
-          `student_name.ilike.%${filters.search}%,student_email.ilike.%${filters.search}%,student_mobile.ilike.%${filters.search}%`
+          `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,student_email.ilike.%${filters.search}%,student_mobile.ilike.%${filters.search}%,application_id.ilike.%${filters.search}%`
         );
       }
 
       if (filters.name) {
-        query = query.ilike('student_name', `%${filters.name}%`);
+        query = query.or(
+          `first_name.ilike.%${filters.name}%,last_name.ilike.%${filters.name}%`
+        );
       }
 
       if (filters.status && filters.status !== 'all') {
@@ -183,11 +190,11 @@ export class AdmissionService {
       }
 
       if (filters.institution && filters.institution !== 'all') {
-        query = query.eq('field_of_study', filters.institution);
+        query = query.eq('institution_id', filters.institution);
       }
 
       if (filters.course && filters.course !== 'all') {
-        query = query.eq('year_and_branch', filters.course);
+        query = query.eq('program_id', filters.course);
       }
 
       if (filters.fromDate) {
@@ -211,7 +218,16 @@ export class AdmissionService {
 
       const { data: admissions, error, count } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase query error:', error);
+        throw error;
+      }
+
+      console.log('Query returned data:', {
+        count,
+        dataLength: admissions?.length || 0,
+        firstRecord: admissions?.[0] || null
+      });
 
       return {
         data: admissions || [],

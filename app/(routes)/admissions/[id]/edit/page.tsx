@@ -196,7 +196,8 @@ export default function EditAdmissionPage() {
           // Basic Details section
           id: admissionData.id,
           status: admissionData.status || 'pending',
-          studentName: admissionData.student_name || '',
+          firstName: admissionData.first_name || '',
+          lastName: admissionData.last_name || '',
           fatherName: admissionData.father_name || '',
           fatherOccupation: admissionData.father_occupation || '',
           fatherMobile: admissionData.father_mobile || '',
@@ -415,6 +416,10 @@ export default function EditAdmissionPage() {
         <div>
           <h1 className='text-2xl font-bold tracking-tight'>Edit Admission</h1>
           <p className='text-muted-foreground'>
+            Application ID:{' '}
+            {admission.application_id || `ID: ${admissionId.slice(0, 8)}`}
+          </p>
+          <p className='text-sm text-muted-foreground'>
             Update admission application details
           </p>
         </div>

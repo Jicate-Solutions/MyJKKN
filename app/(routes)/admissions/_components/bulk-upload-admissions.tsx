@@ -188,7 +188,8 @@ export default function BulkUploadAdmissions() {
           <div className='text-xs text-muted-foreground'>
             <p>Note: The file should contain the following columns:</p>
             <ul className='list-disc pl-4 mt-1 space-y-1'>
-              <li>Student Name</li>
+              <li>First Name (required)</li>
+              <li>Last Name (optional)</li>
               <li>Father Name</li>
               <li>Mother Name</li>
               <li>Date of Birth (YYYY-MM-DD)</li>
@@ -198,6 +199,10 @@ export default function BulkUploadAdmissions() {
               <li>Contact Number</li>
               <li>Email</li>
             </ul>
+            <p className='mt-2 text-orange-600'>
+              💡 Use &quot;Download Template&quot; button to get the correct
+              format with all required columns.
+            </p>
           </div>
         </div>
         <DialogFooter>
