@@ -152,13 +152,15 @@ export class StudentService {
       const now = new Date().toISOString();
 
       // Calculate if profile is complete
-      const is_profile_complete =
-        this.calculateProfileCompleteness(studentData);
+      const is_profile_complete = this.calculateProfileCompleteness(
+        studentData as Partial<Student>
+      );
 
       const { data: student, error } = await this.supabase
         .from('students')
         .insert({
           ...studentData,
+          application_id: studentData.application_id, // Ensure application_id is passed
           is_profile_complete,
           created_at: now,
           updated_at: now,
@@ -189,7 +191,9 @@ export class StudentService {
           const tempPassword = generateTemporaryPassword();
           const userPayload: CreateUserRequest = {
             email: student.college_email,
-            full_name: student.student_name,
+            full_name: `${student.first_name} ${
+              student.last_name || ''
+            }`.trim(),
             password: tempPassword,
             role: 'student', // Default role
             phone_number: student.student_mobile || null
@@ -360,7 +364,7 @@ export class StudentService {
         const tempPassword = generateTemporaryPassword();
         const userPayload: CreateUserRequest = {
           email: student.college_email,
-          full_name: student.student_name,
+          full_name: `${student.first_name} ${student.last_name || ''}`.trim(),
           password: tempPassword,
           role: 'student', // Default role
           phone_number: student.student_mobile || null
@@ -548,12 +552,14 @@ export class StudentService {
       // Apply filters
       if (filters.search) {
         query = query.or(
-          `student_name.ilike.%${filters.search}%,student_email.ilike.%${filters.search}%,student_mobile.ilike.%${filters.search}%,roll_number.ilike.%${filters.search}%`
+          `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,roll_number.ilike.%${filters.search}%,student_email.ilike.%${filters.search}%`
         );
       }
-
-      if (filters.student_name) {
-        query = query.ilike('student_name', `%${filters.student_name}%`);
+      if (filters.first_name) {
+        query = query.ilike('first_name', `%${filters.first_name}%`);
+      }
+      if (filters.last_name) {
+        query = query.ilike('last_name', `%${filters.last_name}%`);
       }
 
       if (filters.institution) {
@@ -753,8 +759,10 @@ export class StudentService {
           : admission.twelfth_marks;
 
       const studentData: CreateStudentDto = {
-        admission_id: admission.id,
-        student_name: admission.student_name,
+        admission_id: admission.id, // The UUID foreign key
+        application_id: admission.application_id, // The human-readable ID
+        first_name: admission.first_name,
+        last_name: admission.last_name,
         father_name: admission.father_name,
         father_occupation: admission.father_occupation || '',
         father_mobile: admission.father_mobile || '',
@@ -923,8 +931,9 @@ export class StudentService {
       const now = new Date().toISOString();
 
       // Calculate if profile is complete
-      const is_profile_complete =
-        this.calculateProfileCompleteness(studentData);
+      const is_profile_complete = this.calculateProfileCompleteness(
+        studentData as Partial<Student>
+      );
 
       const { data: student, error } = await this.supabase
         .from('students')

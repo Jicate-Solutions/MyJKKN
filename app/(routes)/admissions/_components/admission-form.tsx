@@ -29,6 +29,11 @@ import {
 } from '@/hooks/admission/use-admissions';
 import toast from 'react-hot-toast';
 import { CourseSelectionForm } from './form-sections/course-selection';
+import {
+  indianStates,
+  getDistrictsByState,
+  getTaluksByDistrict
+} from '@/lib/data/locations';
 
 // Define the form schema with all sections
 const basicDetailsSchema = z.object({
@@ -398,6 +403,34 @@ export function AdmissionForm({
     toast.error(content);
   };
 
+  // Helper function to convert location IDs to display names
+  const getLocationNameById = (
+    id: string | undefined,
+    type: 'state' | 'district' | 'taluk',
+    stateId?: string,
+    districtId?: string
+  ): string | undefined => {
+    if (!id) return undefined;
+
+    switch (type) {
+      case 'state':
+        return indianStates.find((state) => state.id === id)?.name;
+
+      case 'district':
+        if (!stateId) return undefined;
+        const districts = getDistrictsByState(stateId);
+        return districts.find((district) => district.id === id)?.name;
+
+      case 'taluk':
+        if (!stateId || !districtId) return undefined;
+        const taluks = getTaluksByDistrict(stateId, districtId);
+        return taluks.find((taluk) => taluk.id === id)?.name;
+
+      default:
+        return undefined;
+    }
+  };
+
   // Function to get error message for a field (handles nested fields)
   const getErrorMessage = (errors: any, field: string): string | undefined => {
     // Handle nested fields like 'tenthMarks.maxMarks'
@@ -620,13 +653,25 @@ export function AdmissionForm({
           data.permanentAddressStreet
         ),
         permanent_address_taluk: formatStringValue(
-          data.permanentAddressTaluk || ''
+          getLocationNameById(
+            data.permanentAddressTaluk,
+            'taluk',
+            data.permanentAddressState,
+            data.permanentAddressDistrict
+          ) || ''
         ),
         permanent_address_district: formatStringValue(
-          data.permanentAddressDistrict
+          getLocationNameById(
+            data.permanentAddressDistrict,
+            'district',
+            data.permanentAddressState
+          ) || data.permanentAddressDistrict
         ),
         permanent_address_pin_code: data.permanentAddressPinCode,
-        permanent_address_state: formatStringValue(data.permanentAddressState),
+        permanent_address_state: formatStringValue(
+          getLocationNameById(data.permanentAddressState, 'state') ||
+            data.permanentAddressState
+        ),
         student_mobile: data.studentMobile,
         student_email: formatStringValue(data.studentEmail, true), // Keep email lowercase
 

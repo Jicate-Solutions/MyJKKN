@@ -468,7 +468,9 @@ export default function StudentOnboardingPage() {
 
       // Show success message
       toast.success(
-        `Successfully deleted student: ${studentToDelete.student_name}`
+        `Successfully deleted student: ${studentToDelete.first_name} ${
+          studentToDelete.last_name || ''
+        }`
       );
 
       // Close dialog and reset state
@@ -720,7 +722,7 @@ export default function StudentOnboardingPage() {
           href={`/students/${row.original.id}`}
           className='hover:underline hover:text-primary font-medium'
         >
-          {row.original.student_name}
+          {`${row.original.first_name} ${row.original.last_name || ''}`.trim()}
         </Link>
       ),
       enableSorting: true,
@@ -1325,7 +1327,9 @@ export default function StudentOnboardingPage() {
             <AlertDialogDescription>
               Are you sure you want to delete the student &ldquo;
               <span className='font-semibold'>
-                {studentToDelete?.student_name}
+                {`${studentToDelete?.first_name} ${
+                  studentToDelete?.last_name || ''
+                }`.trim()}
               </span>
               &rdquo;? This action cannot be undone and will permanently remove:
               <ul className='list-disc list-inside mt-2 space-y-1'>

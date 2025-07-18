@@ -1336,7 +1336,9 @@ export function BulkCreateStudents() {
                 // Record the result for tracking
                 userCreationResults.push({
                   student_id: result.student.id,
-                  student_name: result.student.student_name,
+                  student_name: `${result.student.first_name} ${
+                    result.student.last_name || ''
+                  }`.trim(),
                   email: result.student.college_email,
                   success: result.userCreated,
                   message: result.userError

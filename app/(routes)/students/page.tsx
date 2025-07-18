@@ -420,20 +420,21 @@ export default function StudentsPage() {
 
   // Get bulk action configuration
   const getBulkActionConfig = () => {
-    if (bulkActionMode === 'delete') {
-      return {
-        label: 'Delete',
-        icon: Trash,
-        variant: 'destructive' as const,
-        confirmTitle: 'Are you sure?',
-        confirmDescription:
-          'This will permanently delete the selected student(s). This action cannot be undone.',
-        successMessage: 'Successfully deleted {count} student{plural}',
-        errorMessage: 'Failed to delete students',
-        loadingText: 'Deleting...'
-      };
-    } else {
-      return {
+    return {
+      delete: {
+        label: 'Delete Students',
+        description:
+          'This will permanently delete the selected student profiles.',
+        confirmText: 'Yes, delete students',
+        action: handleBulkDelete,
+        getSuccessMessage: (count: number) =>
+          `${count} student(s) deleted successfully.`,
+        getErrorMessage: (count: number) =>
+          `Failed to delete ${count} student(s).`,
+        getItemName: (student: Student) =>
+          `${student.first_name} ${student.last_name || ''}`.trim()
+      },
+      status: {
         label: 'Update Status',
         icon: Settings,
         variant: 'default' as const,
@@ -443,33 +444,20 @@ export default function StudentsPage() {
           'Successfully updated status for {count} student{plural}',
         errorMessage: 'Failed to update student status',
         loadingText: 'Updating...'
-      };
-    }
+      }
+    };
   };
 
   // Reset all filters except is_profile_complete
   const handleResetFilters = () => {
     setFilters({
-      search: '',
-      student_name: '',
-      institution: '',
-      degree: '',
-      department: '',
-      program: '',
-      semester: '',
-      section: '',
-      academic_year: '',
-      gender: undefined,
-      entry_type: undefined,
-      accommodation_type: undefined,
-      status: undefined,
-      created_from: undefined,
-      created_to: undefined,
-      is_profile_complete: undefined,
       page: 1,
-      limit: 10
+      limit: filters.limit || 10,
+      search: '',
+      first_name: '',
+      last_name: ''
     });
-    setDateRange({ from: undefined, to: undefined });
+    // Additional reset logic if needed for local state
   };
 
   // Remove a specific filter
@@ -748,12 +736,13 @@ export default function StudentsPage() {
     {
       id: 'student_name',
       header: 'Student Name',
+      accessorKey: 'student_name',
       cell: ({ row }) => (
         <Link
           href={`/students/${row.original.id}`}
-          className='hover:underline hover:text-primary font-medium'
+          className='font-medium hover:underline hover:text-primary'
         >
-          {row.original.student_name}
+          {`${row.original.first_name} ${row.original.last_name || ''}`.trim()}
         </Link>
       ),
       enableSorting: true
