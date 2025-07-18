@@ -35,6 +35,9 @@ interface Institution {
 interface ValidationResult {
   isValid: boolean;
   errors: string[];
+  resolvedIds?: {
+    institution_id?: string;
+  };
 }
 
 const validateRow = async (
@@ -42,7 +45,7 @@ const validateRow = async (
   institutions: Institution[]
 ): Promise<ValidationResult> => {
   const errors: string[] = [];
-  const requiredFields = ['institution_id', 'course_code', 'course_name'];
+  const requiredFields = ['institution_name', 'course_code', 'course_name'];
 
   // Check required fields
   const missingFields = requiredFields.filter((field) => {
@@ -53,14 +56,19 @@ const validateRow = async (
     errors.push(`Missing required fields: ${missingFields.join(', ')}`);
   }
 
-  // Validate institution exists - check if the institution ID exists in our list
-  const institution = institutions.find((i) => i.id === row.institution_id);
+  // Validate institution by name (case-insensitive)
+  const institution = institutions.find(
+    (i) =>
+      i.name.toLowerCase().trim() === row.institution_name?.toLowerCase().trim()
+  );
   if (!institution) {
     const validInstitutions = institutions
       .slice(0, 3)
-      .map((i) => `${i.name} (${i.id})`)
+      .map((i) => `${i.name}`)
       .join('; ');
-    errors.push(`Invalid institution ID. Valid examples: ${validInstitutions}`);
+    errors.push(
+      `Institution "${row.institution_name}" not found. Valid examples: ${validInstitutions}`
+    );
     return {
       isValid: false,
       errors
@@ -87,9 +95,35 @@ const validateRow = async (
     }
   }
 
+  // Check if course code already exists for this institution
+  if (institution && row.course_code) {
+    try {
+      const existingCourses = await CourseService.getCourses({
+        institution_id: institution.id,
+        isActive: true,
+        limit: 1000
+      });
+
+      const courseCodeStr = String(row.course_code).trim().toUpperCase();
+      const duplicateCourse = existingCourses.data.find(
+        (course) => course.course_code.toUpperCase() === courseCodeStr
+      );
+
+      if (duplicateCourse) {
+        errors.push(
+          `Course code "${courseCodeStr}" already exists in ${institution.name}`
+        );
+      }
+    } catch (error) {
+      console.error('Error checking for duplicate courses:', error);
+      // Don't fail validation for this, just log it
+    }
+  }
+
   return {
     isValid: errors.length === 0,
-    errors
+    errors,
+    resolvedIds: institution ? { institution_id: institution.id } : undefined
   };
 };
 
@@ -126,10 +160,10 @@ export default function BulkUploadCourses() {
         return;
       }
 
-      // Log sample valid institution IDs to help users
+      // Log sample valid institution names to help users
       console.log('Valid institution examples:');
       institutions.slice(0, 3).forEach((inst) => {
-        console.log(`Institution: ${inst.name} (${inst.id})`);
+        console.log(`Institution: ${inst.name} (${inst.counselling_code})`);
       });
 
       const data = await file.arrayBuffer();
@@ -154,7 +188,7 @@ export default function BulkUploadCourses() {
         jsonData.map(async (row: any, index) => {
           // Log row data types for debugging
           console.log(`Row ${index + 2}:`, {
-            institution_id: typeof row.institution_id,
+            institution_name: typeof row.institution_name,
             course_code: typeof row.course_code,
             course_name: typeof row.course_name,
             values: row
@@ -165,7 +199,8 @@ export default function BulkUploadCourses() {
             ...row,
             rowNumber: index + 2,
             isValid: validation.isValid,
-            errors: validation.errors
+            errors: validation.errors,
+            resolvedIds: validation.resolvedIds
           };
         })
       );
@@ -201,7 +236,7 @@ export default function BulkUploadCourses() {
 
       const promises = validRows.map((row) => {
         const courseData = {
-          institution_id: row.institution_id,
+          institution_id: row.resolvedIds?.institution_id,
           course_code: String(row.course_code || '')
             .trim()
             .toUpperCase(),
@@ -271,7 +306,7 @@ export default function BulkUploadCourses() {
               <div className='mt-4 flex items-center gap-2 border border-amber-300 bg-amber-50 p-3 rounded-md'>
                 <AlertTriangle className='h-5 w-5 text-amber-500' />
                 <p className='text-sm text-amber-700'>
-                  Make sure to use our template with valid institution IDs
+                  Make sure to use our template with valid institution names
                 </p>
               </div>
               <div className='mt-2'>
@@ -311,7 +346,7 @@ export default function BulkUploadCourses() {
                       <p className='text-sm text-muted-foreground mt-1'>
                         Some rows contain invalid data. These issues must be
                         fixed before uploading. The most common issue is using
-                        incorrect institution IDs.
+                        incorrect institution names.
                       </p>
                       <Button
                         variant='outline'
@@ -324,7 +359,7 @@ export default function BulkUploadCourses() {
                         }}
                       >
                         <FileDown className='mr-2 h-4 w-4' />
-                        Download Template with Valid IDs
+                        Download Template with Valid Names
                       </Button>
                     </div>
                   </div>
@@ -336,9 +371,9 @@ export default function BulkUploadCourses() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Row</TableHead>
-                      <TableHead>Institution ID</TableHead>
+                      <TableHead>Institution Name</TableHead>
                       <TableHead>Course Code</TableHead>
-                      <TableHead>Name</TableHead>
+                      <TableHead>Course Name</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Errors</TableHead>
                     </TableRow>
@@ -347,7 +382,7 @@ export default function BulkUploadCourses() {
                     {previewData.map((row) => (
                       <TableRow key={row.rowNumber}>
                         <TableCell>{row.rowNumber}</TableCell>
-                        <TableCell>{row.institution_id}</TableCell>
+                        <TableCell>{row.institution_name}</TableCell>
                         <TableCell>{row.course_code}</TableCell>
                         <TableCell>{row.course_name}</TableCell>
                         <TableCell>

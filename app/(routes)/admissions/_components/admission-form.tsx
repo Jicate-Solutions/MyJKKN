@@ -33,7 +33,8 @@ import { CourseSelectionForm } from './form-sections/course-selection';
 // Define the form schema with all sections
 const basicDetailsSchema = z.object({
   enquiryDate: z.string().optional(),
-  studentName: z.string().min(1, 'Student name is required'),
+  firstName: z.string().min(1, 'First name is required'),
+  lastName: z.string().optional(),
   fatherName: z.string().min(1, "Father's name is required"),
   fatherOccupation: z.string().optional(),
   fatherMobile: z.string().length(10, 'Mobile number must be 10 digits'),
@@ -230,7 +231,8 @@ export function AdmissionForm({
           // Default values for a new admission
           // Basic Details
           enquiryDate: new Date().toISOString().split('T')[0],
-          studentName: '',
+          firstName: '',
+          lastName: '',
           fatherName: '',
           fatherOccupation: '',
           fatherMobile: '',
@@ -344,7 +346,7 @@ export function AdmissionForm({
     switch (activeTab) {
       case 'basic-details':
         fieldsToValidate = [
-          'studentName',
+          'firstName',
           'fatherName',
           'fatherMobile',
           'motherName',
@@ -559,23 +561,24 @@ export function AdmissionForm({
       // Convert form data to the format expected by Supabase
       const formattedData = {
         // Map camelCase field names to snake_case for Supabase
-        student_name: data.studentName,
-        father_name: data.fatherName,
-        father_occupation: data.fatherOccupation || '',
+        first_name: formatStringValue(data.firstName),
+        last_name: formatStringValue(data.lastName || ''),
+        father_name: formatStringValue(data.fatherName),
+        father_occupation: formatStringValue(data.fatherOccupation || ''),
         father_mobile: data.fatherMobile,
-        mother_name: data.motherName,
-        mother_occupation: data.motherOccupation || '',
+        mother_name: formatStringValue(data.motherName),
+        mother_occupation: formatStringValue(data.motherOccupation || ''),
         mother_mobile: data.motherMobile,
         date_of_birth: data.dateOfBirth,
-        gender: data.gender ? data.gender.toLowerCase() : '',
-        religion: data.religion,
-        community: data.community,
-        caste: data.caste || '',
+        gender: formatStringValue(data.gender),
+        religion: formatStringValue(data.religion),
+        community: formatStringValue(data.community),
+        caste: formatStringValue(data.caste || ''),
         annual_income: data.annualIncome || '',
 
         // Academic Information
-        last_school: data.lastSchool,
-        board_of_study: data.boardOfStudy,
+        last_school: formatStringValue(data.lastSchool),
+        board_of_study: formatStringValue(data.boardOfStudy),
         tenth_marks: {
           max_marks: data.tenthMarks.maxMarks,
           obtained_marks: data.tenthMarks.obtainedMarks,
@@ -602,33 +605,39 @@ export function AdmissionForm({
         first_graduate: data.firstGraduate || false,
 
         // Course Selection - handle both UUIDs and string values
-        quota: data.quota || '',
-        category: data.category || '',
+        quota: formatStringValue(data.quota || ''),
+        category: formatStringValue(data.category || ''),
         institution_id: data.institution_id,
         degree_id: isValidUUID(data.degreeId) ? data.degreeId : undefined,
         department_id: isValidUUID(data.departmentId)
           ? data.departmentId
           : undefined,
         program_id: isValidUUID(data.programId) ? data.programId : undefined,
-        entry_type: data.entryType,
+        entry_type: formatStringValue(data.entryType),
 
         // Contact Details
-        permanent_address_street: data.permanentAddressStreet,
-        permanent_address_taluk: data.permanentAddressTaluk || '',
-        permanent_address_district: data.permanentAddressDistrict,
+        permanent_address_street: formatStringValue(
+          data.permanentAddressStreet
+        ),
+        permanent_address_taluk: formatStringValue(
+          data.permanentAddressTaluk || ''
+        ),
+        permanent_address_district: formatStringValue(
+          data.permanentAddressDistrict
+        ),
         permanent_address_pin_code: data.permanentAddressPinCode,
-        permanent_address_state: data.permanentAddressState,
+        permanent_address_state: formatStringValue(data.permanentAddressState),
         student_mobile: data.studentMobile,
-        student_email: data.studentEmail,
+        student_email: formatStringValue(data.studentEmail, true), // Keep email lowercase
 
         // Accommodation Preferences
-        accommodation_type: data.accommodationType,
-        hostel_type: data.hostelType || '',
+        accommodation_type: formatAccommodationType(data.accommodationType),
+        hostel_type: formatStringValue(data.hostelType || ''),
         bus_required: data.busRequired || false,
-        bus_route: data.busRoute || '',
-        bus_pickup_location: data.busPickupLocation || '',
-        reference_type: data.referenceType || '',
-        reference_name: data.referenceName || '',
+        bus_route: formatStringValue(data.busRoute || ''),
+        bus_pickup_location: formatStringValue(data.busPickupLocation || ''),
+        reference_type: formatStringValue(data.referenceType || ''),
+        reference_name: formatStringValue(data.referenceName || ''),
         reference_contact: data.referenceContact || '',
 
         // Status - new submissions are always pending
@@ -641,6 +650,21 @@ export function AdmissionForm({
         const uuidPattern =
           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         return uuidPattern.test(str);
+      }
+
+      // Helper function to convert string to uppercase (except email fields)
+      function formatStringValue(
+        str: string,
+        isEmail: boolean = false
+      ): string {
+        if (!str) return '';
+        return isEmail ? str.trim().toLowerCase() : str.trim().toUpperCase();
+      }
+
+      // Helper function to format accommodation type
+      function formatAccommodationType(type: string): string {
+        if (!type) return '';
+        return type.replace(/_/g, ' ').toUpperCase();
       }
 
       console.log('Form data to submit:', formattedData);
@@ -694,7 +718,7 @@ export function AdmissionForm({
     switch (tabId) {
       case 'basic-details':
         return [
-          'studentName',
+          'firstName',
           'fatherName',
           'fatherMobile',
           'motherName',
@@ -738,7 +762,8 @@ export function AdmissionForm({
   // Function to convert field names to readable format
   const getReadableFieldName = (field: string): string => {
     const fieldMap: Record<string, string> = {
-      studentName: 'Student Name',
+      firstName: 'First Name',
+      lastName: 'Last Name',
       fatherName: "Father's Name",
       fatherMobile: "Father's Mobile",
       motherName: "Mother's Name",

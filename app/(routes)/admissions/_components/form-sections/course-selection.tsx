@@ -234,25 +234,12 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           );
           setDegrees(data);
 
-          // Only reset dependent fields if not in edit mode (if fields aren't already populated)
-          // Check if we have existing values before resetting
-          const currentDegreeId = form.getValues('degreeId');
-          const currentDepartmentId = form.getValues('departmentId');
-          const currentProgramId = form.getValues('programId');
-
-          if (!currentDegreeId) {
-            form.setValue('degreeId', '');
-          }
-
-          if (!currentDepartmentId) {
-            form.setValue('departmentId', '');
-            setDepartments([]);
-          }
-
-          if (!currentProgramId) {
-            form.setValue('programId', '');
-            setPrograms([]);
-          }
+          // Always reset dependent fields when institution changes
+          form.setValue('degreeId', '');
+          form.setValue('departmentId', '');
+          form.setValue('programId', '');
+          setDepartments([]);
+          setPrograms([]);
         } catch (error) {
           console.error('Error fetching degrees:', error);
           // Don't reset fields on error
@@ -262,14 +249,13 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
       }
       fetchDegrees();
     } else {
+      // Institution is cleared, reset all dependent fields and data
       setDegrees([]);
-      // Only reset if we don't have an institution selected
-      if (!form.getValues('departmentId')) {
-        setDepartments([]);
-      }
-      if (!form.getValues('programId')) {
-        setPrograms([]);
-      }
+      setDepartments([]);
+      setPrograms([]);
+      form.setValue('degreeId', '');
+      form.setValue('departmentId', '');
+      form.setValue('programId', '');
     }
   }, [institution_id, form]);
 
@@ -283,18 +269,10 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           const data = await DepartmentService.getDepartmentsByDegree(degreeId);
           setDepartments(data);
 
-          // Only reset dependent fields if not already populated
-          const currentDepartmentId = form.getValues('departmentId');
-          const currentProgramId = form.getValues('programId');
-
-          if (!currentDepartmentId) {
-            form.setValue('departmentId', '');
-          }
-
-          if (!currentProgramId) {
-            form.setValue('programId', '');
-            setPrograms([]);
-          }
+          // Always reset dependent fields when degree changes
+          form.setValue('departmentId', '');
+          form.setValue('programId', '');
+          setPrograms([]);
         } catch (error) {
           console.error('Error fetching departments:', error);
           // Don't reset fields on error
@@ -303,10 +281,12 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
         }
       }
       fetchDepartments();
-    } else if (!institution_id) {
-      // Only clear departments if institution is also not selected
+    } else {
+      // Degree is cleared, reset all dependent fields and data
       setDepartments([]);
       setPrograms([]);
+      form.setValue('departmentId', '');
+      form.setValue('programId', '');
     }
   }, [degreeId, form, institution_id]);
 
@@ -323,12 +303,8 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           );
           setPrograms(data);
 
-          // Only reset if not already populated
-          const currentProgramId = form.getValues('programId');
-
-          if (!currentProgramId) {
-            form.setValue('programId', '');
-          }
+          // Always reset dependent field when department changes
+          form.setValue('programId', '');
         } catch (error) {
           console.error('Error fetching programs:', error);
           // Don't reset fields on error
@@ -337,9 +313,10 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
         }
       }
       fetchPrograms();
-    } else if (!degreeId) {
-      // Only clear if degree is also not selected
+    } else {
+      // Department is cleared, reset dependent field
       setPrograms([]);
+      form.setValue('programId', '');
     }
   }, [departmentId, form, degreeId]);
 

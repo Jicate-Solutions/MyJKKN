@@ -52,8 +52,10 @@ export const useCreateAdmission = () => {
     mutationFn: (data: CreateAdmissionDto) =>
       AdmissionService.createAdmission(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: admissionKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: admissionKeys.stats() });
+      // Invalidate all admission-related queries
+      queryClient.invalidateQueries({ queryKey: admissionKeys.all });
+      // Also remove all cached data to force fresh fetch
+      queryClient.removeQueries({ queryKey: admissionKeys.lists() });
     }
   });
 };

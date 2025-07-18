@@ -1,7 +1,23 @@
 'use client';
 
-import { UseFormReturn } from 'react-hook-form';
+import { useState, useEffect } from 'react';
+import { UseFormReturn, useWatch } from 'react-hook-form';
+import { Check, ChevronsUpDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
 import {
   FormControl,
   FormDescription,
@@ -10,59 +26,61 @@ import {
   FormLabel,
   FormMessage
 } from '@/components/ui/form';
+import { cn } from '@/lib/utils';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
+  indianStates,
+  getDistrictsByState,
+  getTaluksByDistrict,
+  type State,
+  type District,
+  type Taluk
+} from '@/lib/data/locations';
 
 interface ContactDetailsFormProps {
   form: UseFormReturn<any>;
 }
 
-// List of Indian states for the dropdown
-const indianStates = [
-  'Andhra Pradesh',
-  'Arunachal Pradesh',
-  'Assam',
-  'Bihar',
-  'Chhattisgarh',
-  'Goa',
-  'Gujarat',
-  'Haryana',
-  'Himachal Pradesh',
-  'Jharkhand',
-  'Karnataka',
-  'Kerala',
-  'Madhya Pradesh',
-  'Maharashtra',
-  'Manipur',
-  'Meghalaya',
-  'Mizoram',
-  'Nagaland',
-  'Odisha',
-  'Punjab',
-  'Rajasthan',
-  'Sikkim',
-  'Tamil Nadu',
-  'Telangana',
-  'Tripura',
-  'Uttar Pradesh',
-  'Uttarakhand',
-  'West Bengal',
-  'Andaman and Nicobar Islands',
-  'Chandigarh',
-  'Dadra and Nagar Haveli and Daman and Diu',
-  'Delhi',
-  'Jammu and Kashmir',
-  'Ladakh',
-  'Lakshadweep',
-  'Puducherry'
-];
-
 export function ContactDetailsForm({ form }: ContactDetailsFormProps) {
+  // State for dropdown open/close states
+  const [stateOpen, setStateOpen] = useState(false);
+  const [districtOpen, setDistrictOpen] = useState(false);
+  const [talukOpen, setTalukOpen] = useState(false);
+
+  // Watch form values for cascading updates
+  const selectedStateId = useWatch({
+    control: form.control,
+    name: 'permanentAddressState'
+  });
+
+  const selectedDistrictId = useWatch({
+    control: form.control,
+    name: 'permanentAddressDistrict'
+  });
+
+  // Get available options based on selections
+  const availableDistricts = selectedStateId
+    ? getDistrictsByState(selectedStateId)
+    : [];
+  const availableTaluks =
+    selectedStateId && selectedDistrictId
+      ? getTaluksByDistrict(selectedStateId, selectedDistrictId)
+      : [];
+
+  // Reset dependent fields when parent changes
+  useEffect(() => {
+    if (selectedStateId) {
+      // Reset district and taluk when state changes
+      form.setValue('permanentAddressDistrict', '');
+      form.setValue('permanentAddressTaluk', '');
+    }
+  }, [selectedStateId, form]);
+
+  useEffect(() => {
+    if (selectedDistrictId) {
+      // Reset taluk when district changes
+      form.setValue('permanentAddressTaluk', '');
+    }
+  }, [selectedDistrictId, form]);
   return (
     <div className='space-y-8'>
       <div>
@@ -95,34 +113,211 @@ export function ContactDetailsForm({ form }: ContactDetailsFormProps) {
             />
           </div>
 
+          {/* State Selection - First in order */}
           <FormField
             control={form.control}
-            name='permanentAddressTaluk'
+            name='permanentAddressState'
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Taluk/Tehsil</FormLabel>
-                <FormControl>
-                  <Input {...field} placeholder='Enter taluk/tehsil' />
-                </FormControl>
+              <FormItem className='flex flex-col'>
+                <FormLabel>State</FormLabel>
+                <Popover open={stateOpen} onOpenChange={setStateOpen}>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant='outline'
+                        role='combobox'
+                        aria-expanded={stateOpen}
+                        className={cn(
+                          'w-full justify-between',
+                          !field.value && 'text-muted-foreground'
+                        )}
+                      >
+                        {field.value
+                          ? indianStates.find(
+                              (state) => state.id === field.value
+                            )?.name
+                          : 'Select state...'}
+                        <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className='w-full p-0'>
+                    <Command>
+                      <CommandInput placeholder='Search state...' />
+                      <CommandList>
+                        <CommandEmpty>No state found.</CommandEmpty>
+                        <CommandGroup>
+                          {indianStates.map((state) => (
+                            <CommandItem
+                              key={state.id}
+                              value={state.name}
+                              onSelect={() => {
+                                field.onChange(state.id);
+                                setStateOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  'mr-2 h-4 w-4',
+                                  field.value === state.id
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
+                              {state.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
                 <FormMessage />
               </FormItem>
             )}
           />
 
+          {/* District Selection - Second in order */}
           <FormField
             control={form.control}
             name='permanentAddressDistrict'
             render={({ field }) => (
-              <FormItem>
+              <FormItem className='flex flex-col'>
                 <FormLabel>District</FormLabel>
-                <FormControl>
-                  <Input {...field} placeholder='Enter district' />
-                </FormControl>
+                <Popover open={districtOpen} onOpenChange={setDistrictOpen}>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant='outline'
+                        role='combobox'
+                        aria-expanded={districtOpen}
+                        disabled={!selectedStateId}
+                        className={cn(
+                          'w-full justify-between',
+                          !field.value && 'text-muted-foreground'
+                        )}
+                      >
+                        {field.value
+                          ? availableDistricts.find(
+                              (district) => district.id === field.value
+                            )?.name
+                          : selectedStateId
+                          ? 'Select district...'
+                          : 'First select state'}
+                        <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className='w-full p-0'>
+                    <Command>
+                      <CommandInput placeholder='Search district...' />
+                      <CommandList>
+                        <CommandEmpty>No district found.</CommandEmpty>
+                        <CommandGroup>
+                          {availableDistricts.map((district) => (
+                            <CommandItem
+                              key={district.id}
+                              value={district.name}
+                              onSelect={() => {
+                                field.onChange(district.id);
+                                setDistrictOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  'mr-2 h-4 w-4',
+                                  field.value === district.id
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
+                              {district.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                <FormDescription>
+                  {!selectedStateId && 'Select a state first'}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
 
+          {/* Taluk Selection - Third in order */}
+          <FormField
+            control={form.control}
+            name='permanentAddressTaluk'
+            render={({ field }) => (
+              <FormItem className='flex flex-col'>
+                <FormLabel>Taluk/Tehsil</FormLabel>
+                <Popover open={talukOpen} onOpenChange={setTalukOpen}>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant='outline'
+                        role='combobox'
+                        aria-expanded={talukOpen}
+                        disabled={!selectedDistrictId}
+                        className={cn(
+                          'w-full justify-between',
+                          !field.value && 'text-muted-foreground'
+                        )}
+                      >
+                        {field.value
+                          ? availableTaluks.find(
+                              (taluk) => taluk.id === field.value
+                            )?.name
+                          : selectedDistrictId
+                          ? 'Select taluk...'
+                          : 'First select district'}
+                        <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className='w-full p-0'>
+                    <Command>
+                      <CommandInput placeholder='Search taluk...' />
+                      <CommandList>
+                        <CommandEmpty>No taluk found.</CommandEmpty>
+                        <CommandGroup>
+                          {availableTaluks.map((taluk) => (
+                            <CommandItem
+                              key={taluk.id}
+                              value={taluk.name}
+                              onSelect={() => {
+                                field.onChange(taluk.id);
+                                setTalukOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  'mr-2 h-4 w-4',
+                                  field.value === taluk.id
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
+                              {taluk.name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                <FormDescription>
+                  {!selectedDistrictId && 'Select a district first'}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {/* PIN Code with numeric input */}
           <FormField
             control={form.control}
             name='permanentAddressPinCode'
@@ -132,42 +327,14 @@ export function ContactDetailsForm({ form }: ContactDetailsFormProps) {
                 <FormControl>
                   <Input
                     {...field}
+                    type='number'
                     placeholder='Enter 6-digit PIN code'
                     maxLength={6}
                     minLength={6}
-                    pattern='[0-9]{6}'
                     inputMode='numeric'
                   />
                 </FormControl>
                 <FormDescription>Must be exactly 6 digits</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name='permanentAddressState'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>State</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder='Select state' />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {indianStates.map((state) => (
-                      <SelectItem key={state} value={state.toLowerCase()}>
-                        {state}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
                 <FormMessage />
               </FormItem>
             )}
@@ -188,11 +355,11 @@ export function ContactDetailsForm({ form }: ContactDetailsFormProps) {
                 <FormControl>
                   <Input
                     {...field}
+                    type='number'
                     placeholder='10-digit mobile number'
                     maxLength={10}
                     minLength={10}
-                    pattern='[0-9]{10}'
-                    inputMode='tel'
+                    inputMode='numeric'
                   />
                 </FormControl>
                 <FormDescription>Must be exactly 10 digits</FormDescription>

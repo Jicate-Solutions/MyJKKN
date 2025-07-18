@@ -35,7 +35,8 @@ interface BasicDetailsFormProps {
 export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
   // Log the form values for this section
   console.log('Basic details form state:', {
-    studentName: form.getValues('studentName'),
+    firstName: form.getValues('firstName'),
+    lastName: form.getValues('lastName'),
     fatherName: form.getValues('fatherName'),
     religion: form.getValues('religion'),
     community: form.getValues('community')
@@ -95,12 +96,26 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
 
         <FormField
           control={form.control}
-          name='studentName'
+          name='firstName'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Student Name</FormLabel>
+              <FormLabel>First Name</FormLabel>
               <FormControl>
-                <Input {...field} placeholder='Full name of the applicant' />
+                <Input {...field} placeholder='First name of the applicant' />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='lastName'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Last Name </FormLabel>
+              <FormControl>
+                <Input {...field} placeholder='Last name of the applicant' />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -146,7 +161,8 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
                   {...field}
                   placeholder='10 digit mobile number'
                   maxLength={10}
-                  type='tel'
+                  type='number'
+                  inputMode='numeric'
                 />
               </FormControl>
               <FormDescription>Must be exactly 10 digits</FormDescription>
@@ -194,7 +210,8 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
                   {...field}
                   placeholder='10 digit mobile number'
                   maxLength={10}
-                  type='tel'
+                  type='number'
+                  inputMode='numeric'
                 />
               </FormControl>
               <FormDescription>Must be exactly 10 digits</FormDescription>

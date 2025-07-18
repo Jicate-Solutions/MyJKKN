@@ -38,7 +38,7 @@ export function AdmissionFilter({
   filters,
   onFilterChange
 }: AdmissionFilterProps) {
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const [localFilters, setLocalFilters] = useState<FilterType>(filters);
   const [fromDate, setFromDate] = useState<Date | undefined>(
     filters.fromDate ? new Date(filters.fromDate) : undefined
@@ -77,7 +77,7 @@ export function AdmissionFilter({
           await OrganizationService.getInstitutions({
             isActive: true,
             // Add current user context for filtering
-            userId: user?.id
+            userId: profile?.id
           });
         // Map to the expected format
         const mappedInstitutions = institutionsData.map((inst) => ({
@@ -94,7 +94,7 @@ export function AdmissionFilter({
     }
 
     fetchInstitutions();
-  }, [user?.id]);
+  }, [profile?.id]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -147,7 +147,7 @@ export function AdmissionFilter({
             <Search className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
             <Input
               name='search'
-              placeholder='Search by student name...'
+              placeholder='Search by name or application ID...'
               value={localFilters.search || ''}
               onChange={handleInputChange}
               className='w-full pl-10'

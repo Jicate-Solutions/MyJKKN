@@ -10,7 +10,8 @@ export default function DownloadTemplateButton() {
   const generateCSV = () => {
     // Define headers based on the required fields for an admission
     const headers = [
-      'Student Name',
+      'First Name',
+      'Last Name',
       'Father Name',
       'Father Occupation',
       'Father Mobile',
