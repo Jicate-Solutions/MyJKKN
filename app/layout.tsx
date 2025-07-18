@@ -3,6 +3,7 @@ import { Poppins } from 'next/font/google';
 import './globals.css';
 import { ToastProvider } from '@/providers/toast-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const poppins = Poppins({
   weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
@@ -33,6 +34,7 @@ export default function RootLayout({
         >
           <ToastProvider />
           {children}
+          <SpeedInsights />
         </ThemeProvider>
       </body>
     </html>
