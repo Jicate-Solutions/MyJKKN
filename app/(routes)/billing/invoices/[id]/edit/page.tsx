@@ -500,7 +500,9 @@ export default function EditInvoicePage({ params }: EditInvoicePageProps) {
                     <div>
                       <div className='text-sm text-muted-foreground'>Name</div>
                       <p className='font-semibold'>
-                        {invoice.student?.student_name}
+                        {`${invoice.student?.first_name} ${
+                          invoice.student?.last_name || ''
+                        }`.trim()}
                       </p>
                     </div>
                     {invoice.student?.roll_number && (
@@ -513,13 +515,13 @@ export default function EditInvoicePage({ params }: EditInvoicePageProps) {
                         </p>
                       </div>
                     )}
-                    {invoice.student?.student_email && (
+                    {invoice.student?.college_email && (
                       <div>
                         <div className='text-sm text-muted-foreground'>
                           Email
                         </div>
                         <p className='font-semibold break-all'>
-                          {invoice.student.student_email}
+                          {invoice.student.college_email}
                         </p>
                       </div>
                     )}

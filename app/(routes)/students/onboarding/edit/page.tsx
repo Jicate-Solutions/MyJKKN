@@ -264,7 +264,10 @@ export default function EditonboardingPage() {
             { label: 'Home', href: '/' },
             { label: 'Students', href: '/students' },
             { label: 'onboarding', href: '/students/onboarding' },
-            { label: student.student_name, href: `/students/${id}` },
+            {
+              label: `${student.first_name} ${student.last_name || ''}`.trim(),
+              href: `/students/${id}`
+            },
             { label: 'Complete Profile' }
           ]}
         />
@@ -272,7 +275,8 @@ export default function EditonboardingPage() {
         <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-4'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>
-              Complete Profile: {student.student_name}
+              Complete Profile:{' '}
+              {`${student.first_name} ${student.last_name || ''}`.trim()}
             </h1>
             <p className='text-muted-foreground'>
               Fill in required information to promote this student

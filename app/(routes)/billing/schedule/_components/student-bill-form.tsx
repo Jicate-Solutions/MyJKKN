@@ -285,7 +285,9 @@ export function StudentBillForm({
       if (studentToUse) {
         setSelectedStudent(studentToUse);
         setStudentSearchQuery(
-          `${studentToUse.student_name} (${studentToUse.roll_number || 'N/A'})`
+          `${studentToUse.first_name} ${studentToUse.last_name} (${
+            studentToUse.roll_number || 'N/A'
+          })`
         );
       }
     } else if (preSelectedStudent) {
@@ -313,7 +315,7 @@ export function StudentBillForm({
       form.reset(formValues);
       setSelectedStudent(preSelectedStudent);
       setStudentSearchQuery(
-        `${preSelectedStudent.student_name} (${
+        `${preSelectedStudent.first_name} ${preSelectedStudent.last_name} (${
           preSelectedStudent.roll_number || 'N/A'
         })`
       );
@@ -352,7 +354,9 @@ export function StudentBillForm({
 
   const handleStudentSelect = (student: any) => {
     setSelectedStudent(student);
-    setStudentSearchQuery(`${student.student_name} (${student.roll_number})`);
+    setStudentSearchQuery(
+      `${student.first_name} ${student.last_name} (${student.roll_number})`
+    );
     form.setValue('student_id', student.id);
   };
 
@@ -466,7 +470,7 @@ export function StudentBillForm({
                     Student Name
                   </label>
                   <p className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
-                    {selectedStudent.student_name}
+                    {`${selectedStudent.first_name} ${selectedStudent.last_name}`}
                   </p>
                 </div>
                 <div>
@@ -483,7 +487,7 @@ export function StudentBillForm({
                     Email
                   </label>
                   <p className='font-medium text-sm break-all'>
-                    {selectedStudent.student_email}
+                    {selectedStudent.college_email}
                   </p>
                 </div>
                 <div>
@@ -610,7 +614,7 @@ export function StudentBillForm({
                             onClick={() => handleStudentSelect(student)}
                           >
                             <div className='font-medium'>
-                              {student.student_name}
+                              {`${student.first_name} ${student.last_name}`}
                             </div>
                             <div className='text-sm text-muted-foreground'>
                               {student.roll_number} • Outstanding: ₹

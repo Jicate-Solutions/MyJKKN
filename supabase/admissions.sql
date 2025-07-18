@@ -1,9 +1,9 @@
 -- Create the admissions table
 CREATE TABLE public.admissions (
-      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   first_name TEXT NOT NULL,
   last_name TEXT DEFAULT '',
-  father_name TEXT NOT NULL,
+    father_name TEXT NOT NULL,
     father_occupation TEXT,
     father_mobile TEXT NOT NULL,
     mother_name TEXT NOT NULL,

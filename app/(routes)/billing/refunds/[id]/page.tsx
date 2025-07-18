@@ -101,14 +101,14 @@ export default function RefundDetailsPage({ params }: RefundDetailsPageProps) {
       setRefund(refundData);
 
       // Pre-populate email data if student email exists
-      if (refundData.receipt?.student?.student_email) {
+      if (refundData.receipt?.student?.college_email) {
         setEmailData((prev) => ({
           ...prev,
-          to: refundData.receipt!.student!.student_email,
+          to: refundData.receipt!.student!.college_email,
           subject: `Refund Processed - Receipt ${refundData.receipt?.receipt_number}`,
-          message: `Dear ${
-            refundData.receipt?.student?.student_name
-          },\n\nYour refund of ₹${refundData.net_refund_amount.toLocaleString()} has been processed for receipt ${
+          message: `Dear ${`${refundData.receipt?.student?.first_name} ${
+            refundData.receipt?.student?.last_name || ''
+          }`.trim()},\n\nYour refund of ₹${refundData.net_refund_amount.toLocaleString()} has been processed for receipt ${
             refundData.receipt?.receipt_number
           }.\n\nRefund Details:\n- Amount: ₹${refundData.refund_amount.toLocaleString()}\n- Processing Fee: ₹${refundData.processing_fee.toLocaleString()}\n- Net Amount: ₹${refundData.net_refund_amount.toLocaleString()}\n- Method: ${refundData.refund_method
             .replace('_', ' ')
@@ -527,7 +527,9 @@ export default function RefundDetailsPage({ params }: RefundDetailsPageProps) {
                       Name
                     </Label>
                     <p className='font-semibold'>
-                      {refund.receipt.student.student_name}
+                      {`${refund.receipt.student.first_name} ${
+                        refund.receipt.student.last_name || ''
+                      }`.trim()}
                     </p>
                   </div>
                   <div>
@@ -536,13 +538,13 @@ export default function RefundDetailsPage({ params }: RefundDetailsPageProps) {
                     </Label>
                     <p>{refund.receipt.student.roll_number}</p>
                   </div>
-                  {refund.receipt.student.student_email && (
+                  {refund.receipt.student.college_email && (
                     <div>
                       <Label className='text-sm font-medium text-muted-foreground'>
                         Email
                       </Label>
                       <p className='text-sm break-all'>
-                        {refund.receipt.student.student_email}
+                        {refund.receipt.student.college_email}
                       </p>
                     </div>
                   )}
@@ -700,7 +702,10 @@ export default function RefundDetailsPage({ params }: RefundDetailsPageProps) {
             <AlertDialogDescription>
               Are you sure you want to approve this refund of{' '}
               {formatCurrency(refund.net_refund_amount)} for{' '}
-              {refund.receipt?.student?.student_name}?
+              {`${refund.receipt?.student?.first_name} ${
+                refund.receipt?.student?.last_name || ''
+              }`.trim()}
+              ?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

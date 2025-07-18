@@ -277,7 +277,9 @@ export default function EditDiscountPage() {
                     Student
                   </Label>
                   <p className='font-medium'>
-                    {discount.bill.student?.student_name}
+                    {`${discount.bill.student?.first_name} ${
+                      discount.bill.student?.last_name || ''
+                    }`.trim()}
                   </p>
                 </div>
                 <div>

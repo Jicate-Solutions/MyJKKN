@@ -528,7 +528,7 @@ export default function BulkCreateBillsPage() {
                               />
                               <div className='flex-1'>
                                 <div className='font-medium'>
-                                  {student.student_name}
+                                  {`${student.first_name} ${student.last_name}`}
                                 </div>
                                 <div className='text-sm text-muted-foreground'>
                                   {student.roll_number} • Outstanding: ₹

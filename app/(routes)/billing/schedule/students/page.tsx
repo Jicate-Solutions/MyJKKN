@@ -26,8 +26,8 @@ function BillingStudentsContent() {
     };
 
     // Add search parameters if they exist
-    if (searchParams.get('student_name')) {
-      urlFilters.student_name = searchParams.get('student_name') || undefined;
+    if (searchParams.get('first_name')) {
+      urlFilters.first_name = searchParams.get('first_name') || undefined;
     }
     if (searchParams.get('roll_number')) {
       urlFilters.roll_number = searchParams.get('roll_number') || undefined;

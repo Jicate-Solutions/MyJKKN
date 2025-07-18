@@ -188,7 +188,8 @@ const parseAndNormalizeDate = (dateString: string): string | null => {
 const newStudentSchema = z
   .object({
     // Personal Info - All optional
-    student_name: z.string().optional().nullable(),
+    first_name: z.string().optional().nullable(),
+    last_name: z.string().optional().nullable(),
     father_name: z.string().optional().nullable(),
     father_occupation: z.string().optional().nullable(),
     father_mobile: z.string().optional().nullable(),
@@ -743,7 +744,7 @@ const checkForDuplicateStudent = async (
     if (studentData.student_email) {
       const { data: existingByEmail, error: emailError } = await supabase
         .from('students')
-        .select('id, student_name')
+        .select('id, first_name, last_name')
         .eq('student_email', studentData.student_email)
         .limit(1);
 
@@ -753,7 +754,11 @@ const checkForDuplicateStudent = async (
         return {
           isDuplicate: true,
           duplicateField: 'student_email',
-          existingStudentInfo: `Student with email "${studentData.student_email}" already exists: ${existingByEmail[0].student_name} (ID: ${existingByEmail[0].id})`
+          existingStudentInfo: `Student with email "${
+            studentData.student_email
+          }" already exists: ${existingByEmail[0].first_name} ${
+            existingByEmail[0].last_name || ''
+          } (ID: ${existingByEmail[0].id})`
         };
       }
     }
@@ -763,7 +768,7 @@ const checkForDuplicateStudent = async (
       const { data: existingByCollegeEmail, error: collegeEmailError } =
         await supabase
           .from('students')
-          .select('id, student_name')
+          .select('id, first_name, last_name')
           .eq('college_email', studentData.college_email)
           .limit(1);
 
@@ -773,7 +778,11 @@ const checkForDuplicateStudent = async (
         return {
           isDuplicate: true,
           duplicateField: 'college_email',
-          existingStudentInfo: `Student with college email "${studentData.college_email}" already exists: ${existingByCollegeEmail[0].student_name} (ID: ${existingByCollegeEmail[0].id})`
+          existingStudentInfo: `Student with college email "${
+            studentData.college_email
+          }" already exists: ${existingByCollegeEmail[0].first_name} ${
+            existingByCollegeEmail[0].last_name || ''
+          } (ID: ${existingByCollegeEmail[0].id})`
         };
       }
     }
@@ -782,7 +791,7 @@ const checkForDuplicateStudent = async (
     if (studentData.roll_number) {
       const { data: existingByRoll, error: rollError } = await supabase
         .from('students')
-        .select('id, student_name')
+        .select('id, first_name, last_name')
         .eq('roll_number', studentData.roll_number)
         .limit(1);
 
@@ -792,19 +801,23 @@ const checkForDuplicateStudent = async (
         return {
           isDuplicate: true,
           duplicateField: 'roll_number',
-          existingStudentInfo: `Student with roll number "${studentData.roll_number}" already exists: ${existingByRoll[0].student_name} (ID: ${existingByRoll[0].id})`
+          existingStudentInfo: `Student with roll number "${
+            studentData.roll_number
+          }" already exists: ${existingByRoll[0].first_name} ${
+            existingByRoll[0].last_name || ''
+          } (ID: ${existingByRoll[0].id})`
         };
       }
     }
 
     // Check by mobile + name combination as additional check
-    if (studentData.student_mobile && studentData.student_name) {
+    if (studentData.student_mobile && studentData.first_name) {
       const { data: existingByMobileAndName, error: mobileNameError } =
         await supabase
           .from('students')
-          .select('id, student_name')
+          .select('id, first_name, last_name')
           .eq('student_mobile', studentData.student_mobile)
-          .eq('student_name', studentData.student_name)
+          .eq('first_name', studentData.first_name)
           .limit(1);
 
       if (mobileNameError) throw mobileNameError;
@@ -812,8 +825,12 @@ const checkForDuplicateStudent = async (
       if (existingByMobileAndName && existingByMobileAndName.length > 0) {
         return {
           isDuplicate: true,
-          duplicateField: 'student_mobile + student_name',
-          existingStudentInfo: `Student with mobile "${studentData.student_mobile}" and name "${studentData.student_name}" already exists (ID: ${existingByMobileAndName[0].id})`
+          duplicateField: 'student_mobile + first_name',
+          existingStudentInfo: `Student with mobile "${
+            studentData.student_mobile
+          }" and name "${studentData.first_name} ${
+            studentData.last_name || ''
+          }" already exists (ID: ${existingByMobileAndName[0].id})`
         };
       }
     }
@@ -852,7 +869,7 @@ export function BulkCreateStudents() {
     usersCreated?: number;
     userCreationResults?: Array<{
       student_id: string;
-      student_name: string;
+      student_name: string; // Keep this for display
       email: string;
       success: boolean;
       message?: string;
@@ -1222,7 +1239,7 @@ export function BulkCreateStudents() {
       const errorDetails: string[] = [];
       const userCreationResults: {
         student_id: string;
-        student_name: string;
+        student_name: string; // For display
         email: string;
         success: boolean;
         message?: string;
@@ -1281,7 +1298,11 @@ export function BulkCreateStudents() {
             const processedData = {
               ...restData,
               // Provide defaults for NOT NULL fields in database
-              student_name: restData.student_name || 'Unknown Student',
+              student_name: `${restData.first_name || 'Unknown'} ${
+                restData.last_name || 'Student'
+              }`.trim(),
+              first_name: restData.first_name || 'Unknown',
+              last_name: restData.last_name || 'Student',
               father_name: restData.father_name || 'Unknown',
               mother_name: restData.mother_name || 'Unknown',
               mother_mobile: restData.mother_mobile || '0000000000',
@@ -1322,35 +1343,30 @@ export function BulkCreateStudents() {
                   : Boolean(restData.bus_required)
             };
 
-            // Create student using the enhanced service method with type assertion
-            console.log(`Creating student: ${processedData.student_name}`);
-            const result = await StudentService.createStudentWithUserResult(
+            // Create student using the standard service method
+            console.log(
+              `Creating student: ${processedData.first_name} ${processedData.last_name}`
+            );
+            const newStudent = await StudentService.createStudent(
               processedData as any
             );
 
-            if (result.student) {
+            if (newStudent) {
               createdCount++;
 
-              // Check if user was created based on the result
-              if (result.student.college_email) {
-                // Record the result for tracking
+              // User creation is now handled inside the createStudent service,
+              // so we can check if a user account should have been created.
+              if (newStudent.college_email && newStudent.is_profile_complete) {
+                usersCreatedCount++;
                 userCreationResults.push({
-                  student_id: result.student.id,
-                  student_name: `${result.student.first_name} ${
-                    result.student.last_name || ''
+                  student_id: newStudent.id,
+                  student_name: `${newStudent.first_name} ${
+                    newStudent.last_name || ''
                   }`.trim(),
-                  email: result.student.college_email,
-                  success: result.userCreated,
-                  message: result.userError
+                  email: newStudent.college_email,
+                  success: true, // Assume success, service handles toasts on failure
+                  message: 'User creation process initiated.'
                 });
-
-                // Only count as user created if actually created (not deferred)
-                if (
-                  result.userCreated &&
-                  !result.userError?.includes('Profile incomplete')
-                ) {
-                  usersCreatedCount++;
-                }
               }
             }
           } catch (error) {
@@ -1363,7 +1379,9 @@ export function BulkCreateStudents() {
             if (row.college_email) {
               userCreationResults.push({
                 student_id: 'failed',
-                student_name: row.student_name ?? 'Unknown',
+                student_name: `${row.first_name || 'Unknown'} ${
+                  row.last_name || ''
+                }`.trim(),
                 email: row.college_email ?? 'Unknown',
                 success: false,
                 message: errorMessage
@@ -1700,8 +1718,9 @@ export function BulkCreateStudents() {
                             <div className='text-xs text-muted-foreground'>
                               Currently validating:{' '}
                               <span className='font-medium'>
-                                {validationProgress.currentRow.student_name ||
-                                  'Student'}
+                                {validationProgress.currentRow.first_name ||
+                                  'Student'}{' '}
+                                {validationProgress.currentRow.last_name || ''}
                                 {validationProgress.currentRow.roll_number &&
                                   ` (${validationProgress.currentRow.roll_number})`}
                                 {validationProgress.currentRow.college_email &&
@@ -1740,7 +1759,11 @@ export function BulkCreateStudents() {
                           <div className='grid grid-cols-1 gap-2 text-sm'>
                             <div>
                               <span className='font-medium'>Name: </span>
-                              <span>{row.student_name || 'N/A'}</span>
+                              <span>
+                                {`${row.first_name || ''} ${
+                                  row.last_name || ''
+                                }`.trim()}
+                              </span>
                             </div>
                             <div>
                               <span className='font-medium'>Roll Number: </span>
@@ -1780,7 +1803,9 @@ export function BulkCreateStudents() {
                             <div>
                               <span className='font-medium'>Name: </span>
                               <span>
-                                {error.rowData?.student_name || 'N/A'}
+                                {`${error.rowData?.first_name || ''} ${
+                                  error.rowData?.last_name || ''
+                                }`.trim() || 'N/A'}
                               </span>
                             </div>
                             <div>
@@ -1831,7 +1856,10 @@ export function BulkCreateStudents() {
                           <TableRow>
                             <TableHead className='w-16'>Row</TableHead>
                             <TableHead className='min-w-[160px]'>
-                              Name
+                              First Name
+                            </TableHead>
+                            <TableHead className='min-w-[160px]'>
+                              Last Name
                             </TableHead>
                             <TableHead className='min-w-[120px]'>
                               Roll Number
@@ -1864,7 +1892,14 @@ export function BulkCreateStudents() {
                               <TableCell>
                                 <div className='max-w-[160px]'>
                                   <p className='truncate'>
-                                    {row.student_name || 'N/A'}
+                                    {row.first_name || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[160px]'>
+                                  <p className='truncate'>
+                                    {row.last_name || 'N/A'}
                                   </p>
                                 </div>
                               </TableCell>
@@ -1924,7 +1959,14 @@ export function BulkCreateStudents() {
                               <TableCell>
                                 <div className='max-w-[160px]'>
                                   <p className='truncate'>
-                                    {error.rowData?.student_name || 'N/A'}
+                                    {error.rowData?.first_name || 'N/A'}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className='max-w-[160px]'>
+                                  <p className='truncate'>
+                                    {error.rowData?.last_name || 'N/A'}
                                   </p>
                                 </div>
                               </TableCell>

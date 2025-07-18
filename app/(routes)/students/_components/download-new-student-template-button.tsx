@@ -16,7 +16,8 @@ import { toast } from 'react-hot-toast';
 const ID_BASED_FIELD_CATEGORIES = {
   // OPTIONAL FIELDS - Section 1: Personal Information
   personal_optional: [
-    'student_name',
+    'first_name',
+    'last_name',
     'father_name',
     'mother_name',
     'mother_mobile',
@@ -125,7 +126,8 @@ const NAME_BASED_FIELD_CATEGORIES = {
 // ID-based sample data
 const ID_BASED_SAMPLE_DATA = {
   // Personal Information - All Optional
-  student_name: 'John Doe',
+  first_name: 'John',
+  last_name: 'Doe',
   father_name: 'Robert Doe',
   mother_name: 'Mary Doe',
   mother_mobile: '9876543210',
@@ -199,7 +201,8 @@ const ID_BASED_SAMPLE_DATA = {
 // Name-based sample data
 const NAME_BASED_SAMPLE_DATA = {
   // Personal Information - All Optional
-  student_name: 'John Doe',
+  first_name: 'John',
+  last_name: 'Doe',
   father_name: 'Robert Doe',
   mother_name: 'Mary Doe',
   mother_mobile: '9876543210',
@@ -283,7 +286,7 @@ const ID_BASED_INSTRUCTIONS = [
   ['• Email addresses must be valid format if provided'],
   ['• System automatically checks for duplicate students before upload'],
   [
-    '• Duplicates are detected by: email, college email, roll number, or mobile+name combination'
+    '• Duplicates are detected by: email, college email, roll number, or mobile + first name + last name combination'
   ],
   [''],
   ['FIELD SECTIONS:'],
@@ -327,7 +330,8 @@ const ID_BASED_INSTRUCTIONS = [
   [''],
   ['DEFAULT VALUES FOR EMPTY FIELDS:'],
   ['• When certain core fields are left empty, the system provides defaults:'],
-  ['  - student_name: "Unknown Student"'],
+  ['  - first_name: "Unknown",'],
+  ['  - last_name: "Student",'],
   ['  - father_name: "Unknown"'],
   ['  - mother_name: "Unknown"'],
   ['  - mother_mobile: "0000000000"'],
@@ -365,7 +369,7 @@ const NAME_BASED_INSTRUCTIONS = [
   ['• Email addresses must be valid format if provided'],
   ['• System automatically checks for duplicate students before upload'],
   [
-    '• Duplicates are detected by: email, college email, roll number, or mobile+name combination'
+    '• Duplicates are detected by: email, college email, roll number, or mobile + first name + last name combination'
   ],
   [''],
   ['FIELD SECTIONS:'],
@@ -418,7 +422,8 @@ const NAME_BASED_INSTRUCTIONS = [
   [''],
   ['DEFAULT VALUES FOR EMPTY FIELDS:'],
   ['• When certain core fields are left empty, the system provides defaults:'],
-  ['  - student_name: "Unknown Student"'],
+  ['  - first_name: "Unknown",'],
+  ['  - last_name: "Student",'],
   ['  - father_name: "Unknown"'],
   ['  - mother_name: "Unknown"'],
   ['  - mother_mobile: "0000000000"'],

@@ -132,7 +132,10 @@ export function StudentBillList({
       },
       overdue: { label: 'Overdue', className: 'bg-red-100 text-red-800' },
       cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-800' },
-      refunded: { label: 'Refunded', className: 'bg-purple-100 text-purple-800' }
+      refunded: {
+        label: 'Refunded',
+        className: 'bg-purple-100 text-purple-800'
+      }
     };
 
     const config =
@@ -264,7 +267,7 @@ export function StudentBillList({
                     <User className='h-4 w-4 text-muted-foreground' />
                     <div>
                       <div className='font-medium'>
-                        {bill.student?.student_name}
+                        {`${bill.student?.first_name} ${bill.student?.last_name}`}
                       </div>
                       <div className='text-sm text-muted-foreground'>
                         {bill.student?.roll_number}
@@ -404,8 +407,8 @@ export function StudentBillList({
             <AlertDialogDescription>
               Are you sure you want to delete the bill &quot;
               {billToDelete?.bill_description}&quot; for{' '}
-              {billToDelete?.student?.student_name}? This action cannot be
-              undone.
+              {`${billToDelete?.student?.first_name} ${billToDelete?.student?.last_name}`}
+              ? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

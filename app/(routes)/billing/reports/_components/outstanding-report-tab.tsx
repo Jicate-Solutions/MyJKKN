@@ -205,7 +205,9 @@ export function OutstandingReportTab({
                     <div className='flex justify-between items-start'>
                       <div>
                         <h4 className='font-semibold text-lg'>
-                          {student.student_name}
+                          {`${student.first_name} ${
+                            student.last_name || ''
+                          }`.trim()}
                         </h4>
                         <div className='flex items-center gap-4 text-sm text-muted-foreground mt-1'>
                           {student.roll_number && (

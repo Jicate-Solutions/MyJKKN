@@ -34,7 +34,7 @@ export function StudentSearchFilters({
   const [isLoadingSemesters, setIsLoadingSemesters] = useState(false);
 
   // Debounced search state
-  const [searchInput, setSearchInput] = useState(filters.student_name || '');
+  const [searchInput, setSearchInput] = useState(filters.first_name || '');
   const [rollNumberInput, setRollNumberInput] = useState(
     filters.roll_number || ''
   );
@@ -46,8 +46,8 @@ export function StudentSearchFilters({
 
   // Sync local input states with filter props when they change
   useEffect(() => {
-    setSearchInput(filters.student_name || '');
-  }, [filters.student_name]);
+    setSearchInput(filters.first_name || '');
+  }, [filters.first_name]);
 
   useEffect(() => {
     setRollNumberInput(filters.roll_number || '');
@@ -70,12 +70,12 @@ export function StudentSearchFilters({
   // Debounce search inputs
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (searchInput !== filters.student_name) {
-        onFilterChange({ student_name: searchInput || undefined });
+      if (searchInput !== filters.first_name) {
+        onFilterChange({ first_name: searchInput || undefined });
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [searchInput, filters.student_name, onFilterChange]);
+  }, [searchInput, filters.first_name, onFilterChange]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -142,7 +142,7 @@ export function StudentSearchFilters({
     setRollNumberInput('');
     setMobileInput('');
     onFilterChange({
-      student_name: undefined,
+      first_name: undefined,
       roll_number: undefined,
       mobile_number: undefined,
       institution_id: undefined,
@@ -153,7 +153,7 @@ export function StudentSearchFilters({
   };
 
   const hasActiveFilters =
-    filters.student_name ||
+    filters.first_name ||
     filters.roll_number ||
     filters.mobile_number ||
     filters.institution_id ||

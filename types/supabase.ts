@@ -29,7 +29,8 @@ export interface Database {
           created_at: string;
           updated_at: string;
           user_id: string;
-          student_name: string;
+          first_name: string;
+          last_name: string;
           course_name: string;
           status: 'pending' | 'approved' | 'rejected' | 'on_hold';
           application_date: string;
@@ -42,7 +43,8 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
           user_id: string;
-          student_name: string;
+          first_name: string;
+          last_name: string;
           course_name: string;
           status?: 'pending' | 'approved' | 'rejected' | 'on_hold';
           application_date: string;
@@ -55,7 +57,8 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
           user_id?: string;
-          student_name?: string;
+          first_name?: string;
+          last_name?: string;
           course_name?: string;
           status?: 'pending' | 'approved' | 'rejected' | 'on_hold';
           application_date?: string;

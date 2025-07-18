@@ -214,7 +214,9 @@ export function InvoiceReportTab({
                       <TableCell>
                         <div>
                           <div className='font-medium'>
-                            {invoice.student_name}
+                            {`${invoice.first_name} ${
+                              invoice.last_name || ''
+                            }`.trim()}
                           </div>
                           {invoice.roll_number && (
                             <div className='text-sm text-muted-foreground'>

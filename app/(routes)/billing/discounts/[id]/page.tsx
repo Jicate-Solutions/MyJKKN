@@ -457,16 +457,22 @@ export default function DiscountDetailsPage() {
                         <div className='mt-2 flex items-center gap-3'>
                           <Avatar className='h-8 w-8'>
                             <AvatarFallback className='text-xs'>
-                              {getInitials(discount.bill.student.student_name)}
+                              {getInitials(
+                                `${discount.bill.student.first_name} ${
+                                  discount.bill.student.last_name || ''
+                                }`.trim()
+                              )}
                             </AvatarFallback>
                           </Avatar>
                           <div>
                             <p className='font-medium'>
-                              {discount.bill.student.student_name}
+                              {`${discount.bill.student.first_name} ${
+                                discount.bill.student.last_name || ''
+                              }`.trim()}
                             </p>
                             <p className='text-sm text-muted-foreground'>
                               {discount.bill.student.roll_number} •{' '}
-                              {discount.bill.student.student_email}
+                              {discount.bill.student.college_email}
                             </p>
                           </div>
                         </div>

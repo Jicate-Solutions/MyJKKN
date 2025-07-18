@@ -310,7 +310,9 @@ export function RefundList({
                   <TableCell>
                     <div className='flex flex-col'>
                       <span className='font-medium'>
-                        {refund.receipt?.student?.student_name}
+                        {`${refund.receipt?.student?.first_name} ${
+                          refund.receipt?.student?.last_name || ''
+                        }`.trim()}
                       </span>
                       <span className='text-sm text-muted-foreground'>
                         {refund.receipt?.student?.roll_number}
@@ -455,7 +457,10 @@ export function RefundList({
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently cancel the
-              refund for &quot;{refundToDelete?.receipt?.student?.student_name}
+              refund for &quot;
+              {`${refundToDelete?.receipt?.student?.first_name} ${
+                refundToDelete?.receipt?.student?.last_name || ''
+              }`.trim()}
               &quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>

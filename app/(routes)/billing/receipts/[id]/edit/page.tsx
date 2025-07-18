@@ -424,7 +424,9 @@ export default function EditReceiptPage() {
                     Name
                   </Label>
                   <p className='font-semibold'>
-                    {receipt.student?.student_name}
+                    {`${receipt.student?.first_name} ${
+                      receipt.student?.last_name || ''
+                    }`.trim()}
                   </p>
                 </div>
                 {receipt.student?.roll_number && (
@@ -439,7 +441,7 @@ export default function EditReceiptPage() {
                   <Label className='text-sm font-medium text-muted-foreground'>
                     Email
                   </Label>
-                  <p className='text-sm'>{receipt.student?.student_email}</p>
+                  <p className='text-sm'>{receipt.student?.college_email}</p>
                 </div>
               </CardContent>
             </Card>

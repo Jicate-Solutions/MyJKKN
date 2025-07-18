@@ -84,8 +84,8 @@ export default function ReceiptDetailsPage() {
     isSuperAdmin || canAccess('billing.refunds', 'create');
 
   useEffect(() => {
-    if (receipt?.student?.student_email) {
-      setEmailAddress(receipt.student.student_email);
+    if (receipt?.student?.college_email) {
+      setEmailAddress(receipt.student.college_email);
     }
   }, [receipt]);
 
@@ -707,7 +707,9 @@ export default function ReceiptDetailsPage() {
                     Name
                   </Label>
                   <p className='font-semibold'>
-                    {receipt.student?.student_name}
+                    {`${receipt.student?.first_name} ${
+                      receipt.student?.last_name || ''
+                    }`.trim()}
                   </p>
                 </div>
                 {receipt.student?.roll_number && (
@@ -722,7 +724,7 @@ export default function ReceiptDetailsPage() {
                   <Label className='text-sm font-medium text-muted-foreground'>
                     Email
                   </Label>
-                  <p className='text-sm'>{receipt.student?.student_email}</p>
+                  <p className='text-sm'>{receipt.student?.college_email}</p>
                 </div>
                 <div className='pt-2'>
                   <Button variant='outline' size='sm' asChild>

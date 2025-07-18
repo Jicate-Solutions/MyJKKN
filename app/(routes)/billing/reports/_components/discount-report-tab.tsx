@@ -268,7 +268,9 @@ export function DiscountReportTab({
                       <TableCell>
                         <div>
                           <div className='font-medium'>
-                            {discount.student_name}
+                            {`${discount.first_name} ${
+                              discount.last_name || ''
+                            }`.trim()}
                           </div>
                           {discount.roll_number && (
                             <div className='text-sm text-muted-foreground'>
