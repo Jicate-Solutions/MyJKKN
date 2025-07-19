@@ -25,8 +25,7 @@ export default function OrganizationDashboardPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Organizations' },
-          { label: 'Dashboard' }
+          { label: 'Organizations Dashboard' }
         ]}
       />
       <div className='space-y-6 mt-4'>
