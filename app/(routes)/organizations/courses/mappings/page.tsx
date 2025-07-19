@@ -1,60 +1,62 @@
 'use client';
 
-import { useEffect } from 'react';
-import Link from 'next/link';
-import { ContentLayout } from '@/components/layout/content-layout';
+import { useState } from 'react';
 import { useCourseMappings } from '@/hooks/organization/use-course-mappings';
-import { usePermissions } from '@/hooks/use-permissions';
-import { Button } from '@/components/ui/button';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
-import { BeatLoader } from 'react-spinners';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { CourseMappingList } from './_components/course-mapping-list';
 import { CourseMappingFilters } from './_components/course-mapping-filters';
 import BulkUploadCourseMappings from './_components/bulk-upload-course-mappings';
 import DownloadCourseMappingTemplateButton from './_components/download-course-mapping-template';
+import { CourseMappingFilters as CourseMappingFilterType } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export default function CourseMappingsPage() {
-  const {
-    courseMappings,
-    loading,
-    paginationLoading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    changePageSize,
-    fetchCourseMappings
-  } = useCourseMappings();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState<Partial<CourseMappingFilterType>>({});
 
   const { canAccess, isSuperAdmin } = usePermissions();
-  const canViewCourseMappings =
-    isSuperAdmin || canAccess('organizations.course_mappings', 'view');
+  const canEditCourses =
+    isSuperAdmin || canAccess('organizations.courses', 'edit');
 
-  useEffect(() => {
-    fetchCourseMappings();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const {
+    data: courseMappingsData,
+    isLoading: courseMappingsLoading,
+    error: courseMappingsError,
+    refetch: refetchCourseMappings
+  } = useCourseMappings({
+    page,
+    limit: pageSize,
+    search: searchQuery,
+    ...filters
+  });
 
-  if (error) {
+  const handleFilterChange = (newFilters: Partial<CourseMappingFilterType>) => {
+    setFilters(newFilters);
+    setPage(1);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+  };
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setPage(1);
+  };
+
+  if (courseMappingsError) {
     return (
       <ContentLayout title='Course Mappings'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchCourseMappings()}
-            className='mt-4'
-            disabled={!canViewCourseMappings}
-          >
-            Try Again
-          </Button>
+        <div className='text-center py-8 text-destructive'>
+          {courseMappingsError.message}
         </div>
       </ContentLayout>
     );
@@ -62,32 +64,14 @@ export default function CourseMappingsPage() {
 
   return (
     <ContentLayout title='Course Mappings'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/organizations'>Organizations</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/organizations/courses'>Courses</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Mappings</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/organizations' },
+          { label: 'Organizations' },
+          { label: 'Courses', href: '/organizations/courses' },
+          { label: 'Mappings', href: '/organizations/courses/mappings' }
+        ]}
+      />
       <div className='space-y-6 mt-4'>
         <div className='flex items-center justify-between gap-2'>
           <div className='flex flex-col gap-2'>
@@ -97,30 +81,32 @@ export default function CourseMappingsPage() {
             </p>
           </div>
           <div className='flex justify-end space-x-2 mt-4'>
-            <DownloadCourseMappingTemplateButton />
-            <BulkUploadCourseMappings />
+            {canEditCourses && <DownloadCourseMappingTemplateButton />}
+            {canEditCourses && <BulkUploadCourseMappings />}
           </div>
         </div>
 
         <CourseMappingFilters
           filters={filters}
-          onFilterChange={updateFilters}
+          onFilterChange={handleFilterChange}
         />
 
-        {loading ? (
-          <div className='flex justify-center items-center p-8'>
-            <BeatLoader color='#00e902' />
-          </div>
-        ) : (
-          <CourseMappingList
-            courseMappings={courseMappings}
-            metadata={metadata}
-            onPageChange={changePage}
-            onPageSizeChange={changePageSize}
-            onRefresh={fetchCourseMappings}
-            paginationLoading={paginationLoading}
-          />
-        )}
+        <CourseMappingList
+          courseMappings={courseMappingsData?.data || []}
+          metadata={
+            courseMappingsData?.metadata || {
+              total: 0,
+              page: 1,
+              limit: pageSize,
+              totalPages: 1
+            }
+          }
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+          onRefresh={refetchCourseMappings}
+          paginationLoading={courseMappingsLoading}
+          onSearch={handleSearch}
+        />
       </div>
     </ContentLayout>
   );

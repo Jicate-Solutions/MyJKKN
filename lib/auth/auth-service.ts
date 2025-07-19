@@ -2,6 +2,7 @@
 import { Profile, ProfileUpdate } from '@/types/supabase';
 import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { RoleService } from '../services/roles/role-service';
 
 const supabase = createClientSupabaseClient();
 
@@ -253,5 +254,17 @@ export class AuthService {
         error: error instanceof Error ? error : new Error('Unknown error')
       };
     }
+  }
+
+  static async hasPermission(permission: string): Promise<boolean> {
+    const profile = await this.getUserProfile();
+    if (!profile) return false;
+
+    if (profile.role === 'super_admin') return true;
+
+    const role = await RoleService.getRoleByKey(profile.role);
+    if (!role || !role.permissions) return false;
+
+    return role.permissions[permission] === true;
   }
 }

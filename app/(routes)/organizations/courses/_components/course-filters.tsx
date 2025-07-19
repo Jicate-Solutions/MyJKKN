@@ -18,7 +18,7 @@ import BulkUploadCourses from './bulk-upload-courses';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface CourseFiltersProps {
-  filters: CourseFilterType;
+  filters: Partial<CourseFilterType>;
   onFilterChange: (filters: Partial<CourseFilterType>) => void;
 }
 
@@ -49,6 +49,7 @@ export function CourseFilters({ filters, onFilterChange }: CourseFiltersProps) {
             value={filters.institution_id || 'all'}
             onValueChange={(value) =>
               onFilterChange({
+                ...filters,
                 institution_id: value === 'all' ? undefined : value
               })
             }

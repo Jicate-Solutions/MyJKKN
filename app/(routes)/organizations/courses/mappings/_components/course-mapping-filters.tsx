@@ -19,7 +19,7 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { CourseMappingFilters as CourseMappingFiltersType } from '@/types/organizations';
 
 interface CourseMappingFiltersProps {
-  filters: CourseMappingFiltersType;
+  filters: Partial<CourseMappingFiltersType>;
   onFilterChange: (filters: Partial<CourseMappingFiltersType>) => void;
 }
 
@@ -136,6 +136,7 @@ export function CourseMappingFilters({
           value={filters.institution_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               institution_id: value === 'all' ? undefined : value,
               degree_id: undefined,
               department_id: undefined,
@@ -161,6 +162,7 @@ export function CourseMappingFilters({
           value={filters.degree_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               degree_id: value === 'all' ? undefined : value,
               department_id: undefined,
               program_id: undefined,
@@ -186,6 +188,7 @@ export function CourseMappingFilters({
           value={filters.department_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               department_id: value === 'all' ? undefined : value,
               program_id: undefined,
               semester_id: undefined
@@ -210,6 +213,7 @@ export function CourseMappingFilters({
           value={filters.program_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               program_id: value === 'all' ? undefined : value,
               semester_id: undefined
             })
@@ -233,6 +237,7 @@ export function CourseMappingFilters({
           value={filters.semester_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               semester_id: value === 'all' ? undefined : value
             })
           }

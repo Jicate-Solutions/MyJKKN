@@ -113,20 +113,20 @@ export class RoleService {
   /**
    * Get a role by its key
    */
-  static async getRoleByKey(roleKey: string): Promise<CustomRole | null> {
-    try {
-      const { data, error } = await this.supabase
-        .from('custom_roles')
-        .select('*')
-        .eq('role_key', roleKey)
-        .single();
+  static async getRoleByKey(key: string): Promise<CustomRole | null> {
+    const { data, error } = await this.supabase
+      .from('custom_roles')
+      .select('*')
+      .eq('role_key', key)
+      .limit(1) // Fetch the first match
+      .maybeSingle(); // Use maybeSingle to return null if no rows are found
 
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error(`Error fetching role with key ${roleKey}:`, error);
-      throw error;
+    if (error) {
+      console.error(`Error fetching role by key "${key}":`, error);
+      // Don't throw the error, just return null to be handled by the caller
+      return null;
     }
+    return data;
   }
 
   /**

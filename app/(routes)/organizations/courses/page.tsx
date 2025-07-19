@@ -14,17 +14,11 @@ export default function CoursesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<CourseFilterType>({
-    search: '',
-    institution_id: '',
-    isActive: true,
-    page: 1,
-    limit: 10,
-    userId: ''
-  });
+  const [filters, setFilters] = useState<Partial<CourseFilterType>>({});
 
-  const updateFilters = (newFilters: Partial<CourseFilterType>) => {
-    setFilters((prev) => ({ ...prev, ...newFilters }));
+  const handleFilterChange = (newFilters: Partial<CourseFilterType>) => {
+    setFilters(newFilters);
+    setPage(1);
   };
 
   const {
@@ -35,7 +29,8 @@ export default function CoursesPage() {
   } = useCourses({
     page,
     limit: pageSize,
-    search: searchQuery
+    search: searchQuery,
+    ...filters
   });
 
   const handlePageChange = (newPage: number) => {
@@ -90,7 +85,7 @@ export default function CoursesPage() {
             Manage courses
           </p>
         </div>
-        <CourseFilters filters={filters} onFilterChange={updateFilters} />
+        <CourseFilters filters={filters} onFilterChange={handleFilterChange} />
         <CourseList
           courses={coursesData?.data || []}
           metadata={

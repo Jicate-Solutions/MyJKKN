@@ -508,3 +508,22 @@ export interface CourseMappingListResponse {
     totalPages: number;
   };
 }
+
+export interface OrganizationStats {
+  institutionCount: number;
+  degreeCount: number;
+  departmentCount: number;
+  programCount: number;
+  courseCount: number;
+  semesterCount: number;
+  sectionCount: number;
+  courseMappingCount: number;
+  programsByDegree: { name: string; count: number }[];
+  coursesByDepartment: { name: string; count: number }[];
+  recentAdditions: Array<{
+    id: string;
+    name: string;
+    created_at: string;
+    type: string;
+  }>;
+}
