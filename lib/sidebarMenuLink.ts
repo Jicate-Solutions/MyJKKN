@@ -94,6 +94,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admissions/crm': 'admissions.crm.view',
 
   // Organization Management
+  '/organizations/dashboard': 'organizations.dashboard.view',
   '/organizations/institutions': 'organizations.institutions.view',
   '/organizations/degrees': 'organizations.degrees.view',
   '/organizations/departments': 'organizations.departments.view',
@@ -301,6 +302,13 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Organization Management',
       menus: [
+        {
+          href: '/organizations/dashboard',
+          label: 'Dashboard',
+          active: pathname.startsWith('/organizations/dashboard'),
+          icon: LayoutGrid,
+          submenus: []
+        },
         {
           href: '/organizations/institutions',
           label: 'Institutions',

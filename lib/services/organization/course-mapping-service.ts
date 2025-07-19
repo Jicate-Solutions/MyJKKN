@@ -229,72 +229,37 @@ export class CourseMappingService {
         { count: 'exact' }
       );
 
-      // Apply filters
-      if (filters.search) {
-        query = query.or(
-          `course.course_code.ilike.%${filters.search}%,course.course_name.ilike.%${filters.search}%`
-        );
-      }
-
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
       }
-
       if (filters.degree_id) {
         query = query.eq('degree_id', filters.degree_id);
       }
-
       if (filters.department_id) {
         query = query.eq('department_id', filters.department_id);
       }
-
       if (filters.program_id) {
         query = query.eq('program_id', filters.program_id);
       }
-
       if (filters.semester_id) {
         query = query.eq('semester_id', filters.semester_id);
       }
-
-      if (filters.course_id) {
-        query = query.eq('course_id', filters.course_id);
-      }
-
-      if (filters.isActive !== undefined) {
+      if (typeof filters.isActive === 'boolean') {
         query = query.eq('is_active', filters.isActive);
       }
 
-      // Apply institution filtering based on user access if userId is provided
-      if (filters.userId && !filters.bypassInstitutionFilter) {
-        const accessibleInstitutionIds =
-          await this.getUserAccessibleInstitutionIds(filters.userId);
-        if (accessibleInstitutionIds.length > 0) {
-          query = query.in('institution_id', accessibleInstitutionIds);
-        } else {
-          // If user has no accessible institutions, return empty result
-          return {
-            data: [],
-            metadata: {
-              total: 0,
-              page: filters.page || 1,
-              limit: filters.limit || 10,
-              totalPages: 0
-            }
-          };
-        }
-      }
-
-      // Apply pagination
+      // Pagination
       const page = filters.page || 1;
       const limit = filters.limit || 10;
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
+      const offset = (page - 1) * limit;
+      query = query.range(offset, offset + limit - 1);
 
-      query = query.range(from, to).order('created_at', { ascending: false });
-
+      // Execute query
       const { data: mappings, error, count } = await query;
 
-      if (error) throw error;
+      if (error) {
+        throw new Error(error.message);
+      }
 
       return {
         data: mappings || [],
@@ -302,12 +267,12 @@ export class CourseMappingService {
           total: count || 0,
           page,
           limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
+          totalPages: Math.ceil((count || 0) / limit)
         }
       };
     } catch (error) {
       console.error('Error fetching course mappings:', error);
-      throw error;
+      throw new Error('Failed to fetch course mappings.');
     }
   }
 

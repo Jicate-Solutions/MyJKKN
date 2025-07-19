@@ -32,6 +32,7 @@ interface CourseMappingListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
+  onSearch?: (query: string) => void;
 }
 
 export function CourseMappingList({
@@ -40,7 +41,8 @@ export function CourseMappingList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading
+  paginationLoading,
+  onSearch
 }: CourseMappingListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -50,44 +52,6 @@ export function CourseMappingList({
     isSuperAdmin || canAccess('organizations.course.mappings', 'edit');
   const canDeleteCourseMappings =
     isSuperAdmin || canAccess('organizations.course.mappings', 'delete');
-
-  // Global filter function to search across multiple fields
-  const globalFilterFn = useCallback(
-    (row: any, columnId: string, filterValue: string) => {
-      const searchValue = filterValue.toLowerCase();
-      const mapping = row.original;
-
-      // Search in course code and name
-      const courseCode = (mapping.course?.course_code || '').toLowerCase();
-      const courseName = (mapping.course?.course_name || '').toLowerCase();
-
-      // Search in institution name
-      const institutionName = (mapping.institution?.name || '').toLowerCase();
-
-      // Search in department name
-      const departmentName = (
-        mapping.department?.department_name || ''
-      ).toLowerCase();
-
-      // Search in program name
-      const programName = (mapping.program?.program_name || '').toLowerCase();
-
-      // Search in semester name
-      const semesterName = (
-        mapping.semester?.semester_name || ''
-      ).toLowerCase();
-
-      return (
-        courseCode.includes(searchValue) ||
-        courseName.includes(searchValue) ||
-        institutionName.includes(searchValue) ||
-        departmentName.includes(searchValue) ||
-        programName.includes(searchValue) ||
-        semesterName.includes(searchValue)
-      );
-    },
-    []
-  );
 
   // Handle bulk delete
   const handleBulkDelete = async (selectedRows: CourseMapping[]) => {
@@ -319,7 +283,7 @@ export function CourseMappingList({
       columns={columns}
       data={courseMappings}
       searchPlaceholder='Search by code, name, institution, department...'
-      globalFilterFn={globalFilterFn}
+      onSearch={onSearch}
       permissions={{
         module: 'organizations.course.mappings',
         actions: {

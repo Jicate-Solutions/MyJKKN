@@ -53,20 +53,6 @@ export function CourseList({
   const canDeleteCourses =
     isSuperAdmin || canAccess('organizations.courses', 'delete');
 
-  // Global filter function to search by both course code and course name
-  const globalFilterFn = useCallback(
-    (row: any, columnId: string, filterValue: string) => {
-      const searchValue = filterValue.toLowerCase();
-      const courseCode = (row.original.course_code || '').toLowerCase();
-      const courseName = (row.original.course_name || '').toLowerCase();
-
-      return (
-        courseCode.includes(searchValue) || courseName.includes(searchValue)
-      );
-    },
-    []
-  );
-
   // Handle bulk delete
   const handleBulkDelete = async (selectedRows: Course[]) => {
     try {
@@ -287,7 +273,6 @@ export function CourseList({
       columns={columns}
       data={courses}
       searchPlaceholder='Search by code or name...'
-      globalFilterFn={globalFilterFn}
       permissions={{
         module: 'organizations.courses',
         actions: {

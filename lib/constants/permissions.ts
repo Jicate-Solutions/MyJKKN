@@ -211,6 +211,10 @@ export const PERMISSION_CATEGORIES = [
         key: 'organizations.course.mappings.delete',
         label: 'Delete Course Mappings'
       },
+      {
+        key: 'organizations.dashboard.view',
+        label: 'View Organization Dashboard'
+      },
       { key: 'organizations.semesters.view', label: 'View Semesters' },
       { key: 'organizations.semesters.create', label: 'Create Semesters' },
       { key: 'organizations.semesters.edit', label: 'Edit Semesters' },
