@@ -1,3 +1,5 @@
+'use client';
+
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
@@ -7,6 +9,16 @@ import type {
   CourseMappingFilters,
   CourseMappingListResponse
 } from '@/types/organizations';
+import { DegreeService } from './degree-service';
+import { DepartmentService } from './department-service';
+import { ProgramService } from './program-service';
+import { SemesterService } from './semester-service';
+import { CourseService } from './course-service';
+
+interface BulkCreateResult {
+  successCount: number;
+  errorCount: number;
+}
 
 export class CourseMappingService {
   private static supabase = createClientSupabaseClient();
@@ -29,6 +41,73 @@ export class CourseMappingService {
       console.error('Error getting user accessible institution IDs:', error);
       return [];
     }
+  }
+
+  // New method to check if a course is already mapped to a semester
+  static async isCourseMapped(
+    courseId: string,
+    semesterId: string
+  ): Promise<boolean> {
+    try {
+      const { data, error } = await this.supabase
+        .from('course_mappings')
+        .select('id')
+        .eq('course_id', courseId)
+        .eq('semester_id', semesterId)
+        .limit(1);
+
+      if (error) {
+        throw error;
+      }
+      return data.length > 0;
+    } catch (error) {
+      console.error('Error checking if course is mapped:', error);
+      throw error;
+    }
+  }
+
+  // New method for bulk creation
+  static async bulkCreateCourseMappings(
+    mappings: Array<{
+      institution_id: string;
+      degree_id: string;
+      department_id: string;
+      program_id: string;
+      semester_id: string;
+      course_id: string;
+      is_active: boolean;
+    }>
+  ): Promise<BulkCreateResult> {
+    let successCount = 0;
+    let errorCount = 0;
+
+    // Use Promise.allSettled to handle individual errors without stopping the whole process
+    const results = await Promise.allSettled(
+      mappings.map((mapping) =>
+        this.supabase.from('course_mappings').insert([
+          {
+            institution_id: mapping.institution_id,
+            degree_id: mapping.degree_id,
+            department_id: mapping.department_id,
+            program_id: mapping.program_id,
+            semester_id: mapping.semester_id,
+            course_id: mapping.course_id,
+            is_active: mapping.is_active
+          }
+        ])
+      )
+    );
+
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        successCount++;
+      } else {
+        errorCount++;
+        console.error('Error in bulk insert:', result.reason);
+      }
+    });
+
+    return { successCount, errorCount };
   }
 
   static async createCourseMapping(

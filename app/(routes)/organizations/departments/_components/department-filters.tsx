@@ -19,7 +19,7 @@ import BulkUploadDepartments from './bulk-upload-departments';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface DepartmentFiltersProps {
-  filters: DepartmentFilterType;
+  filters: Partial<DepartmentFilterType>;
   onFilterChange: (filters: Partial<DepartmentFilterType>) => void;
 }
 
@@ -73,6 +73,7 @@ export function DepartmentFilters({
 
   const handleInstitutionChange = (value: string) => {
     onFilterChange({
+      ...filters,
       institution_id: value === 'all' ? undefined : value,
       degree_id: undefined // Reset degree when institution changes
     });
@@ -103,6 +104,7 @@ export function DepartmentFilters({
             value={filters.degree_id || 'all'}
             onValueChange={(value) =>
               onFilterChange({
+                ...filters,
                 degree_id: value === 'all' ? undefined : value
               })
             }

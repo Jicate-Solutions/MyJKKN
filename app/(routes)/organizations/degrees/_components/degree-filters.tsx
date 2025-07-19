@@ -18,7 +18,7 @@ import DownloadDegreeTemplateButton from './download-degree-template';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface DegreeFiltersProps {
-  filters: DegreeFilterType;
+  filters: Partial<DegreeFilterType>;
   onFilterChange: (filters: Partial<DegreeFilterType>) => void;
 }
 
@@ -54,6 +54,7 @@ export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
             value={filters.institution_id || 'all'}
             onValueChange={(value) =>
               onFilterChange({
+                ...filters,
                 institution_id: value === 'all' ? undefined : value
               })
             }
@@ -78,6 +79,7 @@ export function DegreeFilters({ filters, onFilterChange }: DegreeFiltersProps) {
             value={filters.degree_type || 'all'}
             onValueChange={(value) =>
               onFilterChange({
+                ...filters,
                 degree_type:
                   value === 'all' ? undefined : (value as 'ug' | 'pg')
               })

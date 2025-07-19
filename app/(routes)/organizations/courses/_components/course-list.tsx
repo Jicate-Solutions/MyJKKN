@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { MoreVertical, Edit, Trash2, BookOpen, Plus } from 'lucide-react';
@@ -32,6 +32,7 @@ interface CourseListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
+  onSearch?: (query: string) => void;
 }
 
 export function CourseList({
@@ -40,7 +41,8 @@ export function CourseList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading
+  paginationLoading,
+  onSearch
 }: CourseListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -299,6 +301,7 @@ export function CourseList({
       getRowId={(row) => row.id}
       onRefresh={onRefresh}
       showRefresh={true}
+      onSearch={onSearch}
       serverSidePagination={{
         currentPage: metadata.page,
         totalPages: metadata.totalPages,

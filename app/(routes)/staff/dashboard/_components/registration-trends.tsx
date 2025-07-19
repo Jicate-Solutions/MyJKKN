@@ -104,7 +104,7 @@ export function RegistrationTrends({
         <CardHeader>
           <CardTitle className='flex items-center gap-2'>
             <TrendingUp className='h-5 w-5' />
-            Staff Hiring Trends
+            Facilitators Hiring Trends
           </CardTitle>
           <CardDescription>
             No data available for the selected period
@@ -154,10 +154,10 @@ export function RegistrationTrends({
           <div>
             <CardTitle className='flex items-center gap-2'>
               <TrendingUp className='h-5 w-5' />
-              Staff Hiring Trends
+              Facilitators Hiring Trends
             </CardTitle>
             <CardDescription>
-              Staff hiring patterns over the last {data.length} days
+              Facilitators hiring patterns over the last {data.length} days
             </CardDescription>
           </div>
           {analytics && (

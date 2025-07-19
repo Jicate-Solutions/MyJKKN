@@ -165,7 +165,7 @@ export function GeographicDistribution({
               Geographic Distribution
             </CardTitle>
             <CardDescription>
-              Staff distribution by state and district
+              Facilitators distribution by state and district
             </CardDescription>
           </div>
           <div className='flex items-center gap-2'>
@@ -270,7 +270,7 @@ export function GeographicDistribution({
                           <h4 className='font-medium'>{state.name}</h4>
                           <div className='text-sm text-muted-foreground flex items-center gap-1'>
                             <Users className='h-3 w-3' />
-                            {state.count.toLocaleString()} staff
+                            {state.count.toLocaleString()} Facilitators
                           </div>
                         </div>
                       </div>
@@ -304,7 +304,7 @@ export function GeographicDistribution({
                           <h4 className='font-medium'>{district.name}</h4>
                           <div className='text-sm text-muted-foreground flex items-center gap-1'>
                             <Users className='h-3 w-3' />
-                            {district.count.toLocaleString()} staff
+                            {district.count.toLocaleString()} Facilitators
                           </div>
                         </div>
                       </div>

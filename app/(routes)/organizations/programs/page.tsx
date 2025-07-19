@@ -1,58 +1,57 @@
 'use client';
 
-import { useEffect } from 'react';
-import Link from 'next/link';
-import { ContentLayout } from '@/components/layout/content-layout';
+import { useState } from 'react';
 import { usePrograms } from '@/hooks/organization/use-programs';
-import { usePermissions } from '@/hooks/use-permissions';
-import { Button } from '@/components/ui/button';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
-import { BeatLoader } from 'react-spinners';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { ProgramList } from './_components/program-list';
 import { ProgramFilters } from './_components/program-filters';
+import { ProgramFilters as ProgramFilterType } from '@/types/organizations';
 
 export default function ProgramsPage() {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState<Partial<ProgramFilterType>>({
+    isActive: true
+  });
+
   const {
-    programs,
-    loading,
-    paginationLoading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    changePageSize,
-    fetchPrograms
-  } = usePrograms();
+    data: programsData,
+    isLoading: programsLoading,
+    error: programsError,
+    refetch: refetchPrograms
+  } = usePrograms({
+    page,
+    limit: pageSize,
+    search: searchQuery,
+    ...filters
+  });
 
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canViewPrograms =
-    isSuperAdmin || canAccess('organizations.programs', 'view');
+  const handleFilterChange = (newFilters: Partial<ProgramFilterType>) => {
+    setFilters(newFilters);
+    setPage(1);
+  };
 
-  useEffect(() => {
-    fetchPrograms();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+  };
 
-  if (error) {
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setPage(1);
+  };
+
+  if (programsError) {
     return (
       <ContentLayout title='Programs'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchPrograms()}
-            className='mt-4'
-            disabled={!canViewPrograms}
-          >
-            Try Again
-          </Button>
+        <div className='text-center py-8 text-destructive'>
+          {programsError.message}
         </div>
       </ContentLayout>
     );
@@ -60,26 +59,13 @@ export default function ProgramsPage() {
 
   return (
     <ContentLayout title='Programs'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/organizations'>Organizations</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Programs</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Organizations' },
+          { label: 'Programs' }
+        ]}
+      />
       <div className='space-y-6 mt-4'>
         <div>
           <h1 className='text-2xl font-bold py-1'>Programs</h1>
@@ -87,23 +73,23 @@ export default function ProgramsPage() {
             Manage academic programs
           </p>
         </div>
-
-        <ProgramFilters filters={filters} onFilterChange={updateFilters} />
-
-        {loading ? (
-          <div className='flex justify-center items-center p-8'>
-            <BeatLoader color='#00e902' />
-          </div>
-        ) : (
-          <ProgramList
-            programs={programs}
-            metadata={metadata}
-            onPageChange={changePage}
-            onPageSizeChange={changePageSize}
-            onRefresh={fetchPrograms}
-            paginationLoading={paginationLoading}
-          />
-        )}
+        <ProgramFilters filters={filters} onFilterChange={handleFilterChange} />
+        <ProgramList
+          programs={programsData?.data || []}
+          metadata={
+            programsData?.metadata || {
+              page: 1,
+              limit: 10,
+              total: 0,
+              totalPages: 1
+            }
+          }
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+          onRefresh={refetchPrograms}
+          paginationLoading={programsLoading}
+          onSearch={handleSearch}
+        />
       </div>
     </ContentLayout>
   );

@@ -17,6 +17,8 @@ import {
 import { BeatLoader } from 'react-spinners';
 import { CourseMappingList } from './_components/course-mapping-list';
 import { CourseMappingFilters } from './_components/course-mapping-filters';
+import BulkUploadCourseMappings from './_components/bulk-upload-course-mappings';
+import DownloadCourseMappingTemplateButton from './_components/download-course-mapping-template';
 
 export default function CourseMappingsPage() {
   const {
@@ -87,11 +89,17 @@ export default function CourseMappingsPage() {
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div>
-          <h1 className='text-2xl font-bold py-1'>Course Mappings</h1>
-          <p className='text-sm sm:text-base text-muted-foreground'>
-            Manage course mappings and prerequisites
-          </p>
+        <div className='flex items-center justify-between gap-2'>
+          <div className='flex flex-col gap-2'>
+            <h1 className='text-2xl font-bold py-1'>Course Mappings</h1>
+            <p className='text-sm sm:text-base text-muted-foreground'>
+              Manage course mappings and prerequisites
+            </p>
+          </div>
+          <div className='flex justify-end space-x-2 mt-4'>
+            <DownloadCourseMappingTemplateButton />
+            <BulkUploadCourseMappings />
+          </div>
         </div>
 
         <CourseMappingFilters

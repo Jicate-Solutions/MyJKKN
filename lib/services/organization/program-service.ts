@@ -31,6 +31,29 @@ export class ProgramService {
     }
   }
 
+  static async getProgramByName(
+    name: string,
+    departmentId: string
+  ): Promise<Program | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('programs')
+        .select('*')
+        .eq('department_id', departmentId)
+        .ilike('program_name', name)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') return null;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      console.error('Error fetching program by name:', error);
+      throw error;
+    }
+  }
+
   static async createProgram(data: CreateProgramDto): Promise<Program> {
     try {
       const { data: program, error } = await this.supabase

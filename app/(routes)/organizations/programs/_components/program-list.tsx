@@ -32,6 +32,7 @@ interface ProgramListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
+  onSearch?: (query: string) => void;
 }
 
 export function ProgramList({
@@ -40,7 +41,8 @@ export function ProgramList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading
+  paginationLoading,
+  onSearch
 }: ProgramListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -297,6 +299,7 @@ export function ProgramList({
       columns={columns}
       data={programs}
       searchPlaceholder='Search programs...'
+      onSearch={onSearch}
       filterColumn='program_name'
       permissions={{
         module: 'organizations.programs',

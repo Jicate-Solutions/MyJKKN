@@ -171,28 +171,13 @@ export function CourseMappingList({
           );
         }
       },
-      {
-        id: 'institution',
-        accessorKey: 'institution.name',
-        header: 'Institution',
-        cell: ({ row }) => {
-          return <span>{row.original.institution?.name}</span>;
-        }
-      },
+
       {
         id: 'department',
         accessorKey: 'department.department_name',
         header: 'Department',
         cell: ({ row }) => {
           return <span>{row.original.department?.department_name}</span>;
-        }
-      },
-      {
-        id: 'program',
-        accessorKey: 'program.program_name',
-        header: 'Program',
-        cell: ({ row }) => {
-          return <span>{row.original.program?.program_name}</span>;
         }
       },
       {
@@ -214,14 +199,6 @@ export function CourseMappingList({
               {isActive ? 'Active' : 'Inactive'}
             </Badge>
           );
-        }
-      },
-      {
-        id: 'created_at',
-        accessorKey: 'created_at',
-        header: 'Created',
-        cell: ({ row }) => {
-          return formatDate(row.getValue('created_at'));
         }
       },
       {

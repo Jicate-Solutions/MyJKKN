@@ -54,7 +54,9 @@ const CustomTooltip = ({ active, payload }: any) => {
         <p className='font-medium'>{data.name}</p>
         <div className='space-y-1 mt-2'>
           <div className='flex items-center justify-between gap-4'>
-            <span className='text-sm text-muted-foreground'>Staff Count:</span>
+            <span className='text-sm text-muted-foreground'>
+              Facilitators Count:
+            </span>
             <span className='font-medium'>
               {data.staffCount.toLocaleString()}
             </span>
@@ -162,11 +164,11 @@ export function InstitutionDistribution({
               Institution Distribution
             </CardTitle>
             <CardDescription>
-              Staff distribution across {data.length} institutions
+              Facilitators distribution across {data.length} institutions
             </CardDescription>
           </div>
           <Badge variant='outline'>
-            {totalStaff.toLocaleString()} Total Staff
+            {totalStaff.toLocaleString()} Total Facilitators
           </Badge>
         </div>
       </CardHeader>
@@ -235,7 +237,7 @@ export function InstitutionDistribution({
             <div className='space-y-4'>
               {topInstitutions.map((institution, index) => (
                 <div
-                  key={`institution-list-${institution.id}`}
+                  key={`institution-list-${institution.id || index}`}
                   className='flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors'
                 >
                   <div className='flex items-center gap-3'>
@@ -247,7 +249,7 @@ export function InstitutionDistribution({
                       <div className='flex items-center gap-4 text-sm text-muted-foreground'>
                         <span className='flex items-center gap-1'>
                           <Users className='h-3 w-3' />
-                          {institution.staffCount.toLocaleString()} staff
+                          {institution.staffCount.toLocaleString()} Facilitators
                         </span>
                         <span className='flex items-center gap-1'>
                           <TrendingUp className='h-3 w-3 text-green-600' />
@@ -261,7 +263,7 @@ export function InstitutionDistribution({
                       {institution.percentage.toFixed(1)}%
                     </div>
                     <div className='text-sm text-muted-foreground'>
-                      of total staff
+                      of total Facilitators
                     </div>
                   </div>
                 </div>

@@ -785,6 +785,254 @@ export class StudentService {
     }
   }
 
+  // Add the missing getDashboardStats method
+  static async getDashboardStats(filters?: any) {
+    try {
+      // For now, return mock data for the dashboard
+      // This can be replaced with actual database queries later
+
+      const totalStudents = 1250;
+      const activeStudents = 980;
+      const inactiveStudents = 120;
+      const pendingStudents = 75;
+      const exitedStudents = 45;
+      const graduatedStudents = 30;
+      const completeProfiles = 850;
+      const incompleteProfiles = totalStudents - completeProfiles;
+
+      return {
+        overview: {
+          totalStudents,
+          activeStudents,
+          inactiveStudents,
+          pendingStudents,
+          exitedStudents,
+          graduatedStudents,
+          profileCompletionRate: Math.round(
+            (completeProfiles / totalStudents) * 100
+          ),
+          completeProfiles,
+          incompleteProfiles
+        },
+        registrationTrends: Array.from({ length: 30 }, (_, i) => {
+          const date = new Date();
+          date.setDate(date.getDate() - (29 - i));
+          return {
+            date: date.toISOString().split('T')[0],
+            count: Math.floor(Math.random() * 20) + 1,
+            cumulative: 0 // Will be calculated below
+          };
+        }).map((item, i, arr) => {
+          // Calculate cumulative values
+          item.cumulative = arr
+            .slice(0, i + 1)
+            .reduce((sum, curr) => sum + curr.count, 0);
+          return item;
+        }),
+        institutionStats: Array.from({ length: 5 }, (_, i) => ({
+          id: `inst-${i + 1}`,
+          name: `Institution ${i + 1}`,
+          studentCount: Math.floor(Math.random() * 300) + 100,
+          percentage: 0, // Will be calculated below
+          activeCount: 0,
+          inactiveCount: 0
+        })).map((item) => {
+          item.percentage = Math.round(
+            (item.studentCount / totalStudents) * 100
+          );
+          item.activeCount = Math.floor(item.studentCount * 0.8);
+          item.inactiveCount = item.studentCount - item.activeCount;
+          return item;
+        }),
+        departmentStats: Array.from({ length: 8 }, (_, i) => ({
+          id: `dept-${i + 1}`,
+          name: `Department ${i + 1}`,
+          studentCount: Math.floor(Math.random() * 150) + 50,
+          percentage: 0,
+          institutionName: `Institution ${Math.floor(Math.random() * 3) + 1}`
+        })).map((item) => {
+          item.percentage = Math.round(
+            (item.studentCount / totalStudents) * 100
+          );
+          return item;
+        }),
+        programStats: Array.from({ length: 10 }, (_, i) => ({
+          id: `prog-${i + 1}`,
+          name: `Program ${i + 1}`,
+          studentCount: Math.floor(Math.random() * 100) + 30,
+          percentage: 0,
+          departmentName: `Department ${Math.floor(Math.random() * 5) + 1}`
+        })).map((item) => {
+          item.percentage = Math.round(
+            (item.studentCount / totalStudents) * 100
+          );
+          return item;
+        }),
+        semesterStats: Array.from({ length: 6 }, (_, i) => ({
+          id: `sem-${i + 1}`,
+          name: `Semester ${i + 1}`,
+          studentCount: Math.floor(Math.random() * 200) + 50,
+          percentage: 0
+        })).map((item) => {
+          item.percentage = Math.round(
+            (item.studentCount / totalStudents) * 100
+          );
+          return item;
+        }),
+        sectionStats: Array.from({ length: 12 }, (_, i) => ({
+          id: `sec-${i + 1}`,
+          name: `Section ${String.fromCharCode(65 + (i % 4))}`,
+          studentCount: Math.floor(Math.random() * 40) + 20,
+          percentage: 0,
+          semesterName: `Semester ${Math.floor(i / 4) + 1}`
+        })).map((item) => {
+          item.percentage = Math.round(
+            (item.studentCount / totalStudents) * 100
+          );
+          return item;
+        }),
+        demographicStats: {
+          gender: [
+            { gender: 'Male', count: 680, percentage: 54.4 },
+            { gender: 'Female', count: 570, percentage: 45.6 }
+          ],
+          entryType: [
+            { type: 'Regular', count: 950, percentage: 76 },
+            { type: 'Lateral Entry', count: 300, percentage: 24 }
+          ],
+          accommodationType: [
+            { type: 'Day Scholar', count: 750, percentage: 60 },
+            { type: 'Hostel', count: 500, percentage: 40 }
+          ],
+          religion: [
+            { religion: 'Hindu', count: 800, percentage: 64 },
+            { religion: 'Christian', count: 250, percentage: 20 },
+            { religion: 'Muslim', count: 150, percentage: 12 },
+            { religion: 'Others', count: 50, percentage: 4 }
+          ],
+          community: [
+            { community: 'OC', count: 350, percentage: 28 },
+            { community: 'BC', count: 450, percentage: 36 },
+            { community: 'MBC', count: 300, percentage: 24 },
+            { community: 'SC/ST', count: 150, percentage: 12 }
+          ],
+          ageGroups: [
+            { ageGroup: '17-18', count: 300, percentage: 24 },
+            { ageGroup: '19-20', count: 450, percentage: 36 },
+            { ageGroup: '21-22', count: 350, percentage: 28 },
+            { ageGroup: '23+', count: 150, percentage: 12 }
+          ]
+        },
+        geographicStats: [
+          {
+            state: 'Tamil Nadu',
+            district: 'Chennai',
+            count: 300,
+            percentage: 24
+          },
+          {
+            state: 'Tamil Nadu',
+            district: 'Coimbatore',
+            count: 200,
+            percentage: 16
+          },
+          {
+            state: 'Tamil Nadu',
+            district: 'Madurai',
+            count: 150,
+            percentage: 12
+          },
+          {
+            state: 'Tamil Nadu',
+            district: 'Trichy',
+            count: 100,
+            percentage: 8
+          },
+          { state: 'Tamil Nadu', district: 'Salem', count: 100, percentage: 8 },
+          {
+            state: 'Kerala',
+            district: 'Thiruvananthapuram',
+            count: 80,
+            percentage: 6.4
+          },
+          {
+            state: 'Kerala',
+            district: 'Ernakulam',
+            count: 70,
+            percentage: 5.6
+          },
+          {
+            state: 'Karnataka',
+            district: 'Bengaluru',
+            count: 120,
+            percentage: 9.6
+          },
+          {
+            state: 'Andhra Pradesh',
+            district: 'Visakhapatnam',
+            count: 80,
+            percentage: 6.4
+          },
+          { state: 'Others', district: 'Unknown', count: 50, percentage: 4 }
+        ],
+        onboardingStats: {
+          profileCompletionFunnel: [
+            {
+              step: 'Registration',
+              completed: 1250,
+              total: 1250,
+              percentage: 100
+            },
+            {
+              step: 'Basic Info',
+              completed: 1150,
+              total: 1250,
+              percentage: 92
+            },
+            {
+              step: 'Contact Details',
+              completed: 1050,
+              total: 1250,
+              percentage: 84
+            },
+            {
+              step: 'Academic Details',
+              completed: 950,
+              total: 1250,
+              percentage: 76
+            },
+            {
+              step: 'Profile Photo',
+              completed: 850,
+              total: 1250,
+              percentage: 68
+            }
+          ],
+          missingFields: [
+            { field: 'Profile Photo', missingCount: 400, percentage: 32 },
+            { field: 'Roll Number', missingCount: 300, percentage: 24 },
+            { field: 'College Email', missingCount: 200, percentage: 16 },
+            { field: 'Academic Year', missingCount: 150, percentage: 12 },
+            { field: 'Section', missingCount: 100, percentage: 8 }
+          ],
+          timeToComplete: {
+            average: 3.5,
+            median: 2.0,
+            distribution: [
+              { range: 'Same Day', count: 500, percentage: 40 },
+              { range: '1-3 Days', count: 350, percentage: 28 },
+              { range: '4-7 Days', count: 250, percentage: 20 },
+              { range: '8+ Days', count: 150, percentage: 12 }
+            ]
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+      throw error;
+    }
+  }
+
   private static calculateProfileCompleteness(
     student: Partial<Student>
   ): boolean {

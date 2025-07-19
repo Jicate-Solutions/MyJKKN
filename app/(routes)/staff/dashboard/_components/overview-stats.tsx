@@ -111,17 +111,17 @@ export function OverviewStats({ data, isLoading }: OverviewStatsProps) {
 
   const stats = [
     {
-      title: 'Total Staff',
+      title: 'Total Facilitators',
       value: data.totalStaff.toLocaleString(),
-      subtitle: 'All registered staff members',
+      subtitle: 'All registered Facilitators members',
       icon: Users,
       color: 'bg-blue-500',
       delay: 0
     },
     {
-      title: 'Active Staff',
+      title: 'Active Facilitators',
       value: data.activeStaff.toLocaleString(),
-      subtitle: 'Currently active staff',
+      subtitle: 'Currently active Facilitators',
       icon: UserCheck,
       color: 'bg-green-500',
       delay: 0.1
@@ -167,7 +167,7 @@ export function OverviewStats({ data, isLoading }: OverviewStatsProps) {
       delay: 0.6
     },
     {
-      title: 'Inactive Staff',
+      title: 'Inactive Facilitators',
       value: data.inactiveStaff.toLocaleString(),
       subtitle: 'Currently inactive',
       icon: Clock,

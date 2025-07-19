@@ -31,6 +31,28 @@ export class SemesterService {
     }
   }
 
+  static async getSemesterByName(
+    name: string,
+    programId: string
+  ): Promise<Semester | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('semesters')
+        .select('*')
+        .eq('program_id', programId)
+        .ilike('semester_name', name)
+        .single();
+      if (error) {
+        if (error.code === 'PGRST116') return null;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      console.error('Error fetching semester by name:', error);
+      throw error;
+    }
+  }
+
   static async createSemester(data: CreateSemesterDto): Promise<Semester> {
     try {
       const { data: semester, error } = await this.supabase

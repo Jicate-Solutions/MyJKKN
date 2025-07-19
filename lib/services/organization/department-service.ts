@@ -33,6 +33,28 @@ export class DepartmentService {
     }
   }
 
+  static async getDepartmentByName(
+    name: string,
+    degreeId: string
+  ): Promise<Department | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('departments')
+        .select('*')
+        .eq('degree_id', degreeId)
+        .ilike('department_name', name)
+        .single();
+      if (error) {
+        if (error.code === 'PGRST116') return null;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      console.error('Error fetching department by name:', error);
+      throw error;
+    }
+  }
+
   static async createDepartment(
     data: CreateDepartmentDto
   ): Promise<Department> {

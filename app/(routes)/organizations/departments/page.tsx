@@ -2,59 +2,58 @@
 
 'use client';
 
-import { useEffect } from 'react';
-import Link from 'next/link';
-import { ContentLayout } from '@/components/layout/content-layout';
+import { useState } from 'react';
 import { useDepartments } from '@/hooks/organization/use-departments';
-import { usePermissions } from '@/hooks/use-permissions';
-import { Button } from '@/components/ui/button';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
-import { BeatLoader } from 'react-spinners';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { DepartmentList } from './_components/department-list';
 import { DepartmentFilters } from './_components/department-filters';
+import { DepartmentFilters as DepartmentFilterType } from '@/types/organizations';
 
 export default function DepartmentsPage() {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState<Partial<DepartmentFilterType>>({
+    isActive: true
+  });
+
   const {
-    departments,
-    loading,
-    paginationLoading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    changePageSize,
-    fetchDepartments
-  } = useDepartments({ page: 1, limit: 10 });
+    data: departmentsData,
+    isLoading: departmentsLoading,
+    error: departmentsError,
+    refetch: refetchDepartments
+  } = useDepartments({
+    page,
+    limit: pageSize,
+    search: searchQuery,
+    ...filters
+  });
 
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canViewDepartments =
-    isSuperAdmin || canAccess('organizations.departments', 'view');
+  const handleFilterChange = (newFilters: Partial<DepartmentFilterType>) => {
+    setFilters(newFilters);
+    setPage(1);
+  };
 
-  useEffect(() => {
-    fetchDepartments();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+  };
 
-  if (error) {
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setPage(1);
+  };
+
+  if (departmentsError) {
     return (
       <ContentLayout title='Departments'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchDepartments()}
-            className='mt-4'
-            disabled={!canViewDepartments}
-          >
-            Try Again
-          </Button>
+        <div className='text-center py-8 text-destructive'>
+          {departmentsError.message}
         </div>
       </ContentLayout>
     );
@@ -62,50 +61,40 @@ export default function DepartmentsPage() {
 
   return (
     <ContentLayout title='Departments'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/organizations'>Organizations</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Departments</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Organizations' },
+          { label: 'Departments' }
+        ]}
+      />
       <div className='space-y-6 mt-4'>
         <div>
           <h1 className='text-2xl font-bold py-1'>Departments</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Manage departments for institutions
+            Manage departments and their details
           </p>
         </div>
-
-        <DepartmentFilters filters={filters} onFilterChange={updateFilters} />
-
-        {loading ? (
-          <div className='flex justify-center items-center p-8'>
-            <BeatLoader color='#00e902' />
-          </div>
-        ) : (
-          <DepartmentList
-            departments={departments}
-            metadata={metadata}
-            onPageChange={changePage}
-            onPageSizeChange={changePageSize}
-            onRefresh={fetchDepartments}
-            paginationLoading={paginationLoading}
-          />
-        )}
+        <DepartmentFilters
+          onFilterChange={handleFilterChange}
+          filters={filters}
+        />
+        <DepartmentList
+          departments={departmentsData?.data || []}
+          metadata={
+            departmentsData?.metadata || {
+              page: 1,
+              limit: 10,
+              total: 0,
+              totalPages: 1
+            }
+          }
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+          onRefresh={refetchDepartments}
+          paginationLoading={departmentsLoading}
+          onSearch={handleSearch}
+        />
       </div>
     </ContentLayout>
   );

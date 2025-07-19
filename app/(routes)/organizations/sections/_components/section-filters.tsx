@@ -21,7 +21,7 @@ import DownloadSectionTemplateButton from './download-section-template';
 import BulkUploadSections from './bulk-upload-sections';
 
 interface SectionFiltersProps {
-  filters: SectionFilterType;
+  filters: Partial<SectionFilterType>;
   onFilterChange: (filters: Partial<SectionFilterType>) => void;
 }
 
@@ -229,6 +229,7 @@ export function SectionFilters({
   const handleInstitutionChange = (value: string) => {
     const institutionId = value === 'all' ? undefined : value;
     onFilterChange({
+      ...filters,
       institution_id: institutionId,
       degree_id: undefined,
       department_id: undefined,
@@ -240,6 +241,7 @@ export function SectionFilters({
   const handleDegreeChange = (value: string) => {
     const degreeId = value === 'all' ? undefined : value;
     onFilterChange({
+      ...filters,
       degree_id: degreeId,
       department_id: undefined,
       program_id: undefined,
@@ -250,6 +252,7 @@ export function SectionFilters({
   const handleDepartmentChange = (value: string) => {
     const departmentId = value === 'all' ? undefined : value;
     onFilterChange({
+      ...filters,
       department_id: departmentId,
       program_id: undefined,
       semester_id: undefined
@@ -259,6 +262,7 @@ export function SectionFilters({
   const handleProgramChange = (value: string) => {
     const programId = value === 'all' ? undefined : value;
     onFilterChange({
+      ...filters,
       program_id: programId,
       semester_id: undefined
     });
@@ -267,6 +271,7 @@ export function SectionFilters({
   const handleSemesterChange = (value: string) => {
     const semesterId = value === 'all' ? undefined : value;
     onFilterChange({
+      ...filters,
       semester_id: semesterId
     });
   };
@@ -387,6 +392,7 @@ export function SectionFilters({
           }
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               isActive: value === 'all' ? undefined : value === 'true'
             })
           }

@@ -42,6 +42,7 @@ interface SemesterListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
+  onSearch?: (query: string) => void;
 }
 
 export function SemesterList({
@@ -50,7 +51,8 @@ export function SemesterList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading
+  paginationLoading,
+  onSearch
 }: SemesterListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [isDeleting, setIsDeleting] = useState(false);
@@ -343,6 +345,7 @@ export function SemesterList({
       columns={columns}
       data={semesters}
       searchPlaceholder='Search semesters...'
+      onSearch={onSearch}
       filterColumn='semester_name'
       permissions={{
         module: 'organizations.semesters',
