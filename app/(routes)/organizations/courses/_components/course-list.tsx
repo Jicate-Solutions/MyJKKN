@@ -32,7 +32,6 @@ interface CourseListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
-  onSearch?: (query: string) => void;
 }
 
 export function CourseList({
@@ -41,8 +40,7 @@ export function CourseList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading,
-  onSearch
+  paginationLoading
 }: CourseListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -286,7 +284,6 @@ export function CourseList({
       getRowId={(row) => row.id}
       onRefresh={onRefresh}
       showRefresh={true}
-      onSearch={onSearch}
       serverSidePagination={{
         currentPage: metadata.page,
         totalPages: metadata.totalPages,

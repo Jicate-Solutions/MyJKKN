@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Search } from 'lucide-react';
 
 import {
   Select,
@@ -9,16 +10,14 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { CourseFilters as CourseFilterType } from '@/types/organizations';
-import DownloadCourseTemplateButton from './download-course-template';
-import { ExportCourses } from './export-courses';
-import BulkUploadCourses from './bulk-upload-courses';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useDebounce } from '@/hooks/use-debounce';
 
 interface CourseFiltersProps {
-  filters: Partial<CourseFilterType>;
+  filters: CourseFilterType;
   onFilterChange: (filters: Partial<CourseFilterType>) => void;
 }
 
@@ -26,9 +25,7 @@ export function CourseFilters({ filters, onFilterChange }: CourseFiltersProps) {
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canViewCourses =
-    isSuperAdmin || canAccess('organizations.courses', 'view');
+
   useEffect(() => {
     async function loadInstitutions() {
       try {
@@ -41,15 +38,35 @@ export function CourseFilters({ filters, onFilterChange }: CourseFiltersProps) {
     loadInstitutions();
   }, []);
 
+  const debouncedSearch = useDebounce((value: string) => {
+    onFilterChange({ search: value });
+  }, 300);
+
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      debouncedSearch(e.target.value);
+    },
+    [debouncedSearch]
+  );
+
   return (
     <div className='space-y-4 mb-6'>
       <div className='grid gap-4 w-full md:grid-cols-2'>
+        <div className='relative'>
+          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
+          <Input
+            placeholder='Search courses by code or name...'
+            onChange={handleSearchChange}
+            defaultValue={filters.search}
+            className='pl-9'
+          />
+        </div>
+
         <div className='flex items-center justify-between gap-2 w-full'>
           <Select
             value={filters.institution_id || 'all'}
             onValueChange={(value) =>
               onFilterChange({
-                ...filters,
                 institution_id: value === 'all' ? undefined : value
               })
             }
@@ -66,11 +83,6 @@ export function CourseFilters({ filters, onFilterChange }: CourseFiltersProps) {
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className='flex items-center justify-between gap-2 w-full'>
-          {canViewCourses && <DownloadCourseTemplateButton />}
-          {isSuperAdmin && <ExportCourses />}
-          {canViewCourses && <BulkUploadCourses />}
         </div>
       </div>
     </div>
