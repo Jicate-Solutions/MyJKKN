@@ -1,60 +1,55 @@
 'use client';
 
-import { useEffect } from 'react';
-import Link from 'next/link';
-import { ContentLayout } from '@/components/layout/content-layout';
+import { useState } from 'react';
 import { useSections } from '@/hooks/organization/use-sections';
-import { usePermissions } from '@/hooks/use-permissions';
-import { Button } from '@/components/ui/button';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
-import { BeatLoader } from 'react-spinners';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { SectionList } from './_components/section-list';
 import { SectionFilters } from './_components/section-filters';
+import { SectionFilters as SectionFilterType } from '@/types/organizations';
 
 export default function SectionsPage() {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState<Partial<SectionFilterType>>({});
+
   const {
-    sections,
-    loading,
-    paginationLoading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    changePageSize,
-    fetchSections
-  } = useSections();
+    data: sectionsData,
+    isLoading: sectionsLoading,
+    error: sectionsError,
+    refetch: refetchSections
+  } = useSections({
+    page,
+    limit: pageSize,
+    search: searchQuery,
+    ...filters
+  });
 
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canViewSections =
-    isSuperAdmin || canAccess('organizations.sections', 'view');
-  const canCreateSections =
-    isSuperAdmin || canAccess('organizations.sections', 'create');
+  const handleFilterChange = (newFilters: Partial<SectionFilterType>) => {
+    setFilters(newFilters);
+    setPage(1);
+  };
 
-  useEffect(() => {
-    fetchSections();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+  };
 
-  if (error) {
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setPage(1);
+  };
+
+  if (sectionsError) {
     return (
       <ContentLayout title='Sections'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchSections()}
-            className='mt-4'
-            disabled={!canViewSections}
-          >
-            Try Again
-          </Button>
+        <div className='text-center py-8 text-destructive'>
+          {sectionsError.message}
         </div>
       </ContentLayout>
     );
@@ -62,26 +57,13 @@ export default function SectionsPage() {
 
   return (
     <ContentLayout title='Sections'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/organizations'>Organizations</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Sections</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Organizations' },
+          { label: 'Sections' }
+        ]}
+      />
       <div className='space-y-6 mt-4'>
         <div>
           <h1 className='text-2xl font-bold py-1'>Sections</h1>
@@ -89,23 +71,23 @@ export default function SectionsPage() {
             Manage academic sections
           </p>
         </div>
-
-        <SectionFilters filters={filters} onFilterChange={updateFilters} />
-
-        {loading ? (
-          <div className='flex justify-center items-center p-8'>
-            <BeatLoader color='#00e902' />
-          </div>
-        ) : (
-          <SectionList
-            sections={sections}
-            metadata={metadata}
-            onPageChange={changePage}
-            onPageSizeChange={changePageSize}
-            onRefresh={fetchSections}
-            paginationLoading={paginationLoading}
-          />
-        )}
+        <SectionFilters filters={filters} onFilterChange={handleFilterChange} />
+        <SectionList
+          sections={sectionsData?.data || []}
+          metadata={
+            sectionsData?.metadata || {
+              page: 1,
+              limit: 10,
+              total: 0,
+              totalPages: 1
+            }
+          }
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+          onRefresh={refetchSections}
+          paginationLoading={sectionsLoading}
+          onSearch={handleSearch}
+        />
       </div>
     </ContentLayout>
   );

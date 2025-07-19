@@ -37,6 +37,7 @@ interface DegreeListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
+  onSearch?: (query: string) => void;
 }
 
 export function DegreeList({
@@ -45,7 +46,8 @@ export function DegreeList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading
+  paginationLoading,
+  onSearch
 }: DegreeListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -296,6 +298,7 @@ export function DegreeList({
       columns={columns}
       data={degrees}
       searchPlaceholder='Search degrees...'
+      onSearch={onSearch}
       filterColumn='degree_name'
       permissions={{
         module: 'organizations.degrees',

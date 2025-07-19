@@ -19,7 +19,7 @@ import BulkUploadSemesters from './bulk-upload-semesters';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface SemesterFiltersProps {
-  filters: SemesterFilterType;
+  filters: Partial<SemesterFilterType>;
   onFilterChange: (filters: Partial<SemesterFilterType>) => void;
 }
 
@@ -126,6 +126,7 @@ export function SemesterFilters({
           value={filters.institution_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               institution_id: value === 'all' ? undefined : value,
               degree_id: undefined,
               department_id: undefined,
@@ -150,6 +151,7 @@ export function SemesterFilters({
           value={filters.degree_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               degree_id: value === 'all' ? undefined : value,
               department_id: undefined,
               program_id: undefined
@@ -174,6 +176,7 @@ export function SemesterFilters({
           value={filters.department_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               department_id: value === 'all' ? undefined : value,
               program_id: undefined
             })
@@ -197,6 +200,7 @@ export function SemesterFilters({
           value={filters.program_id || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               program_id: value === 'all' ? undefined : value
             })
           }
@@ -219,6 +223,7 @@ export function SemesterFilters({
           value={filters.semester_type || 'all'}
           onValueChange={(value) =>
             onFilterChange({
+              ...filters,
               semester_type:
                 value === 'all' ? undefined : (value as 'even' | 'odd')
             })

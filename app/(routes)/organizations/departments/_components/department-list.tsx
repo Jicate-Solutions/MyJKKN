@@ -34,6 +34,7 @@ interface DepartmentListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
+  onSearch?: (query: string) => void;
 }
 
 export function DepartmentList({
@@ -42,7 +43,8 @@ export function DepartmentList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading
+  paginationLoading,
+  onSearch
 }: DepartmentListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -295,6 +297,7 @@ export function DepartmentList({
       data={departments}
       searchPlaceholder='Search departments...'
       filterColumn='department_name'
+      onSearch={onSearch}
       permissions={{
         module: 'organizations.departments',
         actions: {

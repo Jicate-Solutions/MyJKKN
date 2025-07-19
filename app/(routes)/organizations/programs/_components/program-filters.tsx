@@ -98,6 +98,7 @@ export function ProgramFilters({
             value={filters.institution_id || 'all'}
             onValueChange={(value) =>
               onFilterChange({
+                ...filters,
                 institution_id: value === 'all' ? undefined : value,
                 degree_id: undefined,
                 department_id: undefined
@@ -121,6 +122,7 @@ export function ProgramFilters({
             value={filters.degree_id || 'all'}
             onValueChange={(value) =>
               onFilterChange({
+                ...filters,
                 degree_id: value === 'all' ? undefined : value,
                 department_id: undefined
               })
@@ -144,6 +146,7 @@ export function ProgramFilters({
             value={filters.department_id || 'all'}
             onValueChange={(value) =>
               onFilterChange({
+                ...filters,
                 department_id: value === 'all' ? undefined : value
               })
             }
@@ -172,6 +175,7 @@ export function ProgramFilters({
             }
             onValueChange={(value) =>
               onFilterChange({
+                ...filters,
                 isActive: value === 'all' ? undefined : value === 'active'
               })
             }

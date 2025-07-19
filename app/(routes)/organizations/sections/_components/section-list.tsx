@@ -42,6 +42,7 @@ interface SectionListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
+  onSearch?: (query: string) => void;
 }
 
 export function SectionList({
@@ -50,7 +51,8 @@ export function SectionList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading
+  paginationLoading,
+  onSearch
 }: SectionListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -363,6 +365,7 @@ export function SectionList({
         columns={columns}
         data={sections}
         searchPlaceholder='Search sections...'
+        onSearch={onSearch}
         filterColumn='section_info'
         permissions={{
           module: 'organizations.sections',

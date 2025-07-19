@@ -49,6 +49,32 @@ export class DegreeService {
     }
   }
 
+  static async getDegreeByName(
+    name: string,
+    institutionId: string
+  ): Promise<Degree | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('degrees')
+        .select('*')
+        .eq('institution_id', institutionId)
+        .ilike('degree_name', name)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No rows found, which is not an error in this case
+          return null;
+        }
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      console.error('Error fetching degree by name:', error);
+      throw error;
+    }
+  }
+
   static async createDegree(data: CreateDegreeDto): Promise<Degree> {
     try {
       const { data: degree, error } = await this.supabase

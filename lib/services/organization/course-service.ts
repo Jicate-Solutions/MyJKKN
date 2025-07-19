@@ -31,6 +31,28 @@ export class CourseService {
     }
   }
 
+  static async getCourseByCode(
+    code: string,
+    institutionId: string
+  ): Promise<Course | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('courses')
+        .select('*')
+        .eq('institution_id', institutionId)
+        .eq('course_code', code)
+        .single();
+      if (error) {
+        if (error.code === 'PGRST116') return null;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      console.error('Error fetching course by code:', error);
+      throw error;
+    }
+  }
+
   static async createCourse(
     data: CreateCourseDto,
     showToast: boolean = true

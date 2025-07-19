@@ -1,97 +1,19 @@
 // hooks/use-institutions.ts
 
-import { useState, useCallback } from 'react';
-import type { Institution, InstitutionFilters } from '@/types/organizations';
+import { useQuery } from '@tanstack/react-query';
+import { Institution, InstitutionFilters } from '@/types/organizations';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 
-export function useInstitutions(initialFilters: InstitutionFilters = {}) {
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [paginationLoading, setPaginationLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<InstitutionFilters>(initialFilters);
-  const [metadata, setMetadata] = useState({
-    total: 0,
-    page: 1,
-    limit: 10,
-    totalPages: 0
+export function useInstitutions(filters: InstitutionFilters) {
+  return useQuery({
+    queryKey: ['institutions', filters],
+    queryFn: async () => {
+      const { data, metadata } = await OrganizationService.getInstitutions(
+        filters
+      );
+      return { data, metadata };
+    },
+    placeholderData: (previousData) => previousData,
+    retry: false
   });
-
-  const fetchInstitutions = useCallback(
-    async (newFilters?: InstitutionFilters, isPagination = false) => {
-      try {
-        if (isPagination) {
-          setPaginationLoading(true);
-        } else {
-          setLoading(true);
-        }
-        setError(null);
-        const currentFilters = newFilters || filters;
-
-        const result = await OrganizationService.getInstitutions(
-          currentFilters
-        );
-        setInstitutions(result.data);
-        setMetadata(result.metadata);
-
-        if (newFilters) {
-          setFilters(newFilters);
-        }
-      } catch (err) {
-        console.error('Error fetching institutions:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        if (isPagination) {
-          setPaginationLoading(false);
-        } else {
-          setLoading(false);
-        }
-      }
-    },
-    [filters]
-  );
-
-  const updateFilters = useCallback(
-    (newFilters: Partial<InstitutionFilters>) => {
-      const updatedFilters = {
-        ...filters,
-        ...newFilters,
-        page: 1 // Reset to first page when filters change
-      };
-      setFilters(updatedFilters);
-      fetchInstitutions(updatedFilters);
-    },
-    [filters, fetchInstitutions]
-  );
-
-  const changePage = useCallback(
-    (page: number) => {
-      const updatedFilters = { ...filters, page };
-      setFilters(updatedFilters);
-      fetchInstitutions(updatedFilters, true); // Mark as pagination
-    },
-    [filters, fetchInstitutions]
-  );
-
-  const changePageSize = useCallback(
-    (limit: number) => {
-      const updatedFilters = { ...filters, limit, page: 1 }; // Reset to first page when page size changes
-      setFilters(updatedFilters);
-      fetchInstitutions(updatedFilters, true); // Mark as pagination
-    },
-    [filters, fetchInstitutions]
-  );
-
-  return {
-    institutions,
-    loading,
-    paginationLoading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    changePageSize,
-    fetchInstitutions
-  };
 }

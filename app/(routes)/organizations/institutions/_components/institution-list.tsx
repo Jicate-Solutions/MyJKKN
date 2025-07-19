@@ -35,6 +35,7 @@ interface InstitutionListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
+  onSearch?: (query: string) => void;
 }
 
 export function InstitutionList({
@@ -43,7 +44,8 @@ export function InstitutionList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading
+  paginationLoading,
+  onSearch
 }: InstitutionListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -291,7 +293,7 @@ export function InstitutionList({
       columns={columns}
       data={institutions}
       searchPlaceholder='Search institutions...'
-      filterColumn='name'
+      onSearch={onSearch}
       permissions={{
         module: 'organizations.institutions',
         actions: {
@@ -305,7 +307,6 @@ export function InstitutionList({
       getRowId={(row) => row.id}
       onRefresh={onRefresh}
       showRefresh={true}
-      enableGlobalFilter={false}
       serverSidePagination={{
         currentPage: metadata.page,
         totalPages: metadata.totalPages,

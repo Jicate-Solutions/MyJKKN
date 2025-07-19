@@ -77,7 +77,8 @@ export default function StudentDashboardPage() {
   };
 
   const breadcrumbItems = [
-    { label: 'Students', href: '/students' },
+    { label: 'Home', href: '/' },
+    { label: 'Learners', href: '/students' },
     { label: 'Analytics Dashboard', href: '/students/dashboard' }
   ];
 
@@ -484,8 +485,7 @@ export default function StudentDashboardPage() {
                         (
                           institution: {
                             id: string;
-                            first_name: string;
-                            last_name: string;
+                            name: string;
                             studentCount: number;
                             percentage: number;
                           },
@@ -503,9 +503,7 @@ export default function StudentDashboardPage() {
                               </div>
                               <div>
                                 <div className='font-medium'>
-                                  {`${institution.first_name} ${
-                                    institution.last_name || ''
-                                  }`.trim()}
+                                  {institution.name}
                                 </div>
                                 <div className='text-sm text-muted-foreground'>
                                   {institution.studentCount.toLocaleString()}{' '}

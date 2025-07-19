@@ -201,6 +201,12 @@ interface DataTableProps<TData, TValue> {
   showRefresh?: boolean;
 
   /**
+   * Function to handle server-side search.
+   * If provided, enables manual filtering mode.
+   */
+  onSearch?: (query: string) => void;
+
+  /**
    * Server-side pagination configuration
    * If provided, disables client-side pagination and uses external pagination
    */
@@ -231,6 +237,7 @@ export function DataTable<TData, TValue>({
   getRowId = () => Math.random().toString(36).substring(7), // Default fallback ID generator
   onRefresh,
   showRefresh = true,
+  onSearch,
   serverSidePagination
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -244,6 +251,17 @@ export function DataTable<TData, TValue>({
   const [bulkActionDialogOpen, setBulkActionDialogOpen] = React.useState(false);
   const [bulkActionLoading, setBulkActionLoading] = React.useState(false);
   const [refreshLoading, setRefreshLoading] = React.useState(false);
+
+  // Debounce search for server-side filtering
+  React.useEffect(() => {
+    if (!serverSidePagination || !onSearch) return;
+
+    const timer = setTimeout(() => {
+      onSearch(globalFilter);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [globalFilter, onSearch, serverSidePagination]);
 
   // Get permission hooks with loading state
   const {
@@ -434,12 +452,15 @@ export function DataTable<TData, TValue>({
     onSortingChange: setSorting,
     getSortedRowModel: getSortedRowModel(),
     onColumnFiltersChange: setColumnFilters,
-    getFilteredRowModel: getFilteredRowModel(),
+    getFilteredRowModel: serverSidePagination
+      ? undefined
+      : getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
     globalFilterFn: globalFilterFn as any,
     manualPagination: !!serverSidePagination,
+    manualFiltering: !!serverSidePagination,
     pageCount: serverSidePagination
       ? serverSidePagination.totalPages
       : undefined,
@@ -664,7 +685,7 @@ export function DataTable<TData, TValue>({
     <div className='space-y-4'>
       <div className='flex flex-col sm:flex-row sm:items-center justify-between py-4 gap-3'>
         <div className='flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto'>
-          {globalFilterFn ? (
+          {globalFilterFn || onSearch ? (
             <Input
               placeholder={searchPlaceholder}
               value={globalFilter ?? ''}

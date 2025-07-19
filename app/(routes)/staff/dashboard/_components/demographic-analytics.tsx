@@ -167,7 +167,7 @@ export function DemographicAnalytics({
               Demographic Analytics
             </CardTitle>
             <CardDescription>
-              Staff demographics breakdown and analysis
+              Facilitators demographics breakdown and analysis
             </CardDescription>
           </div>
           <Badge variant='outline'>Demographic Insights</Badge>

@@ -164,7 +164,7 @@ export function ProfileAnalytics({ data, isLoading }: ProfileAnalyticsProps) {
               Profile Analytics
             </CardTitle>
             <CardDescription>
-              Staff profile completion analysis and insights
+              Facilitators profile completion analysis and insights
             </CardDescription>
           </div>
           <Badge variant='outline'>Profile Insights</Badge>

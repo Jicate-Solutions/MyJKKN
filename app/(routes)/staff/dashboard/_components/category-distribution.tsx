@@ -54,7 +54,9 @@ const CustomTooltip = ({ active, payload }: any) => {
         <p className='font-medium'>{data.name}</p>
         <div className='space-y-1 mt-2'>
           <div className='flex items-center justify-between gap-4'>
-            <span className='text-sm text-muted-foreground'>Staff Count:</span>
+            <span className='text-sm text-muted-foreground'>
+              Facilitators Count:
+            </span>
             <span className='font-medium'>
               {data.staffCount.toLocaleString()}
             </span>
@@ -168,11 +170,12 @@ export function CategoryDistribution({
               Employment Category Distribution
             </CardTitle>
             <CardDescription>
-              Staff distribution across {data.length} employment categories
+              Facilitators distribution across {data.length} employment
+              categories
             </CardDescription>
           </div>
           <Badge variant='outline'>
-            {totalStaff.toLocaleString()} Total Staff
+            {totalStaff.toLocaleString()} Total Facilitators
           </Badge>
         </div>
       </CardHeader>
@@ -241,7 +244,7 @@ export function CategoryDistribution({
             <div className='space-y-4'>
               {topCategories.map((category, index) => (
                 <div
-                  key={`category-list-${category.id}`}
+                  key={`category-list-${category.id || index}`}
                   className='flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors'
                 >
                   <div className='flex items-center gap-3'>
@@ -253,7 +256,7 @@ export function CategoryDistribution({
                       <div className='flex items-center gap-4 text-sm text-muted-foreground'>
                         <span className='flex items-center gap-1'>
                           <Users className='h-3 w-3' />
-                          {category.staffCount.toLocaleString()} staff
+                          {category.staffCount.toLocaleString()} Facilitators
                         </span>
                         <span className='flex items-center gap-1'>
                           <TrendingUp className='h-3 w-3 text-green-600' />
@@ -270,7 +273,7 @@ export function CategoryDistribution({
                       {category.percentage.toFixed(1)}%
                     </div>
                     <div className='text-sm text-muted-foreground'>
-                      of total staff
+                      of total Facilitators
                     </div>
                   </div>
                 </div>
