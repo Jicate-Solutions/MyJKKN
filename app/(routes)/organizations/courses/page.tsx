@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -9,43 +9,50 @@ import { useCourses } from '@/hooks/organization/use-courses';
 import { CourseFilters } from './_components/course-filters';
 import { PageBreadcrumb } from '@/components/navigation';
 import { CourseFilters as CourseFilterType } from '@/types/organizations';
+import DownloadCourseTemplateButton from './_components/download-course-template';
+import { ExportCourses } from './_components/export-courses';
+import BulkUploadCourses from './_components/bulk-upload-courses';
 
 export default function CoursesPage() {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<Partial<CourseFilterType>>({});
+  const [filters, setFilters] = useState<CourseFilterType>({
+    page: 1,
+    limit: 10,
+    search: '',
+    institution_id: '',
+    isActive: undefined
+  });
 
-  const handleFilterChange = (newFilters: Partial<CourseFilterType>) => {
-    setFilters(newFilters);
-    setPage(1);
-  };
+  // Memoize the filter object to prevent unnecessary re-renders
+  const memoizedFilters = useMemo(() => filters, [filters]);
 
   const {
     data: coursesData,
     isLoading: coursesLoading,
     error: coursesError,
     refetch: refetchCourses
-  } = useCourses({
-    page,
-    limit: pageSize,
-    search: searchQuery,
-    ...filters
-  });
+  } = useCourses(memoizedFilters);
 
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-  };
+  // Separate handler for filter changes (resets page to 1)
+  const handleFilterChange = useCallback(
+    (newFilters: Partial<CourseFilterType>) => {
+      setFilters((prev) => ({
+        ...prev,
+        ...newFilters,
+        page: 1 // Always reset to page 1 when filters change
+      }));
+    },
+    []
+  );
 
-  const handlePageSizeChange = (newSize: number) => {
-    setPageSize(newSize);
-    setPage(1); // Reset to first page
-  };
+  // Dedicated handler for page changes (doesn't reset page)
+  const handlePageChange = useCallback((page: number) => {
+    setFilters((prev) => ({ ...prev, page }));
+  }, []);
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    setPage(1); // Reset to first page when searching
-  };
+  // Handler for page size changes (resets to page 1)
+  const handlePageSizeChange = useCallback((limit: number) => {
+    setFilters((prev) => ({ ...prev, limit, page: 1 }));
+  }, []);
 
   const { canAccess, isSuperAdmin } = usePermissions();
   const canViewCourses =
@@ -79,12 +86,20 @@ export default function CoursesPage() {
         ]}
       />
       <div className='space-y-6 mt-4'>
-        <div>
-          <h1 className='text-2xl font-bold py-1'>Courses</h1>
-          <p className='text-sm sm:text-base text-muted-foreground'>
-            Manage courses
-          </p>
+        <div className='flex items-center justify-between gap-2 w-full'>
+          <div className='flex flex-col gap-2'>
+            <h1 className='text-2xl font-bold py-1'>Courses</h1>
+            <p className='text-sm sm:text-base text-muted-foreground'>
+              Manage courses
+            </p>
+          </div>
+          <div className='flex items-center gap-2'>
+            {canViewCourses && <DownloadCourseTemplateButton />}
+            {isSuperAdmin && <ExportCourses />}
+            {canViewCourses && <BulkUploadCourses />}
+          </div>
         </div>
+
         <CourseFilters filters={filters} onFilterChange={handleFilterChange} />
         <CourseList
           courses={coursesData?.data || []}
@@ -92,7 +107,7 @@ export default function CoursesPage() {
             coursesData?.metadata || {
               total: 0,
               page: 1,
-              limit: pageSize,
+              limit: filters.limit || 10,
               totalPages: 1
             }
           }
@@ -100,7 +115,6 @@ export default function CoursesPage() {
           onPageSizeChange={handlePageSizeChange}
           onRefresh={refetchCourses}
           paginationLoading={coursesLoading}
-          onSearch={handleSearch}
         />
       </div>
     </ContentLayout>
