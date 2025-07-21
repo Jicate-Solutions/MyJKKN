@@ -14,6 +14,7 @@ import { UserFilters } from '@/types/users';
 import { useDebounce } from '@/hooks/use-debounce';
 import { CustomRole } from '@/types/auth';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { toast } from 'react-hot-toast';
 
 interface UserFiltersProps {
@@ -27,6 +28,16 @@ export function UserFiltersComponent({
 }: UserFiltersProps) {
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [rolesLoading, setRolesLoading] = useState(true);
+
+  // Fetch institutions with access control
+  const {
+    institutions,
+    loading: institutionsLoading,
+    error: institutionsError
+  } = useInstitutionsWithAccess({
+    isActive: true,
+    autoFetch: true
+  });
 
   // Fetch all available roles on component mount
   useEffect(() => {
@@ -46,6 +57,13 @@ export function UserFiltersComponent({
     fetchRoles();
   }, []);
 
+  // Show error toast for institutions if needed
+  useEffect(() => {
+    if (institutionsError) {
+      toast.error('Failed to load institutions for filtering');
+    }
+  }, [institutionsError]);
+
   // Debounce search to avoid too many API calls
   const debouncedSearch = useDebounce((value: string) => {
     onFilterChange({ search: value });
@@ -60,7 +78,7 @@ export function UserFiltersComponent({
 
   return (
     <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 md:grid-cols-4'>
+      <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
         {/* Search */}
         <div className='relative'>
           <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
@@ -71,6 +89,48 @@ export function UserFiltersComponent({
             className='pl-9'
           />
         </div>
+
+        {/* Institution Filter */}
+        <Select
+          value={filters.institution || 'all'}
+          onValueChange={(value) =>
+            onFilterChange({ institution: value === 'all' ? undefined : value })
+          }
+          disabled={institutionsLoading}
+        >
+          <SelectTrigger>
+            <SelectValue
+              placeholder={
+                institutionsLoading
+                  ? 'Loading institutions...'
+                  : 'Filter by institution'
+              }
+            />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Institutions</SelectItem>
+            {institutionsLoading ? (
+              <SelectItem value='loading' disabled>
+                Loading institutions...
+              </SelectItem>
+            ) : institutions.length === 0 ? (
+              <SelectItem value='no-institutions' disabled>
+                No institutions available
+              </SelectItem>
+            ) : (
+              institutions.map((institution) => (
+                <SelectItem key={institution.id} value={institution.id}>
+                  {institution.name}
+                  {institution.counselling_code && (
+                    <span className='text-muted-foreground text-xs ml-1'>
+                      ({institution.counselling_code})
+                    </span>
+                  )}
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
 
         {/* Role Filter */}
         <Select
@@ -105,7 +165,7 @@ export function UserFiltersComponent({
           </SelectContent>
         </Select>
 
-        {/* Status Filter - if you implement user status */}
+        {/* Status Filter */}
         <Select
           value={
             filters.isActive === undefined

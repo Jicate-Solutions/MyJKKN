@@ -1,4 +1,5 @@
 import { Profile } from './auth';
+import { DateRange } from 'react-day-picker';
 
 export interface UserListResponse {
   data: Profile[];
@@ -31,6 +32,114 @@ export interface UserStats {
   byInstitution: {
     [key: string]: number;
   };
+}
+
+// Enhanced User Dashboard Types
+export interface UserDashboardStats {
+  overview: {
+    totalUsers: number;
+    activeUsers: number;
+    inactiveUsers: number;
+    newUsersThisMonth: number;
+    newUsersLastMonth: number;
+    growthRate: number;
+    profileCompletionRate: number;
+    completeProfiles: number;
+    incompleteProfiles: number;
+    lastLoginWithin7Days: number;
+    lastLoginWithin30Days: number;
+    neverLoggedIn: number;
+  };
+
+  roleDistribution: Array<{
+    role: string;
+    roleDisplayName: string;
+    count: number;
+    percentage: number;
+    activeCount: number;
+    inactiveCount: number;
+  }>;
+
+  institutionStats: Array<{
+    id: string;
+    name: string;
+    counsellingCode: string;
+    totalUsers: number;
+    activeUsers: number;
+    byRole: Record<string, number>;
+    percentage: number;
+    lastActivity?: string;
+  }>;
+
+  registrationTrends: Array<{
+    date: string;
+    count: number;
+    cumulative: number;
+    byRole: Record<string, number>;
+  }>;
+
+  activityMetrics: {
+    dailyActiveUsers: number;
+    weeklyActiveUsers: number;
+    monthlyActiveUsers: number;
+    averageSessionDuration: number;
+    loginFrequency: {
+      daily: number;
+      weekly: number;
+      monthly: number;
+      rarely: number;
+    };
+  };
+
+  geographicDistribution: Array<{
+    state: string;
+    district: string;
+    userCount: number;
+    percentage: number;
+  }>;
+
+  securityMetrics: {
+    accountsWithRecentPasswordChanges: number;
+    suspendedAccounts: number;
+    accountsRequiringAttention: number;
+    twoFactorEnabled: number;
+  };
+
+  statusTransitions: Array<{
+    date: string;
+    fromStatus: string;
+    toStatus: string;
+    count: number;
+    reason?: string;
+  }>;
+
+  topUsers: {
+    mostActiveUsers: Array<{
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+      institution?: string;
+      loginCount?: number;
+      lastLogin: string;
+    }>;
+    recentRegistrations: Array<{
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+      institution?: string;
+      registeredAt: string;
+    }>;
+  };
+}
+
+export interface UserDashboardFilters {
+  dateRange?: DateRange;
+  institutionId?: string;
+  roles?: string[];
+  status?: 'active' | 'inactive' | 'all';
+  activityPeriod?: 'day' | 'week' | 'month' | 'year';
 }
 
 export interface RoleUpdateRequest {
