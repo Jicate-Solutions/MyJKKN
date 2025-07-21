@@ -52,7 +52,7 @@ export function LearnerServiceCategories() {
       description: 'View your apps',
       icon: LayoutDashboard,
       color: 'text-green-600',
-      href: '/learner/article'
+      href: '/learner/apps'
     },
     {
       id: 'time-table',
