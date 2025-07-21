@@ -1287,10 +1287,16 @@ export function BulkCreateStudents() {
               degree_name,
               department_name,
               program_name,
+              academic_year_name,
               semester_name,
               section_name,
               ...restData
             } = rowData;
+
+            // Create student_name for display purposes only (not sent to database)
+            const displayStudentName = `${restData.first_name || 'Unknown'} ${
+              restData.last_name || 'Student'
+            }`.trim();
 
             // Add in the special fields handling and include defaults for required fields
             // Handle as type any to bypass complex strict type checking
@@ -1298,9 +1304,6 @@ export function BulkCreateStudents() {
             const processedData = {
               ...restData,
               // Provide defaults for NOT NULL fields in database
-              student_name: `${restData.first_name || 'Unknown'} ${
-                restData.last_name || 'Student'
-              }`.trim(),
               first_name: restData.first_name || 'Unknown',
               last_name: restData.last_name || 'Student',
               father_name: restData.father_name || 'Unknown',
