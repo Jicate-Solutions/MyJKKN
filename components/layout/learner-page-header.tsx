@@ -9,7 +9,7 @@ interface LearnerPageHeaderProps {
 
 export function LearnerPageHeader({ title, subtitle }: LearnerPageHeaderProps) {
   return (
-    <div className='px-4 py-6 md:px-6 md:py-8'>
+    <div className='px-4 py-6 md:px-6'>
       <div className='max-w-7xl mx-auto'>
         <h1 className='text-2xl md:text-3xl font-bold text-gray-900 tracking-tight'>
           {title}

@@ -50,15 +50,6 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
 
-    // Debug log
-    console.log('Fetching applications with params:', {
-      category,
-      search,
-      isActive,
-      page,
-      limit
-    });
-
     // Start building the query with category join
     let query = supabase.from('applications').select(
       `
@@ -138,18 +129,6 @@ export async function GET(request: NextRequest) {
         screenshots: Array.isArray(app.screenshots) ? app.screenshots : []
       };
     });
-
-    // Debug log
-    console.log(
-      `Successfully fetched ${processedApplications.length} applications`
-    );
-    if (processedApplications.length > 0) {
-      console.log('Sample application:', {
-        id: processedApplications[0].id,
-        name: processedApplications[0].name,
-        roles_access: processedApplications[0].roles_access
-      });
-    }
 
     return NextResponse.json({
       data: processedApplications,
