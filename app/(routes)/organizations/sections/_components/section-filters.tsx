@@ -9,7 +9,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-
 import { usePermissions } from '@/hooks/use-permissions';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
