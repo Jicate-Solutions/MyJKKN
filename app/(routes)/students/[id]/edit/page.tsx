@@ -56,7 +56,8 @@ import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-yea
 // Form schema for student edit (focusing on additional required fields)
 const editStudentSchema = z.object({
   // Basic information
-  student_name: z.string().min(2, 'Name is required'),
+  first_name: z.string().min(2, 'First name is required'),
+  last_name: z.string().optional(),
   father_name: z.string().min(2, "Father's name is required"),
   father_occupation: z.string().optional(),
   father_mobile: z.string().optional(),
@@ -336,7 +337,8 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
   const form = useForm<EditStudentFormValues>({
     resolver: zodResolver(editStudentSchema),
     defaultValues: {
-      student_name: '',
+      first_name: '',
+      last_name: '',
       father_name: '',
       father_occupation: '',
       father_mobile: '',
@@ -447,9 +449,8 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
 
       form.reset(
         {
-          student_name: `${student.first_name} ${
-            student.last_name || ''
-          }`.trim(),
+          first_name: student.first_name || '',
+          last_name: student.last_name || '',
           father_name: student.father_name || '',
           father_occupation: student.father_occupation || '',
           father_mobile: student.father_mobile || '',
@@ -986,17 +987,34 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
 
                     {/* Basic Information Tab */}
                     <TabsContent value='basic' className='space-y-6'>
-                      <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                      <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
                         <FormField
                           control={form.control}
-                          name='student_name'
+                          name='first_name'
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Student Name*</FormLabel>
+                              <FormLabel>First Name*</FormLabel>
                               <FormControl>
                                 <Input
                                   {...field}
-                                  placeholder='Enter full name'
+                                  placeholder='Enter first name'
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='last_name'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Last Name</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  placeholder='Enter last name (optional)'
                                 />
                               </FormControl>
                               <FormMessage />
@@ -1166,12 +1184,24 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Religion</FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  placeholder='Enter religion'
-                                />
-                              </FormControl>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select religion' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='Hindu'>Hindu</SelectItem>
+                                  <SelectItem value='Christian'>
+                                    Christian
+                                  </SelectItem>
+                                  <SelectItem value='Muslim'>Muslim</SelectItem>
+                                  <SelectItem value='Others'>Others</SelectItem>
+                                </SelectContent>
+                              </Select>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -1183,12 +1213,27 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Community</FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  placeholder='Enter community'
-                                />
-                              </FormControl>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select community' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='OC'>OC</SelectItem>
+                                  <SelectItem value='BC'>BC</SelectItem>
+                                  <SelectItem value='BCM'>BCM</SelectItem>
+                                  <SelectItem value='MBC'>MBC</SelectItem>
+                                  <SelectItem value='DNC'>DNC</SelectItem>
+                                  <SelectItem value='BC-CC'>BC-CC</SelectItem>
+                                  <SelectItem value='SC'>SC</SelectItem>
+                                  <SelectItem value='ST'>ST</SelectItem>
+                                  <SelectItem value='SC (A)'>SC (A)</SelectItem>
+                                </SelectContent>
+                              </Select>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -2184,16 +2229,49 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                         />
                       </div>
 
-                      <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+                      <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                         <FormField
                           control={form.control}
-                          name='permanent_address_taluk'
+                          name='permanent_address_state'
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Taluk</FormLabel>
-                              <FormControl>
-                                <Input {...field} placeholder='Enter taluk' />
-                              </FormControl>
+                              <FormLabel>State</FormLabel>
+                              <Select
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  // Reset district and taluk when state changes
+                                  form.setValue(
+                                    'permanent_address_district',
+                                    ''
+                                  );
+                                  form.setValue('permanent_address_taluk', '');
+                                }}
+                                value={field.value || ''}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select state' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='Tamil Nadu'>
+                                    Tamil Nadu
+                                  </SelectItem>
+                                  <SelectItem value='Andhra Pradesh'>
+                                    Andhra Pradesh
+                                  </SelectItem>
+                                  <SelectItem value='Karnataka'>
+                                    Karnataka
+                                  </SelectItem>
+                                  <SelectItem value='Kerala'>Kerala</SelectItem>
+                                  <SelectItem value='Telangana'>
+                                    Telangana
+                                  </SelectItem>
+                                  <SelectItem value='Puducherry'>
+                                    Puducherry
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -2202,18 +2280,161 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                         <FormField
                           control={form.control}
                           name='permanent_address_district'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>District</FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  placeholder='Enter district'
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
+                          render={({ field }) => {
+                            const selectedState = form.watch(
+                              'permanent_address_state'
+                            );
+
+                            const getDistricts = () => {
+                              if (selectedState === 'Tamil Nadu') {
+                                return [
+                                  'Ariyalur',
+                                  'Chengalpattu',
+                                  'Chennai',
+                                  'Coimbatore',
+                                  'Cuddalore',
+                                  'Dharmapuri',
+                                  'Dindigul',
+                                  'Erode',
+                                  'Kallakurichi',
+                                  'Kanchipuram',
+                                  'Kanyakumari',
+                                  'Karur',
+                                  'Krishnagiri',
+                                  'Madurai',
+                                  'Mayiladuthurai',
+                                  'Nagapattinam',
+                                  'Namakkal',
+                                  'Nilgiris',
+                                  'Perambalur',
+                                  'Pudukkottai',
+                                  'Ramanathapuram',
+                                  'Ranipet',
+                                  'Salem',
+                                  'Sivaganga',
+                                  'Tenkasi',
+                                  'Thanjavur',
+                                  'Theni',
+                                  'Thoothukudi',
+                                  'Tiruchirappalli',
+                                  'Tirunelveli',
+                                  'Tirupathur',
+                                  'Tiruppur',
+                                  'Tiruvallur',
+                                  'Tiruvannamalai',
+                                  'Tiruvarur',
+                                  'Vellore',
+                                  'Viluppuram',
+                                  'Virudhunagar'
+                                ];
+                              }
+                              return ['Select state first'];
+                            };
+
+                            return (
+                              <FormItem>
+                                <FormLabel>District</FormLabel>
+                                <Select
+                                  onValueChange={(value) => {
+                                    field.onChange(value);
+                                    // Reset taluk when district changes
+                                    form.setValue(
+                                      'permanent_address_taluk',
+                                      ''
+                                    );
+                                  }}
+                                  value={field.value || ''}
+                                  disabled={!selectedState}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue
+                                        placeholder={
+                                          !selectedState
+                                            ? 'First select state'
+                                            : 'Select district'
+                                        }
+                                      />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {getDistricts().map((district) => (
+                                      <SelectItem
+                                        key={district}
+                                        value={district}
+                                      >
+                                        {district}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            );
+                          }}
+                        />
+                      </div>
+
+                      <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+                        <FormField
+                          control={form.control}
+                          name='permanent_address_taluk'
+                          render={({ field }) => {
+                            const selectedDistrict = form.watch(
+                              'permanent_address_district'
+                            );
+
+                            const getTaluks = () => {
+                              // Sample taluks - in real implementation, this would be based on district
+                              if (
+                                selectedDistrict &&
+                                selectedDistrict !== 'Select state first'
+                              ) {
+                                return [
+                                  `${selectedDistrict} Taluk 1`,
+                                  `${selectedDistrict} Taluk 2`,
+                                  `${selectedDistrict} Taluk 3`
+                                ];
+                              }
+                              return ['Select district first'];
+                            };
+
+                            return (
+                              <FormItem>
+                                <FormLabel>Taluk</FormLabel>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  value={field.value || ''}
+                                  disabled={
+                                    !selectedDistrict ||
+                                    selectedDistrict === 'Select state first'
+                                  }
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue
+                                        placeholder={
+                                          !selectedDistrict ||
+                                          selectedDistrict ===
+                                            'Select state first'
+                                            ? 'First select district'
+                                            : 'Select taluk'
+                                        }
+                                      />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {getTaluks().map((taluk) => (
+                                      <SelectItem key={taluk} value={taluk}>
+                                        {taluk}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            );
+                          }}
                         />
 
                         <FormField
@@ -2225,7 +2446,10 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                               <FormControl>
                                 <Input
                                   {...field}
-                                  placeholder='Enter PIN code'
+                                  type='number'
+                                  placeholder='Enter 6-digit PIN code'
+                                  maxLength={6}
+                                  minLength={6}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -2233,20 +2457,6 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                           )}
                         />
                       </div>
-
-                      <FormField
-                        control={form.control}
-                        name='permanent_address_state'
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>State</FormLabel>
-                            <FormControl>
-                              <Input {...field} placeholder='Enter state' />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
                     </TabsContent>
 
                     {/* Accommodation Tab */}
@@ -2295,12 +2505,30 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel>Hostel Type</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    {...field}
-                                    placeholder='Enter hostel type'
-                                  />
-                                </FormControl>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  value={field.value || ''}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder='Select hostel type' />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value='AC Hostel'>
+                                      AC Hostel
+                                    </SelectItem>
+                                    <SelectItem value='Non-AC Hostel'>
+                                      Non-AC Hostel
+                                    </SelectItem>
+                                    <SelectItem value='Single Occupancy'>
+                                      Single Occupancy
+                                    </SelectItem>
+                                    <SelectItem value='Shared Occupancy'>
+                                      Shared Occupancy
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
                                 <FormMessage />
                               </FormItem>
                             )}
@@ -2340,12 +2568,37 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel>Bus Route</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    {...field}
-                                    placeholder='Enter bus route'
-                                  />
-                                </FormControl>
+                                <Select
+                                  onValueChange={(value) => {
+                                    field.onChange(value);
+                                    // Reset pickup location when route changes
+                                    form.setValue('bus_pickup_location', '');
+                                  }}
+                                  value={field.value || ''}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder='Select bus route' />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value='route_1'>
+                                      Route 1 - City Center
+                                    </SelectItem>
+                                    <SelectItem value='route_2'>
+                                      Route 2 - East Zone
+                                    </SelectItem>
+                                    <SelectItem value='route_3'>
+                                      Route 3 - West Zone
+                                    </SelectItem>
+                                    <SelectItem value='route_4'>
+                                      Route 4 - South Zone
+                                    </SelectItem>
+                                    <SelectItem value='route_5'>
+                                      Route 5 - North Zone
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
                                 <FormMessage />
                               </FormItem>
                             )}
@@ -2354,18 +2607,119 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                           <FormField
                             control={form.control}
                             name='bus_pickup_location'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Pickup Location</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    {...field}
-                                    placeholder='Enter pickup location'
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
+                            render={({ field }) => {
+                              const busRoute = form.watch('bus_route');
+
+                              const getPickupLocations = () => {
+                                switch (busRoute) {
+                                  case 'route_1':
+                                    return [
+                                      {
+                                        value: 'city_hall',
+                                        label: 'City Hall'
+                                      },
+                                      {
+                                        value: 'central_market',
+                                        label: 'Central Market'
+                                      },
+                                      {
+                                        value: 'main_street',
+                                        label: 'Main Street Junction'
+                                      }
+                                    ];
+                                  case 'route_2':
+                                    return [
+                                      {
+                                        value: 'east_terminal',
+                                        label: 'East Bus Terminal'
+                                      },
+                                      {
+                                        value: 'hospital',
+                                        label: 'General Hospital'
+                                      },
+                                      {
+                                        value: 'library',
+                                        label: 'Public Library'
+                                      }
+                                    ];
+                                  case 'route_3':
+                                    return [
+                                      {
+                                        value: 'west_mall',
+                                        label: 'West Mall'
+                                      },
+                                      {
+                                        value: 'industrial_area',
+                                        label: 'Industrial Area'
+                                      },
+                                      { value: 'tech_park', label: 'Tech Park' }
+                                    ];
+                                  case 'route_4':
+                                    return [
+                                      {
+                                        value: 'south_station',
+                                        label: 'South Railway Station'
+                                      },
+                                      {
+                                        value: 'beach_road',
+                                        label: 'Beach Road'
+                                      },
+                                      { value: 'temple', label: 'Main Temple' }
+                                    ];
+                                  case 'route_5':
+                                    return [
+                                      {
+                                        value: 'north_junction',
+                                        label: 'North Junction'
+                                      },
+                                      { value: 'stadium', label: 'Stadium' },
+                                      {
+                                        value: 'university',
+                                        label: 'University Gate'
+                                      }
+                                    ];
+                                  default:
+                                    return [];
+                                }
+                              };
+
+                              return (
+                                <FormItem>
+                                  <FormLabel>Pickup Location</FormLabel>
+                                  <Select
+                                    onValueChange={field.onChange}
+                                    value={field.value || ''}
+                                    disabled={!busRoute}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue
+                                          placeholder={
+                                            !busRoute
+                                              ? 'First select a route'
+                                              : 'Select pickup location'
+                                          }
+                                        />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {getPickupLocations().map((option) => (
+                                        <SelectItem
+                                          key={option.value}
+                                          value={option.value}
+                                        >
+                                          {option.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormDescription>
+                                    {!busRoute && 'Select a bus route first'}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              );
+                            }}
                           />
                         </div>
                       )}
@@ -2380,12 +2734,34 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Reference Type</FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  placeholder='Enter reference type'
-                                />
-                              </FormControl>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select reference type' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='Direct Application'>
+                                    Direct Application
+                                  </SelectItem>
+                                  <SelectItem value='JKKN Staff'>
+                                    JKKN Staff
+                                  </SelectItem>
+                                  <SelectItem value='Current/Former Student'>
+                                    Current/Former Student
+                                  </SelectItem>
+                                  <SelectItem value='Educational Consultant'>
+                                    Educational Consultant
+                                  </SelectItem>
+                                  <SelectItem value='Social Media'>
+                                    Social Media
+                                  </SelectItem>
+                                  <SelectItem value='Others'>Others</SelectItem>
+                                </SelectContent>
+                              </Select>
                               <FormMessage />
                             </FormItem>
                           )}

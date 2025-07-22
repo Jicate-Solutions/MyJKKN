@@ -1295,7 +1295,7 @@ export function BulkCreateStudents() {
 
             // Create student_name for display purposes only (not sent to database)
             const displayStudentName = `${restData.first_name || 'Unknown'} ${
-              restData.last_name || 'Student'
+              restData.last_name || ''
             }`.trim();
 
             // Add in the special fields handling and include defaults for required fields
@@ -1305,7 +1305,8 @@ export function BulkCreateStudents() {
               ...restData,
               // Provide defaults for NOT NULL fields in database
               first_name: restData.first_name || 'Unknown',
-              last_name: restData.last_name || 'Student',
+              // last_name is optional - leave empty if no value provided
+              last_name: restData.last_name || null,
               father_name: restData.father_name || 'Unknown',
               mother_name: restData.mother_name || 'Unknown',
               mother_mobile: restData.mother_mobile || '0000000000',
