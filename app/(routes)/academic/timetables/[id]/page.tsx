@@ -208,24 +208,28 @@ export default function TimetableDetailPage({
   const [loadingStaffPlanData, setLoadingStaffPlanData] = useState(false);
 
   // Fetch courses, staff and sections data
-  const {
-    courses: allCourses,
-    loading: loadingCourses,
-    fetchCourses
-  } = useCourses({
+  const coursesQuery = useCourses({
     institution_id: timetable?.institution_id,
     isActive: true
   });
 
-  const {
-    staff: allStaff,
-    loading: loadingStaff,
-    fetchStaff
-  } = useStaff({
+  const allCourses = coursesQuery.data?.data || [];
+  const loadingCourses = coursesQuery.isLoading;
+  const fetchCourses = coursesQuery.refetch;
+
+  const staffQuery = useStaff({
     isActive: true
   });
 
-  const { sections, loading: loadingSections, fetchSections } = useSections();
+  const allStaff = staffQuery.data?.data || [];
+  const loadingStaff = staffQuery.isLoading;
+  const fetchStaff = staffQuery.refetch;
+
+  const sectionsQuery = useSections({});
+
+  const sections = sectionsQuery.data?.data || [];
+  const loadingSections = sectionsQuery.isLoading;
+  const fetchSections = sectionsQuery.refetch;
 
   // Fetch staff planning data based on timetable hierarchy
   const fetchStaffPlanningData = useCallback(async () => {
@@ -670,10 +674,7 @@ export default function TimetableDetailPage({
 
       // Load related courses - fetch from course mappings for this program and semester
       if (timetableData.institution_id) {
-        fetchCourses({
-          institution_id: timetableData.institution_id,
-          isActive: true
-        });
+        fetchCourses();
       }
 
       // Load staff

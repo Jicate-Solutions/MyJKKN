@@ -44,6 +44,7 @@ import { TimetableService } from '@/lib/services/academic/timetable-service';
 interface TimetableTableProps {
   timetables: Timetable[];
   deleteTimetable: (id: string) => Promise<boolean>;
+  onRefresh?: () => void;
   canEdit?: boolean;
   canDelete?: boolean;
 }
@@ -51,6 +52,7 @@ interface TimetableTableProps {
 export function TimetableTable({
   timetables,
   deleteTimetable,
+  onRefresh,
   canEdit = false,
   canDelete = false
 }: TimetableTableProps) {
@@ -115,37 +117,57 @@ export function TimetableTable({
         selectedTimetables
       );
 
-      if (result.success.length > 0) {
+      // Show a single comprehensive toast message
+      const successCount = result.success.length;
+      const failedCount = result.failed.length;
+      const totalSelected = selectedTimetables.length;
+
+      if (successCount === totalSelected) {
+        // All deletions successful
         toast({
-          title: 'Timetables deleted',
-          description: `Successfully deleted ${result.success.length} timetables.`
+          title: 'Bulk deletion completed',
+          description: `Successfully deleted all ${successCount} selected timetables.`
+        });
+      } else if (failedCount === totalSelected) {
+        // All deletions failed
+        toast({
+          title: 'Bulk deletion failed',
+          description: `Failed to delete all ${failedCount} selected timetables. Please try again.`,
+          variant: 'destructive'
+        });
+      } else {
+        // Mixed results
+        toast({
+          title: 'Bulk deletion partially completed',
+          description: `Successfully deleted ${successCount} timetables. Failed to delete ${failedCount} timetables.`,
+          variant: successCount > failedCount ? 'default' : 'destructive'
         });
       }
 
       if (result.failed.length > 0) {
-        toast({
-          title: 'Deletion failed',
-          description: `Failed to delete ${result.failed.length} timetables.`,
-          variant: 'destructive'
-        });
         console.error('Failed deletions:', result.failed);
       }
 
-      // Refresh the timetable list - we'll rely on the deleteTimetable prop to trigger a refresh
-      // Just do a fake delete on the first id to trigger a refresh
+      // Refresh the timetable list silently without triggering additional toasts
       if (result.success.length > 0) {
-        await deleteTimetable(result.success[0]);
+        if (onRefresh) {
+          // Use the provided refresh callback for a smooth refresh
+          onRefresh();
+        } else {
+          // Fallback to page reload if no refresh callback provided
+          window.location.reload();
+        }
       }
 
       setSelectedTimetables([]);
     } catch (error) {
       console.error('Error performing bulk delete:', error);
       toast({
-        title: 'Error',
+        title: 'Bulk deletion error',
         description:
           error instanceof Error
             ? error.message
-            : 'Failed to delete timetables',
+            : 'An unexpected error occurred during bulk deletion',
         variant: 'destructive'
       });
     } finally {
