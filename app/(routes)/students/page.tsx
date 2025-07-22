@@ -456,9 +456,11 @@ export default function StudentsPage() {
       limit: filters.limit || 10,
       search: '',
       first_name: '',
-      last_name: ''
+      last_name: '',
+      is_profile_complete: true // Reset to default value for main student list
     });
-    // Additional reset logic if needed for local state
+    // Reset local state for date range
+    setDateRange({ from: undefined, to: undefined });
   };
 
   // Remove a specific filter
@@ -935,10 +937,13 @@ export default function StudentsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {/* Basic search and profile status filter */}
+            {/* Profile status filter and search info */}
             <div className='flex flex-col md:flex-row gap-4 mb-4'>
               <div className='flex-1'>
-                {/* Search is handled by DataTable component */}
+                <p className='text-sm text-muted-foreground'>
+                  Use the search box below to find students by name, roll
+                  number, or email address.
+                </p>
               </div>
               <Select
                 value={
@@ -1377,8 +1382,8 @@ export default function StudentsPage() {
             <DataTable
               columns={columns}
               data={studentsData?.data || []}
-              searchPlaceholder='Search students...'
-              filterColumn='first_name'
+              searchPlaceholder='Search by name, roll number, or email...'
+              onSearch={(query) => handleFilterChange({ search: query })}
               permissions={{
                 module: 'students',
                 actions: {
