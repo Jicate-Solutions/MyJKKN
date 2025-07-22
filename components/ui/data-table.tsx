@@ -690,7 +690,7 @@ export function DataTable<TData, TValue>({
               placeholder={searchPlaceholder}
               value={globalFilter ?? ''}
               onChange={(event) => setGlobalFilter(event.target.value)}
-              className='max-w-sm'
+              className='max-w-lg w-full sm:w-auto'
             />
           ) : (
             filterColumnExists && (
@@ -705,7 +705,7 @@ export function DataTable<TData, TValue>({
                     .getColumn(filterColumn)
                     ?.setFilterValue(event.target.value)
                 }
-                className='max-w-sm'
+                className='max-w-lg w-full sm:w-auto'
               />
             )
           )}
