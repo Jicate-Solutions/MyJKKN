@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-// import { SectionForm } from '../_components/section-form'; // Component deleted
+import { SectionForm } from '../_components/section-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -203,11 +203,7 @@ export default function NewSectionPage() {
 
         <Card>
           <CardContent className='p-6'>
-            <div className='text-center py-8'>
-              <p className='text-muted-foreground'>
-                Section form component has been removed.
-              </p>
-            </div>
+            <SectionForm />
           </CardContent>
         </Card>
       </div>
