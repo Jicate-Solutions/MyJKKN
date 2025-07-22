@@ -471,47 +471,6 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
     }
   };
 
-  // Show loading state while institutions are loading OR while user profile is being checked
-  if (loadingInstitutions || !userProfile) {
-    return (
-      <div className='flex items-center justify-center p-8'>
-        <div className='text-center'>
-          <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4'></div>
-          <p className='text-muted-foreground'>Loading form data...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error for faculty users without institution (only after user profile is loaded)
-  if (!isSuperAdmin && !userProfile?.institution_id) {
-    return (
-      <div className='flex items-center justify-center p-8'>
-        <Card className='w-full max-w-md'>
-          <CardContent className='p-6 text-center'>
-            <div className='flex flex-col items-center space-y-4'>
-              <div className='rounded-full bg-red-100 p-3'>
-                <AlertTriangle className='h-8 w-8 text-red-600' />
-              </div>
-              <div className='space-y-2'>
-                <h3 className='text-lg font-semibold'>Institution Required</h3>
-                <p className='text-sm text-muted-foreground'>
-                  Your profile doesn&apos;t have an institution assigned. Please
-                  contact your administrator to update your profile.
-                </p>
-                <div className='text-xs text-muted-foreground mt-2'>
-                  <p>
-                    <strong>Your Role:</strong> {userProfile?.role || 'Unknown'}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-8'>
