@@ -161,6 +161,7 @@ export default function TimetablesPage() {
                 <TimetableTable
                   timetables={timetables}
                   deleteTimetable={deleteTimetable}
+                  onRefresh={fetchTimetables}
                   canEdit={canEditTimetables}
                   canDelete={canDeleteTimetables}
                 />

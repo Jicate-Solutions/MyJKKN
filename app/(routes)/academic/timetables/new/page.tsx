@@ -116,27 +116,111 @@ export default function NewTimetablePage() {
     fetchAcademicYears
   } = useAcademicYears();
 
-  const {
-    institutions,
-    loading: loadingInstitutions,
-    fetchInstitutions
-  } = useInstitutions({ isActive: true });
+  const institutionsQuery = useInstitutions({
+    isActive: true,
+    bypassInstitutionFilter: isSuperAdmin,
+    limit: 1000 // Fetch all institutions
+  });
+  const degreesQuery = useDegrees({
+    bypassInstitutionFilter: isSuperAdmin,
+    userId: userProfile?.id,
+    limit: 1000 // Fetch all degrees
+  });
+  const programsQuery = usePrograms({
+    bypassInstitutionFilter: isSuperAdmin,
+    userId: userProfile?.id,
+    limit: 1000 // Fetch all programs
+  });
+  const departmentsQuery = useDepartments({
+    bypassInstitutionFilter: isSuperAdmin,
+    userId: userProfile?.id,
+    limit: 1000 // Fetch all departments
+  });
+  const semestersQuery = useSemesters({
+    bypassInstitutionFilter: isSuperAdmin,
+    userId: userProfile?.id,
+    limit: 1000 // Fetch all semesters
+  });
 
-  const { degrees, loading: loadingDegrees, fetchDegrees } = useDegrees();
+  // Extract data and loading states
+  const institutions = institutionsQuery.data?.data || [];
+  const loadingInstitutions = institutionsQuery.isLoading;
+  const fetchInstitutions = institutionsQuery.refetch;
 
-  const { programs, loading: loadingPrograms, fetchPrograms } = usePrograms();
+  const allDegrees = degreesQuery.data?.data || [];
+  const loadingDegrees = degreesQuery.isLoading;
+  const fetchDegrees = degreesQuery.refetch;
 
-  const {
-    departments,
-    loading: loadingDepartments,
-    fetchDepartments
-  } = useDepartments();
+  const allPrograms = programsQuery.data?.data || [];
+  const loadingPrograms = programsQuery.isLoading;
+  const fetchPrograms = programsQuery.refetch;
 
-  const {
-    semesters,
-    loading: loadingSemesters,
-    fetchSemesters
-  } = useSemesters();
+  const allDepartments = departmentsQuery.data?.data || [];
+  const loadingDepartments = departmentsQuery.isLoading;
+  const fetchDepartments = departmentsQuery.refetch;
+
+  const allSemesters = semestersQuery.data?.data || [];
+  const loadingSemesters = semestersQuery.isLoading;
+  const fetchSemesters = semestersQuery.refetch;
+
+  // Debug query errors
+  console.log('🔍 Query Status:', {
+    Institutions: {
+      loading: loadingInstitutions,
+      error: institutionsQuery.error,
+      dataLength: institutions.length
+    },
+    Degrees: {
+      loading: loadingDegrees,
+      error: degreesQuery.error,
+      dataLength: allDegrees.length
+    },
+    Departments: {
+      loading: loadingDepartments,
+      error: departmentsQuery.error,
+      dataLength: allDepartments.length
+    },
+    Programs: {
+      loading: loadingPrograms,
+      error: programsQuery.error,
+      dataLength: allPrograms.length
+    },
+    Semesters: {
+      loading: loadingSemesters,
+      error: semestersQuery.error,
+      dataLength: allSemesters.length
+    }
+  });
+
+  // Placeholder for filtered data - will be computed after state variables are available
+  let degrees = allDegrees;
+  let programs = allPrograms;
+  let departments = allDepartments;
+  let filteredSemesters = allSemesters;
+
+  // Deduplicate semesters by semester_name to avoid duplicate keys
+  const uniqueSemesters = filteredSemesters.filter(
+    (semester, index, self) =>
+      index ===
+      self.findIndex((s) => s.semester_name === semester.semester_name)
+  );
+
+  // Debug log to track duplicate removal
+  if (filteredSemesters.length !== uniqueSemesters.length) {
+    console.log(
+      `Removed ${
+        filteredSemesters.length - uniqueSemesters.length
+      } duplicate semesters`
+    );
+    console.log(
+      'Original semesters:',
+      filteredSemesters.map((s) => s.semester_name)
+    );
+    console.log(
+      'Unique semesters:',
+      uniqueSemesters.map((s) => s.semester_name)
+    );
+  }
 
   // Sections hook removed - timetables are now semester-wise
 
@@ -168,10 +252,14 @@ export default function NewTimetablePage() {
     }
   });
 
-  // Initial data loading - fetch institutions and academic years
+  // Initial data loading - fetch all required data
   useEffect(() => {
     fetchInstitutions();
     fetchAcademicYears({ isActive: true });
+    fetchDegrees();
+    fetchPrograms();
+    fetchDepartments();
+    fetchSemesters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -182,71 +270,172 @@ export default function NewTimetablePage() {
   const watchProgramId = form.watch('program_id');
   const watchDepartmentId = form.watch('department_id');
 
+  // Apply hierarchical filtering based on current selections
+  // NEW HIERARCHY: institution → academic year → degree → department → program → semester
+  // Use form watch values for immediate updates
+  degrees = allDegrees.filter(
+    (degree) =>
+      !watchInstitutionId || degree.institution_id === watchInstitutionId
+  );
+
+  departments = allDepartments.filter(
+    (department) => !watchDegreeId || department.degree_id === watchDegreeId
+  );
+
+  programs = allPrograms.filter(
+    (program) =>
+      !watchDepartmentId || program.department_id === watchDepartmentId
+  );
+
+  filteredSemesters = allSemesters.filter(
+    (semester) => !watchProgramId || semester.program_id === watchProgramId
+  );
+
+  // Debug log for hierarchy
+  console.log('🔍 Hierarchy Debug:', {
+    'Form Values': {
+      institution: watchInstitutionId,
+      degree: watchDegreeId,
+      department: watchDepartmentId,
+      program: watchProgramId
+    },
+    'Available Data': {
+      degrees: degrees.length,
+      departments: departments.length,
+      programs: programs.length,
+      semesters: filteredSemesters.length
+    },
+    'All Data': {
+      allDegrees: allDegrees.length,
+      allDepartments: allDepartments.length,
+      allPrograms: allPrograms.length,
+      allSemesters: allSemesters.length
+    }
+  });
+
+  // Specific department debugging when degree is selected
+  if (watchDegreeId) {
+    console.log('🏢 Department Debug for Degree:', watchDegreeId, {
+      'Total Departments': allDepartments.length,
+      'Filtered Departments': departments.length,
+      'Department Sample': allDepartments.slice(0, 5).map((d) => ({
+        id: d.id,
+        name: d.department_name,
+        degree_id: d.degree_id,
+        institution_id: d.institution_id
+      })),
+      'All Department degree_ids': [
+        ...new Set(allDepartments.map((d) => d.degree_id))
+      ],
+      'Selected Degree ID': watchDegreeId,
+      'Matching Departments': allDepartments
+        .filter((d) => d.degree_id === watchDegreeId)
+        .map((d) => ({
+          id: d.id,
+          name: d.department_name,
+          degree_id: d.degree_id,
+          institution_id: d.institution_id
+        }))
+    });
+  }
+
+  // Additional debugging for all data structures
+  console.log('📊 All Data Structures:', {
+    'Degrees Sample': allDegrees.slice(0, 3).map((d) => ({
+      id: d.id,
+      name: d.degree_name,
+      institution_id: d.institution_id
+    })),
+    'Departments Sample': allDepartments.slice(0, 3).map((d) => ({
+      id: d.id,
+      name: d.department_name,
+      degree_id: d.degree_id,
+      institution_id: d.institution_id
+    })),
+    'Programs Sample': allPrograms.slice(0, 3).map((p) => ({
+      id: p.id,
+      name: p.program_name,
+      department_id: p.department_id
+    })),
+    'Semesters Sample': allSemesters.slice(0, 3).map((s) => ({
+      id: s.id,
+      name: s.semester_name,
+      program_id: s.program_id
+    }))
+  });
+
   // Update state and fetch dependent data when institution changes
   useEffect(() => {
-    if (watchInstitutionId && watchInstitutionId !== selectedInstitutionId) {
+    if (watchInstitutionId !== selectedInstitutionId) {
       setSelectedInstitutionId(watchInstitutionId);
 
-      // Filter academic years by selected institution
-      updateFilters({ institution_id: watchInstitutionId, isActive: true });
+      if (watchInstitutionId) {
+        // Filter academic years by selected institution
+        updateFilters({ institution_id: watchInstitutionId, isActive: true });
 
-      fetchDegrees({ institution_id: watchInstitutionId, isActive: true });
+        // Refetch data with institution filter to ensure we get the right data
+        fetchDegrees();
+        fetchDepartments();
+        fetchPrograms();
+        fetchSemesters();
+      }
 
-      // Reset dependent fields including academic year
+      // Reset ALL dependent fields when institution changes
+      setSelectedDegreeId('');
+      setSelectedDepartmentId('');
+      setSelectedProgramId('');
       form.setValue('academic_year_id', '');
       form.setValue('degree_id', '');
-      form.setValue('program_id', '');
       form.setValue('department_id', '');
+      form.setValue('program_id', '');
       form.setValue('semester', '');
     }
   }, [
     watchInstitutionId,
     selectedInstitutionId,
     updateFilters,
+    form,
     fetchDegrees,
-    form
+    fetchDepartments,
+    fetchPrograms,
+    fetchSemesters
   ]);
 
   // Update state and fetch dependent data when degree changes
   useEffect(() => {
-    if (watchDegreeId && watchDegreeId !== selectedDegreeId) {
+    if (watchDegreeId !== selectedDegreeId) {
       setSelectedDegreeId(watchDegreeId);
-      fetchPrograms({ degree_id: watchDegreeId, isActive: true });
 
-      // Reset dependent fields
+      // Reset ALL dependent fields when degree changes
+      setSelectedDepartmentId('');
+      setSelectedProgramId('');
+      form.setValue('department_id', '');
       form.setValue('program_id', '');
-      form.setValue('department_id', '');
       form.setValue('semester', '');
     }
-  }, [watchDegreeId, selectedDegreeId, fetchPrograms, form]);
+  }, [watchDegreeId, selectedDegreeId, form]);
 
-  // Update state and fetch dependent data when program changes
+  // Update state and fetch dependent data when department changes
   useEffect(() => {
-    if (watchProgramId && watchProgramId !== selectedProgramId) {
-      setSelectedProgramId(watchProgramId);
-      fetchDepartments({ degree_id: selectedDegreeId, isActive: true });
-      fetchSemesters({ program_id: watchProgramId, isActive: true });
-
-      // Reset dependent fields
-      form.setValue('department_id', '');
-      form.setValue('semester', '');
-    }
-  }, [
-    watchProgramId,
-    selectedProgramId,
-    fetchDepartments,
-    fetchSemesters,
-    form,
-    selectedDegreeId
-  ]);
-
-  // Update state when department changes
-  useEffect(() => {
-    if (watchDepartmentId && watchDepartmentId !== selectedDepartmentId) {
+    if (watchDepartmentId !== selectedDepartmentId) {
       setSelectedDepartmentId(watchDepartmentId);
-      // Note: Sections no longer needed as timetables are semester-wise
+
+      // Reset dependent fields when department changes
+      setSelectedProgramId('');
+      form.setValue('program_id', '');
+      form.setValue('semester', '');
     }
-  }, [watchDepartmentId, selectedDepartmentId]);
+  }, [watchDepartmentId, selectedDepartmentId, form]);
+
+  // Update state when program changes
+  useEffect(() => {
+    if (watchProgramId !== selectedProgramId) {
+      setSelectedProgramId(watchProgramId);
+
+      // Reset semester when program changes
+      form.setValue('semester', '');
+    }
+  }, [watchProgramId, selectedProgramId, form]);
 
   // Form submission handler
   const onSubmit = async (values: TimetableFormValues) => {
@@ -422,7 +611,7 @@ export default function NewTimetablePage() {
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
-                          disabled={loadingYears || !selectedInstitutionId}
+                          disabled={loadingYears || !watchInstitutionId}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -454,7 +643,11 @@ export default function NewTimetablePage() {
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
-                          disabled={loadingDegrees || !selectedInstitutionId}
+                          disabled={
+                            loadingDegrees ||
+                            !watchInstitutionId ||
+                            degrees.length === 0
+                          }
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -477,36 +670,6 @@ export default function NewTimetablePage() {
 
                   <FormField
                     control={form.control}
-                    name='program_id'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Program</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={loadingPrograms || !selectedDegreeId}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder='Select program' />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent className='max-h-60 overflow-y-auto'>
-                            {programs.map((program) => (
-                              <SelectItem key={program.id} value={program.id}>
-                                {program.program_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>The specific program</FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
                     name='department_id'
                     render={({ field }) => (
                       <FormItem>
@@ -514,7 +677,11 @@ export default function NewTimetablePage() {
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
-                          disabled={loadingDepartments || !selectedProgramId}
+                          disabled={
+                            loadingDepartments ||
+                            !watchDegreeId ||
+                            departments.length === 0
+                          }
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -542,6 +709,40 @@ export default function NewTimetablePage() {
 
                   <FormField
                     control={form.control}
+                    name='program_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Program</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          disabled={
+                            loadingPrograms ||
+                            !watchDepartmentId ||
+                            programs.length === 0
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select program' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
+                            {programs.map((program) => (
+                              <SelectItem key={program.id} value={program.id}>
+                                {program.program_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>The specific program</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name='semester'
                     render={({ field }) => (
                       <FormItem>
@@ -549,7 +750,11 @@ export default function NewTimetablePage() {
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
-                          disabled={loadingSemesters || !selectedProgramId}
+                          disabled={
+                            loadingSemesters ||
+                            !watchProgramId ||
+                            uniqueSemesters.length === 0
+                          }
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -557,7 +762,7 @@ export default function NewTimetablePage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
-                            {semesters.map((semester) => (
+                            {uniqueSemesters.map((semester) => (
                               <SelectItem
                                 key={semester.id}
                                 value={semester.semester_name}
