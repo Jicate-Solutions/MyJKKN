@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
         const newProfile = {
           id: user.id,
           email: user.email,
-          role: 'student',
+          role: 'guest',
           profile_completed: false,
           is_active: true
         };
@@ -136,8 +136,15 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));
       }
 
-      // If profile exists and is completed, redirect to home
-      return NextResponse.redirect(new URL('/', origin));
+      // If profile exists and is completed, redirect based on role
+      let destination = '/';
+      if (existingProfile.role === 'guest') {
+        destination = '/guest';
+      } else if (existingProfile.role === 'student') {
+        destination = '/learner';
+      }
+
+      return NextResponse.redirect(new URL(destination, origin));
     } catch (dbError) {
       return NextResponse.redirect(new URL('/auth/complete-profile', origin));
     }
