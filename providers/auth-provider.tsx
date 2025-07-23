@@ -83,6 +83,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await AuthService.signOut();
       setUser(null);
+
+      // Disable Google One Tap auto-login
+      if (window.google) {
+        window.google.accounts.id.disableAutoSelect();
+      }
+
       router.push('/auth/login');
       toast.success('Signed out successfully');
     } catch (error) {

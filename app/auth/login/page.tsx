@@ -17,6 +17,7 @@ import { BeatLoader } from 'react-spinners';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import Image from 'next/image';
 import { GraduationCap, BookOpen, School } from 'lucide-react';
+import { GoogleOneTap } from '@/components/auth/google-one-tap';
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -129,6 +130,7 @@ export default function LoginPage() {
 
   return (
     <div className='min-h-screen flex items-center justify-center bg-yellow-50 p-4 relative overflow-hidden'>
+      {!isCheckingAuth && <GoogleOneTap />}
       {/* Animated background elements */}
       <div className='absolute inset-0 pointer-events-none'>
         <div className='absolute h-40 w-40 bg-green-200 rounded-full -top-10 -left-10 opacity-20 animate-blob'></div>
