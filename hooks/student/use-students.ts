@@ -46,10 +46,16 @@ export function useStudents(filters: StudentFilters = {}) {
   };
 
   return useQuery({
-    queryKey: ['students', filters],
+    queryKey: studentKeys.list(filters),
     queryFn,
     // The query will only be enabled after the user has been authenticated.
-    enabled: !authLoading && !!profile
+    enabled: !authLoading && !!profile,
+    // Keep previous data while fetching new page
+    placeholderData: (previousData) => previousData,
+    // Consider data fresh for 30 seconds
+    staleTime: 30 * 1000,
+    // Keep data in cache for 5 minutes
+    gcTime: 5 * 60 * 1000
   });
 }
 
