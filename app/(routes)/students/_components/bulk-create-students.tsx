@@ -35,7 +35,11 @@ import {
   Upload,
   X,
   XCircle,
-  FileText
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  FileCheck,
+  FileX
 } from 'lucide-react';
 import { useRouter } from 'next/navigation'; // Import useRouter
 import {
@@ -47,6 +51,17 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { StudentService } from '@/lib/services/student/student-service';
 import { DownloadNewStudentTemplateButton } from './download-new-student-template-button';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 // Helper function to parse and normalize date formats
 const parseAndNormalizeDate = (dateString: string): string | null => {
@@ -874,7 +889,22 @@ export function BulkCreateStudents() {
       success: boolean;
       message?: string;
     }>;
+    failedRows?: Array<{
+      row: number;
+      data: any;
+      error: string;
+    }>;
+    successfulRows?: Array<{
+      row: number;
+      studentId: string;
+      studentName: string;
+      rollNumber?: string;
+    }>;
   } | null>(null);
+
+  // Add state for upload mode
+  const [uploadMode, setUploadMode] = useState<'all' | 'valid'>('all');
+  const [showUploadReport, setShowUploadReport] = useState(false);
 
   const resetState = useCallback((keepOpen = false) => {
     setFile(null);
@@ -890,6 +920,7 @@ export function BulkCreateStudents() {
       percentage: 0
     });
     setUploadResult(null);
+    setShowUploadReport(false);
     if (!keepOpen) {
       setIsOpen(false);
     }
@@ -966,175 +997,227 @@ export function BulkCreateStudents() {
           const errors: ValidationError[] = [];
           const valid: NewStudentData[] = [];
           const duplicateErrors: ValidationError[] = [];
-          const headers = Object.keys(parsedData[0] || {});
 
-          // Clean header names to remove potential asterisks from field markers
-          const cleanHeaders = headers.map((h) =>
-            h.replace(/\s*\*\s*$/, '').trim()
-          );
+          // Process validation in parallel batches for better performance
+          const VALIDATION_BATCH_SIZE = 10;
+          const validationBatches = [];
 
-          // No required fields check - all fields are optional now
-          // Process each row with validation and duplicate checking
-          for (let index = 0; index < parsedData.length; index++) {
-            const row = parsedData[index];
+          for (let i = 0; i < parsedData.length; i += VALIDATION_BATCH_SIZE) {
+            validationBatches.push(
+              parsedData.slice(i, i + VALIDATION_BATCH_SIZE)
+            );
+          }
 
-            // Update validation progress
-            setValidationProgress({
-              current: index + 1,
-              total: parsedData.length,
-              currentRow: row,
-              percentage: Math.round(((index + 1) / parsedData.length) * 100)
-            });
+          let processedCount = 0;
 
-            try {
-              // Clean the row keys to remove asterisks and normalize data
-              const processedRow: Record<string, any> = {};
-              Object.entries(row).forEach(([key, value]) => {
-                const cleanKey = key.replace(/\s*\*\s*$/, '').trim();
-                processedRow[cleanKey] = value;
-              });
+          for (const batch of validationBatches) {
+            const batchPromises = batch.map(async (row, batchIndex) => {
+              const index = processedCount + batchIndex;
 
-              // Normalize boolean fields
-              ['counseling_applied', 'first_graduate', 'bus_required'].forEach(
-                (key) => {
+              try {
+                // Update validation progress
+                setValidationProgress({
+                  current: index + 1,
+                  total: parsedData.length,
+                  currentRow: row,
+                  percentage: Math.round(
+                    ((index + 1) / parsedData.length) * 100
+                  )
+                });
+
+                // Clean the row keys to remove asterisks and normalize data
+                const processedRow: Record<string, any> = {};
+                Object.entries(row).forEach(([key, value]) => {
+                  const cleanKey = key.replace(/\s*\*\s*$/, '').trim();
+                  processedRow[cleanKey] = value;
+                });
+
+                // Normalize boolean fields
+                [
+                  'counseling_applied',
+                  'first_graduate',
+                  'bus_required'
+                ].forEach((key) => {
                   if (typeof processedRow[key] === 'string') {
                     processedRow[key] = processedRow[key].trim().toLowerCase();
                   }
-                }
-              );
-
-              // Step 1: Validate with Zod schema (basic validation)
-              const basicResult = newStudentSchema.safeParse(processedRow);
-              if (!basicResult.success) {
-                errors.push({
-                  row: index + 2,
-                  errors: basicResult.error.flatten().fieldErrors,
-                  rowData: row
                 });
-                continue; // Skip to next row
-              }
 
-              const basicData = basicResult.data;
-
-              // Step 2: Resolve name fields to IDs
-              const { resolved: validData, errors: nameErrors } =
-                await resolveNameFields(basicData);
-
-              if (nameErrors.length > 0) {
-                errors.push({
-                  row: index + 2,
-                  errors: {
-                    name_resolution: nameErrors
-                  },
-                  rowData: row
-                });
-                continue; // Skip to next row
-              }
-
-              // Step 3: Check for duplicates
-              const duplicateCheck = await checkForDuplicateStudent(validData);
-              if (duplicateCheck.isDuplicate) {
-                duplicateErrors.push({
-                  row: index + 2,
-                  errors: {
-                    [duplicateCheck.duplicateField]: [
-                      `DUPLICATE: ${duplicateCheck.existingStudentInfo}`
-                    ]
-                  },
-                  rowData: row
-                });
-                continue; // Skip to next row
-              }
-
-              // Step 4: Transform data (marks JSON conversion)
-              try {
-                // Transform separate marks fields into JSON format (only if data exists)
-                let tenthMarksJson = null;
-                if (
-                  validData.tenth_marks_max_marks ||
-                  validData.tenth_marks_obtained_marks ||
-                  validData.tenth_marks_percentage
-                ) {
-                  tenthMarksJson = {
-                    max_marks: validData.tenth_marks_max_marks || '',
-                    obtained_marks: validData.tenth_marks_obtained_marks || '',
-                    percentage: validData.tenth_marks_percentage || ''
+                // Step 1: Validate with Zod schema (basic validation)
+                const basicResult = newStudentSchema.safeParse(processedRow);
+                if (!basicResult.success) {
+                  return {
+                    type: 'error',
+                    error: {
+                      row: index + 2,
+                      errors: basicResult.error.flatten().fieldErrors,
+                      rowData: row
+                    }
                   };
                 }
 
-                // Build subjects object for 12th marks
-                const subjects: Record<string, string> = {};
-                if (validData.twelfth_marks_physics)
-                  subjects.physics = validData.twelfth_marks_physics;
-                if (validData.twelfth_marks_chemistry)
-                  subjects.chemistry = validData.twelfth_marks_chemistry;
-                if (validData.twelfth_marks_mathematics)
-                  subjects.mathematics = validData.twelfth_marks_mathematics;
-                if (validData.twelfth_marks_biology)
-                  subjects.biology = validData.twelfth_marks_biology;
-                if (validData.twelfth_marks_computer_science)
-                  subjects.computerScience =
-                    validData.twelfth_marks_computer_science;
-                if (validData.twelfth_marks_other_subject)
-                  subjects.other = validData.twelfth_marks_other_subject;
+                const basicData = basicResult.data;
 
-                let twelfthMarksJson = null;
-                if (
-                  validData.twelfth_marks_group ||
-                  validData.twelfth_marks_max_marks ||
-                  validData.twelfth_marks_obtained_marks ||
-                  validData.twelfth_marks_percentage
-                ) {
-                  twelfthMarksJson = {
-                    group: validData.twelfth_marks_group || '',
-                    max_marks: validData.twelfth_marks_max_marks || '',
-                    obtained_marks:
-                      validData.twelfth_marks_obtained_marks || '',
-                    percentage: validData.twelfth_marks_percentage || '',
-                    subjects: subjects
+                // Step 2: Resolve name fields to IDs
+                const { resolved: validData, errors: nameErrors } =
+                  await resolveNameFields(basicData);
+
+                if (nameErrors.length > 0) {
+                  return {
+                    type: 'error',
+                    error: {
+                      row: index + 2,
+                      errors: {
+                        name_resolution: nameErrors
+                      },
+                      rowData: row
+                    }
                   };
                 }
 
-                // Create final data object with JSON fields (only include if data exists)
-                const transformedData: any = { ...validData };
-                if (tenthMarksJson) {
-                  transformedData.tenth_marks_json =
-                    JSON.stringify(tenthMarksJson);
-                }
-                if (twelfthMarksJson) {
-                  transformedData.twelfth_marks_json =
-                    JSON.stringify(twelfthMarksJson);
+                // Step 3: Check for duplicates
+                const duplicateCheck = await checkForDuplicateStudent(
+                  validData
+                );
+                if (duplicateCheck.isDuplicate) {
+                  return {
+                    type: 'duplicate',
+                    error: {
+                      row: index + 2,
+                      errors: {
+                        [duplicateCheck.duplicateField]: [
+                          `DUPLICATE: ${duplicateCheck.existingStudentInfo}`
+                        ]
+                      },
+                      rowData: row
+                    }
+                  };
                 }
 
-                valid.push(transformedData as NewStudentData);
-              } catch (transformError) {
-                errors.push({
-                  row: index + 2,
-                  errors: {
-                    marks_transform: [
-                      'Failed to transform marks data into required format'
-                    ]
-                  },
-                  rowData: row
-                });
+                // Step 4: Transform data (marks JSON conversion)
+                try {
+                  // Transform separate marks fields into JSON format (only if data exists)
+                  let tenthMarksJson = null;
+                  if (
+                    validData.tenth_marks_max_marks ||
+                    validData.tenth_marks_obtained_marks ||
+                    validData.tenth_marks_percentage
+                  ) {
+                    tenthMarksJson = {
+                      max_marks: validData.tenth_marks_max_marks || '',
+                      obtained_marks:
+                        validData.tenth_marks_obtained_marks || '',
+                      percentage: validData.tenth_marks_percentage || ''
+                    };
+                  }
+
+                  // Build subjects object for 12th marks
+                  const subjects: Record<string, string> = {};
+                  if (validData.twelfth_marks_physics)
+                    subjects.physics = validData.twelfth_marks_physics;
+                  if (validData.twelfth_marks_chemistry)
+                    subjects.chemistry = validData.twelfth_marks_chemistry;
+                  if (validData.twelfth_marks_mathematics)
+                    subjects.mathematics = validData.twelfth_marks_mathematics;
+                  if (validData.twelfth_marks_biology)
+                    subjects.biology = validData.twelfth_marks_biology;
+                  if (validData.twelfth_marks_computer_science)
+                    subjects.computerScience =
+                      validData.twelfth_marks_computer_science;
+                  if (validData.twelfth_marks_other_subject)
+                    subjects.other = validData.twelfth_marks_other_subject;
+
+                  let twelfthMarksJson = null;
+                  if (
+                    validData.twelfth_marks_group ||
+                    validData.twelfth_marks_max_marks ||
+                    validData.twelfth_marks_obtained_marks ||
+                    validData.twelfth_marks_percentage
+                  ) {
+                    twelfthMarksJson = {
+                      group: validData.twelfth_marks_group || '',
+                      max_marks: validData.twelfth_marks_max_marks || '',
+                      obtained_marks:
+                        validData.twelfth_marks_obtained_marks || '',
+                      percentage: validData.twelfth_marks_percentage || '',
+                      subjects: subjects
+                    };
+                  }
+
+                  // Create final data object with JSON fields (only include if data exists)
+                  const transformedData: any = { ...validData };
+                  if (tenthMarksJson) {
+                    transformedData.tenth_marks_json =
+                      JSON.stringify(tenthMarksJson);
+                  }
+                  if (twelfthMarksJson) {
+                    transformedData.twelfth_marks_json =
+                      JSON.stringify(twelfthMarksJson);
+                  }
+
+                  // Add row index for tracking
+                  transformedData._rowIndex = index + 2;
+
+                  return {
+                    type: 'valid',
+                    data: transformedData as NewStudentData
+                  };
+                } catch (transformError) {
+                  return {
+                    type: 'error',
+                    error: {
+                      row: index + 2,
+                      errors: {
+                        marks_transform: [
+                          'Failed to transform marks data into required format'
+                        ]
+                      },
+                      rowData: row
+                    }
+                  };
+                }
+              } catch (rowError) {
+                console.error(`Error processing row ${index + 2}:`, rowError);
+                return {
+                  type: 'error',
+                  error: {
+                    row: index + 2,
+                    errors: {
+                      processing_error: [
+                        `Row processing failed: ${
+                          rowError instanceof Error
+                            ? rowError.message
+                            : 'Unknown error'
+                        }`
+                      ]
+                    },
+                    rowData: row
+                  }
+                };
               }
-            } catch (rowError) {
-              console.error(`Error processing row ${index + 2}:`, rowError);
-              errors.push({
-                row: index + 2,
-                errors: {
-                  processing_error: [
-                    `Row processing failed: ${
-                      rowError instanceof Error
-                        ? rowError.message
-                        : 'Unknown error'
-                    }`
-                  ]
-                },
-                rowData: row
-              });
-            }
+            });
+
+            // Wait for batch to complete
+            const batchResults = await Promise.all(batchPromises);
+
+            // Process batch results
+            batchResults.forEach((result) => {
+              if (result && result.type === 'valid' && result.data) {
+                valid.push(result.data);
+              } else if (
+                result &&
+                result.type === 'duplicate' &&
+                result.error
+              ) {
+                duplicateErrors.push(result.error);
+              } else if (result && result.type === 'error' && result.error) {
+                errors.push(result.error);
+              }
+            });
+
+            processedCount += batch.length;
           }
+
           // Combine validation errors and duplicate errors
           const allErrors = [...errors, ...duplicateErrors];
 
@@ -1151,9 +1234,14 @@ export function BulkCreateStudents() {
             } else if (duplicateErrorCount > 0) {
               errorMessage += ` (${duplicateErrorCount} duplicates found)`;
             }
-            errorMessage += '. Please fix them before uploading.';
 
-            toast(errorMessage, { icon: '⚠️' });
+            if (valid.length > 0) {
+              errorMessage += `. ${valid.length} valid rows can still be uploaded.`;
+              toast(errorMessage, { icon: '⚠️' });
+            } else {
+              errorMessage += '. Please fix them before uploading.';
+              toast.error(errorMessage);
+            }
           } else if (valid.length > 0) {
             toast.success(
               `Validation successful! ${valid.length} rows ready for upload. No duplicates found.`
@@ -1214,9 +1302,15 @@ export function BulkCreateStudents() {
   );
 
   const handleUpload = async () => {
-    if (validRows.length === 0 || validationErrors.length > 0) {
+    if (validRows.length === 0) {
+      toast.error('No valid rows to upload.');
+      return;
+    }
+
+    // Check upload mode
+    if (uploadMode === 'all' && validationErrors.length > 0) {
       toast.error(
-        'Cannot upload. Please ensure there are valid rows and no validation errors.'
+        'Cannot upload all rows when validation errors exist. Please switch to "Upload Valid Only" mode or fix the errors.'
       );
       return;
     }
@@ -1226,8 +1320,8 @@ export function BulkCreateStudents() {
     setUploadResult(null);
 
     try {
-      // Process rows in batches similar to the staff module
-      const batchSize = 50;
+      // Process rows in larger batches for better performance
+      const batchSize = 25; // Increased from 50 for better parallel processing
       const batches = [];
       for (let i = 0; i < validRows.length; i += batchSize) {
         batches.push(validRows.slice(i, i + batchSize));
@@ -1244,14 +1338,29 @@ export function BulkCreateStudents() {
         success: boolean;
         message?: string;
       }[] = [];
+      const failedRows: Array<{
+        row: number;
+        data: any;
+        error: string;
+      }> = [];
+      const successfulRows: Array<{
+        row: number;
+        studentId: string;
+        studentName: string;
+        rollNumber?: string;
+      }> = [];
 
-      // Process each batch
-      for (const batch of batches) {
+      // Process each batch with parallel execution
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+
         // Setting progress for batches
         setUploadProgress(Math.floor((createdCount / validRows.length) * 100));
 
-        // Create a promise for each student in the batch
-        const promises = batch.map(async (row) => {
+        // Create promises for parallel execution
+        const batchPromises = batch.map(async (row) => {
+          const rowIndex = (row as any)._rowIndex || 0;
+
           try {
             // Parse JSON strings that were created during validation
             const rowData = row as any;
@@ -1290,6 +1399,7 @@ export function BulkCreateStudents() {
               academic_year_name,
               semester_name,
               section_name,
+              _rowIndex,
               ...restData
             } = rowData;
 
@@ -1347,7 +1457,7 @@ export function BulkCreateStudents() {
                   : Boolean(restData.bus_required)
             };
 
-            // Create student using the standard service method
+            // Create student using the standard service method with suppressToast
             console.log(
               `Creating student: ${processedData.first_name} ${processedData.last_name}`
             );
@@ -1357,6 +1467,13 @@ export function BulkCreateStudents() {
 
             if (newStudent) {
               createdCount++;
+
+              successfulRows.push({
+                row: rowIndex,
+                studentId: newStudent.id,
+                studentName: displayStudentName,
+                rollNumber: newStudent.roll_number
+              });
 
               // User creation is now handled inside the createStudent service,
               // so we can check if a user account should have been created.
@@ -1372,13 +1489,27 @@ export function BulkCreateStudents() {
                   message: 'User creation process initiated.'
                 });
               }
+
+              return { success: true, studentId: newStudent.id };
             }
+
+            return { success: false, error: 'Failed to create student' };
           } catch (error) {
-            console.error(`Error creating student:`, error);
+            console.error(`Error creating student at row ${rowIndex}:`, error);
             failedCount++;
             const errorMessage =
               error instanceof Error ? error.message : 'Unknown error';
-            errorDetails.push(`Row ${batch.indexOf(row) + 1}: ${errorMessage}`);
+
+            failedRows.push({
+              row: rowIndex,
+              data: {
+                first_name: row.first_name,
+                last_name: row.last_name,
+                roll_number: row.roll_number,
+                college_email: row.college_email
+              },
+              error: errorMessage
+            });
 
             if (row.college_email) {
               userCreationResults.push({
@@ -1391,17 +1522,19 @@ export function BulkCreateStudents() {
                 message: errorMessage
               });
             }
+
+            return { success: false, error: errorMessage };
           }
         });
 
         // Wait for all promises in the batch to complete
-        await Promise.all(promises);
+        await Promise.all(batchPromises);
       }
 
       // Complete progress
       setUploadProgress(100);
 
-      // Prepare result message
+      // Prepare detailed result
       const successMessage = `Created ${createdCount} students successfully.`;
       const failureMessage = failedCount > 0 ? ` Failed: ${failedCount}.` : '';
 
@@ -1416,15 +1549,20 @@ export function BulkCreateStudents() {
           ? ` User accounts will be created automatically when profiles are completed.`
           : '';
 
-      // Set the upload result
+      // Set the upload result with detailed information
       setUploadResult({
         success: createdCount > 0,
         message: successMessage + failureMessage + userMessage,
         created: createdCount,
         failed: failedCount,
         usersCreated: usersCreatedCount,
-        userCreationResults
+        userCreationResults,
+        failedRows,
+        successfulRows
       });
+
+      // Show upload report
+      setShowUploadReport(true);
 
       // Show a single consolidated success/error toast
       if (createdCount > 0) {
@@ -1438,24 +1576,14 @@ export function BulkCreateStudents() {
       }
 
       if (failedCount > 0) {
-        // Only show detailed errors for a reasonable number of failures
-        if (errorDetails.length <= 3) {
-          toast.error(
-            `Failed to create ${failedCount} students: ${errorDetails.join(
-              '; '
-            )}`
-          );
-        } else {
-          toast.error(
-            `Failed to create ${failedCount} students. See console for details.`
-          );
-          console.error('Student creation errors:', errorDetails);
-        }
+        toast.error(
+          `Failed to create ${failedCount} students. Check the upload report for details.`
+        );
       }
 
-      // Reset and refresh if completely successful
+      // Don't reset state immediately - let user see the report
       if (failedCount === 0) {
-        resetState();
+        // Only refresh if all successful
         router.refresh();
       }
     } catch (error) {
@@ -2096,13 +2224,13 @@ export function BulkCreateStudents() {
                 </Button>
               </DialogClose>
               <DownloadNewStudentTemplateButton />
-              {validRows.length > 0 && validationErrors.length === 0 && (
+              {validRows.length > 0 && !showUploadReport && (
                 <Button
                   onClick={handleUpload}
                   disabled={
                     !file ||
                     validRows.length === 0 ||
-                    validationErrors.length > 0 ||
+                    (uploadMode === 'all' && validationErrors.length > 0) ||
                     isUploading ||
                     isValidating
                   }
@@ -2116,7 +2244,8 @@ export function BulkCreateStudents() {
                   ) : (
                     <>
                       <Upload className='mr-2 h-4 w-4' />
-                      Upload {validRows.length} Valid Student
+                      Upload {uploadMode === 'valid' ? 'Valid' : ''}{' '}
+                      {validRows.length} Student
                       {validRows.length !== 1 ? 's' : ''}
                     </>
                   )}
