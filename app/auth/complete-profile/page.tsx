@@ -110,9 +110,15 @@ export default function CompleteProfile() {
 
           if (insertError) throw insertError;
         } else {
-          // If profile exists and is completed, redirect to home
+          // If profile exists and is completed, redirect based on role
           if (profile.profile_completed) {
-            router.push('/');
+            if (profile.role === 'guest') {
+              router.push('/guest');
+            } else if (profile.role === 'student') {
+              router.push('/learner');
+            } else {
+              router.push('/');
+            }
             return;
           }
 
@@ -164,8 +170,23 @@ export default function CompleteProfile() {
 
       if (updateError) throw updateError;
 
+      // Get updated profile to check role
+      const { data: updatedProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.data.user.id)
+        .single();
+
       toast.success('Profile completed successfully');
-      router.push('/');
+
+      // Redirect based on role
+      if (updatedProfile?.role === 'guest') {
+        router.push('/guest');
+      } else if (updatedProfile?.role === 'student') {
+        router.push('/learner');
+      } else {
+        router.push('/');
+      }
     } catch (error) {
       console.error('Error updating profile:', error);
       toast.error(

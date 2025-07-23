@@ -1,6 +1,11 @@
 import { SYSTEM_ROLES } from '@/types/auth';
 
-export const PROTECTED_ROUTES = {
+interface RouteConfig {
+  paths: string[];
+  roles: string[];
+}
+
+export const PROTECTED_ROUTES: Record<string, RouteConfig> = {
   ADMIN_ONLY: {
     paths: ['/system'],
     roles: [SYSTEM_ROLES.ADMINISTRATOR, SYSTEM_ROLES.SUPER_ADMIN]
@@ -18,6 +23,10 @@ export const PROTECTED_ROUTES = {
   SUPER_ADMIN_ONLY: {
     paths: ['/users/roles', '/users/role-management'],
     roles: [SYSTEM_ROLES.SUPER_ADMIN]
+  },
+  GUEST_ONLY: {
+    paths: ['/guest'],
+    roles: [SYSTEM_ROLES.GUEST]
   }
   //   STAFF_ONLY: {
   //     paths: ['/reports', '/analytics'],
@@ -27,7 +36,7 @@ export const PROTECTED_ROUTES = {
   //     paths: ['/academic', '/courses'],
   //     roles: [SYSTEM_ROLES.ADMINISTRATOR, SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.FACULTY]
   //   }
-} as const;
+};
 
 // Example
 // export const PROTECTED_ROUTES = {

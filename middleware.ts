@@ -194,15 +194,25 @@ export async function middleware(request: NextRequest) {
     if (
       !profile.profile_completed &&
       !currentPath.includes('/auth/complete-profile') &&
-      !currentPath.startsWith('/students/onboarding') // Allow access to onboarding
+      !currentPath.startsWith('/students/onboarding') && // Allow access to onboarding
+      !currentPath.startsWith('/guest') // Allow access to guest page
     ) {
       return NextResponse.redirect(
         new URL('/auth/complete-profile', request.url)
       );
     }
 
-    // Role-based routing: Redirect students to learner layout
-    if (profile.role === 'student') {
+    // Role-based routing
+    // Handle guest users first
+    if (profile.role === 'guest') {
+      // Guest users can only access the guest page
+      if (
+        !currentPath.startsWith('/guest') &&
+        !currentPath.startsWith('/auth')
+      ) {
+        return NextResponse.redirect(new URL('/guest', request.url));
+      }
+    } else if (profile.role === 'student') {
       // If student is trying to access admin routes, redirect to learner dashboard
       if (
         currentPath.startsWith('/users') ||
@@ -223,8 +233,12 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/learner', request.url));
       }
     } else {
-      // Non-student users trying to access learner routes should be redirected to admin dashboard
+      // Non-student, non-guest users (admin roles) trying to access learner routes should be redirected to admin dashboard
       if (currentPath.startsWith('/learner')) {
+        return NextResponse.redirect(new URL('/', request.url));
+      }
+      // Admin users trying to access guest page should be redirected to dashboard
+      if (currentPath.startsWith('/guest')) {
         return NextResponse.redirect(new URL('/', request.url));
       }
     }
@@ -266,6 +280,7 @@ export const config = {
     '/users/:path*',
     '/learner/:path*',
     '/students/:path*',
+    '/guest/:path*',
     // Match all paths except public ones
     '/((?!_next/static|_next/image|favicon.ico|api|auth/login|auth/callback|auth/complete-profile).*)'
   ]

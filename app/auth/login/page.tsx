@@ -52,8 +52,26 @@ export default function LoginPage() {
         if (!isMounted) return;
 
         if (!error && data.user) {
-          // User is authenticated, redirect to home or redirectedFrom
-          const destination = redirectedFrom || '/';
+          // User is authenticated, check their role
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', data.user.id)
+            .single();
+
+          // Determine destination based on role
+          let destination = '/';
+          if (profile?.role === 'guest') {
+            destination = '/guest';
+          } else if (profile?.role === 'student') {
+            destination = '/learner';
+          }
+
+          // Override with redirectedFrom if provided (except for guest users)
+          if (redirectedFrom && profile?.role !== 'guest') {
+            destination = redirectedFrom;
+          }
+
           router.push(destination);
         } else {
           // User is not authenticated, just update state

@@ -39,25 +39,26 @@ export function GoogleOneTap() {
         throw new Error('Could not retrieve user after sign-in.');
       }
 
-      // Check if profile is complete
-      const { data: profile, error: profileError } = await supabase
+      // Check if profile is completed
+      const { data: profile } = await supabase
         .from('profiles')
-        .select('profile_completed')
+        .select('profile_completed, role')
         .eq('id', user.id)
         .single();
 
-      if (profileError && profileError.code !== 'PGRST116') {
-        throw new Error(`Profile check failed: ${profileError.message}`);
-      }
-
       toast.dismiss();
 
-      if (profile?.profile_completed) {
-        toast.success('Signed in successfully!');
-        router.push('/');
-      } else {
-        toast('Please complete your profile.');
+      if (!profile?.profile_completed) {
         router.push('/auth/complete-profile');
+      } else {
+        // Redirect based on role
+        if (profile.role === 'guest') {
+          router.push('/guest');
+        } else if (profile.role === 'student') {
+          router.push('/learner');
+        } else {
+          router.push('/');
+        }
       }
     } catch (error) {
       toast.dismiss();
