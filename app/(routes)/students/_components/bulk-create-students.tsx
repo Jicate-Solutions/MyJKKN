@@ -1236,7 +1236,9 @@ export function BulkCreateStudents() {
             }
 
             if (valid.length > 0) {
-              errorMessage += `. ${valid.length} valid rows can still be uploaded.`;
+              // Automatically switch to 'valid' mode when there are validation errors
+              setUploadMode('valid');
+              errorMessage += `. Switched to "Valid Only" mode - ${valid.length} rows ready for upload.`;
               toast(errorMessage, { icon: '⚠️' });
             } else {
               errorMessage += '. Please fix them before uploading.';
@@ -1310,7 +1312,7 @@ export function BulkCreateStudents() {
     // Check upload mode
     if (uploadMode === 'all' && validationErrors.length > 0) {
       toast.error(
-        'Cannot upload all rows when validation errors exist. Please switch to "Upload Valid Only" mode or fix the errors.'
+        'Cannot upload all rows when validation errors exist. Please fix the errors first or use the "Valid Only" option.'
       );
       return;
     }
@@ -2203,13 +2205,54 @@ export function BulkCreateStudents() {
                     {validationErrors.length}
                   </span>
                 </span>
-                {validationErrors.length > 0 && (
+                {validationErrors.length > 0 && validRows.length > 0 && (
+                  <span className='block sm:inline sm:ml-4 text-blue-600'>
+                    Use &quot;Valid Only&quot; to upload {validRows.length}{' '}
+                    valid records
+                  </span>
+                )}
+                {validationErrors.length > 0 && validRows.length === 0 && (
                   <span className='block sm:inline sm:ml-4 text-amber-600'>
                     Fix validation errors before uploading
                   </span>
                 )}
               </div>
             )}
+
+            {/* Upload Mode Toggle - Show when there are validation errors */}
+            {validRows.length > 0 &&
+              validationErrors.length > 0 &&
+              !showUploadReport && (
+                <div className='flex flex-col gap-2 w-full sm:w-auto'>
+                  <div className='text-xs text-muted-foreground'>
+                    Upload Options:
+                  </div>
+                  <div className='flex gap-1'>
+                    <Button
+                      variant={uploadMode === 'valid' ? 'default' : 'outline'}
+                      size='sm'
+                      onClick={() => setUploadMode('valid')}
+                      disabled={isUploading || isValidating}
+                      className='text-xs px-3 py-1'
+                    >
+                      Valid Only ({validRows.length})
+                    </Button>
+                    <Button
+                      variant={uploadMode === 'all' ? 'default' : 'outline'}
+                      size='sm'
+                      onClick={() => setUploadMode('all')}
+                      disabled={
+                        isUploading ||
+                        isValidating ||
+                        validationErrors.length > 0
+                      }
+                      className='text-xs px-3 py-1'
+                    >
+                      All Rows ({validRows.length + validationErrors.length})
+                    </Button>
+                  </div>
+                </div>
+              )}
 
             {/* Action Buttons */}
             <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
@@ -2245,8 +2288,15 @@ export function BulkCreateStudents() {
                     <>
                       <Upload className='mr-2 h-4 w-4' />
                       Upload {uploadMode === 'valid' ? 'Valid' : ''}{' '}
-                      {validRows.length} Student
-                      {validRows.length !== 1 ? 's' : ''}
+                      {uploadMode === 'valid'
+                        ? validRows.length
+                        : validRows.length + validationErrors.length}{' '}
+                      Student
+                      {(uploadMode === 'valid'
+                        ? validRows.length
+                        : validRows.length + validationErrors.length) !== 1
+                        ? 's'
+                        : ''}
                     </>
                   )}
                 </Button>
