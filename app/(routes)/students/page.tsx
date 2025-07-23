@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { format } from 'date-fns';
@@ -302,24 +302,32 @@ export default function StudentsPage() {
 
   // No longer need a useEffect to check permissions, as the hook handles it.
 
-  const handleFilterChange = (newFilters: Partial<StudentFilters>) => {
-    setFilters((prev) => ({
-      ...prev,
-      ...newFilters,
-      page: 1
-    }));
-  };
+  const handleFilterChange = useCallback(
+    (newFilters: Partial<StudentFilters>) => {
+      setFilters((prev) => ({
+        ...prev,
+        ...newFilters,
+        page: 1
+      }));
+    },
+    []
+  );
 
-  const handlePageChange = (page: number) => {
+  const handlePageChange = useCallback((page: number) => {
     setFilters((prev) => ({ ...prev, page }));
-  };
+  }, []);
 
-  const handlePageSizeChange = (pageSize: number) => {
+  const handlePageSizeChange = useCallback((pageSize: number) => {
     setFilters((prev) => ({ ...prev, limit: pageSize, page: 1 }));
-  };
+  }, []);
+
+  // Handle search without resetting page
+  const handleSearch = useCallback((query: string) => {
+    setFilters((prev) => ({ ...prev, search: query }));
+  }, []);
 
   // Handle refreshing the student list
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
       await refetch();
@@ -330,41 +338,44 @@ export default function StudentsPage() {
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [refetch]);
 
   // Handle bulk delete operation
-  const handleBulkDelete = async (students: Student[]) => {
-    if (students.length === 0) return;
+  const handleBulkDelete = useCallback(
+    async (students: Student[]) => {
+      if (students.length === 0) return;
 
-    try {
-      // Delete students one by one (could be optimized with bulk API)
-      const promises = students.map((student) =>
-        StudentService.deleteStudent(student.id)
-      );
+      try {
+        // Delete students one by one (could be optimized with bulk API)
+        const promises = students.map((student) =>
+          StudentService.deleteStudent(student.id)
+        );
 
-      await Promise.all(promises);
+        await Promise.all(promises);
 
-      // Refresh the data
-      await refetch();
+        // Refresh the data
+        await refetch();
 
-      toast.success(`Successfully deleted ${students.length} student(s)`);
-    } catch (error) {
-      console.error('Error deleting students:', error);
-      toast.error('Failed to delete students');
-      throw error; // Re-throw to let DataTable handle the error state
-    }
-  };
+        toast.success(`Successfully deleted ${students.length} student(s)`);
+      } catch (error) {
+        console.error('Error deleting students:', error);
+        toast.error('Failed to delete students');
+        throw error; // Re-throw to let DataTable handle the error state
+      }
+    },
+    [refetch]
+  );
 
   // Handle bulk status update operation
-  const handleBulkStatusUpdate = async (students: Student[]) => {
+  const handleBulkStatusUpdate = useCallback(async (students: Student[]) => {
     if (students.length === 0) return;
 
     setSelectedStudentsForStatus(students);
     setShowStatusDialog(true);
-  };
+  }, []);
 
   // Handle status update confirmation
-  const handleStatusUpdateConfirm = async () => {
+  const handleStatusUpdateConfirm = useCallback(async () => {
     if (!selectedStatus || selectedStudentsForStatus.length === 0) {
       toast.error('Please select a status');
       return;
@@ -401,26 +412,26 @@ export default function StudentsPage() {
     } finally {
       setIsUpdatingStatus(false);
     }
-  };
+  }, [selectedStatus, selectedStudentsForStatus, refetch]);
 
   // Handle canceling status update
-  const handleStatusUpdateCancel = () => {
+  const handleStatusUpdateCancel = useCallback(() => {
     setShowStatusDialog(false);
     setSelectedStudentsForStatus([]);
     setSelectedStatus('');
-  };
+  }, []);
 
   // Determine which bulk action to use based on mode
-  const getBulkActionFunction = () => {
+  const getBulkActionFunction = useCallback(() => {
     if (bulkActionMode === 'delete') {
       return handleBulkDelete;
     } else {
       return handleBulkStatusUpdate;
     }
-  };
+  }, [bulkActionMode, handleBulkDelete, handleBulkStatusUpdate]);
 
   // Get bulk action configuration
-  const getBulkActionConfig = () => {
+  const getBulkActionConfig = useCallback(() => {
     return {
       delete: {
         label: 'Delete Students',
@@ -447,10 +458,10 @@ export default function StudentsPage() {
         loadingText: 'Updating...'
       }
     };
-  };
+  }, [handleBulkDelete]);
 
   // Reset all filters except is_profile_complete
-  const handleResetFilters = () => {
+  const handleResetFilters = useCallback(() => {
     setFilters({
       page: 1,
       limit: filters.limit || 10,
@@ -461,51 +472,54 @@ export default function StudentsPage() {
     });
     // Reset local state for date range
     setDateRange({ from: undefined, to: undefined });
-  };
+  }, [filters.limit]);
 
   // Remove a specific filter
-  const handleRemoveFilter = (key: keyof StudentFilters) => {
-    const newFilters = { ...filters };
-    delete newFilters[key];
+  const handleRemoveFilter = useCallback(
+    (key: keyof StudentFilters) => {
+      const newFilters = { ...filters };
+      delete newFilters[key];
 
-    // Handle hierarchical dependencies
-    if (key === 'institution') {
-      delete newFilters.degree;
-      delete newFilters.department;
-      delete newFilters.program;
-      delete newFilters.semester;
-      delete newFilters.section;
-      delete newFilters.academic_year;
-    } else if (key === 'degree') {
-      delete newFilters.department;
-      delete newFilters.program;
-      delete newFilters.semester;
-      delete newFilters.section;
-    } else if (key === 'department') {
-      delete newFilters.program;
-      delete newFilters.semester;
-      delete newFilters.section;
-    } else if (key === 'program') {
-      delete newFilters.semester;
-      delete newFilters.section;
-    } else if (key === 'semester') {
-      delete newFilters.section;
-    } else if (key === 'created_from' || key === 'created_to') {
-      if (key === 'created_from') {
-        setDateRange((prev) => ({ ...prev, from: undefined }));
-      } else {
-        setDateRange((prev) => ({ ...prev, to: undefined }));
+      // Handle hierarchical dependencies
+      if (key === 'institution') {
+        delete newFilters.degree;
+        delete newFilters.department;
+        delete newFilters.program;
+        delete newFilters.semester;
+        delete newFilters.section;
+        delete newFilters.academic_year;
+      } else if (key === 'degree') {
+        delete newFilters.department;
+        delete newFilters.program;
+        delete newFilters.semester;
+        delete newFilters.section;
+      } else if (key === 'department') {
+        delete newFilters.program;
+        delete newFilters.semester;
+        delete newFilters.section;
+      } else if (key === 'program') {
+        delete newFilters.semester;
+        delete newFilters.section;
+      } else if (key === 'semester') {
+        delete newFilters.section;
+      } else if (key === 'created_from' || key === 'created_to') {
+        if (key === 'created_from') {
+          setDateRange((prev) => ({ ...prev, from: undefined }));
+        } else {
+          setDateRange((prev) => ({ ...prev, to: undefined }));
+        }
       }
-    }
 
-    setFilters({
-      ...newFilters,
-      page: 1
-    });
-  };
+      setFilters({
+        ...newFilters,
+        page: 1
+      });
+    },
+    [filters]
+  );
 
   // Render active filter chips
-  const renderFilterChips = () => {
+  const renderFilterChips = useCallback(() => {
     const activeFilters = [];
 
     if (filters.search) {
@@ -721,97 +735,113 @@ export default function StudentsPage() {
         </div>
       </div>
     ) : null;
-  };
+  }, [
+    filters,
+    institutions,
+    degrees,
+    departments,
+    programs,
+    semesters,
+    sections,
+    academicYears,
+    handleRemoveFilter,
+    handleResetFilters
+  ]);
 
   // Define columns for the DataTable
-  const columns: PermissionColumnDef<Student, any>[] = [
-    {
-      id: 'serial',
-      header: 'S.No',
-      cell: ({ row, table }) => {
-        const currentPage =
-          Math.floor(row.index / (studentsData?.metadata.limit || 10)) + 1;
-        const pageSize = studentsData?.metadata.limit || 10;
-        return (currentPage - 1) * pageSize + (row.index % pageSize) + 1;
+  const columns: PermissionColumnDef<Student, any>[] = useMemo(
+    () => [
+      {
+        id: 'serial',
+        header: 'S.No',
+        cell: ({ row, table }) => {
+          const currentPage =
+            Math.floor(row.index / (studentsData?.metadata.limit || 10)) + 1;
+          const pageSize = studentsData?.metadata.limit || 10;
+          return (currentPage - 1) * pageSize + (row.index % pageSize) + 1;
+        },
+        enableSorting: false
       },
-      enableSorting: false
-    },
-    {
-      id: 'student_name',
-      header: 'Student Name',
-      cell: ({ row }) => (
-        <Link
-          href={`/students/${row.original.id}`}
-          className='font-medium hover:underline hover:text-primary'
-        >
-          {`${row.original.first_name} ${row.original.last_name || ''}`.trim()}
-        </Link>
-      ),
-      enableSorting: true
-    },
-    {
-      id: 'roll_number',
-      header: 'Roll Number',
-      cell: ({ row }) =>
-        row.original.roll_number || (
-          <span className='text-muted-foreground italic'>Not assigned</span>
+      {
+        id: 'student_name',
+        header: 'Student Name',
+        cell: ({ row }) => (
+          <Link
+            href={`/students/${row.original.id}`}
+            className='font-medium hover:underline hover:text-primary'
+          >
+            {`${row.original.first_name} ${
+              row.original.last_name || ''
+            }`.trim()}
+          </Link>
         ),
-      enableSorting: true
-    },
-    {
-      id: 'program',
-      header: 'Program',
-      cell: ({ row }) => row.original.program?.program_name || 'N/A',
-      enableSorting: false
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      cell: ({ row }) => (
-        <Badge
-          variant='default'
-          className={cn(
-            row.original.status === 'active' && 'bg-green-100 text-green-800',
-            row.original.status === 'inactive' && 'bg-gray-100 text-gray-800',
-            row.original.status === 'pending' &&
-              'bg-yellow-100 text-yellow-800',
-            row.original.status === 'exited' && 'bg-red-100 text-red-800',
-            row.original.status === 'graduated' && 'bg-blue-100 text-blue-800'
-          )}
-        >
-          {row.original.status.charAt(0).toUpperCase() +
-            row.original.status.slice(1)}
-        </Badge>
-      ),
-      enableSorting: true
-    },
-    {
-      id: 'actions',
-      header: 'Actions',
-      cell: ({ row }) => (
-        <div className='flex items-center gap-2'>
-          <Button size='icon' variant='ghost' asChild>
-            <Link href={`/students/${row.original.id}`}>
-              <EyeIcon className='h-4 w-4' />
-              <span className='sr-only'>View student</span>
-            </Link>
-          </Button>
-          <Button size='icon' variant='ghost' asChild>
-            <Link href={`/students/${row.original.id}/edit`}>
-              <FileEdit className='h-4 w-4' />
-              <span className='sr-only'>Edit student</span>
-            </Link>
-          </Button>
-        </div>
-      ),
-      enableSorting: false,
-      enableHiding: false,
-      requiredPermission: {
-        module: 'students',
-        action: 'view'
+        enableSorting: true
+      },
+      {
+        id: 'roll_number',
+        header: 'Roll Number',
+        cell: ({ row }) =>
+          row.original.roll_number || (
+            <span className='text-muted-foreground italic'>Not assigned</span>
+          ),
+        enableSorting: true
+      },
+      {
+        id: 'program',
+        header: 'Program',
+        cell: ({ row }) => row.original.program?.program_name || 'N/A',
+        enableSorting: false
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        cell: ({ row }) => (
+          <Badge
+            variant='default'
+            className={cn(
+              row.original.status === 'active' && 'bg-green-100 text-green-800',
+              row.original.status === 'inactive' && 'bg-gray-100 text-gray-800',
+              row.original.status === 'pending' &&
+                'bg-yellow-100 text-yellow-800',
+              row.original.status === 'exited' && 'bg-red-100 text-red-800',
+              row.original.status === 'graduated' && 'bg-blue-100 text-blue-800'
+            )}
+          >
+            {row.original.status.charAt(0).toUpperCase() +
+              row.original.status.slice(1)}
+          </Badge>
+        ),
+        enableSorting: true
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div className='flex items-center gap-2'>
+            <Button size='icon' variant='ghost' asChild>
+              <Link href={`/students/${row.original.id}`}>
+                <EyeIcon className='h-4 w-4' />
+                <span className='sr-only'>View student</span>
+              </Link>
+            </Button>
+            <Button size='icon' variant='ghost' asChild>
+              <Link href={`/students/${row.original.id}/edit`}>
+                <FileEdit className='h-4 w-4' />
+                <span className='sr-only'>Edit student</span>
+              </Link>
+            </Button>
+          </div>
+        ),
+        enableSorting: false,
+        enableHiding: false,
+        requiredPermission: {
+          module: 'students',
+          action: 'view'
+        }
       }
-    }
-  ];
+    ],
+    [studentsData?.metadata.limit]
+  );
 
   const metadata = studentsData?.metadata || {
     page: 1,
@@ -1383,7 +1413,7 @@ export default function StudentsPage() {
               columns={columns}
               data={studentsData?.data || []}
               searchPlaceholder='Search by name, roll number, or email...'
-              onSearch={(query) => handleFilterChange({ search: query })}
+              onSearch={handleSearch}
               permissions={{
                 module: 'students',
                 actions: {
