@@ -785,251 +785,933 @@ export class StudentService {
     }
   }
 
-  // Add the missing getDashboardStats method
+  // Real-time dashboard statistics from database
   static async getDashboardStats(filters?: any) {
     try {
-      // For now, return mock data for the dashboard
-      // This can be replaced with actual database queries later
-
-      const totalStudents = 1250;
-      const activeStudents = 980;
-      const inactiveStudents = 120;
-      const pendingStudents = 75;
-      const exitedStudents = 45;
-      const graduatedStudents = 30;
-      const completeProfiles = 850;
-      const incompleteProfiles = totalStudents - completeProfiles;
+      // Execute parallel queries for better performance
+      const [
+        overviewStats,
+        registrationTrends,
+        institutionStats,
+        departmentStats,
+        programStats,
+        semesterStats,
+        sectionStats,
+        demographicStats,
+        geographicStats,
+        onboardingStats
+      ] = await Promise.all([
+        this.getOverviewStats(filters),
+        this.getRegistrationTrends(filters),
+        this.getInstitutionStats(filters),
+        this.getDepartmentStats(filters),
+        this.getProgramStats(filters),
+        this.getSemesterStats(filters),
+        this.getSectionStats(filters),
+        this.getDemographicStats(filters),
+        this.getGeographicStats(filters),
+        this.getOnboardingStats(filters)
+      ]);
 
       return {
-        overview: {
-          totalStudents,
-          activeStudents,
-          inactiveStudents,
-          pendingStudents,
-          exitedStudents,
-          graduatedStudents,
-          profileCompletionRate: Math.round(
-            (completeProfiles / totalStudents) * 100
-          ),
-          completeProfiles,
-          incompleteProfiles
-        },
-        registrationTrends: Array.from({ length: 30 }, (_, i) => {
-          const date = new Date();
-          date.setDate(date.getDate() - (29 - i));
-          return {
-            date: date.toISOString().split('T')[0],
-            count: Math.floor(Math.random() * 20) + 1,
-            cumulative: 0 // Will be calculated below
-          };
-        }).map((item, i, arr) => {
-          // Calculate cumulative values
-          item.cumulative = arr
-            .slice(0, i + 1)
-            .reduce((sum, curr) => sum + curr.count, 0);
-          return item;
-        }),
-        institutionStats: Array.from({ length: 5 }, (_, i) => ({
-          id: `inst-${i + 1}`,
-          name: `Institution ${i + 1}`,
-          studentCount: Math.floor(Math.random() * 300) + 100,
-          percentage: 0, // Will be calculated below
-          activeCount: 0,
-          inactiveCount: 0
-        })).map((item) => {
-          item.percentage = Math.round(
-            (item.studentCount / totalStudents) * 100
-          );
-          item.activeCount = Math.floor(item.studentCount * 0.8);
-          item.inactiveCount = item.studentCount - item.activeCount;
-          return item;
-        }),
-        departmentStats: Array.from({ length: 8 }, (_, i) => ({
-          id: `dept-${i + 1}`,
-          name: `Department ${i + 1}`,
-          studentCount: Math.floor(Math.random() * 150) + 50,
-          percentage: 0,
-          institutionName: `Institution ${Math.floor(Math.random() * 3) + 1}`
-        })).map((item) => {
-          item.percentage = Math.round(
-            (item.studentCount / totalStudents) * 100
-          );
-          return item;
-        }),
-        programStats: Array.from({ length: 10 }, (_, i) => ({
-          id: `prog-${i + 1}`,
-          name: `Program ${i + 1}`,
-          studentCount: Math.floor(Math.random() * 100) + 30,
-          percentage: 0,
-          departmentName: `Department ${Math.floor(Math.random() * 5) + 1}`
-        })).map((item) => {
-          item.percentage = Math.round(
-            (item.studentCount / totalStudents) * 100
-          );
-          return item;
-        }),
-        semesterStats: Array.from({ length: 6 }, (_, i) => ({
-          id: `sem-${i + 1}`,
-          name: `Semester ${i + 1}`,
-          studentCount: Math.floor(Math.random() * 200) + 50,
-          percentage: 0
-        })).map((item) => {
-          item.percentage = Math.round(
-            (item.studentCount / totalStudents) * 100
-          );
-          return item;
-        }),
-        sectionStats: Array.from({ length: 12 }, (_, i) => ({
-          id: `sec-${i + 1}`,
-          name: `Section ${String.fromCharCode(65 + (i % 4))}`,
-          studentCount: Math.floor(Math.random() * 40) + 20,
-          percentage: 0,
-          semesterName: `Semester ${Math.floor(i / 4) + 1}`
-        })).map((item) => {
-          item.percentage = Math.round(
-            (item.studentCount / totalStudents) * 100
-          );
-          return item;
-        }),
-        demographicStats: {
-          gender: [
-            { gender: 'Male', count: 680, percentage: 54.4 },
-            { gender: 'Female', count: 570, percentage: 45.6 }
-          ],
-          entryType: [
-            { type: 'Regular', count: 950, percentage: 76 },
-            { type: 'Lateral Entry', count: 300, percentage: 24 }
-          ],
-          accommodationType: [
-            { type: 'Day Scholar', count: 750, percentage: 60 },
-            { type: 'Hostel', count: 500, percentage: 40 }
-          ],
-          religion: [
-            { religion: 'Hindu', count: 800, percentage: 64 },
-            { religion: 'Christian', count: 250, percentage: 20 },
-            { religion: 'Muslim', count: 150, percentage: 12 },
-            { religion: 'Others', count: 50, percentage: 4 }
-          ],
-          community: [
-            { community: 'OC', count: 350, percentage: 28 },
-            { community: 'BC', count: 450, percentage: 36 },
-            { community: 'MBC', count: 300, percentage: 24 },
-            { community: 'SC/ST', count: 150, percentage: 12 }
-          ],
-          ageGroups: [
-            { ageGroup: '17-18', count: 300, percentage: 24 },
-            { ageGroup: '19-20', count: 450, percentage: 36 },
-            { ageGroup: '21-22', count: 350, percentage: 28 },
-            { ageGroup: '23+', count: 150, percentage: 12 }
-          ]
-        },
-        geographicStats: [
-          {
-            state: 'Tamil Nadu',
-            district: 'Chennai',
-            count: 300,
-            percentage: 24
-          },
-          {
-            state: 'Tamil Nadu',
-            district: 'Coimbatore',
-            count: 200,
-            percentage: 16
-          },
-          {
-            state: 'Tamil Nadu',
-            district: 'Madurai',
-            count: 150,
-            percentage: 12
-          },
-          {
-            state: 'Tamil Nadu',
-            district: 'Trichy',
-            count: 100,
-            percentage: 8
-          },
-          { state: 'Tamil Nadu', district: 'Salem', count: 100, percentage: 8 },
-          {
-            state: 'Kerala',
-            district: 'Thiruvananthapuram',
-            count: 80,
-            percentage: 6.4
-          },
-          {
-            state: 'Kerala',
-            district: 'Ernakulam',
-            count: 70,
-            percentage: 5.6
-          },
-          {
-            state: 'Karnataka',
-            district: 'Bengaluru',
-            count: 120,
-            percentage: 9.6
-          },
-          {
-            state: 'Andhra Pradesh',
-            district: 'Visakhapatnam',
-            count: 80,
-            percentage: 6.4
-          },
-          { state: 'Others', district: 'Unknown', count: 50, percentage: 4 }
-        ],
-        onboardingStats: {
-          profileCompletionFunnel: [
-            {
-              step: 'Registration',
-              completed: 1250,
-              total: 1250,
-              percentage: 100
-            },
-            {
-              step: 'Basic Info',
-              completed: 1150,
-              total: 1250,
-              percentage: 92
-            },
-            {
-              step: 'Contact Details',
-              completed: 1050,
-              total: 1250,
-              percentage: 84
-            },
-            {
-              step: 'Academic Details',
-              completed: 950,
-              total: 1250,
-              percentage: 76
-            },
-            {
-              step: 'Profile Photo',
-              completed: 850,
-              total: 1250,
-              percentage: 68
-            }
-          ],
-          missingFields: [
-            { field: 'Profile Photo', missingCount: 400, percentage: 32 },
-            { field: 'Roll Number', missingCount: 300, percentage: 24 },
-            { field: 'College Email', missingCount: 200, percentage: 16 },
-            { field: 'Academic Year', missingCount: 150, percentage: 12 },
-            { field: 'Section', missingCount: 100, percentage: 8 }
-          ],
-          timeToComplete: {
-            average: 3.5,
-            median: 2.0,
-            distribution: [
-              { range: 'Same Day', count: 500, percentage: 40 },
-              { range: '1-3 Days', count: 350, percentage: 28 },
-              { range: '4-7 Days', count: 250, percentage: 20 },
-              { range: '8+ Days', count: 150, percentage: 12 }
-            ]
-          }
-        }
+        overview: overviewStats,
+        registrationTrends,
+        institutionStats,
+        departmentStats,
+        programStats,
+        semesterStats,
+        sectionStats,
+        demographicStats,
+        geographicStats,
+        onboardingStats
       };
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
       throw error;
+    }
+  }
+
+  // Get overview statistics
+  private static async getOverviewStats(filters?: any) {
+    try {
+      // Build base query
+      let query = this.supabase
+        .from('students')
+        .select('status, is_profile_complete');
+
+      // Apply filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      const totalStudents = students?.length || 0;
+      const activeStudents =
+        students?.filter((s) => s.status === 'active').length || 0;
+      const inactiveStudents =
+        students?.filter((s) => s.status === 'inactive').length || 0;
+      const pendingStudents =
+        students?.filter((s) => s.status === 'pending').length || 0;
+      const exitedStudents =
+        students?.filter((s) => s.status === 'exited').length || 0;
+      const graduatedStudents =
+        students?.filter((s) => s.status === 'graduated').length || 0;
+      const completeProfiles =
+        students?.filter((s) => s.is_profile_complete === true).length || 0;
+      const incompleteProfiles = totalStudents - completeProfiles;
+
+      return {
+        totalStudents,
+        activeStudents,
+        inactiveStudents,
+        pendingStudents,
+        exitedStudents,
+        graduatedStudents,
+        profileCompletionRate:
+          totalStudents > 0
+            ? Math.round((completeProfiles / totalStudents) * 100)
+            : 0,
+        completeProfiles,
+        incompleteProfiles
+      };
+    } catch (error) {
+      console.error('Error fetching overview stats:', error);
+      throw error;
+    }
+  }
+
+  // Get registration trends (last 30 days)
+  private static async getRegistrationTrends(filters?: any) {
+    try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      let query = this.supabase
+        .from('students')
+        .select('created_at')
+        .gte('created_at', thirtyDaysAgo.toISOString());
+
+      // Apply filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      // Group by date
+      const dateGroups: { [key: string]: number } = {};
+      students?.forEach((student) => {
+        const date = new Date(student.created_at).toISOString().split('T')[0];
+        dateGroups[date] = (dateGroups[date] || 0) + 1;
+      });
+
+      // Generate trends for last 30 days
+      const trends = Array.from({ length: 30 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (29 - i));
+        const dateStr = date.toISOString().split('T')[0];
+        return {
+          date: dateStr,
+          count: dateGroups[dateStr] || 0,
+          cumulative: 0
+        };
+      });
+
+      // Calculate cumulative values
+      trends.forEach((item, i) => {
+        item.cumulative = trends
+          .slice(0, i + 1)
+          .reduce((sum, curr) => sum + curr.count, 0);
+      });
+
+      return trends;
+    } catch (error) {
+      console.error('Error fetching registration trends:', error);
+      return [];
+    }
+  }
+
+  // Get institution statistics
+  private static async getInstitutionStats(filters?: any) {
+    try {
+      let query = this.supabase.from('students').select(`
+          institution_id,
+          status,
+          institutions!inner(id, name)
+        `);
+
+      // Apply filters (excluding institution filter for this specific query)
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      const totalStudents = students?.length || 0;
+
+      // Group by institution
+      const institutionGroups: { [key: string]: any } = {};
+      students?.forEach((student) => {
+        const inst = Array.isArray(student.institutions)
+          ? student.institutions[0]
+          : student.institutions;
+        if (inst) {
+          if (!institutionGroups[inst.id]) {
+            institutionGroups[inst.id] = {
+              id: inst.id,
+              name: inst.name,
+              studentCount: 0,
+              activeCount: 0,
+              inactiveCount: 0
+            };
+          }
+          institutionGroups[inst.id].studentCount++;
+          if (student.status === 'active') {
+            institutionGroups[inst.id].activeCount++;
+          } else {
+            institutionGroups[inst.id].inactiveCount++;
+          }
+        }
+      });
+
+      return Object.values(institutionGroups).map((inst: any) => ({
+        ...inst,
+        percentage:
+          totalStudents > 0
+            ? Math.round((inst.studentCount / totalStudents) * 100)
+            : 0
+      }));
+    } catch (error) {
+      console.error('Error fetching institution stats:', error);
+      return [];
+    }
+  }
+
+  // Get department statistics
+  private static async getDepartmentStats(filters?: any) {
+    try {
+      let query = this.supabase.from('students').select(`
+          department_id,
+          departments!inner(id, department_name),
+          institutions!inner(name)
+        `);
+
+      // Apply filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      const totalStudents = students?.length || 0;
+
+      // Group by department
+      const departmentGroups: { [key: string]: any } = {};
+      students?.forEach((student) => {
+        const dept = Array.isArray(student.departments)
+          ? student.departments[0]
+          : student.departments;
+        const inst = Array.isArray(student.institutions)
+          ? student.institutions[0]
+          : student.institutions;
+        if (dept) {
+          if (!departmentGroups[dept.id]) {
+            departmentGroups[dept.id] = {
+              id: dept.id,
+              name: dept.department_name,
+              studentCount: 0,
+              institutionName: inst?.name || 'Unknown'
+            };
+          }
+          departmentGroups[dept.id].studentCount++;
+        }
+      });
+
+      return Object.values(departmentGroups).map((dept: any) => ({
+        ...dept,
+        percentage:
+          totalStudents > 0
+            ? Math.round((dept.studentCount / totalStudents) * 100)
+            : 0
+      }));
+    } catch (error) {
+      console.error('Error fetching department stats:', error);
+      return [];
+    }
+  }
+
+  // Get program statistics
+  private static async getProgramStats(filters?: any) {
+    try {
+      let query = this.supabase.from('students').select(`
+          program_id,
+          programs!inner(id, program_name),
+          departments!inner(department_name)
+        `);
+
+      // Apply filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      const totalStudents = students?.length || 0;
+
+      // Group by program
+      const programGroups: { [key: string]: any } = {};
+      students?.forEach((student) => {
+        const prog = Array.isArray(student.programs)
+          ? student.programs[0]
+          : student.programs;
+        const dept = Array.isArray(student.departments)
+          ? student.departments[0]
+          : student.departments;
+        if (prog) {
+          if (!programGroups[prog.id]) {
+            programGroups[prog.id] = {
+              id: prog.id,
+              name: prog.program_name,
+              studentCount: 0,
+              departmentName: dept?.department_name || 'Unknown'
+            };
+          }
+          programGroups[prog.id].studentCount++;
+        }
+      });
+
+      return Object.values(programGroups).map((prog: any) => ({
+        ...prog,
+        percentage:
+          totalStudents > 0
+            ? Math.round((prog.studentCount / totalStudents) * 100)
+            : 0
+      }));
+    } catch (error) {
+      console.error('Error fetching program stats:', error);
+      return [];
+    }
+  }
+
+  // Get semester statistics
+  private static async getSemesterStats(filters?: any) {
+    try {
+      let query = this.supabase.from('students').select(`
+          semester_id,
+          semesters!inner(id, semester_name)
+        `);
+
+      // Apply filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      const totalStudents = students?.length || 0;
+
+      // Group by semester
+      const semesterGroups: { [key: string]: any } = {};
+      students?.forEach((student) => {
+        const sem = Array.isArray(student.semesters)
+          ? student.semesters[0]
+          : student.semesters;
+        if (sem) {
+          if (!semesterGroups[sem.id]) {
+            semesterGroups[sem.id] = {
+              id: sem.id,
+              name: sem.semester_name,
+              studentCount: 0
+            };
+          }
+          semesterGroups[sem.id].studentCount++;
+        }
+      });
+
+      return Object.values(semesterGroups).map((sem: any) => ({
+        ...sem,
+        percentage:
+          totalStudents > 0
+            ? Math.round((sem.studentCount / totalStudents) * 100)
+            : 0
+      }));
+    } catch (error) {
+      console.error('Error fetching semester stats:', error);
+      return [];
+    }
+  }
+
+  // Get section statistics
+  private static async getSectionStats(filters?: any) {
+    try {
+      let query = this.supabase.from('students').select(`
+          section_id,
+          sections!inner(id, section_name),
+          semesters!inner(semester_name)
+        `);
+
+      // Apply filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      const totalStudents = students?.length || 0;
+
+      // Group by section
+      const sectionGroups: { [key: string]: any } = {};
+      students?.forEach((student) => {
+        const sec = Array.isArray(student.sections)
+          ? student.sections[0]
+          : student.sections;
+        const sem = Array.isArray(student.semesters)
+          ? student.semesters[0]
+          : student.semesters;
+        if (sec) {
+          if (!sectionGroups[sec.id]) {
+            sectionGroups[sec.id] = {
+              id: sec.id,
+              name: sec.section_name,
+              studentCount: 0,
+              semesterName: sem?.semester_name || 'Unknown'
+            };
+          }
+          sectionGroups[sec.id].studentCount++;
+        }
+      });
+
+      return Object.values(sectionGroups).map((sec: any) => ({
+        ...sec,
+        percentage:
+          totalStudents > 0
+            ? Math.round((sec.studentCount / totalStudents) * 100)
+            : 0
+      }));
+    } catch (error) {
+      console.error('Error fetching section stats:', error);
+      return [];
+    }
+  }
+
+  // Get demographic statistics
+  private static async getDemographicStats(filters?: any) {
+    try {
+      let query = this.supabase
+        .from('students')
+        .select(
+          'gender, entry_type, accommodation_type, religion, community, date_of_birth'
+        );
+
+      // Apply filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+      if (filters?.status && filters.status.length > 0) {
+        query = query.in('status', filters.status);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      const totalStudents = students?.length || 0;
+
+      // Helper function to calculate percentage
+      const calculatePercentage = (count: number) =>
+        totalStudents > 0 ? Math.round((count / totalStudents) * 100) : 0;
+
+      // Group by gender
+      const genderGroups: { [key: string]: number } = {};
+      students?.forEach((student) => {
+        const gender = student.gender || 'Unknown';
+        genderGroups[gender] = (genderGroups[gender] || 0) + 1;
+      });
+
+      // Group by entry type
+      const entryTypeGroups: { [key: string]: number } = {};
+      students?.forEach((student) => {
+        const entryType = student.entry_type || 'Unknown';
+        entryTypeGroups[entryType] = (entryTypeGroups[entryType] || 0) + 1;
+      });
+
+      // Group by accommodation type
+      const accommodationGroups: { [key: string]: number } = {};
+      students?.forEach((student) => {
+        const accommodation = student.accommodation_type || 'Unknown';
+        accommodationGroups[accommodation] =
+          (accommodationGroups[accommodation] || 0) + 1;
+      });
+
+      // Group by religion
+      const religionGroups: { [key: string]: number } = {};
+      students?.forEach((student) => {
+        const religion = student.religion || 'Unknown';
+        religionGroups[religion] = (religionGroups[religion] || 0) + 1;
+      });
+
+      // Group by community
+      const communityGroups: { [key: string]: number } = {};
+      students?.forEach((student) => {
+        const community = student.community || 'Unknown';
+        communityGroups[community] = (communityGroups[community] || 0) + 1;
+      });
+
+      // Group by age
+      const ageGroups: { [key: string]: number } = {
+        '17-18': 0,
+        '19-20': 0,
+        '21-22': 0,
+        '23+': 0
+      };
+      students?.forEach((student) => {
+        if (student.date_of_birth) {
+          const age =
+            new Date().getFullYear() -
+            new Date(student.date_of_birth).getFullYear();
+          if (age >= 17 && age <= 18) ageGroups['17-18']++;
+          else if (age >= 19 && age <= 20) ageGroups['19-20']++;
+          else if (age >= 21 && age <= 22) ageGroups['21-22']++;
+          else if (age >= 23) ageGroups['23+']++;
+        }
+      });
+
+      return {
+        gender: Object.entries(genderGroups).map(([gender, count]) => ({
+          gender,
+          count,
+          percentage: calculatePercentage(count)
+        })),
+        entryType: Object.entries(entryTypeGroups).map(([type, count]) => ({
+          type,
+          count,
+          percentage: calculatePercentage(count)
+        })),
+        accommodationType: Object.entries(accommodationGroups).map(
+          ([type, count]) => ({
+            type,
+            count,
+            percentage: calculatePercentage(count)
+          })
+        ),
+        religion: Object.entries(religionGroups).map(([religion, count]) => ({
+          religion,
+          count,
+          percentage: calculatePercentage(count)
+        })),
+        community: Object.entries(communityGroups).map(
+          ([community, count]) => ({
+            community,
+            count,
+            percentage: calculatePercentage(count)
+          })
+        ),
+        ageGroups: Object.entries(ageGroups).map(([ageGroup, count]) => ({
+          ageGroup,
+          count,
+          percentage: calculatePercentage(count)
+        }))
+      };
+    } catch (error) {
+      console.error('Error fetching demographic stats:', error);
+      return {
+        gender: [],
+        entryType: [],
+        accommodationType: [],
+        religion: [],
+        community: [],
+        ageGroups: []
+      };
+    }
+  }
+
+  // Get geographic statistics
+  private static async getGeographicStats(filters?: any) {
+    try {
+      let query = this.supabase
+        .from('students')
+        .select('permanent_address_state, permanent_address_district');
+
+      // Apply filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+      if (filters?.status && filters.status.length > 0) {
+        query = query.in('status', filters.status);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      const totalStudents = students?.length || 0;
+
+      // Group by state and district
+      const locationGroups: { [key: string]: number } = {};
+      students?.forEach((student) => {
+        const state = student.permanent_address_state || 'Unknown';
+        const district = student.permanent_address_district || 'Unknown';
+        const key = `${state}|${district}`;
+        locationGroups[key] = (locationGroups[key] || 0) + 1;
+      });
+
+      return Object.entries(locationGroups)
+        .map(([key, count]) => {
+          const [state, district] = key.split('|');
+          return {
+            state,
+            district,
+            count,
+            percentage:
+              totalStudents > 0 ? Math.round((count / totalStudents) * 100) : 0
+          };
+        })
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10); // Top 10 locations
+    } catch (error) {
+      console.error('Error fetching geographic stats:', error);
+      return [];
+    }
+  }
+
+  // Get onboarding statistics
+  private static async getOnboardingStats(filters?: any) {
+    try {
+      let query = this.supabase.from('students').select(`
+          roll_number,
+          college_email,
+          student_photo_url,
+          academic_year_id,
+          semester_id,
+          section_id,
+          is_profile_complete,
+          created_at,
+          updated_at
+        `);
+
+      // Apply filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+      if (filters?.status && filters.status.length > 0) {
+        query = query.in('status', filters.status);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: students, error } = await query;
+      if (error) throw error;
+
+      const totalStudents = students?.length || 0;
+
+      // Calculate completion funnel
+      const registrationStep = totalStudents;
+      const basicInfoStep =
+        students?.filter((s) => s.roll_number && s.college_email).length || 0;
+      const contactDetailsStep =
+        students?.filter((s) => s.roll_number && s.college_email).length || 0;
+      const academicDetailsStep =
+        students?.filter((s) => s.academic_year_id && s.semester_id).length ||
+        0;
+      const profilePhotoStep =
+        students?.filter((s) => s.student_photo_url).length || 0;
+
+      const profileCompletionFunnel = [
+        {
+          step: 'Registration',
+          completed: registrationStep,
+          total: totalStudents,
+          percentage: 100
+        },
+        {
+          step: 'Basic Info',
+          completed: basicInfoStep,
+          total: totalStudents,
+          percentage:
+            totalStudents > 0
+              ? Math.round((basicInfoStep / totalStudents) * 100)
+              : 0
+        },
+        {
+          step: 'Contact Details',
+          completed: contactDetailsStep,
+          total: totalStudents,
+          percentage:
+            totalStudents > 0
+              ? Math.round((contactDetailsStep / totalStudents) * 100)
+              : 0
+        },
+        {
+          step: 'Academic Details',
+          completed: academicDetailsStep,
+          total: totalStudents,
+          percentage:
+            totalStudents > 0
+              ? Math.round((academicDetailsStep / totalStudents) * 100)
+              : 0
+        },
+        {
+          step: 'Profile Photo',
+          completed: profilePhotoStep,
+          total: totalStudents,
+          percentage:
+            totalStudents > 0
+              ? Math.round((profilePhotoStep / totalStudents) * 100)
+              : 0
+        }
+      ];
+
+      // Calculate missing fields
+      const missingRollNumber =
+        students?.filter((s) => !s.roll_number).length || 0;
+      const missingCollegeEmail =
+        students?.filter((s) => !s.college_email).length || 0;
+      const missingProfilePhoto =
+        students?.filter((s) => !s.student_photo_url).length || 0;
+      const missingAcademicYear =
+        students?.filter((s) => !s.academic_year_id).length || 0;
+      const missingSection = students?.filter((s) => !s.section_id).length || 0;
+
+      const missingFields = [
+        {
+          field: 'Profile Photo',
+          missingCount: missingProfilePhoto,
+          percentage:
+            totalStudents > 0
+              ? Math.round((missingProfilePhoto / totalStudents) * 100)
+              : 0
+        },
+        {
+          field: 'Roll Number',
+          missingCount: missingRollNumber,
+          percentage:
+            totalStudents > 0
+              ? Math.round((missingRollNumber / totalStudents) * 100)
+              : 0
+        },
+        {
+          field: 'College Email',
+          missingCount: missingCollegeEmail,
+          percentage:
+            totalStudents > 0
+              ? Math.round((missingCollegeEmail / totalStudents) * 100)
+              : 0
+        },
+        {
+          field: 'Academic Year',
+          missingCount: missingAcademicYear,
+          percentage:
+            totalStudents > 0
+              ? Math.round((missingAcademicYear / totalStudents) * 100)
+              : 0
+        },
+        {
+          field: 'Section',
+          missingCount: missingSection,
+          percentage:
+            totalStudents > 0
+              ? Math.round((missingSection / totalStudents) * 100)
+              : 0
+        }
+      ];
+
+      // Calculate time to complete (simplified)
+      const completionTimes: number[] = [];
+      students?.forEach((student) => {
+        if (
+          student.is_profile_complete &&
+          student.created_at &&
+          student.updated_at
+        ) {
+          const createdDate = new Date(student.created_at);
+          const updatedDate = new Date(student.updated_at);
+          const diffInDays = Math.ceil(
+            (updatedDate.getTime() - createdDate.getTime()) /
+              (1000 * 60 * 60 * 24)
+          );
+          completionTimes.push(Math.max(0, diffInDays));
+        }
+      });
+
+      const avgCompletionTime =
+        completionTimes.length > 0
+          ? completionTimes.reduce((sum, time) => sum + time, 0) /
+            completionTimes.length
+          : 0;
+
+      const medianCompletionTime =
+        completionTimes.length > 0
+          ? completionTimes.sort((a, b) => a - b)[
+              Math.floor(completionTimes.length / 2)
+            ]
+          : 0;
+
+      // Distribution of completion times
+      const sameDay = completionTimes.filter((t) => t === 0).length;
+      const oneToThreeDays = completionTimes.filter(
+        (t) => t >= 1 && t <= 3
+      ).length;
+      const fourToSevenDays = completionTimes.filter(
+        (t) => t >= 4 && t <= 7
+      ).length;
+      const eightPlusDays = completionTimes.filter((t) => t >= 8).length;
+      const totalCompletions = completionTimes.length;
+
+      const timeToComplete = {
+        average: Math.round(avgCompletionTime * 10) / 10,
+        median: medianCompletionTime,
+        distribution: [
+          {
+            range: 'Same Day',
+            count: sameDay,
+            percentage:
+              totalCompletions > 0
+                ? Math.round((sameDay / totalCompletions) * 100)
+                : 0
+          },
+          {
+            range: '1-3 Days',
+            count: oneToThreeDays,
+            percentage:
+              totalCompletions > 0
+                ? Math.round((oneToThreeDays / totalCompletions) * 100)
+                : 0
+          },
+          {
+            range: '4-7 Days',
+            count: fourToSevenDays,
+            percentage:
+              totalCompletions > 0
+                ? Math.round((fourToSevenDays / totalCompletions) * 100)
+                : 0
+          },
+          {
+            range: '8+ Days',
+            count: eightPlusDays,
+            percentage:
+              totalCompletions > 0
+                ? Math.round((eightPlusDays / totalCompletions) * 100)
+                : 0
+          }
+        ]
+      };
+
+      return {
+        profileCompletionFunnel,
+        missingFields,
+        timeToComplete
+      };
+    } catch (error) {
+      console.error('Error fetching onboarding stats:', error);
+      return {
+        profileCompletionFunnel: [],
+        missingFields: [],
+        timeToComplete: {
+          average: 0,
+          median: 0,
+          distribution: []
+        }
+      };
     }
   }
 
