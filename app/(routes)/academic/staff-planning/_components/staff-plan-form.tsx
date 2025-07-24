@@ -140,34 +140,31 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const watchedDepartmentId = form.watch('department_id');
   const watchedProgramId = form.watch('program_id');
 
-  // Fetch staff members based on institution and department
-  const fetchStaffMembers = useCallback(
-    async (institutionId?: string, departmentId?: string) => {
-      try {
-        // Only fetch staff if both institution and department are selected
-        if (!institutionId || !departmentId) {
-          setStaffMembers([]);
-          return;
-        }
-
-        const staffResult = await StaffService.getStaff({
-          isActive: true,
-          institution_id: institutionId,
-          department_id: departmentId,
-          limit: 1000 // Set a high limit to get all staff for this institution/department
-        });
-
-        const uniqueStaff = Array.from(
-          new Map(staffResult.data.map((item: any) => [item.id, item])).values()
-        );
-        setStaffMembers(uniqueStaff);
-      } catch (error) {
-        console.error('Error fetching staff members:', error);
+  // Fetch staff members based on institution (all departments)
+  const fetchStaffMembers = useCallback(async (institutionId?: string) => {
+    try {
+      // Only fetch staff if institution is selected
+      if (!institutionId) {
         setStaffMembers([]);
+        return;
       }
-    },
-    []
-  );
+
+      const staffResult = await StaffService.getStaff({
+        isActive: true,
+        institution_id: institutionId,
+        // Removed department_id filter to get ALL staff from the institution
+        limit: 1000 // Set a high limit to get all staff for this institution
+      });
+
+      const uniqueStaff = Array.from(
+        new Map(staffResult.data.map((item: any) => [item.id, item])).values()
+      );
+      setStaffMembers(uniqueStaff);
+    } catch (error) {
+      console.error('Error fetching staff members:', error);
+      setStaffMembers([]);
+    }
+  }, []);
 
   // Load staff plan data for editing
   useEffect(() => {
@@ -245,11 +242,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             }))
           );
 
-          // Fetch staff members for the selected institution and department
-          await fetchStaffMembers(
-            staffPlan.institution_id,
-            staffPlan.department_id
-          );
+          // Fetch staff members for the selected institution (all departments)
+          await fetchStaffMembers(staffPlan.institution_id);
 
           // Set form values
           form.reset({
@@ -335,15 +329,15 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     }
   }, [watchedInstitutionId, isEditing]);
 
-  // Fetch staff when institution or department changes (for new forms)
+  // Fetch staff when institution changes (for new forms)
   useEffect(() => {
-    if (!isEditing && watchedInstitutionId && watchedDepartmentId) {
-      fetchStaffMembers(watchedInstitutionId, watchedDepartmentId);
-    } else if (!isEditing && (!watchedInstitutionId || !watchedDepartmentId)) {
-      // Clear staff when institution or department is not selected
+    if (!isEditing && watchedInstitutionId) {
+      fetchStaffMembers(watchedInstitutionId);
+    } else if (!isEditing && !watchedInstitutionId) {
+      // Clear staff when institution is not selected
       setStaffMembers([]);
     }
-  }, [watchedInstitutionId, watchedDepartmentId, isEditing, fetchStaffMembers]);
+  }, [watchedInstitutionId, isEditing, fetchStaffMembers]);
 
   // Cascading dropdowns
   useEffect(() => {
