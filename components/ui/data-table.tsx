@@ -254,14 +254,14 @@ export function DataTable<TData, TValue>({
 
   // Debounce search for server-side filtering
   React.useEffect(() => {
-    if (!serverSidePagination || !onSearch) return;
+    if (!onSearch) return;
 
     const timer = setTimeout(() => {
       onSearch(globalFilter);
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [globalFilter, onSearch, serverSidePagination]);
+  }, [globalFilter, onSearch]);
 
   // Get permission hooks with loading state
   const {

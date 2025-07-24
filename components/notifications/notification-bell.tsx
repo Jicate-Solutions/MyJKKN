@@ -1,7 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Bell, CheckCheck, ExternalLink } from 'lucide-react';
+import {
+  Bell,
+  CheckCheck,
+  Megaphone,
+  AlertTriangle,
+  Info,
+  BellIcon
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,192 +19,184 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 import { formatDistanceToNow } from 'date-fns';
 import { useNotifications } from '@/hooks/use-notifications';
 import { UserNotification } from '@/types/notifications';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+
+// Helper to get an icon based on notification category
+const getNotificationIcon = (category?: string) => {
+  const iconContainerClass =
+    'h-8 w-8 rounded-full flex items-center justify-center';
+
+  switch (category?.toLowerCase()) {
+    case 'announcement':
+      return (
+        <div
+          className={`${iconContainerClass} bg-blue-100 dark:bg-blue-900/30`}
+        >
+          <Megaphone className='h-5 w-5 text-blue-500' />
+        </div>
+      );
+    case 'alert':
+    case 'urgent':
+      return (
+        <div className={`${iconContainerClass} bg-red-100 dark:bg-red-900/30`}>
+          <AlertTriangle className='h-5 w-5 text-red-500' />
+        </div>
+      );
+    case 'reminder':
+      return (
+        <div
+          className={`${iconContainerClass} bg-yellow-100 dark:bg-yellow-900/30`}
+        >
+          <Bell className='h-5 w-5 text-yellow-500' />
+        </div>
+      );
+    default:
+      return (
+        <div
+          className={`${iconContainerClass} bg-gray-100 dark:bg-gray-700/50 default-notification-icon`}
+        >
+          <BellIcon className='h-5 w-5 text-gray-500' fill='currentColor' />
+        </div>
+      );
+  }
+};
+
+// Skeleton component for loading state
+function NotificationItemSkeleton() {
+  return (
+    <div className='flex items-center space-x-4 p-3'>
+      <Skeleton className='h-8 w-8 rounded-full' />
+      <div className='space-y-2 flex-1'>
+        <Skeleton className='h-4 w-3/4' />
+        <Skeleton className='h-3 w-1/2' />
+      </div>
+    </div>
+  );
+}
 
 export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
-  const {
-    notifications,
-    unreadCount,
-    isLoading,
-    markAsRead,
-    markAllAsRead,
-    loadMore,
-    hasMore
-  } = useNotifications();
+  const router = useRouter();
+  const { notifications, unreadCount, isLoading, markAsRead, markAllAsRead } =
+    useNotifications();
 
   const handleNotificationClick = (notification: UserNotification) => {
-    // Mark as read if unread
     if (!notification.read_at) {
       markAsRead(notification.notification_id);
     }
-
-    // Close dropdown
     setIsOpen(false);
-
-    // If notification has a URL, open it
-    if (notification.notification?.url) {
-      window.open(notification.notification.url, '_blank');
-    }
-  };
-
-  const handleMarkAllAsRead = () => {
-    markAllAsRead();
-  };
-
-  const getPriorityColor = (priority?: string) => {
-    switch (priority) {
-      case 'urgent':
-        return 'text-red-500';
-      case 'high':
-        return 'text-orange-500';
-      case 'normal':
-        return 'text-blue-500';
-      case 'low':
-        return 'text-gray-500';
-      default:
-        return 'text-blue-500';
+    if (notification.notification_id) {
+      router.push(`/admin/notifications/${notification.notification_id}`);
     }
   };
 
   return (
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
       <DropdownMenuTrigger asChild>
-        <Button variant='ghost' size='sm' className='relative'>
+        <Button
+          variant='ghost'
+          size='icon'
+          className='relative rounded-full notification-bell-trigger'
+        >
           <Bell className='h-5 w-5' />
           {unreadCount > 0 && (
             <Badge
               variant='destructive'
-              className='absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center text-xs p-0 min-w-5'
+              className='absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center text-xs p-0'
             >
-              {unreadCount > 99 ? '99+' : unreadCount}
+              {unreadCount > 9 ? '9+' : unreadCount}
             </Badge>
           )}
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent className='w-80 max-h-96' align='end' sideOffset={5}>
-        <div className='flex items-center justify-between p-2'>
-          <h4 className='font-medium'>Notifications</h4>
+      <DropdownMenuContent className='w-96' align='end' sideOffset={8}>
+        <div className='flex items-center justify-between p-3 border-b'>
+          <h4 className='font-semibold text-lg'>Notifications</h4>
           {unreadCount > 0 && (
             <Button
-              variant='ghost'
+              variant='link'
               size='sm'
-              onClick={handleMarkAllAsRead}
-              className='text-xs'
+              onClick={() => markAllAsRead()}
+              className='text-xs h-auto p-0'
             >
               <CheckCheck className='h-3 w-3 mr-1' />
-              Mark all read
+              Mark all as read
             </Button>
           )}
         </div>
 
-        <DropdownMenuSeparator />
-
-        {isLoading ? (
-          <div className='flex justify-center items-center p-4'>
-            <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-primary'></div>
-          </div>
-        ) : notifications.length === 0 ? (
-          <div className='text-center p-4 text-muted-foreground'>
-            <Bell className='mx-auto h-8 w-8 mb-2 opacity-50' />
-            <p className='text-sm'>No notifications yet</p>
-          </div>
-        ) : (
-          <>
-            <ScrollArea className='max-h-64'>
-              {notifications.slice(0, 10).map((notification) => (
+        <ScrollArea className='max-h-[400px]'>
+          {isLoading ? (
+            <div>
+              <NotificationItemSkeleton />
+              <NotificationItemSkeleton />
+              <NotificationItemSkeleton />
+            </div>
+          ) : notifications.length === 0 ? (
+            <div className='text-center p-8 text-muted-foreground'>
+              <Bell className='mx-auto h-12 w-12 mb-4 text-gray-300' />
+              <h5 className='font-semibold'>No new notifications</h5>
+              <p className='text-sm mt-1'>You&apos;re all caught up!</p>
+            </div>
+          ) : (
+            <div>
+              {notifications.map((notification) => (
                 <DropdownMenuItem
                   key={notification.id}
-                  className='p-0 focus:bg-muted'
+                  className={`p-0 focus:bg-accent cursor-pointer transition-colors ${
+                    !notification.read_at
+                      ? 'bg-blue-50 dark:bg-blue-900/20'
+                      : ''
+                  }`}
                   onClick={() => handleNotificationClick(notification)}
                 >
-                  <div className='flex w-full p-3 cursor-pointer'>
+                  <div className='flex items-start gap-3 w-full p-3'>
+                    <div className='flex-shrink-0'>
+                      {getNotificationIcon(notification.notification?.category)}
+                    </div>
                     <div className='flex-1 space-y-1'>
-                      <div className='flex items-start justify-between'>
-                        <h5
-                          className={`text-sm font-medium leading-tight ${
-                            !notification.read_at
-                              ? 'text-foreground'
-                              : 'text-muted-foreground'
-                          }`}
-                        >
-                          {notification.notification?.title}
-                        </h5>
-                        {!notification.read_at && (
-                          <div className='w-2 h-2 bg-blue-500 rounded-full ml-2 mt-1 flex-shrink-0' />
-                        )}
-                      </div>
-
-                      <p
-                        className={`text-xs leading-tight ${
-                          !notification.read_at
-                            ? 'text-muted-foreground'
-                            : 'text-muted-foreground/70'
-                        }`}
-                      >
+                      <p className='text-sm font-medium leading-tight'>
+                        {notification.notification?.title}
+                      </p>
+                      <p className='text-xs text-muted-foreground line-clamp-2'>
                         {notification.notification?.body}
                       </p>
-
-                      <div className='flex items-center justify-between'>
-                        <span className='text-xs text-muted-foreground'>
-                          {notification.notification?.sent_at &&
-                            formatDistanceToNow(
-                              new Date(notification.notification.sent_at),
-                              {
-                                addSuffix: true
-                              }
-                            )}
-                        </span>
-
-                        <div className='flex items-center gap-1'>
-                          {notification.notification?.priority && (
-                            <div
-                              className={`w-1 h-1 rounded-full ${getPriorityColor(
-                                notification.notification.priority
-                              )}`}
-                            />
+                      <p className='text-xs text-muted-foreground/80 pt-1'>
+                        {notification.notification?.sent_at &&
+                          formatDistanceToNow(
+                            new Date(notification.notification.sent_at),
+                            { addSuffix: true }
                           )}
-                          {notification.notification?.url && (
-                            <ExternalLink className='h-3 w-3 text-muted-foreground' />
-                          )}
-                        </div>
-                      </div>
+                      </p>
                     </div>
+                    {!notification.read_at && (
+                      <div
+                        className='w-2.5 h-2.5 bg-blue-500 rounded-full flex-shrink-0 mt-1'
+                        title='Unread'
+                      />
+                    )}
                   </div>
                 </DropdownMenuItem>
               ))}
-            </ScrollArea>
+            </div>
+          )}
+        </ScrollArea>
 
-            {notifications.length > 10 && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link
-                    href='/notifications'
-                    className='w-full text-center p-2 text-sm text-muted-foreground hover:text-foreground'
-                  >
-                    View all notifications
-                  </Link>
-                </DropdownMenuItem>
-              </>
-            )}
-
-            {hasMore && notifications.length <= 10 && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={loadMore} className='text-center'>
-                  <span className='text-sm text-muted-foreground'>
-                    Load more...
-                  </span>
-                </DropdownMenuItem>
-              </>
-            )}
-          </>
-        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link
+            href='/admin/notifications'
+            className='w-full text-center p-3 text-sm font-medium text-primary hover:bg-accent cursor-pointer'
+          >
+            View all notifications
+          </Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -141,15 +141,45 @@ async function findTargetUsers(
   supabase: any,
   targeting: any
 ): Promise<string[]> {
-  // If no specific targeting criteria, return empty array (avoid sending to everyone)
-  if (
-    !targeting.institution_id &&
-    !targeting.department_id &&
-    !targeting.program_id &&
-    !targeting.semester &&
-    !targeting.section
-  ) {
-    return [];
+  // Check if only role targeting is specified
+  const hasLocationTargeting =
+    targeting.institution_id ||
+    targeting.department_id ||
+    targeting.program_id ||
+    targeting.semester ||
+    targeting.section;
+  const hasRoleTargeting =
+    targeting.target_roles && targeting.target_roles.length > 0;
+
+  // If no specific targeting criteria, send to all users
+  if (!hasLocationTargeting && !hasRoleTargeting) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('Error finding all users:', error);
+      return [];
+    }
+
+    return data?.map((item: any) => item.id).filter(Boolean) || [];
+  }
+
+  // If only role targeting (no location targeting)
+  if (!hasLocationTargeting && hasRoleTargeting) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .in('role', targeting.target_roles)
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('Error finding users by role:', error);
+      return [];
+    }
+
+    return data?.map((item: any) => item.id).filter(Boolean) || [];
   }
 
   // If only institution targeting, get all profiles for that institution
@@ -160,10 +190,17 @@ async function findTargetUsers(
     !targeting.semester &&
     !targeting.section
   ) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('profiles')
       .select('id')
       .eq('institution_id', targeting.institution_id);
+
+    // Add role filtering if specified
+    if (hasRoleTargeting) {
+      query = query.in('role', targeting.target_roles);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Error finding target users by institution:', error);

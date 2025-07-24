@@ -4,101 +4,39 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
-
-    // Get the current user
     const {
-      data: { user },
-      error: authError
+      data: { user }
     } = await supabase.auth.getUser();
 
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user has permission to view notifications
-    const { data: userProfile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const { data: rolePermissions } = await supabase
-      .from('custom_roles')
-      .select('permissions')
-      .eq('role_key', userProfile?.role)
-      .single();
-
-    const hasPermission =
-      userProfile?.role === 'super_admin' ||
-      rolePermissions?.permissions?.['notifications.view'] === true ||
-      rolePermissions?.permissions?.['notifications.view.all'] === true;
-
-
-
-    if (!hasPermission) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions' },
-        { status: 403 }
-      );
-    }
-
-    // Parse query parameters
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
+    const search = searchParams.get('search');
 
-    const offset = (page - 1) * limit;
+    let query = supabase.from('notifications').select(`
+        id, title, body, url, icon, priority, category, sent_at,
+        expires_at, targeting, created_by, created_at
+      `);
 
-    // Fetch notifications with pagination
-    const { data: notifications, error } = await supabase
-      .from('notifications')
-      .select(
-        `
-        id,
-        title,
-        body,
-        url,
-        icon,
-        priority,
-        category,
-        sent_at,
-        expires_at,
-        targeting,
-        created_by,
-        created_at
-      `
-      )
-      .order('sent_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (error) {
-      console.error('Error fetching notifications:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch notifications' },
-        { status: 500 }
+    if (search) {
+      query = query.or(
+        `title.ilike.%${search}%,body.ilike.%${search}%,category.ilike.%${search}%`
       );
     }
 
-    // Get total count for pagination
-    const { count: totalCount, error: countError } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true });
+    const { data: notifications, error } = await query
+      .order('sent_at', { ascending: false })
+      .limit(100); // Add a reasonable limit
 
-    if (countError) {
-      console.error('Error fetching notifications count:', countError);
-    }
+    if (error) throw error;
 
-    return NextResponse.json({
-      notifications,
-      total_count: totalCount || 0,
-      page,
-      limit,
-      has_more: notifications.length === limit
-    });
+    return NextResponse.json({ notifications });
   } catch (error) {
-    console.error('Error in admin notifications endpoint:', error);
+    console.error('Error fetching notifications:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to fetch notifications' },
       { status: 500 }
     );
   }
