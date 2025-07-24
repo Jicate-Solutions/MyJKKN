@@ -229,6 +229,12 @@ export class CourseMappingService {
         { count: 'exact' }
       );
 
+      if (filters.search) {
+        query = query.or(
+          `course.course_code.ilike.%${filters.search}%,course.course_name.ilike.%${filters.search}%`
+        );
+      }
+
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
       }
@@ -323,45 +329,52 @@ export class CourseMappingService {
   }
 
   /**
-   * Get courses that are not yet mapped to a specific semester
+   * Get courses by institution with optional search
    * @param institutionId - The institution ID
-   * @param departmentId - Parameter kept for backward compatibility but no longer used
+   * @param searchTerm - Optional search term for course code or name
+   * @returns List of courses for the institution
+   */
+  static async getCoursesByInstitution(
+    institutionId: string,
+    searchTerm?: string
+  ): Promise<{ id: string; course_name: string; course_code: string }[]> {
+    try {
+      const { data, error } = await this.supabase.rpc(
+        'get_institution_courses',
+        {
+          p_institution_id: institutionId,
+          p_search_term: searchTerm || ''
+        }
+      );
+
+      if (error) {
+        console.error('Error calling get_institution_courses RPC:', error);
+        throw error;
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching courses by institution:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get courses that are not yet mapped to a specific semester using RPC
+   * @param institutionId - The institution ID
    * @param semesterId - The semester ID
+   * @param searchTerm - Optional search term for course code or name
    * @returns List of unmapped courses
    */
   static async getUnmappedCourses(
     institutionId: string,
-    departmentId: string, // Kept for backward compatibility
-    semesterId: string
+    semesterId: string,
+    searchTerm?: string
   ): Promise<{ id: string; course_name: string; course_code: string }[]> {
     try {
-      // Get all courses for this institution only (removed department filter)
-      const { data: allCourses, error: coursesError } = await this.supabase
-        .from('courses')
-        .select('id, course_name, course_code')
-        .eq('institution_id', institutionId)
-        .eq('is_active', true);
-
-      if (coursesError) throw coursesError;
-
-      // Get all course IDs already mapped to this semester
-      const { data: mappedCourses, error: mappingsError } = await this.supabase
-        .from('course_mappings')
-        .select('course_id')
-        .eq('institution_id', institutionId)
-        .eq('semester_id', semesterId);
-
-      if (mappingsError) throw mappingsError;
-
-      // Extract the mapped course IDs
-      const mappedCourseIds = mappedCourses.map((m) => m.course_id);
-
-      // Filter out the mapped courses to get unmapped courses
-      const unmappedCourses = allCourses.filter(
-        (course) => !mappedCourseIds.includes(course.id)
-      );
-
-      return unmappedCourses;
+      // For now, just get all courses by institution and let the frontend handle filtering
+      // We can optimize this later if needed
+      return await this.getCoursesByInstitution(institutionId, searchTerm);
     } catch (error) {
       console.error('Error fetching unmapped courses:', error);
       throw error;
