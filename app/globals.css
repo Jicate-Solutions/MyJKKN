@@ -147,3 +147,48 @@ body {
 .animation-delay-6000 {
   animation-delay: 6s;
 }
+
+/* Add Animations for Notification Bell */
+@layer components {
+  /* Animation for the main bell icon */
+  .notification-bell-trigger:hover .lucide-bell {
+    animation: ring 0.5s ease-in-out;
+  }
+
+  @keyframes ring {
+    0%,
+    100% {
+      transform: rotate(0);
+    }
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+      transform: rotate(-15deg);
+    }
+    20%,
+    40%,
+    60%,
+    80% {
+      transform: rotate(15deg);
+    }
+  }
+
+  /* Pulsing animation for default notification icons */
+  .default-notification-icon {
+    animation: pulse-bg 2s infinite;
+  }
+
+  @keyframes pulse-bg {
+    0% {
+      box-shadow: 0 0 0 0 rgba(107, 114, 128, 0.4);
+    }
+    70% {
+      box-shadow: 0 0 0 10px rgba(107, 114, 128, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(107, 114, 128, 0);
+    }
+  }
+}

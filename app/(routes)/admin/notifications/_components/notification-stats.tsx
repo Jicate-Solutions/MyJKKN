@@ -1,76 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { NotificationStats as NotificationStatsType } from '@/types/notifications';
 
-interface NotificationStats {
-  totalSent: number;
-  thisMonth: number;
-  today: number;
-  successRate: number;
+interface NotificationStatsProps {
+  stats: NotificationStatsType | null;
 }
 
-export function NotificationStats() {
-  const [stats, setStats] = useState<NotificationStats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        setIsLoading(true);
-        const response = await fetch('/api/admin/notifications/stats');
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch notification statistics');
-        }
-
-        const data = await response.json();
-        setStats(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchStats();
-  }, []);
-
-  if (isLoading) {
-    return (
-      <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
-        {[...Array(4)].map((_, i) => (
-          <Card key={i}>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>Loading...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className='text-2xl font-bold'>-</div>
-              <p className='text-xs text-muted-foreground'>Loading...</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    );
-  }
-
-  if (error || !stats) {
-    return (
-      <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
-        {[...Array(4)].map((_, i) => (
-          <Card key={i}>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>Error</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className='text-2xl font-bold'>-</div>
-              <p className='text-xs text-muted-foreground'>Failed to load</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    );
+export function NotificationStats({ stats }: NotificationStatsProps) {
+  if (!stats) {
+    // This can be a more specific error or empty state if needed
+    return null;
   }
 
   return (

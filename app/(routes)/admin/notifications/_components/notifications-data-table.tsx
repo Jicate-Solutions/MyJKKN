@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback } from 'react';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
 import { Notification } from '@/types/notifications';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useRoles } from '@/hooks/organization/use-roles';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,37 +18,23 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 
-interface NotificationsDataTableProps {}
+interface NotificationsDataTableProps {
+  notifications: Notification[];
+  isLoading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}
 
-export function NotificationsDataTable({}: NotificationsDataTableProps) {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function NotificationsDataTable({
+  notifications,
+  isLoading,
+  error,
+  onRefresh
+}: NotificationsDataTableProps) {
   const { canAccess } = usePermissions();
+  const { data: rolesData } = useRoles({ includeSystemRoles: true });
 
   const canDeleteNotifications = canAccess('notifications', 'delete');
-
-  useEffect(() => {
-    const fetchNotifications = async () => {
-      try {
-        setIsLoading(true);
-        const response = await fetch('/api/admin/notifications');
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch notifications');
-        }
-
-        const data = await response.json();
-        setNotifications(data.notifications || []);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchNotifications();
-  }, []);
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -64,15 +51,32 @@ export function NotificationsDataTable({}: NotificationsDataTableProps) {
     }
   };
 
-  const getTargetDescription = (notification: Notification) => {
-    if (!notification.targeting) return 'All Users';
+  const getTargetDescription = (notification: any) => {
+    // Handle both the new targeting object structure and legacy individual fields
+    const targeting = notification.targeting || {};
 
     const parts = [];
-    if (notification.targeting.institution_id) parts.push('Institution');
-    if (notification.targeting.department_id) parts.push('Department');
-    if (notification.targeting.program_id) parts.push('Program');
-    if (notification.targeting.semester) parts.push('Semester');
-    if (notification.targeting.section) parts.push('Section');
+    if (targeting.institution_id || notification.target_institution_id)
+      parts.push('Institution');
+    if (targeting.department_id || notification.target_department_id)
+      parts.push('Department');
+    if (targeting.program_id || notification.target_program_id)
+      parts.push('Program');
+    if (targeting.semester || notification.target_semester) {
+      const semester = targeting.semester || notification.target_semester;
+      parts.push(`Semester ${semester}`);
+    }
+    if (targeting.section || notification.target_section) {
+      const section = targeting.section || notification.target_section;
+      parts.push(`Section ${section}`);
+    }
+    if (targeting.target_roles && targeting.target_roles.length > 0) {
+      const roleNames = targeting.target_roles.map((roleKey: string) => {
+        const role = rolesData?.find((r) => r.role_key === roleKey);
+        return role ? role.role_name : roleKey;
+      });
+      parts.push(`Roles: ${roleNames.join(', ')}`);
+    }
 
     return parts.length > 0 ? parts.join(' → ') : 'All Users';
   };
@@ -85,10 +89,15 @@ export function NotificationsDataTable({}: NotificationsDataTableProps) {
         const notification = row.original;
         return (
           <div>
-            <div className='font-medium'>{notification.title}</div>
-            <div className='text-sm text-muted-foreground line-clamp-2'>
-              {notification.body}
-            </div>
+            <Link
+              href={`/admin/notifications/${notification.id}`}
+              className='hover:text-primary'
+            >
+              <div className='font-medium'>{notification.title}</div>
+              <div className='text-sm text-muted-foreground line-clamp-2'>
+                {notification.body}
+              </div>
+            </Link>
           </div>
         );
       }
@@ -146,113 +155,114 @@ export function NotificationsDataTable({}: NotificationsDataTableProps) {
       cell: ({ row }) => {
         const notification = row.original;
         return (
-          <div className='flex items-center gap-2'>
-            <Link href={`/admin/notifications/${notification.id}`}>
-              <Button
-                variant='ghost'
-                size='sm'
-                title='View notification details'
-              >
-                <Eye className='h-4 w-4' />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant='ghost' size='sm' title='Actions'>
+                <MoreHorizontal className='h-4 w-4' />
               </Button>
-            </Link>
-            {canDeleteNotifications && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant='ghost' size='sm' title='More actions'>
-                    <MoreHorizontal className='h-4 w-4' />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align='end'>
-                  <DropdownMenuItem
-                    onClick={() => handleDeleteNotification(notification.id)}
-                    className='text-red-600 focus:text-red-600 focus:bg-red-50'
-                  >
-                    <Trash2 className='mr-2 h-4 w-4' />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end'>
+              <DropdownMenuItem asChild>
+                <Link
+                  href={`/admin/notifications/${notification.id}`}
+                  className='flex items-center w-full'
+                >
+                  <Eye className='mr-2 h-4 w-4' />
+                  View Details
+                </Link>
+              </DropdownMenuItem>
+              {canDeleteNotifications && (
+                <DropdownMenuItem
+                  onClick={() => handleDeleteNotification(notification.id)}
+                  className='text-red-600 focus:text-red-600 focus:bg-red-50'
+                >
+                  <Trash2 className='mr-2 h-4 w-4' />
+                  Delete
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         );
       },
       enableSorting: false
     }
   ];
 
-  const handleRefresh = async () => {
-    const response = await fetch('/api/admin/notifications');
-    if (response.ok) {
-      const data = await response.json();
-      setNotifications(data.notifications || []);
-    }
-  };
-
-  const handleDeleteNotification = async (notificationId: string) => {
-    try {
-      const response = await fetch(
-        `/api/admin/notifications/${notificationId}`,
-        {
-          method: 'DELETE'
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to delete notification');
-      }
-
-      // Remove the deleted notification from local state
-      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
-      toast.success('Notification deleted successfully');
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      toast.error('Failed to delete notification');
-    }
-  };
-
-  const handleBulkDelete = async (selectedNotifications: Notification[]) => {
-    try {
-      const deletePromises = selectedNotifications.map((notification) =>
-        fetch(`/api/admin/notifications/${notification.id}`, {
-          method: 'DELETE'
-        })
-      );
-
-      const responses = await Promise.all(deletePromises);
-      const failedDeletes = responses.filter((response) => !response.ok);
-
-      if (failedDeletes.length > 0) {
-        throw new Error(
-          `Failed to delete ${failedDeletes.length} notifications`
+  const handleDeleteNotification = useCallback(
+    async (notificationId: string) => {
+      try {
+        const response = await fetch(
+          `/api/admin/notifications/${notificationId}`,
+          {
+            method: 'DELETE'
+          }
         );
+
+        if (!response.ok) {
+          throw new Error('Failed to delete notification');
+        }
+
+        // Remove the deleted notification from local state
+        // setNotifications((prev) => prev.filter((n) => n.id !== notificationId)); // This line is removed
+        toast.success('Notification deleted successfully');
+        onRefresh(); // Refresh parent state
+      } catch (error) {
+        console.error('Error deleting notification:', error);
+        toast.error('Failed to delete notification');
       }
+    },
+    [onRefresh]
+  );
 
-      // Remove deleted notifications from local state
-      const deletedIds = selectedNotifications.map((n) => n.id);
-      setNotifications((prev) =>
-        prev.filter((n) => !deletedIds.includes(n.id))
-      );
+  const handleBulkDelete = useCallback(
+    async (selectedNotifications: Notification[]) => {
+      try {
+        const deletePromises = selectedNotifications.map((notification) =>
+          fetch(`/api/admin/notifications/${notification.id}`, {
+            method: 'DELETE'
+          })
+        );
 
-      toast.success(
-        `Successfully deleted ${selectedNotifications.length} notification${
-          selectedNotifications.length > 1 ? 's' : ''
-        }`
-      );
-    } catch (error) {
-      console.error('Error deleting notifications:', error);
-      toast.error('Failed to delete some notifications');
-    }
-  };
+        const responses = await Promise.all(deletePromises);
+        const failedDeletes = responses.filter((response) => !response.ok);
+
+        if (failedDeletes.length > 0) {
+          throw new Error(
+            `Failed to delete ${failedDeletes.length} notifications`
+          );
+        }
+
+        // Remove deleted notifications from local state
+        // const deletedIds = selectedNotifications.map((n) => n.id); // This line is removed
+        toast.success(
+          `Successfully deleted ${selectedNotifications.length} notification${
+            selectedNotifications.length > 1 ? 's' : ''
+          }`
+        );
+        onRefresh(); // Refresh parent state
+      } catch (error) {
+        console.error('Error deleting notifications:', error);
+        toast.error('Failed to delete some notifications');
+      }
+    },
+    [onRefresh]
+  );
 
   if (isLoading) {
-    return <div>Loading notifications...</div>;
+    return (
+      <div className='flex justify-center items-center py-8'>
+        <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary'></div>
+      </div>
+    );
   }
 
   if (error) {
     return (
       <div className='text-center py-8'>
         <p className='text-muted-foreground'>Error: {error}</p>
+        <Button onClick={onRefresh} variant='outline' className='mt-4'>
+          Try Again
+        </Button>
       </div>
     );
   }
@@ -261,8 +271,7 @@ export function NotificationsDataTable({}: NotificationsDataTableProps) {
     <DataTable
       columns={columns}
       data={notifications}
-      searchPlaceholder='Search notifications...'
-      filterColumn='title'
+      searchPlaceholder='Search notifications...' // This will be handled by the parent component now
       permissions={{
         module: 'notifications',
         actions: {
@@ -271,7 +280,7 @@ export function NotificationsDataTable({}: NotificationsDataTableProps) {
         },
         showPermissionError: true
       }}
-      onRefresh={handleRefresh}
+      onRefresh={onRefresh}
       onBulkAction={canDeleteNotifications ? handleBulkDelete : undefined}
       bulkActionConfig={{
         label: 'Delete Selected',
@@ -285,18 +294,6 @@ export function NotificationsDataTable({}: NotificationsDataTableProps) {
         loadingText: 'Deleting notifications...'
       }}
       getRowId={(row) => row.id}
-      globalFilterFn={(row, columnId, filterValue) => {
-        const notification = row.original as Notification;
-        const searchValue = filterValue.toLowerCase();
-
-        return (
-          notification.title.toLowerCase().includes(searchValue) ||
-          notification.body.toLowerCase().includes(searchValue) ||
-          notification.category.toLowerCase().includes(searchValue) ||
-          notification.priority.toLowerCase().includes(searchValue) ||
-          getTargetDescription(notification).toLowerCase().includes(searchValue)
-        );
-      }}
     />
   );
 }

@@ -27,6 +27,9 @@ import {
 import { formatDistanceToNow, format } from 'date-fns';
 import Link from 'next/link';
 import { BeatLoader } from 'react-spinners';
+import { useRoles } from '@/hooks/organization/use-roles';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/providers/auth-provider';
 
 interface NotificationDetails {
   id: string;
@@ -44,6 +47,7 @@ interface NotificationDetails {
     program_id?: string;
     semester?: string;
     section?: string;
+    target_roles?: string[];
     institution_name?: string;
     department_name?: string;
     program_name?: string;
@@ -71,6 +75,20 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetch roles for display
+  const { data: rolesData } = useRoles({ includeSystemRoles: true });
+
+  // Get current user and permissions
+  const { user } = useAuth();
+  const { isSuperAdmin, canAccess } = usePermissions();
+
+  // Check if current user is the creator of this notification
+  const isCreator = notification?.created_by === user?.id;
+
+  // Determine if user should see detailed sections
+  // Super admins can see all details, regular users can only see details for their own notifications
+  const canViewDetailedSections = isSuperAdmin || isCreator;
 
   useEffect(() => {
     const fetchNotification = async () => {
@@ -145,8 +163,23 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
     if (notification.targeting.program_id) parts.push('Program');
     if (notification.targeting.semester) parts.push('Semester');
     if (notification.targeting.section) parts.push('Section');
+    if (
+      notification.targeting.target_roles &&
+      notification.targeting.target_roles.length > 0
+    ) {
+      parts.push('Roles');
+    }
 
     return parts.length > 0 ? parts.join(' → ') : 'All Users';
+  };
+
+  const getRoleNames = () => {
+    if (!notification.targeting.target_roles || !rolesData) return [];
+
+    return notification.targeting.target_roles.map((roleKey) => {
+      const role = rolesData.find((r) => r.role_key === roleKey);
+      return role ? role.role_name : roleKey;
+    });
   };
 
   const getCreatorName = () => {
@@ -211,146 +244,167 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
         </CardFooter>
       </Card>
 
-      {/* Details Grid */}
-      <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
-        {/* Delivery Statistics Card */}
-        {notification.delivery_stats && (
+      {/* Details Grid - Show only for super admin or notification creator */}
+      {canViewDetailedSections && (
+        <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
+          {/* Delivery Statistics Card */}
+          {notification.delivery_stats && (
+            <Card className='shadow-md border-slate-100'>
+              <CardHeader className='pb-3'>
+                <CardTitle className='text-base font-semibold text-slate-700 flex items-center gap-2'>
+                  <Users className='h-4 w-4' />
+                  Delivery Statistics
+                </CardTitle>
+              </CardHeader>
+              <CardContent className='space-y-4'>
+                <div className='flex justify-between items-baseline p-3 bg-blue-50 rounded-lg'>
+                  <span className='text-sm font-medium text-blue-800'>
+                    Recipients
+                  </span>
+                  <span className='text-2xl font-bold text-blue-600'>
+                    {notification.delivery_stats.total_recipients.toLocaleString()}
+                  </span>
+                </div>
+                <div className='flex justify-between items-baseline p-3 bg-green-50 rounded-lg'>
+                  <span className='text-sm font-medium text-green-800'>
+                    Delivered
+                  </span>
+                  <span className='text-2xl font-bold text-green-600'>
+                    {notification.delivery_stats.delivered.toLocaleString()}
+                  </span>
+                </div>
+                <div className='flex justify-between items-baseline p-3 bg-purple-50 rounded-lg'>
+                  <span className='text-sm font-medium text-purple-800'>
+                    Read
+                  </span>
+                  <span className='text-2xl font-bold text-purple-600'>
+                    {notification.delivery_stats.read.toLocaleString()}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Target Audience Card */}
           <Card className='shadow-md border-slate-100'>
             <CardHeader className='pb-3'>
               <CardTitle className='text-base font-semibold text-slate-700 flex items-center gap-2'>
-                <Users className='h-4 w-4' />
-                Delivery Statistics
+                <Building className='h-4 w-4' />
+                Target Audience
               </CardTitle>
             </CardHeader>
-            <CardContent className='space-y-4'>
-              <div className='flex justify-between items-baseline p-3 bg-blue-50 rounded-lg'>
-                <span className='text-sm font-medium text-blue-800'>
-                  Recipients
-                </span>
-                <span className='text-2xl font-bold text-blue-600'>
-                  {notification.delivery_stats.total_recipients.toLocaleString()}
-                </span>
+            <CardContent className='space-y-2 text-sm'>
+              <div className='font-semibold text-slate-600 p-3 bg-slate-50 rounded-lg'>
+                {getTargetDescription()}
               </div>
-              <div className='flex justify-between items-baseline p-3 bg-green-50 rounded-lg'>
-                <span className='text-sm font-medium text-green-800'>
-                  Delivered
-                </span>
-                <span className='text-2xl font-bold text-green-600'>
-                  {notification.delivery_stats.delivered.toLocaleString()}
-                </span>
-              </div>
-              <div className='flex justify-between items-baseline p-3 bg-purple-50 rounded-lg'>
-                <span className='text-sm font-medium text-purple-800'>
-                  Read
-                </span>
-                <span className='text-2xl font-bold text-purple-600'>
-                  {notification.delivery_stats.read.toLocaleString()}
-                </span>
-              </div>
+
+              {notification.targeting.institution_id && (
+                <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
+                  <span className='capitalize text-slate-500'>Institution</span>
+                  <span className='font-medium text-slate-700'>
+                    {notification.targeting.institution_name ||
+                      notification.targeting.institution_id}
+                  </span>
+                </div>
+              )}
+              {notification.targeting.department_id && (
+                <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
+                  <span className='capitalize text-slate-500'>Department</span>
+                  <span className='font-medium text-slate-700'>
+                    {notification.targeting.department_name ||
+                      notification.targeting.department_id}
+                  </span>
+                </div>
+              )}
+              {notification.targeting.program_id && (
+                <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
+                  <span className='capitalize text-slate-500'>Program</span>
+                  <span className='font-medium text-slate-700'>
+                    {notification.targeting.program_name ||
+                      notification.targeting.program_id}
+                  </span>
+                </div>
+              )}
+              {notification.targeting.semester && (
+                <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
+                  <span className='capitalize text-slate-500'>Semester</span>
+                  <Badge variant='secondary' className='font-mono'>
+                    {notification.targeting.semester}
+                  </Badge>
+                </div>
+              )}
+              {notification.targeting.section && (
+                <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
+                  <span className='capitalize text-slate-500'>Section</span>
+                  <Badge variant='secondary' className='font-mono'>
+                    {notification.targeting.section}
+                  </Badge>
+                </div>
+              )}
+              {notification.targeting.target_roles &&
+                notification.targeting.target_roles.length > 0 && (
+                  <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
+                    <span className='capitalize text-slate-500'>
+                      Target Roles
+                    </span>
+                    <div className='flex flex-wrap gap-2'>
+                      {getRoleNames().map((roleName, index) => (
+                        <Badge
+                          key={index}
+                          variant='secondary'
+                          className='text-xs'
+                        >
+                          {roleName}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
             </CardContent>
           </Card>
-        )}
 
-        {/* Target Audience Card */}
-        <Card className='shadow-md border-slate-100'>
-          <CardHeader className='pb-3'>
-            <CardTitle className='text-base font-semibold text-slate-700 flex items-center gap-2'>
-              <Building className='h-4 w-4' />
-              Target Audience
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-2 text-sm'>
-            <div className='font-semibold text-slate-600 p-3 bg-slate-50 rounded-lg'>
-              {getTargetDescription()}
-            </div>
-
-            {notification.targeting.institution_id && (
-              <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
-                <span className='capitalize text-slate-500'>Institution</span>
-                <span className='font-medium text-slate-700'>
-                  {notification.targeting.institution_name ||
-                    notification.targeting.institution_id}
-                </span>
-              </div>
-            )}
-            {notification.targeting.department_id && (
-              <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
-                <span className='capitalize text-slate-500'>Department</span>
-                <span className='font-medium text-slate-700'>
-                  {notification.targeting.department_name ||
-                    notification.targeting.department_id}
-                </span>
-              </div>
-            )}
-            {notification.targeting.program_id && (
-              <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
-                <span className='capitalize text-slate-500'>Program</span>
-                <span className='font-medium text-slate-700'>
-                  {notification.targeting.program_name ||
-                    notification.targeting.program_id}
-                </span>
-              </div>
-            )}
-            {notification.targeting.semester && (
-              <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
-                <span className='capitalize text-slate-500'>Semester</span>
-                <Badge variant='secondary' className='font-mono'>
-                  {notification.targeting.semester}
-                </Badge>
-              </div>
-            )}
-            {notification.targeting.section && (
-              <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
-                <span className='capitalize text-slate-500'>Section</span>
-                <Badge variant='secondary' className='font-mono'>
-                  {notification.targeting.section}
-                </Badge>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Metadata Card */}
-        <Card className='shadow-md border-slate-100'>
-          <CardHeader className='pb-3'>
-            <CardTitle className='text-base font-semibold text-slate-700 flex items-center gap-2'>
-              <Hash className='h-4 w-4' />
-              Metadata
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-3 text-sm'>
-            <div className='py-2 px-3'>
-              <div className='text-slate-500 mb-1'>Notification ID</div>
-              <div className='font-mono bg-slate-100 p-2 rounded text-xs text-slate-600 break-all'>
-                {notification.id}
-              </div>
-            </div>
-            <div className='py-2 px-3'>
-              <div className='text-slate-500 mb-1'>Created At</div>
-              <div className='font-medium text-slate-800'>
-                {format(new Date(notification.created_at), 'PPP')}
-                <span className='ml-2 text-slate-400 font-normal'>
-                  (
-                  {formatDistanceToNow(new Date(notification.created_at), {
-                    addSuffix: true
-                  })}
-                  )
-                </span>
-              </div>
-            </div>
-            {notification.expires_at && (
-              <div className='py-2 px-3 bg-amber-50 rounded-lg'>
-                <div className='text-amber-600 font-semibold mb-1'>
-                  Expires At
-                </div>
-                <div className='font-medium text-amber-800'>
-                  {format(new Date(notification.expires_at), 'PPP')}
+          {/* Metadata Card */}
+          <Card className='shadow-md border-slate-100'>
+            <CardHeader className='pb-3'>
+              <CardTitle className='text-base font-semibold text-slate-700 flex items-center gap-2'>
+                <Hash className='h-4 w-4' />
+                Metadata
+              </CardTitle>
+            </CardHeader>
+            <CardContent className='space-y-3 text-sm'>
+              <div className='py-2 px-3'>
+                <div className='text-slate-500 mb-1'>Notification ID</div>
+                <div className='font-mono bg-slate-100 p-2 rounded text-xs text-slate-600 break-all'>
+                  {notification.id}
                 </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              <div className='py-2 px-3'>
+                <div className='text-slate-500 mb-1'>Created At</div>
+                <div className='font-medium text-slate-800'>
+                  {format(new Date(notification.created_at), 'PPP')}
+                  <span className='ml-2 text-slate-400 font-normal'>
+                    (
+                    {formatDistanceToNow(new Date(notification.created_at), {
+                      addSuffix: true
+                    })}
+                    )
+                  </span>
+                </div>
+              </div>
+              {notification.expires_at && (
+                <div className='py-2 px-3 bg-amber-50 rounded-lg'>
+                  <div className='text-amber-600 font-semibold mb-1'>
+                    Expires At
+                  </div>
+                  <div className='font-medium text-amber-800'>
+                    {format(new Date(notification.expires_at), 'PPP')}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
