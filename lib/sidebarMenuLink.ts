@@ -43,7 +43,8 @@ import {
   PlusCircle,
   Clock,
   RefreshCw,
-  Bug
+  Bug,
+  UserCheck
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 
@@ -386,27 +387,25 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Learners Management',
       menus: [
         {
+          href: '/students/dashboard',
+          label: 'Learners Analytics',
+          active: pathname === '/students/dashboard',
+          icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/students/onboarding',
+          label: 'Learners Onboarding',
+          active: pathname === '/students/onboarding',
+          icon: UserCheck,
+          submenus: []
+        },
+        {
           href: '/students',
-          label: 'All Learners',
-          active: pathname.startsWith('/students'),
+          label: 'Learners List',
+          active: pathname === '/students',
           icon: Users,
-          submenus: [
-            {
-              href: '/students/dashboard',
-              label: 'Analytics Dashboard',
-              active: pathname === '/students/dashboard'
-            },
-            {
-              href: '/students/onboarding',
-              label: 'Learners Onboarding',
-              active: pathname.startsWith('/students/onboarding')
-            },
-            {
-              href: '/students',
-              label: 'Learners List',
-              active: pathname === '/students'
-            }
-          ]
+          submenus: []
         },
         {
           href: '/students/promotion',

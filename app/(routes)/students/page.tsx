@@ -20,7 +20,8 @@ import {
   AlertCircle,
   BarChart3,
   Settings,
-  Users
+  Users,
+  MoreVertical
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +82,14 @@ import {
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import toast from 'react-hot-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 
 // Define the DateRange type
 type DateRange = {
@@ -104,6 +113,17 @@ const STUDENT_STATUS_OPTIONS = [
 export default function StudentsPage() {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+
+  // Define permissions at the top for clarity and reuse
+  const canDeleteStudents = useMemo(
+    () => isSuperAdmin || canAccess('students', 'delete'),
+    [canAccess, isSuperAdmin]
+  );
+  const canUpdateStatus = useMemo(
+    () => isSuperAdmin || canAccess('students', 'edit'), // Assuming 'edit' permission for status updates
+    [canAccess, isSuperAdmin]
+  );
+
   const [filters, setFilters] = useState<StudentFilters>({
     search: '',
     first_name: '',
@@ -340,10 +360,10 @@ export default function StudentsPage() {
     }
   }, [refetch]);
 
-  // Handle bulk delete operation
+  // Handle bulk delete operation, now wrapped in useCallback with permissions dependency
   const handleBulkDelete = useCallback(
     async (students: Student[]) => {
-      if (students.length === 0) return;
+      if (!canDeleteStudents || students.length === 0) return;
 
       try {
         // Delete students one by one (could be optimized with bulk API)
@@ -363,16 +383,19 @@ export default function StudentsPage() {
         throw error; // Re-throw to let DataTable handle the error state
       }
     },
-    [refetch]
+    [refetch, canDeleteStudents]
   );
 
-  // Handle bulk status update operation
-  const handleBulkStatusUpdate = useCallback(async (students: Student[]) => {
-    if (students.length === 0) return;
+  // Handle bulk status update, wrapped in useCallback with permissions dependency
+  const handleBulkStatusUpdate = useCallback(
+    async (students: Student[]) => {
+      if (!canUpdateStatus || students.length === 0) return;
 
-    setSelectedStudentsForStatus(students);
-    setShowStatusDialog(true);
-  }, []);
+      setSelectedStudentsForStatus(students);
+      setShowStatusDialog(true);
+    },
+    [canUpdateStatus]
+  );
 
   // Handle status update confirmation
   const handleStatusUpdateConfirm = useCallback(async () => {
@@ -421,14 +444,22 @@ export default function StudentsPage() {
     setSelectedStatus('');
   }, []);
 
-  // Determine which bulk action to use based on mode
+  // Determine which bulk action to use based on mode and permissions
   const getBulkActionFunction = useCallback(() => {
-    if (bulkActionMode === 'delete') {
+    if (bulkActionMode === 'delete' && canDeleteStudents) {
       return handleBulkDelete;
-    } else {
+    }
+    if (bulkActionMode === 'status' && canUpdateStatus) {
       return handleBulkStatusUpdate;
     }
-  }, [bulkActionMode, handleBulkDelete, handleBulkStatusUpdate]);
+    return undefined; // No action if no permission
+  }, [
+    bulkActionMode,
+    handleBulkDelete,
+    handleBulkStatusUpdate,
+    canDeleteStudents,
+    canUpdateStatus
+  ]);
 
   // Get bulk action configuration
   const getBulkActionConfig = useCallback(() => {
@@ -816,31 +847,60 @@ export default function StudentsPage() {
       {
         id: 'actions',
         header: 'Actions',
-        cell: ({ row }) => (
-          <div className='flex items-center gap-2'>
-            <Button size='icon' variant='ghost' asChild>
-              <Link href={`/students/${row.original.id}`}>
-                <EyeIcon className='h-4 w-4' />
-                <span className='sr-only'>View student</span>
-              </Link>
-            </Button>
-            <Button size='icon' variant='ghost' asChild>
-              <Link href={`/students/${row.original.id}/edit`}>
-                <FileEdit className='h-4 w-4' />
-                <span className='sr-only'>Edit student</span>
-              </Link>
-            </Button>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const student = row.original;
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant='ghost' className='h-8 w-8 p-0'>
+                  <span className='sr-only'>Open menu</span>
+                  <MoreVertical className='h-4 w-4' />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                <DropdownMenuSeparator />
+                {canAccess('students', 'view') && (
+                  <DropdownMenuItem asChild>
+                    <Link href={`/students/${student.id}`}>
+                      <EyeIcon className='mr-2 h-4 w-4' />
+                      View Details
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {canAccess('students', 'edit') && (
+                  <DropdownMenuItem asChild>
+                    <Link href={`/students/${student.id}/edit`}>
+                      <FileEdit className='mr-2 h-4 w-4' />
+                      Edit Student
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {canDeleteStudents && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className='text-destructive'
+                      onClick={() => handleBulkDelete([student])}
+                    >
+                      <Trash className='mr-2 h-4 w-4' />
+                      Delete Student
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
         enableSorting: false,
-        enableHiding: false,
-        requiredPermission: {
-          module: 'students',
-          action: 'view'
-        }
+        enableHiding: false
       }
     ],
-    [studentsData?.metadata.limit]
+    [
+      studentsData?.metadata.limit,
+      canAccess,
+      canDeleteStudents,
+      handleBulkDelete
+    ]
   );
 
   const metadata = studentsData?.metadata || {
@@ -959,8 +1019,12 @@ export default function StudentsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='delete'>Delete</SelectItem>
-                    <SelectItem value='status'>Update Status</SelectItem>
+                    <SelectItem value='delete' disabled={!canDeleteStudents}>
+                      Delete
+                    </SelectItem>
+                    <SelectItem value='status' disabled={!canUpdateStatus}>
+                      Update Status
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
