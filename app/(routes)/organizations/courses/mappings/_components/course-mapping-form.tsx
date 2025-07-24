@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -37,6 +37,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Search, X } from 'lucide-react';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 
 const courseMappingSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -93,6 +94,8 @@ export function CourseMappingForm({
     Array<{ id: string; course_name: string; course_code: string }>
   >([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isCoursesLoading, setIsCoursesLoading] = useState(false);
+  const debouncedSearchTerm = useDebounceValue(searchTerm, 300);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(courseMappingSchema),
@@ -114,15 +117,8 @@ export function CourseMappingForm({
   const watchedSemesterId = form.watch('semester_id');
   const selectedCourseIds = form.watch('course_ids') || [];
 
-  // Filter courses based on search term
-  const filteredCourses = availableCourses.filter((course) => {
-    if (!searchTerm.trim()) return true;
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      course.course_name.toLowerCase().includes(searchLower) ||
-      course.course_code.toLowerCase().includes(searchLower)
-    );
-  });
+  // No longer need to client-side filter
+  const filteredCourses = availableCourses;
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -144,11 +140,12 @@ export function CourseMappingForm({
             watchedInstitutionId
           );
           setDegrees(data);
-          form.resetField('degree_id');
-          form.resetField('department_id');
-          form.resetField('program_id');
-          form.resetField('semester_id');
-          form.resetField('course_ids');
+          // Clear dependent fields
+          form.setValue('degree_id', '');
+          form.setValue('department_id', '');
+          form.setValue('program_id', '');
+          form.setValue('semester_id', '');
+          form.setValue('course_ids', []);
           setDepartments([]);
           setPrograms([]);
           setSemesters([]);
@@ -165,19 +162,18 @@ export function CourseMappingForm({
   }, [watchedInstitutionId]);
 
   useEffect(() => {
-    if (watchedDegreeId && watchedInstitutionId) {
+    if (watchedDegreeId) {
       async function loadDepartments() {
         try {
-          const data =
-            await DepartmentService.getDepartmentsByInstitutionAndDegree(
-              watchedInstitutionId,
-              watchedDegreeId
-            );
+          const data = await DepartmentService.getDepartmentsByDegree(
+            watchedDegreeId as string
+          );
           setDepartments(data);
-          form.resetField('department_id');
-          form.resetField('program_id');
-          form.resetField('semester_id');
-          form.resetField('course_ids');
+          // Clear dependent fields
+          form.setValue('department_id', '');
+          form.setValue('program_id', '');
+          form.setValue('semester_id', '');
+          form.setValue('course_ids', []);
           setPrograms([]);
           setSemesters([]);
           setAvailableCourses([]);
@@ -190,21 +186,20 @@ export function CourseMappingForm({
       setDepartments([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedDegreeId, watchedInstitutionId]);
+  }, [watchedDegreeId]);
 
   useEffect(() => {
-    if (watchedDepartmentId && watchedInstitutionId) {
+    if (watchedDepartmentId) {
       async function loadPrograms() {
         try {
-          const { data } = await ProgramService.getPrograms({
-            institution_id: watchedInstitutionId,
-            department_id: watchedDepartmentId,
-            isActive: true
-          });
+          const data = await ProgramService.getProgramsByDepartment(
+            watchedDepartmentId
+          );
           setPrograms(data);
-          form.resetField('program_id');
-          form.resetField('semester_id');
-          form.resetField('course_ids');
+          // Clear dependent fields
+          form.setValue('program_id', '');
+          form.setValue('semester_id', '');
+          form.setValue('course_ids', []);
           setSemesters([]);
           setAvailableCourses([]);
         } catch (error) {
@@ -216,7 +211,7 @@ export function CourseMappingForm({
       setPrograms([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedDepartmentId, watchedInstitutionId]);
+  }, [watchedDepartmentId]);
 
   useEffect(() => {
     if (watchedProgramId && watchedDepartmentId && watchedInstitutionId) {
@@ -229,9 +224,6 @@ export function CourseMappingForm({
             isActive: true
           });
           setSemesters(data);
-          form.resetField('semester_id');
-          form.resetField('course_ids');
-          setAvailableCourses([]);
         } catch (error) {
           console.error('Error loading semesters:', error);
         }
@@ -243,78 +235,102 @@ export function CourseMappingForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchedProgramId, watchedDepartmentId, watchedInstitutionId]);
 
-  useEffect(() => {
-    if (watchedInstitutionId && watchedSemesterId) {
-      async function loadUnmappedCourses() {
-        try {
-          // Basic validation still needed
-          const allDepartments = await DepartmentService.getDepartments({
-            institution_id: watchedInstitutionId,
-            degree_id: watchedDegreeId,
-            limit: 1 // Just need to check if the combo exists
-          });
-          if (allDepartments.data.length === 0) {
-            toast.error('Invalid department/degree for this institution');
-            setAvailableCourses([]);
-            return;
-          }
+  const loadUnmappedCourses = useCallback(
+    async (search = '') => {
+      console.log('loadUnmappedCourses called with search:', search);
+      if (!watchedInstitutionId || !watchedSemesterId) {
+        setAvailableCourses([]);
+        return;
+      }
 
-          const courses = await CourseMappingService.getUnmappedCourses(
-            watchedInstitutionId,
-            watchedDepartmentId, // This will be ignored by the service now
-            watchedSemesterId
+      setIsCoursesLoading(true);
+      try {
+        console.log('Fetching courses with params:', {
+          institutionId: watchedInstitutionId,
+          semesterId: watchedSemesterId,
+          search
+        });
+        const courses = await CourseMappingService.getUnmappedCourses(
+          watchedInstitutionId,
+          watchedSemesterId,
+          search
+        );
+        console.log('Received courses:', courses);
+
+        // If editing, ensure the current course is in the list
+        if (isEditing && courseMapping?.course_id) {
+          const isCurrentCourseInList = courses.some(
+            (c) => c.id === courseMapping.course_id
           );
-
-          // If editing a single mapping, include the current course
-          if (isEditing && courseMapping && courseMapping.course_id) {
+          if (!isCurrentCourseInList) {
             const currentCourse = await CourseService.getCourse(
               courseMapping.course_id
             );
-            if (
-              currentCourse &&
-              !courses.some((c) => c.id === currentCourse.id)
-            ) {
-              courses.push({
+            if (currentCourse) {
+              courses.unshift({
                 id: currentCourse.id,
                 course_name: currentCourse.course_name,
                 course_code: currentCourse.course_code
               });
             }
           }
-
-          setAvailableCourses(courses);
-        } catch (error) {
-          console.error('Error loading unmapped courses:', error);
-          toast.error('Error loading courses. Please check your selections.');
         }
+        setAvailableCourses(courses);
+        console.log('Set available courses:', courses);
+      } catch (error) {
+        console.error('Error loading unmapped courses:', error);
+        toast.error('Error loading courses. Please check your selections.');
+        setAvailableCourses([]);
+      } finally {
+        setIsCoursesLoading(false);
       }
-      loadUnmappedCourses();
-    } else {
-      setAvailableCourses([]);
-    }
-    // Reset selected courses and search term when dependencies change
-    if (!isEditing) {
-      form.resetField('course_ids');
-    }
-    setSearchTerm('');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    watchedInstitutionId,
-    watchedSemesterId,
-    watchedDegreeId,
-    isEditing,
-    courseMapping
-  ]);
+    },
+    [
+      watchedInstitutionId,
+      watchedSemesterId,
+      isEditing,
+      courseMapping?.course_id
+    ]
+  );
+
+  useEffect(() => {
+    console.log(
+      'useEffect triggered with debouncedSearchTerm:',
+      debouncedSearchTerm
+    );
+    loadUnmappedCourses(debouncedSearchTerm);
+  }, [debouncedSearchTerm, loadUnmappedCourses]);
 
   const onSubmit = async (values: FormValues) => {
-    // Editing multi-mapping is complex, disable for now
     if (isEditing) {
-      toast.error(
-        'Editing multiple mappings at once is not currently supported. Please edit individual mappings.'
-      );
+      // Handle single course update
+      if (values.course_ids.length !== 1) {
+        toast.error('Please select exactly one course when editing.');
+        return;
+      }
+      try {
+        setIsSubmitting(true);
+        await CourseMappingService.updateCourseMapping(courseMapping!.id, {
+          ...values,
+          course_id: values.course_ids[0]
+        });
+        toast.success('Course mapping updated successfully');
+        router.push('/organizations/courses/mappings');
+        router.refresh();
+      } catch (error) {
+        console.error('Error updating course mapping:', error);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'Failed to update course mapping'
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 
+    // Handle new course mappings (bulk)
     try {
       setIsSubmitting(true);
       let successCount = 0;
@@ -369,7 +385,7 @@ export function CourseMappingForm({
         router.refresh();
       } else {
         // If there were errors, refresh available courses
-        await loadUnmappedCourses();
+        await loadUnmappedCourses(debouncedSearchTerm);
       }
     } catch (error) {
       // Catch errors from validation or other unexpected issues
@@ -384,19 +400,10 @@ export function CourseMappingForm({
     }
   };
 
-  // Helper function to reload courses manually if needed
-  async function loadUnmappedCourses() {
-    try {
-      const courses = await CourseMappingService.getUnmappedCourses(
-        watchedInstitutionId,
-        watchedDepartmentId,
-        watchedSemesterId
-      );
-      setAvailableCourses(courses);
-    } catch (error) {
-      console.error('Error reloading unmapped courses:', error);
-    }
-  }
+  // Helper function to reload courses manually if needed (not used in current flow)
+  const loadUnmappedCoursesWithDebounce = useCallback(async () => {
+    await loadUnmappedCourses(debouncedSearchTerm);
+  }, [loadUnmappedCourses, debouncedSearchTerm]);
 
   // Helper functions for course selection
   const handleSelectAll = () => {
@@ -458,6 +465,17 @@ export function CourseMappingForm({
                     <Select
                       onValueChange={(value) => {
                         field.onChange(value);
+                        // Reset dependent fields
+                        form.setValue('degree_id', '');
+                        form.setValue('department_id', '');
+                        form.setValue('program_id', '');
+                        form.setValue('semester_id', '');
+                        form.setValue('course_ids', []);
+                        setDegrees([]);
+                        setDepartments([]);
+                        setPrograms([]);
+                        setSemesters([]);
+                        setAvailableCourses([]);
                       }}
                       value={field.value}
                       disabled={isEditing}
@@ -489,6 +507,15 @@ export function CourseMappingForm({
                     <Select
                       onValueChange={(value) => {
                         field.onChange(value);
+                        // Reset dependent fields
+                        form.setValue('department_id', '');
+                        form.setValue('program_id', '');
+                        form.setValue('semester_id', '');
+                        form.setValue('course_ids', []);
+                        setDepartments([]);
+                        setPrograms([]);
+                        setSemesters([]);
+                        setAvailableCourses([]);
                       }}
                       value={field.value}
                       disabled={!watchedInstitutionId || isEditing}
@@ -520,6 +547,13 @@ export function CourseMappingForm({
                     <Select
                       onValueChange={(value) => {
                         field.onChange(value);
+                        // Reset dependent fields
+                        form.setValue('program_id', '');
+                        form.setValue('semester_id', '');
+                        form.setValue('course_ids', []);
+                        setPrograms([]);
+                        setSemesters([]);
+                        setAvailableCourses([]);
                       }}
                       value={field.value}
                       disabled={!watchedDegreeId || isEditing}
@@ -551,6 +585,11 @@ export function CourseMappingForm({
                     <Select
                       onValueChange={(value) => {
                         field.onChange(value);
+                        // Reset dependent fields
+                        form.setValue('semester_id', '');
+                        form.setValue('course_ids', []);
+                        setSemesters([]);
+                        setAvailableCourses([]);
                       }}
                       value={field.value}
                       disabled={!watchedDepartmentId || isEditing}
@@ -582,6 +621,8 @@ export function CourseMappingForm({
                     <Select
                       onValueChange={(value) => {
                         field.onChange(value);
+                        form.setValue('course_ids', []);
+                        setAvailableCourses([]);
                       }}
                       value={field.value}
                       disabled={!watchedProgramId || isEditing}
@@ -650,19 +691,19 @@ export function CourseMappingForm({
                     )}
                   </div>
                   <div className='text-sm text-muted-foreground mb-2'>
-                    {availableCourses.length > 0
+                    {isCoursesLoading
+                      ? 'Searching for courses...'
+                      : filteredCourses.length > 0
                       ? searchTerm
-                        ? `Showing ${filteredCourses.length} of ${availableCourses.length} courses matching "${searchTerm}"`
-                        : `Choose from ${
-                            availableCourses.length
-                          } unmapped course${
-                            availableCourses.length !== 1 ? 's' : ''
-                          } for this institution and semester`
+                        ? `Showing ${filteredCourses.length} courses matching "${searchTerm}"`
+                        : `Showing ${filteredCourses.length} available course(s) for this institution and semester`
                       : watchedSemesterId
-                      ? 'All courses for this institution and semester are already mapped'
+                      ? searchTerm
+                        ? `No courses found matching "${searchTerm}"`
+                        : 'All courses for this institution and semester are already mapped or none exist.'
                       : 'Select institution and semester to see available courses'}
                   </div>
-                  {availableCourses.length > 0 && (
+                  {watchedSemesterId && (
                     <div className='space-y-3 mb-3'>
                       <div className='relative'>
                         <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
@@ -717,7 +758,11 @@ export function CourseMappingForm({
                     </div>
                   )}
                   <ScrollArea className='h-72 w-full rounded-md border p-4'>
-                    {availableCourses.length === 0 ? (
+                    {isCoursesLoading ? (
+                      <p className='text-sm text-muted-foreground text-center'>
+                        Loading...
+                      </p>
+                    ) : availableCourses.length === 0 ? (
                       <p className='text-sm text-muted-foreground'>
                         {watchedSemesterId
                           ? 'No unmapped courses found for this selection.'
@@ -790,13 +835,16 @@ export function CourseMappingForm({
           >
             Cancel
           </Button>
-          <Button type='submit' disabled={isSubmitting || isEditing}>
-            {' '}
-            {/* Disable submit if editing for now */}
+          <Button
+            type='submit'
+            disabled={
+              isSubmitting || (isEditing && selectedCourseIds.length !== 1)
+            }
+          >
             {isSubmitting
               ? 'Saving...'
               : isEditing
-              ? 'Save Mapping (Edit Disabled)'
+              ? 'Update Mapping'
               : 'Save Mappings'}
           </Button>
         </div>
