@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useCourseMappings } from '@/hooks/organization/use-course-mappings';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -12,10 +12,20 @@ import { CourseMappingFilters as CourseMappingFilterType } from '@/types/organiz
 import { usePermissions } from '@/hooks/use-permissions';
 
 export default function CourseMappingsPage() {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<Partial<CourseMappingFilterType>>({});
+  const [filters, setFilters] = useState<CourseMappingFilterType>({
+    page: 1,
+    limit: 10,
+    search: '',
+    institution_id: undefined,
+    degree_id: undefined,
+    department_id: undefined,
+    program_id: undefined,
+    semester_id: undefined,
+    isActive: undefined
+  });
+
+  // Memoize the filter object to prevent unnecessary re-renders
+  const memoizedFilters = useMemo(() => filters, [filters]);
 
   const { canAccess, isSuperAdmin } = usePermissions();
   const canEditCourses =
@@ -26,31 +36,29 @@ export default function CourseMappingsPage() {
     isLoading: courseMappingsLoading,
     error: courseMappingsError,
     refetch: refetchCourseMappings
-  } = useCourseMappings({
-    page,
-    limit: pageSize,
-    search: searchQuery,
-    ...filters
-  });
+  } = useCourseMappings(memoizedFilters);
 
-  const handleFilterChange = (newFilters: Partial<CourseMappingFilterType>) => {
-    setFilters(newFilters);
-    setPage(1);
-  };
+  // Separate handler for filter changes (resets page to 1)
+  const handleFilterChange = useCallback(
+    (newFilters: Partial<CourseMappingFilterType>) => {
+      setFilters((prev) => ({
+        ...prev,
+        ...newFilters,
+        page: 1 // Always reset to page 1 when filters change
+      }));
+    },
+    []
+  );
 
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-  };
+  // Dedicated handler for page changes (doesn't reset page)
+  const handlePageChange = useCallback((page: number) => {
+    setFilters((prev) => ({ ...prev, page }));
+  }, []);
 
-  const handlePageSizeChange = (newSize: number) => {
-    setPageSize(newSize);
-    setPage(1);
-  };
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    setPage(1);
-  };
+  // Handler for page size changes (resets to page 1)
+  const handlePageSizeChange = useCallback((limit: number) => {
+    setFilters((prev) => ({ ...prev, limit, page: 1 }));
+  }, []);
 
   if (courseMappingsError) {
     return (
@@ -97,7 +105,7 @@ export default function CourseMappingsPage() {
             courseMappingsData?.metadata || {
               total: 0,
               page: 1,
-              limit: pageSize,
+              limit: filters.limit || 10,
               totalPages: 1
             }
           }
@@ -105,7 +113,6 @@ export default function CourseMappingsPage() {
           onPageSizeChange={handlePageSizeChange}
           onRefresh={refetchCourseMappings}
           paginationLoading={courseMappingsLoading}
-          onSearch={handleSearch}
         />
       </div>
     </ContentLayout>

@@ -32,7 +32,6 @@ interface CourseMappingListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onRefresh: () => void;
   paginationLoading?: boolean;
-  onSearch?: (query: string) => void;
 }
 
 export function CourseMappingList({
@@ -41,8 +40,7 @@ export function CourseMappingList({
   onPageChange,
   onPageSizeChange,
   onRefresh,
-  paginationLoading,
-  onSearch
+  paginationLoading
 }: CourseMappingListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
 
@@ -282,8 +280,6 @@ export function CourseMappingList({
     <DataTable
       columns={columns}
       data={courseMappings}
-      searchPlaceholder='Search by code, name, institution, department...'
-      onSearch={onSearch}
       permissions={{
         module: 'organizations.course.mappings',
         actions: {

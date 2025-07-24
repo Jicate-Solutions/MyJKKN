@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Search } from 'lucide-react';
 
 import {
@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -17,9 +18,10 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { CourseMappingFilters as CourseMappingFiltersType } from '@/types/organizations';
+import { useDebounce } from '@/hooks/use-debounce';
 
 interface CourseMappingFiltersProps {
-  filters: Partial<CourseMappingFiltersType>;
+  filters: CourseMappingFiltersType;
   onFilterChange: (filters: Partial<CourseMappingFiltersType>) => void;
 }
 
@@ -42,6 +44,17 @@ export function CourseMappingFilters({
   const [semesters, setSemesters] = useState<
     Array<{ id: string; semester_name: string }>
   >([]);
+
+  const debouncedSearch = useDebounce((value: string) => {
+    onFilterChange({ search: value });
+  }, 300);
+
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      debouncedSearch(e.target.value);
+    },
+    [debouncedSearch]
+  );
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -131,6 +144,18 @@ export function CourseMappingFilters({
 
   return (
     <div className='space-y-4 mb-6'>
+      <div className='grid gap-4 w-full'>
+        <div className='relative'>
+          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
+          <Input
+            placeholder='Search by course code, name, institution, department...'
+            onChange={handleSearchChange}
+            defaultValue={filters.search}
+            className='pl-9'
+          />
+        </div>
+        <div></div> {/* Empty div for grid alignment */}
+      </div>
       <div className='grid gap-4 md:grid-cols-5'>
         <Select
           value={filters.institution_id || 'all'}
