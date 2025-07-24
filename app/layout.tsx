@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Poppins } from 'next/font/google';
 import './globals.css';
 import { ToastProvider } from '@/providers/toast-provider';
+import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import Script from 'next/script';
@@ -34,7 +35,7 @@ export default function RootLayout({
           storageKey='theme-preference'
         >
           <ToastProvider />
-          {children}
+          <PushNotificationProvider>{children}</PushNotificationProvider>
           <SpeedInsights />
         </ThemeProvider>
         <Script

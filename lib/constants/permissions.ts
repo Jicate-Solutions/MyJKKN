@@ -454,5 +454,24 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.invoices.send', label: 'Send Invoices' },
       { key: 'billing.reports.view', label: 'View Billing Reports' }
     ]
+  },
+  {
+    name: 'Notifications',
+    key: 'notifications',
+    permissions: [
+      { key: 'notifications.view', label: 'View Notifications' },
+      { key: 'notifications.create', label: 'Create Notifications' },
+      { key: 'notifications.edit', label: 'Edit Notifications' },
+      { key: 'notifications.delete', label: 'Delete Notifications' },
+      { key: 'notifications.send', label: 'Send Notifications' },
+      { key: 'notifications.view.all', label: 'View All Notifications' }
+    ]
   }
 ];
+
+export const PERMISSIONS = {
+  // Notification permissions
+  MANAGE_NOTIFICATIONS: 'manage_notifications',
+  SEND_NOTIFICATIONS: 'send_notifications',
+  VIEW_ALL_NOTIFICATIONS: 'view_all_notifications'
+} as const;

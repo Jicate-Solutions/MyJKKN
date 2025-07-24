@@ -160,6 +160,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/physical-resources': 'physical_resources.view',
   '/digital-resources': 'digital_resources.view',
 
+  // Notification Management
+  '/admin/notifications': 'notifications.view',
+  '/admin/notifications/new': 'notifications.create',
+
   // System Management
   '/system/api-management': 'system.api.view',
   '/admin/bug-reports': 'system.bugs.view',
@@ -678,6 +682,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/billing/reports'),
           icon: BarChart,
           submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Administration',
+      menus: [
+        {
+          href: '/admin/notifications',
+          label: 'Notifications',
+          active: pathname.startsWith('/admin/notifications'),
+          icon: Bell,
+          submenus: [
+            {
+              href: '/admin/notifications',
+              label: 'All Notifications',
+              active: pathname === '/admin/notifications'
+            },
+            {
+              href: '/admin/notifications/new',
+              label: 'Send Notification',
+              active: pathname === '/admin/notifications/new'
+            }
+          ]
         }
       ]
     },
