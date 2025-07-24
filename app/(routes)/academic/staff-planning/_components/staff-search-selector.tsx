@@ -56,7 +56,7 @@ export function StaffSearchSelector({
   staffMembers,
   value = [],
   onChange,
-  placeholder = 'Search and select staff members...',
+  placeholder = 'Add staff members to this course...',
   className,
   courseName
 }: StaffSearchSelectorProps) {
@@ -202,7 +202,14 @@ export function StaffSearchSelector({
 
       <div className='space-y-2'>
         <div className='flex items-center justify-between'>
-          <Label className='text-sm'>Staff Members</Label>
+          <div className='flex items-center gap-2'>
+            <Label className='text-sm'>Staff Members</Label>
+            {staffMembers.length > 0 && (
+              <Badge variant='outline' className='text-xs'>
+                {staffMembers.length} total
+              </Badge>
+            )}
+          </div>
           {coordinatorAssignment && (
             <Badge variant='outline' className='text-xs'>
               Coordinator: {getStaffName(coordinatorAssignment.staff_id)}
@@ -221,6 +228,11 @@ export function StaffSearchSelector({
               <div className='flex items-center gap-2'>
                 <Plus className='h-4 w-4' />
                 <span className='text-sm'>{placeholder}</span>
+                {staffMembers.length > 0 && (
+                  <Badge variant='secondary' className='text-xs'>
+                    {staffMembers.length} staff
+                  </Badge>
+                )}
               </div>
               <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
             </Button>
@@ -232,8 +244,24 @@ export function StaffSearchSelector({
                 className='h-9'
               />
               <CommandList>
-                <CommandEmpty>No staff member found.</CommandEmpty>
+                <CommandEmpty>
+                  {staffMembers.length === 0
+                    ? 'No staff members available for this institution.'
+                    : 'No staff member found with that search term.'}
+                </CommandEmpty>
                 <CommandGroup>
+                  {staffMembers.filter(
+                    (staff) => !selectedStaffIds.includes(staff.id)
+                  ).length > 0 && (
+                    <div className='px-2 py-1.5 text-xs text-muted-foreground border-b'>
+                      {
+                        staffMembers.filter(
+                          (staff) => !selectedStaffIds.includes(staff.id)
+                        ).length
+                      }{' '}
+                      available staff members
+                    </div>
+                  )}
                   {staffMembers
                     .filter((staff) => !selectedStaffIds.includes(staff.id))
                     .map((staff) => (
