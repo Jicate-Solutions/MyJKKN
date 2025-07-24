@@ -230,9 +230,30 @@ export class CourseMappingService {
       );
 
       if (filters.search) {
-        query = query.or(
-          `course.course_code.ilike.%${filters.search}%,course.course_name.ilike.%${filters.search}%`
-        );
+        // For joined tables, we need to use a different approach
+        // We'll filter by course_id from a subquery of courses that match the search
+        const { data: matchingCourses } = await this.supabase
+          .from('courses')
+          .select('id')
+          .or(
+            `course_code.ilike.%${filters.search}%,course_name.ilike.%${filters.search}%`
+          );
+
+        if (matchingCourses && matchingCourses.length > 0) {
+          const courseIds = matchingCourses.map((course) => course.id);
+          query = query.in('course_id', courseIds);
+        } else {
+          // No matching courses found, return empty result
+          return {
+            data: [],
+            metadata: {
+              total: 0,
+              page: filters.page || 1,
+              limit: filters.limit || 10,
+              totalPages: 0
+            }
+          };
+        }
       }
 
       if (filters.institution_id) {
