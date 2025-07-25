@@ -1,7 +1,6 @@
 'use client';
 
 import { use } from 'react';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -14,7 +13,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
+import { useCourseMappingDetail } from '@/hooks/organization/use-course-mappings';
 import type { CourseMapping } from '@/types/organizations';
 import { CourseMappingForm } from '../../_components/course-mapping-form';
 
@@ -26,33 +25,9 @@ export default function EditCourseMappingPage({
   params
 }: EditCourseMappingPageProps) {
   const { id } = use(params);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [courseMapping, setCourseMapping] = useState<CourseMapping | null>(
-    null
-  );
+  const { data: courseMapping, isLoading, error } = useCourseMappingDetail(id);
 
-  useEffect(() => {
-    async function fetchCourseMapping() {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await CourseMappingService.getCourseMapping(id);
-        setCourseMapping(data);
-      } catch (err) {
-        console.error('Error fetching course mapping:', err);
-        setError(
-          err instanceof Error ? err.message : 'Failed to fetch course mapping'
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchCourseMapping();
-  }, [id]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <ContentLayout title='Edit Course Mapping'>
         <div className='flex items-center justify-center min-h-[400px]'>
@@ -67,7 +42,7 @@ export default function EditCourseMappingPage({
       <ContentLayout title='Edit Course Mapping'>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
-            {error || 'Course mapping not found'}
+            {error?.message || 'Course mapping not found'}
           </p>
           <Button variant='outline' asChild>
             <Link href='/organizations/courses/mappings'>
@@ -123,7 +98,16 @@ export default function EditCourseMappingPage({
           </p>
         </div>
 
-        <CourseMappingForm courseMapping={courseMapping} isEditing={true} />
+        {courseMapping && (
+          <CourseMappingForm
+            courseMapping={{
+              ...courseMapping,
+              // The 'course' object from the query is partial. Override it to resolve type conflict.
+              course: undefined
+            }}
+            isEditing={true}
+          />
+        )}
       </div>
     </ContentLayout>
   );

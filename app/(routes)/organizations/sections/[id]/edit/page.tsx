@@ -3,7 +3,7 @@
 import { use } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-// import { SectionForm } from '../../_components/section-form'; // Component deleted
+import { SectionForm } from '../../_components/section-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
@@ -88,11 +88,7 @@ export default function EditSectionPage({ params }: EditSectionPageProps) {
 
         <Card>
           <CardContent className='p-6'>
-            <div className='text-center py-8'>
-              <p className='text-muted-foreground'>
-                Section form component has been removed.
-              </p>
-            </div>
+            <SectionForm section={section} isEditing={true} />
           </CardContent>
         </Card>
       </div>

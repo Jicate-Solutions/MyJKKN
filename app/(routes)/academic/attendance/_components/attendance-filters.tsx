@@ -57,13 +57,47 @@ export function AttendanceFilters({
   const [checkingPermissions, setCheckingPermissions] = useState(false);
 
   // Fetch data hooks
-  const { institutions, fetchInstitutions } = useInstitutions({});
-  const { academicYears, fetchAcademicYears } = useAcademicYears({});
-  const { degrees, fetchDegrees } = useDegrees({});
-  const { programs, fetchPrograms } = usePrograms({});
-  const { departments, fetchDepartments } = useDepartments({});
-  const { semesters, fetchSemesters } = useSemesters({});
-  const { sections, fetchSections } = useSections({});
+  const { data: institutionsData, refetch: fetchInstitutions } =
+    useInstitutions({});
+  const institutions = institutionsData?.data ?? [];
+
+  const { academicYears, fetchAcademicYears } = useAcademicYears({
+    institution_id: searchContext.institution_id || undefined
+  });
+
+  const { data: degreesData, refetch: fetchDegrees } = useDegrees({
+    institution_id: searchContext.institution_id || undefined
+  });
+  const degrees = degreesData?.data ?? [];
+
+  const { data: programsData, refetch: fetchPrograms } = usePrograms({
+    institution_id: searchContext.institution_id || undefined,
+    degree_id: searchContext.degree_id || undefined
+  });
+  const programs = programsData?.data ?? [];
+
+  const { data: departmentsData, refetch: fetchDepartments } = useDepartments({
+    institution_id: searchContext.institution_id || undefined,
+    degree_id: searchContext.degree_id || undefined
+  });
+  const departments = departmentsData?.data ?? [];
+
+  const { data: semestersData, refetch: fetchSemesters } = useSemesters({
+    institution_id: searchContext.institution_id || undefined,
+    degree_id: searchContext.degree_id || undefined,
+    program_id: searchContext.program_id || undefined,
+    department_id: searchContext.department_id || undefined
+  });
+  const semesters = semestersData?.data ?? [];
+
+  const { data: sectionsData, refetch: fetchSections } = useSections({
+    institution_id: searchContext.institution_id || undefined,
+    degree_id: searchContext.degree_id || undefined,
+    program_id: searchContext.program_id || undefined,
+    department_id: searchContext.department_id || undefined,
+    semester_id: searchContext.semester_id || undefined
+  });
+  const sections = sectionsData?.data ?? [];
 
   // Load initial data
   useEffect(() => {
@@ -73,31 +107,21 @@ export function AttendanceFilters({
   // Load academic years when institution changes
   useEffect(() => {
     if (searchContext.institution_id) {
-      fetchAcademicYears({
-        institution_id: searchContext.institution_id,
-        isActive: true
-      });
+      fetchAcademicYears();
     }
   }, [searchContext.institution_id, fetchAcademicYears]);
 
   // Load degrees when institution changes
   useEffect(() => {
     if (searchContext.institution_id) {
-      fetchDegrees({
-        institution_id: searchContext.institution_id,
-        isActive: true
-      });
+      fetchDegrees();
     }
   }, [searchContext.institution_id, fetchDegrees]);
 
   // Load programs when degree changes
   useEffect(() => {
     if (searchContext.institution_id && searchContext.degree_id) {
-      fetchPrograms({
-        institution_id: searchContext.institution_id,
-        degree_id: searchContext.degree_id,
-        isActive: true
-      });
+      fetchPrograms();
     }
   }, [searchContext.institution_id, searchContext.degree_id, fetchPrograms]);
 
@@ -108,11 +132,7 @@ export function AttendanceFilters({
       searchContext.degree_id &&
       searchContext.program_id
     ) {
-      fetchDepartments({
-        institution_id: searchContext.institution_id,
-        degree_id: searchContext.degree_id,
-        isActive: true
-      });
+      fetchDepartments();
     }
   }, [
     searchContext.institution_id,
@@ -129,13 +149,7 @@ export function AttendanceFilters({
       searchContext.program_id &&
       searchContext.department_id
     ) {
-      fetchSemesters({
-        institution_id: searchContext.institution_id,
-        degree_id: searchContext.degree_id,
-        program_id: searchContext.program_id,
-        department_id: searchContext.department_id,
-        isActive: true
-      });
+      fetchSemesters();
     }
   }, [
     searchContext.institution_id,
@@ -154,14 +168,7 @@ export function AttendanceFilters({
       searchContext.department_id &&
       searchContext.semester_id
     ) {
-      fetchSections({
-        institution_id: searchContext.institution_id,
-        degree_id: searchContext.degree_id,
-        program_id: searchContext.program_id,
-        department_id: searchContext.department_id,
-        semester_id: searchContext.semester_id,
-        isActive: true
-      });
+      fetchSections();
     }
   }, [
     searchContext.institution_id,
@@ -272,11 +279,16 @@ export function AttendanceFilters({
                 <SelectValue placeholder='Select institution' />
               </SelectTrigger>
               <SelectContent>
-                {institutions.map((institution) => (
-                  <SelectItem key={institution.id} value={institution.id}>
-                    {institution.name}
-                  </SelectItem>
-                ))}
+                {institutions.map(
+                  (institution: {
+                    id: string;
+                    name: import('react').ReactNode;
+                  }) => (
+                    <SelectItem key={institution.id} value={institution.id}>
+                      {institution.name}
+                    </SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -324,11 +336,16 @@ export function AttendanceFilters({
                 <SelectValue placeholder='Select degree' />
               </SelectTrigger>
               <SelectContent>
-                {degrees.map((degree) => (
-                  <SelectItem key={degree.id} value={degree.id}>
-                    {degree.degree_name}
-                  </SelectItem>
-                ))}
+                {degrees.map(
+                  (degree: {
+                    id: string;
+                    degree_name: import('react').ReactNode;
+                  }) => (
+                    <SelectItem key={degree.id} value={degree.id}>
+                      {degree.degree_name}
+                    </SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -352,11 +369,16 @@ export function AttendanceFilters({
                 <SelectValue placeholder='Select program' />
               </SelectTrigger>
               <SelectContent>
-                {programs.map((program) => (
-                  <SelectItem key={program.id} value={program.id}>
-                    {program.program_name}
-                  </SelectItem>
-                ))}
+                {programs.map(
+                  (program: {
+                    id: string;
+                    program_name: import('react').ReactNode;
+                  }) => (
+                    <SelectItem key={program.id} value={program.id}>
+                      {program.program_name}
+                    </SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -379,11 +401,16 @@ export function AttendanceFilters({
                 <SelectValue placeholder='Select department' />
               </SelectTrigger>
               <SelectContent>
-                {departments.map((department) => (
-                  <SelectItem key={department.id} value={department.id}>
-                    {department.department_name}
-                  </SelectItem>
-                ))}
+                {departments.map(
+                  (department: {
+                    id: string;
+                    department_name: import('react').ReactNode;
+                  }) => (
+                    <SelectItem key={department.id} value={department.id}>
+                      {department.department_name}
+                    </SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -405,11 +432,16 @@ export function AttendanceFilters({
                 <SelectValue placeholder='Select semester' />
               </SelectTrigger>
               <SelectContent>
-                {semesters.map((semester) => (
-                  <SelectItem key={semester.id} value={semester.id}>
-                    {semester.semester_name}
-                  </SelectItem>
-                ))}
+                {semesters.map(
+                  (semester: {
+                    id: string;
+                    semester_name: import('react').ReactNode;
+                  }) => (
+                    <SelectItem key={semester.id} value={semester.id}>
+                      {semester.semester_name}
+                    </SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -431,11 +463,16 @@ export function AttendanceFilters({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='all_sections'>All Sections</SelectItem>
-                {sections.map((section) => (
-                  <SelectItem key={section.id} value={section.id}>
-                    {section.section_name}
-                  </SelectItem>
-                ))}
+                {sections.map(
+                  (section: {
+                    id: string;
+                    section_name: import('react').ReactNode;
+                  }) => (
+                    <SelectItem key={section.id} value={section.id}>
+                      {section.section_name}
+                    </SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
           </div>

@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { Section } from '@/types/organizations';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
@@ -55,6 +56,7 @@ interface SectionFormProps {
 
 export function SectionForm({ section, isEditing }: SectionFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [checkingName, setCheckingName] = useState(false);
@@ -442,12 +444,16 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
 
       if (isEditing && section) {
         await SectionService.updateSection(section.id, submitValues);
-        toast.success('Section updated successfully');
+
+        await queryClient.invalidateQueries({
+          queryKey: ['section', section.id]
+        });
       } else {
         await SectionService.createSection(submitValues);
         toast.success('Section created successfully');
       }
 
+      await queryClient.invalidateQueries({ queryKey: ['sections'] });
       router.push('/organizations/sections');
       router.refresh();
     } catch (error) {
@@ -470,6 +476,18 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
       setIsSubmitting(false);
     }
   };
+
+  // Simplified loading state - only show loading for initial institutions load
+  if (loadingInstitutions) {
+    return (
+      <div className='flex items-center justify-center p-8'>
+        <div className='text-center'>
+          <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4'></div>
+          <p className='text-muted-foreground'>Loading form data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Form {...form}>

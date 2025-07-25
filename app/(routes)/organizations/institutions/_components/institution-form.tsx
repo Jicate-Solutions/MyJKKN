@@ -2,12 +2,13 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { Institution } from '@/types/organizations';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import {
@@ -15,6 +16,7 @@ import {
   INSTITUTION_CATEGORIES,
   TIMETABLE_TYPES
 } from '@/lib/constants/institutions';
+import { institutionKeys } from '@/hooks/organization/use-institutions';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -102,6 +104,7 @@ export function InstitutionForm({
   isEditing
 }: InstitutionFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [codeExists, setCodeExists] = useState(false);
 
@@ -173,6 +176,24 @@ export function InstitutionForm({
       toast.success(
         `Institution ${isEditing ? 'updated' : 'created'} successfully`
       );
+
+      // Invalidate and refetch institution queries
+      await queryClient.invalidateQueries({
+        queryKey: institutionKeys.lists()
+      });
+      await queryClient.invalidateQueries({
+        queryKey: institutionKeys.names()
+      });
+
+      // If editing, also invalidate the specific institution detail query
+      if (isEditing && institution) {
+        await queryClient.invalidateQueries({
+          queryKey: institutionKeys.detail(institution.id)
+        });
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ['organization-stats'] });
+
       router.push('/organizations/institutions');
       router.refresh();
     } catch (error) {

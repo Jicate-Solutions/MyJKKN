@@ -6,14 +6,15 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
-import { CourseMapping } from '@/types/organizations';
+import { useQueryClient } from '@tanstack/react-query';
+import { CourseMapping, Course } from '@/types/organizations';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
-import { CourseService } from '@/lib/services/organization/course-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
+import { CourseService } from '@/lib/services/organization/course-service';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -21,7 +22,8 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage
+  FormMessage,
+  FormDescription
 } from '@/components/ui/form';
 import {
   Select,
@@ -31,12 +33,11 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Search, X } from 'lucide-react';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 
 const courseMappingSchema = z.object({
@@ -45,7 +46,7 @@ const courseMappingSchema = z.object({
   department_id: z.string().min(1, 'Department is required'),
   program_id: z.string().min(1, 'Program is required'),
   semester_id: z.string().min(1, 'Semester is required'),
-  course_ids: z // Use course_ids instead of course_id
+  course_ids: z
     .array(z.string())
     .min(1, 'At least one course must be selected'),
   is_active: z.boolean().default(true)
@@ -54,15 +55,19 @@ const courseMappingSchema = z.object({
 type FormValues = z.infer<typeof courseMappingSchema>;
 
 interface CourseMappingFormProps {
-  courseMapping?: CourseMapping; // Keep for potential editing reference
+  courseMapping?: CourseMapping & {
+    course_id?: string;
+    course?: Course;
+  };
   isEditing?: boolean;
 }
 
 export function CourseMappingForm({
-  courseMapping, // Note: Editing multi-map might need a different approach
-  isEditing // Editing mode currently not fully supported for multi-course add
+  courseMapping,
+  isEditing
 }: CourseMappingFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -105,7 +110,7 @@ export function CourseMappingForm({
       department_id: courseMapping?.department_id || '',
       program_id: courseMapping?.program_id || '',
       semester_id: courseMapping?.semester_id || '',
-      course_ids: isEditing && courseMapping ? [courseMapping.course_id] : [], // Default to current course if editing, else empty array
+      course_ids: courseMapping?.course_id ? [courseMapping.course_id] : [],
       is_active: courseMapping?.is_active ?? true
     }
   });
@@ -115,11 +120,8 @@ export function CourseMappingForm({
   const watchedDepartmentId = form.watch('department_id');
   const watchedProgramId = form.watch('program_id');
   const watchedSemesterId = form.watch('semester_id');
-  const selectedCourseIds = form.watch('course_ids') || [];
 
-  // No longer need to client-side filter
-  const filteredCourses = availableCourses;
-
+  // Load institutions on mount
   useEffect(() => {
     async function loadInstitutions() {
       try {
@@ -132,94 +134,69 @@ export function CourseMappingForm({
     loadInstitutions();
   }, []);
 
+  // Chain loading of degrees based on institution
   useEffect(() => {
-    if (watchedInstitutionId) {
-      async function loadDegrees() {
-        try {
-          const data = await DegreeService.getDegreesByInstitution(
-            watchedInstitutionId
-          );
-          setDegrees(data);
-          // Clear dependent fields
-          form.setValue('degree_id', '');
-          form.setValue('department_id', '');
-          form.setValue('program_id', '');
-          form.setValue('semester_id', '');
-          form.setValue('course_ids', []);
-          setDepartments([]);
-          setPrograms([]);
-          setSemesters([]);
-          setAvailableCourses([]);
-        } catch (error) {
-          console.error('Error loading degrees:', error);
-        }
+    async function loadDegrees() {
+      if (!watchedInstitutionId) {
+        setDegrees([]);
+        return;
       }
-      loadDegrees();
-    } else {
-      setDegrees([]);
+      try {
+        const data = await DegreeService.getDegreesByInstitution(
+          watchedInstitutionId
+        );
+        setDegrees(data);
+      } catch (error) {
+        console.error('Error loading degrees:', error);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadDegrees();
   }, [watchedInstitutionId]);
 
+  // Chain loading of departments based on degree
   useEffect(() => {
-    if (watchedDegreeId) {
-      async function loadDepartments() {
-        try {
-          const data = await DepartmentService.getDepartmentsByDegree(
-            watchedDegreeId as string
-          );
-          setDepartments(data);
-          // Clear dependent fields
-          form.setValue('department_id', '');
-          form.setValue('program_id', '');
-          form.setValue('semester_id', '');
-          form.setValue('course_ids', []);
-          setPrograms([]);
-          setSemesters([]);
-          setAvailableCourses([]);
-        } catch (error) {
-          console.error('Error loading departments:', error);
-        }
+    async function loadDepartments() {
+      if (!watchedDegreeId) {
+        setDepartments([]);
+        return;
       }
-      loadDepartments();
-    } else {
-      setDepartments([]);
+      try {
+        const data = await DepartmentService.getDepartmentsByDegree(
+          watchedDegreeId
+        );
+        setDepartments(data);
+      } catch (error) {
+        console.error('Error loading departments:', error);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadDepartments();
   }, [watchedDegreeId]);
 
+  // Chain loading of programs based on department
   useEffect(() => {
-    if (watchedDepartmentId) {
-      async function loadPrograms() {
-        try {
-          const data = await ProgramService.getProgramsByDepartment(
-            watchedDepartmentId
-          );
-          setPrograms(data);
-          // Clear dependent fields
-          form.setValue('program_id', '');
-          form.setValue('semester_id', '');
-          form.setValue('course_ids', []);
-          setSemesters([]);
-          setAvailableCourses([]);
-        } catch (error) {
-          console.error('Error loading programs:', error);
-        }
+    async function loadPrograms() {
+      if (!watchedDepartmentId) {
+        setPrograms([]);
+        return;
       }
-      loadPrograms();
-    } else {
-      setPrograms([]);
+      try {
+        const data = await ProgramService.getProgramsByDepartment(
+          watchedDepartmentId
+        );
+        setPrograms(data);
+      } catch (error) {
+        console.error('Error loading programs:', error);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadPrograms();
   }, [watchedDepartmentId]);
 
+  // Chain loading of semesters based on program
   useEffect(() => {
-    if (watchedProgramId && watchedDepartmentId && watchedInstitutionId) {
+    if (watchedProgramId) {
       async function loadSemesters() {
         try {
           const { data } = await SemesterService.getSemesters({
-            institution_id: watchedInstitutionId,
-            department_id: watchedDepartmentId,
             program_id: watchedProgramId,
             isActive: true
           });
@@ -232,55 +209,43 @@ export function CourseMappingForm({
     } else {
       setSemesters([]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedProgramId, watchedDepartmentId, watchedInstitutionId]);
+  }, [watchedProgramId]);
 
   const loadUnmappedCourses = useCallback(
     async (search = '') => {
-      console.log('loadUnmappedCourses called with search:', search);
       if (!watchedInstitutionId || !watchedSemesterId) {
         setAvailableCourses([]);
         return;
       }
-
-      setIsCoursesLoading(true);
       try {
-        console.log('Fetching courses with params:', {
-          institutionId: watchedInstitutionId,
-          semesterId: watchedSemesterId,
-          search
-        });
-        const courses = await CourseMappingService.getUnmappedCourses(
+        setIsCoursesLoading(true);
+        const coursesData = await CourseMappingService.getUnmappedCourses(
           watchedInstitutionId,
           watchedSemesterId,
           search
         );
-        console.log('Received courses:', courses);
 
-        // If editing, ensure the current course is in the list
-        if (isEditing && courseMapping?.course_id) {
-          const isCurrentCourseInList = courses.some(
-            (c) => c.id === courseMapping.course_id
+        // If editing, make sure the currently mapped course is in the list
+        if (
+          isEditing &&
+          courseMapping?.course_id &&
+          !coursesData.some((c) => c.id === courseMapping.course_id)
+        ) {
+          const currentCourse = await CourseService.getCourse(
+            courseMapping.course_id
           );
-          if (!isCurrentCourseInList) {
-            const currentCourse = await CourseService.getCourse(
-              courseMapping.course_id
-            );
-            if (currentCourse) {
-              courses.unshift({
-                id: currentCourse.id,
-                course_name: currentCourse.course_name,
-                course_code: currentCourse.course_code
-              });
-            }
+          if (currentCourse) {
+            coursesData.unshift({
+              id: currentCourse.id,
+              course_name: currentCourse.course_name,
+              course_code: currentCourse.course_code
+            });
           }
         }
-        setAvailableCourses(courses);
-        console.log('Set available courses:', courses);
+        setAvailableCourses(coursesData);
       } catch (error) {
-        console.error('Error loading unmapped courses:', error);
-        toast.error('Error loading courses. Please check your selections.');
-        setAvailableCourses([]);
+        console.error('Error fetching unmapped courses:', error);
+        toast.error('Could not load available courses.');
       } finally {
         setIsCoursesLoading(false);
       }
@@ -294,536 +259,373 @@ export function CourseMappingForm({
   );
 
   useEffect(() => {
-    console.log(
-      'useEffect triggered with debouncedSearchTerm:',
-      debouncedSearchTerm
-    );
     loadUnmappedCourses(debouncedSearchTerm);
   }, [debouncedSearchTerm, loadUnmappedCourses]);
 
   const onSubmit = async (values: FormValues) => {
-    if (isEditing) {
-      // Handle single course update
-      if (values.course_ids.length !== 1) {
-        toast.error('Please select exactly one course when editing.');
-        return;
-      }
-      try {
-        setIsSubmitting(true);
-        await CourseMappingService.updateCourseMapping(courseMapping!.id, {
-          ...values,
-          course_id: values.course_ids[0]
-        });
-        toast.success('Course mapping updated successfully');
-        router.push('/organizations/courses/mappings');
-        router.refresh();
-      } catch (error) {
-        console.error('Error updating course mapping:', error);
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : 'Failed to update course mapping'
-        );
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
-
-    // Handle new course mappings (bulk)
     try {
       setIsSubmitting(true);
-      let successCount = 0;
-      const errors: string[] = [];
-
-      // Basic validation (already done via useEffect, but good practice)
-      const allDepartments = await DepartmentService.getDepartments({
-        institution_id: values.institution_id,
-        degree_id: values.degree_id,
-        limit: 1
-      });
-      if (allDepartments.data.length === 0) {
-        toast.error('Invalid department/degree for this institution');
-        setIsSubmitting(false);
-        return;
-      }
-
-      for (const courseId of values.course_ids) {
-        try {
-          await CourseMappingService.createCourseMapping({
+      if (isEditing && courseMapping) {
+        // Since we disable dropdowns, we only update the course and active status
+        await CourseMappingService.updateCourseMapping(courseMapping.id, {
+          course_id: values.course_ids[0],
+          is_active: values.is_active
+        });
+        toast.success('Course mapping updated successfully');
+      } else {
+        await CourseMappingService.bulkCreateCourseMappings(
+          values.course_ids.map((course_id) => ({
             institution_id: values.institution_id,
             degree_id: values.degree_id,
             department_id: values.department_id,
             program_id: values.program_id,
             semester_id: values.semester_id,
-            course_ids: [courseId], // Pass as an array even though it's one ID here
+            course_id: course_id,
             is_active: values.is_active
-          });
-          successCount++;
-        } catch (error) {
-          const course = availableCourses.find((c) => c.id === courseId);
-          const errorMessage = `Failed to map course ${
-            course?.course_code || courseId
-          }: ${error instanceof Error ? error.message : 'Unknown error'}`;
-          console.error(errorMessage);
-          errors.push(errorMessage);
-        }
-      }
-
-      if (errors.length > 0) {
-        toast.error(
-          `Failed to map ${errors.length} courses. See console for details.`,
-          { duration: 5000 }
+          }))
+        );
+        toast.success(
+          `${values.course_ids.length} course mappings created successfully`
         );
       }
-      if (successCount > 0) {
-        toast.success(`${successCount} courses mapped successfully`);
-      }
-
-      if (successCount > 0 && errors.length === 0) {
-        router.push('/organizations/courses/mappings');
-        router.refresh();
-      } else {
-        // If there were errors, refresh available courses
-        await loadUnmappedCourses(debouncedSearchTerm);
-      }
+      await queryClient.invalidateQueries({
+        queryKey: ['course-mappings']
+      });
+      router.push('/organizations/courses/mappings');
+      router.refresh();
     } catch (error) {
-      // Catch errors from validation or other unexpected issues
       console.error('Form submission error:', error);
       toast.error(
-        error instanceof Error
-          ? error.message
-          : 'Failed to save course mappings'
+        error instanceof Error ? error.message : 'Failed to save mapping'
       );
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Helper function to reload courses manually if needed (not used in current flow)
-  const loadUnmappedCoursesWithDebounce = useCallback(async () => {
-    await loadUnmappedCourses(debouncedSearchTerm);
-  }, [loadUnmappedCourses, debouncedSearchTerm]);
+  const selectedCourseIds = form.watch('course_ids') || [];
 
-  // Helper functions for course selection
   const handleSelectAll = () => {
-    const allCourseIds = filteredCourses.map((course) => course.id);
-    const currentSelected = form.getValues('course_ids') || [];
-    const newSelected = Array.from(
-      new Set([...currentSelected, ...allCourseIds])
-    );
-    form.setValue('course_ids', newSelected);
+    const allCourseIds = availableCourses.map((course) => course.id);
+    form.setValue('course_ids', allCourseIds);
   };
 
   const handleDeselectAll = () => {
-    const filteredCourseIds = filteredCourses.map((course) => course.id);
-    const currentSelected = form.getValues('course_ids') || [];
-    const newSelected = currentSelected.filter(
-      (id) => !filteredCourseIds.includes(id)
-    );
-    form.setValue('course_ids', newSelected);
-  };
-
-  const handleClearSearch = () => {
-    setSearchTerm('');
-  };
-
-  // Helper function to highlight search term in text
-  const highlightSearchTerm = (text: string, searchTerm: string) => {
-    if (!searchTerm.trim()) return text;
-    const regex = new RegExp(
-      `(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`,
-      'gi'
-    );
-    const parts = text.split(regex);
-    return parts.map((part, index) =>
-      regex.test(part) ? (
-        <mark
-          key={index}
-          className='bg-yellow-200 text-yellow-900 rounded px-1'
-        >
-          {part}
-        </mark>
-      ) : (
-        part
-      )
-    );
+    form.setValue('course_ids', []);
   };
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-8'>
         <Card>
-          <CardContent className='p-6 space-y-6'>
-            <div className='grid gap-6 md:grid-cols-2'>
-              <FormField
-                control={form.control}
-                name='institution_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Institution</FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        // Reset dependent fields
-                        form.setValue('degree_id', '');
-                        form.setValue('department_id', '');
-                        form.setValue('program_id', '');
-                        form.setValue('semester_id', '');
-                        form.setValue('course_ids', []);
-                        setDegrees([]);
-                        setDepartments([]);
-                        setPrograms([]);
-                        setSemesters([]);
-                        setAvailableCourses([]);
-                      }}
-                      value={field.value}
-                      disabled={isEditing}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select institution' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='degree_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Degree</FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        // Reset dependent fields
-                        form.setValue('department_id', '');
-                        form.setValue('program_id', '');
-                        form.setValue('semester_id', '');
-                        form.setValue('course_ids', []);
-                        setDepartments([]);
-                        setPrograms([]);
-                        setSemesters([]);
-                        setAvailableCourses([]);
-                      }}
-                      value={field.value}
-                      disabled={!watchedInstitutionId || isEditing}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select degree' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {degrees.map((degree) => (
-                          <SelectItem key={degree.id} value={degree.id}>
-                            {degree.degree_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='department_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Department</FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        // Reset dependent fields
-                        form.setValue('program_id', '');
-                        form.setValue('semester_id', '');
-                        form.setValue('course_ids', []);
-                        setPrograms([]);
-                        setSemesters([]);
-                        setAvailableCourses([]);
-                      }}
-                      value={field.value}
-                      disabled={!watchedDegreeId || isEditing}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select department' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.id}>
-                            {dept.department_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='program_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Program</FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        // Reset dependent fields
-                        form.setValue('semester_id', '');
-                        form.setValue('course_ids', []);
-                        setSemesters([]);
-                        setAvailableCourses([]);
-                      }}
-                      value={field.value}
-                      disabled={!watchedDepartmentId || isEditing}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select program' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {programs.map((program) => (
-                          <SelectItem key={program.id} value={program.id}>
-                            {program.program_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='semester_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Semester</FormLabel>
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        form.setValue('course_ids', []);
-                        setAvailableCourses([]);
-                      }}
-                      value={field.value}
-                      disabled={!watchedProgramId || isEditing}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select semester' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {semesters.map((semester) => (
-                          <SelectItem key={semester.id} value={semester.id}>
-                            {semester.semester_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='is_active'
-                render={({ field }) => (
-                  <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
-                    <div className='space-y-0.5'>
-                      <FormLabel className='text-base'>Active Status</FormLabel>
-                      <div className='text-sm text-muted-foreground'>
-                        Set whether this mapping is currently active
-                      </div>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            </div>
-
+          <CardContent className='p-6 grid gap-6 md:grid-cols-2'>
+            {/* Hierarchy Selectors */}
             <FormField
               control={form.control}
-              name='course_ids'
-              render={() => (
+              name='institution_id'
+              render={({ field }) => (
                 <FormItem>
-                  <div className='flex items-center justify-between'>
-                    <FormLabel>Select Courses to Map</FormLabel>
-                    {availableCourses.length > 0 && (
-                      <div className='flex items-center gap-4 text-sm text-muted-foreground'>
-                        <span>
-                          {searchTerm ? `${filteredCourses.length} of ` : ''}
-                          {availableCourses.length} course
-                          {availableCourses.length !== 1 ? 's' : ''}
-                          {searchTerm ? ' found' : ' available'}
-                        </span>
-                        {selectedCourseIds.length > 0 && (
-                          <Badge variant='default' className='bg-blue-600'>
-                            {selectedCourseIds.length} selected
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className='text-sm text-muted-foreground mb-2'>
-                    {isCoursesLoading
-                      ? 'Searching for courses...'
-                      : filteredCourses.length > 0
-                      ? searchTerm
-                        ? `Showing ${filteredCourses.length} courses matching "${searchTerm}"`
-                        : `Showing ${filteredCourses.length} available course(s) for this institution and semester`
-                      : watchedSemesterId
-                      ? searchTerm
-                        ? `No courses found matching "${searchTerm}"`
-                        : 'All courses for this institution and semester are already mapped or none exist.'
-                      : 'Select institution and semester to see available courses'}
-                  </div>
-                  {watchedSemesterId && (
-                    <div className='space-y-3 mb-3'>
-                      <div className='relative'>
-                        <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-                        <Input
-                          placeholder='Search courses by name or code...'
-                          value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
-                          className='pl-9 pr-9'
-                        />
-                        {searchTerm && (
-                          <Button
-                            type='button'
-                            variant='ghost'
-                            size='sm'
-                            onClick={handleClearSearch}
-                            className='absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 p-0'
-                          >
-                            <X className='h-4 w-4' />
-                          </Button>
-                        )}
-                      </div>
-                      <div className='flex items-center gap-2'>
-                        <Button
-                          type='button'
-                          variant='outline'
-                          size='sm'
-                          onClick={handleSelectAll}
-                          disabled={
-                            filteredCourses.length === 0 ||
-                            filteredCourses.every((course) =>
-                              selectedCourseIds.includes(course.id)
-                            )
-                          }
-                        >
-                          Select All {searchTerm && 'Filtered'}
-                        </Button>
-                        <Button
-                          type='button'
-                          variant='outline'
-                          size='sm'
-                          onClick={handleDeselectAll}
-                          disabled={
-                            filteredCourses.length === 0 ||
-                            !filteredCourses.some((course) =>
-                              selectedCourseIds.includes(course.id)
-                            )
-                          }
-                        >
-                          Deselect All {searchTerm && 'Filtered'}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                  <ScrollArea className='h-72 w-full rounded-md border p-4'>
-                    {isCoursesLoading ? (
-                      <p className='text-sm text-muted-foreground text-center'>
-                        Loading...
-                      </p>
-                    ) : availableCourses.length === 0 ? (
-                      <p className='text-sm text-muted-foreground'>
-                        {watchedSemesterId
-                          ? 'No unmapped courses found for this selection.'
-                          : 'Please select Institution and Semester to view available courses.'}
-                      </p>
-                    ) : filteredCourses.length === 0 ? (
-                      <p className='text-sm text-muted-foreground'>
-                        No courses found matching &quot;{searchTerm}&quot;. Try
-                        a different search term.
-                      </p>
-                    ) : (
-                      filteredCourses.map((course) => (
-                        <FormField
-                          key={course.id}
-                          control={form.control}
-                          name='course_ids'
-                          render={({ field }) => {
-                            return (
-                              <FormItem
-                                key={course.id}
-                                className='flex flex-row items-start space-x-3 space-y-0 py-2'
-                              >
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value?.includes(course.id)}
-                                    onCheckedChange={(checked) => {
-                                      return checked
-                                        ? field.onChange([
-                                            ...(field.value || []),
-                                            course.id
-                                          ])
-                                        : field.onChange(
-                                            field.value?.filter(
-                                              (value) => value !== course.id
-                                            )
-                                          );
-                                    }}
-                                  />
-                                </FormControl>
-                                <FormLabel className='font-normal'>
-                                  {highlightSearchTerm(
-                                    course.course_code,
-                                    searchTerm
-                                  )}{' '}
-                                  -{' '}
-                                  {highlightSearchTerm(
-                                    course.course_name,
-                                    searchTerm
-                                  )}
-                                </FormLabel>
-                              </FormItem>
-                            );
-                          }}
-                        />
-                      ))
-                    )}
-                  </ScrollArea>
+                  <FormLabel>Institution</FormLabel>
+                  <Select
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      form.setValue('degree_id', '');
+                      form.setValue('department_id', '');
+                      form.setValue('program_id', '');
+                      form.setValue('semester_id', '');
+                      form.setValue('course_ids', []);
+                    }}
+                    value={field.value}
+                    disabled={isEditing}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select institution' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {institutions.map((inst) => (
+                        <SelectItem key={inst.id} value={inst.id}>
+                          {inst.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name='degree_id'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Degree</FormLabel>
+                  <Select
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      form.setValue('department_id', '');
+                      form.setValue('program_id', '');
+                      form.setValue('semester_id', '');
+                      form.setValue('course_ids', []);
+                    }}
+                    value={field.value}
+                    disabled={!watchedInstitutionId || isEditing}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select degree' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {degrees.map((degree) => (
+                        <SelectItem key={degree.id} value={degree.id}>
+                          {degree.degree_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='department_id'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Department</FormLabel>
+                  <Select
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      form.setValue('program_id', '');
+                      form.setValue('semester_id', '');
+                      form.setValue('course_ids', []);
+                    }}
+                    value={field.value}
+                    disabled={!watchedDegreeId || isEditing}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select department' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {departments.map((dept) => (
+                        <SelectItem key={dept.id} value={dept.id}>
+                          {dept.department_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='program_id'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Program</FormLabel>
+                  <Select
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      form.setValue('semester_id', '');
+                      form.setValue('course_ids', []);
+                    }}
+                    value={field.value}
+                    disabled={!watchedDepartmentId || isEditing}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select program' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {programs.map((program) => (
+                        <SelectItem key={program.id} value={program.id}>
+                          {program.program_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='semester_id'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Semester</FormLabel>
+                  <Select
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      form.setValue('course_ids', []);
+                    }}
+                    value={field.value}
+                    disabled={!watchedProgramId || isEditing}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select semester' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {semesters.map((semester) => (
+                        <SelectItem key={semester.id} value={semester.id}>
+                          {semester.semester_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='is_active'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-center justify-between rounded-lg border p-4'>
+                  <div className='space-y-0.5'>
+                    <FormLabel className='text-base'>Active Status</FormLabel>
+                    <FormDescription>
+                      Set whether this mapping is active
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Select Courses</CardTitle>
+            <FormDescription>
+              Select one or more courses to map to the selected semester. When
+              editing, you can only select one course.
+            </FormDescription>
+          </CardHeader>
+          <CardContent>
+            <div className='space-y-4'>
+              <Input
+                placeholder='Search available courses...'
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                disabled={!watchedSemesterId}
+              />
+              <div className='flex items-center justify-between text-sm text-muted-foreground'>
+                <div className='flex items-center gap-2'>
+                  <span>
+                    {isCoursesLoading
+                      ? 'Loading...'
+                      : `${availableCourses.length} available`}
+                  </span>
+                  {selectedCourseIds.length > 0 && (
+                    <Badge variant='secondary'>
+                      {selectedCourseIds.length} selected
+                    </Badge>
+                  )}
+                </div>
+                {!isEditing && (
+                  <div className='flex items-center gap-2'>
+                    <Button
+                      type='button'
+                      variant='link'
+                      size='sm'
+                      onClick={handleSelectAll}
+                      disabled={availableCourses.length === 0}
+                    >
+                      Select All
+                    </Button>
+                    <Button
+                      type='button'
+                      variant='link'
+                      size='sm'
+                      onClick={handleDeselectAll}
+                      disabled={selectedCourseIds.length === 0}
+                    >
+                      Deselect All
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <FormField
+                control={form.control}
+                name='course_ids'
+                render={() => (
+                  <FormItem>
+                    <ScrollArea className='h-72 w-full rounded-md border p-4'>
+                      {availableCourses.length > 0 ? (
+                        availableCourses.map((course) => (
+                          <FormField
+                            key={course.id}
+                            control={form.control}
+                            name='course_ids'
+                            render={({ field }) => {
+                              return (
+                                <FormItem
+                                  key={course.id}
+                                  className='flex flex-row items-start space-x-3 space-y-0 py-2'
+                                >
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(course.id)}
+                                      onCheckedChange={(checked) => {
+                                        if (isEditing) {
+                                          return field.onChange(
+                                            checked ? [course.id] : []
+                                          );
+                                        }
+                                        return checked
+                                          ? field.onChange([
+                                              ...(field.value || []),
+                                              course.id
+                                            ])
+                                          : field.onChange(
+                                              field.value?.filter(
+                                                (value) => value !== course.id
+                                              )
+                                            );
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormLabel className='font-normal w-full'>
+                                    <div className='flex justify-between items-center'>
+                                      <span>{course.course_name}</span>
+                                      <Badge variant='outline'>
+                                        {course.course_code}
+                                      </Badge>
+                                    </div>
+                                  </FormLabel>
+                                </FormItem>
+                              );
+                            }}
+                          />
+                        ))
+                      ) : (
+                        <p className='text-center text-muted-foreground'>
+                          {isCoursesLoading
+                            ? 'Loading courses...'
+                            : 'No available courses for the selected criteria.'}
+                        </p>
+                      )}
+                    </ScrollArea>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
           </CardContent>
         </Card>
 
@@ -845,7 +647,7 @@ export function CourseMappingForm({
               ? 'Saving...'
               : isEditing
               ? 'Update Mapping'
-              : 'Save Mappings'}
+              : 'Create Mappings'}
           </Button>
         </div>
       </form>

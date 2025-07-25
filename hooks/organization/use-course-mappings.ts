@@ -3,6 +3,17 @@ import { CourseMappingService } from '@/lib/services/organization/course-mapping
 import type { CourseMappingFilters } from '@/types/organizations';
 import { useMemo, useCallback } from 'react';
 
+// Query key factory for better cache management
+export const courseMappingKeys = {
+  all: ['course-mappings'] as const,
+  lists: () => [...courseMappingKeys.all, 'list'] as const,
+  list: (filters: CourseMappingFilters) =>
+    [...courseMappingKeys.lists(), filters] as const,
+  details: () => [...courseMappingKeys.all, 'detail'] as const,
+  detail: (id: string) => [...courseMappingKeys.details(), id] as const,
+  stats: () => [...courseMappingKeys.all, 'stats'] as const
+} as const;
+
 export function useCourseMappings(filters: CourseMappingFilters) {
   // Memoize the filters object to prevent unnecessary re-renders
   const memoizedFilters = useMemo(() => {
@@ -10,7 +21,7 @@ export function useCourseMappings(filters: CourseMappingFilters) {
       page: filters.page,
       limit: filters.limit,
       search: filters.search || '',
-      institution_id: filters.institution_id,
+      institution_id: filters.institution_id || '',
       degree_id: filters.degree_id,
       department_id: filters.department_id,
       program_id: filters.program_id,
@@ -38,11 +49,20 @@ export function useCourseMappings(filters: CourseMappingFilters) {
   }, [memoizedFilters]);
 
   return useQuery({
-    queryKey: ['course-mappings', memoizedFilters],
+    queryKey: courseMappingKeys.list(memoizedFilters),
     queryFn,
     placeholderData: (previousData) => previousData,
     retry: 2,
     staleTime: 30000, // Consider data fresh for 30 seconds
     gcTime: 5 * 60 * 1000 // Keep in cache for 5 minutes
+  });
+}
+
+export function useCourseMappingDetail(id: string) {
+  return useQuery({
+    queryKey: courseMappingKeys.detail(id),
+    queryFn: () => CourseMappingService.getCourseMapping(id),
+    retry: false,
+    staleTime: 5 * 60 * 1000 // Consider fresh for 5 minutes
   });
 }

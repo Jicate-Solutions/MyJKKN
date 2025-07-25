@@ -410,8 +410,12 @@ export function SectionFilters({
       {/* Action Buttons */}
       <div className='flex items-center justify-between gap-2 w-full'>
         <div className='flex items-center gap-2'>
-          {canViewSections && <DownloadSectionTemplateButton />}
-          {canCreateSections && <BulkUploadSections />}
+          {canAccess('organizations.sections', 'create') && (
+            <DownloadSectionTemplateButton />
+          )}
+          {canAccess('organizations.sections', 'create') && (
+            <BulkUploadSections />
+          )}
         </div>
       </div>
     </div>

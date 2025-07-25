@@ -8,6 +8,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { Degree } from '@/types/organizations';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,7 @@ interface DegreeFormProps {
 
 export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { institutions, loading: institutionsLoading } =
     useInstitutionsWithAccess();
@@ -82,6 +84,10 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
       } else {
         await DegreeService.createDegree(values);
       }
+
+      // Invalidate and refetch degree queries
+      await queryClient.invalidateQueries({ queryKey: ['degrees'] });
+      await queryClient.invalidateQueries({ queryKey: ['organization-stats'] });
 
       router.push('/organizations/degrees');
       router.refresh();

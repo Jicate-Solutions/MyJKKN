@@ -9,14 +9,14 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { DegreeList } from './_components/degree-list';
 import { DegreeFilters } from './_components/degree-filters';
 import { DegreeFilters as DegreeFilterType } from '@/types/organizations';
+import { GraduationCap } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function DegreesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<Partial<DegreeFilterType>>({
-    isActive: true
-  });
+  const [filters, setFilters] = useState<Partial<DegreeFilterType>>({});
 
   const {
     data: degreesData,
@@ -76,6 +76,51 @@ export default function DegreesPage() {
           </p>
         </div>
         <DegreeFilters onFilterChange={handleFilterChange} filters={filters} />
+
+        {/* Filter-based count display */}
+        <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
+          <div className='flex items-center gap-2'>
+            <div className='flex items-center gap-1'>
+              <GraduationCap className='h-4 w-4 text-muted-foreground' />
+              <span className='text-sm font-medium'>
+                {degreesLoading ? (
+                  'Loading...'
+                ) : (
+                  <>
+                    Showing {degreesData?.data?.length || 0} of{' '}
+                    <span className='font-semibold text-primary'>
+                      {degreesData?.metadata?.total || 0}
+                    </span>{' '}
+                    degree{degreesData?.metadata?.total !== 1 ? 's' : ''}
+                    {(degreesData?.metadata?.total || 0) > 0 && (
+                      <span className='text-muted-foreground'>
+                        {' '}
+                        (Page {degreesData?.metadata?.page || 1} of{' '}
+                        {degreesData?.metadata?.totalPages || 1})
+                      </span>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+            {!degreesLoading && (degreesData?.metadata?.total || 0) > 0 && (
+              <Badge variant='secondary' className='ml-2'>
+                {(
+                  ((degreesData?.data?.length || 0) /
+                    (degreesData?.metadata?.total || 1)) *
+                  100
+                ).toFixed(1)}
+                % of total
+              </Badge>
+            )}
+          </div>
+          {!degreesLoading && (degreesData?.metadata?.total || 0) === 0 && (
+            <div className='text-sm text-muted-foreground'>
+              No degrees found matching the current filters
+            </div>
+          )}
+        </div>
+
         <DegreeList
           degrees={degreesData?.data || []}
           metadata={

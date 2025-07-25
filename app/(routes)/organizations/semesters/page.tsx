@@ -7,6 +7,8 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SemesterList } from './_components/semester-list';
 import { SemesterFilters } from './_components/semester-filters';
 import { SemesterFilters as SemesterFilterType } from '@/types/organizations';
+import { Calendar } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function SemestersPage() {
   const [page, setPage] = useState(1);
@@ -72,9 +74,54 @@ export default function SemestersPage() {
           </p>
         </div>
         <SemesterFilters
-          filters={filters}
           onFilterChange={handleFilterChange}
+          filters={filters}
         />
+
+        {/* Filter-based count display */}
+        <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
+          <div className='flex items-center gap-2'>
+            <div className='flex items-center gap-1'>
+              <Calendar className='h-4 w-4 text-muted-foreground' />
+              <span className='text-sm font-medium'>
+                {semestersLoading ? (
+                  'Loading...'
+                ) : (
+                  <>
+                    Showing {semestersData?.data?.length || 0} of{' '}
+                    <span className='font-semibold text-primary'>
+                      {semestersData?.metadata?.total || 0}
+                    </span>{' '}
+                    semester{semestersData?.metadata?.total !== 1 ? 's' : ''}
+                    {(semestersData?.metadata?.total || 0) > 0 && (
+                      <span className='text-muted-foreground'>
+                        {' '}
+                        (Page {semestersData?.metadata?.page || 1} of{' '}
+                        {semestersData?.metadata?.totalPages || 1})
+                      </span>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+            {!semestersLoading && (semestersData?.metadata?.total || 0) > 0 && (
+              <Badge variant='secondary' className='ml-2'>
+                {(
+                  ((semestersData?.data?.length || 0) /
+                    (semestersData?.metadata?.total || 1)) *
+                  100
+                ).toFixed(1)}
+                % of total
+              </Badge>
+            )}
+          </div>
+          {!semestersLoading && (semestersData?.metadata?.total || 0) === 0 && (
+            <div className='text-sm text-muted-foreground'>
+              No semesters found matching the current filters
+            </div>
+          )}
+        </div>
+
         <SemesterList
           semesters={semestersData?.data || []}
           metadata={

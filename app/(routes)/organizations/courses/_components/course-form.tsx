@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { Course } from '@/types/organizations';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
@@ -54,6 +55,7 @@ interface CourseFormProps {
 
 export function CourseForm({ course, isEditing }: CourseFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -92,6 +94,10 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
       } else {
         await CourseService.createCourse(values);
       }
+
+      // Invalidate and refetch course queries
+      await queryClient.invalidateQueries({ queryKey: ['courses'] });
+      await queryClient.invalidateQueries({ queryKey: ['organization-stats'] });
 
       router.push('/organizations/courses');
       router.refresh();

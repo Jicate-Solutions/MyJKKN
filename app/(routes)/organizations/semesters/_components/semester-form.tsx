@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { Semester } from '@/types/organizations';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
@@ -57,6 +58,7 @@ interface SemesterFormProps {
 
 export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -107,44 +109,40 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
   // Load degrees when institution changes
   useEffect(() => {
     if (watchedInstitutionId) {
-      async function loadDegrees() {
+      const loadDegrees = async () => {
+        setDegrees([]);
         try {
           const data = await DegreeService.getDegreesByInstitution(
-            watchedInstitutionId
+            watchedInstitutionId!
           );
           setDegrees(data);
         } catch (error) {
           console.error('Error loading degrees:', error);
           toast.error('Failed to load degrees');
         }
-      }
+      };
       loadDegrees();
-    } else {
-      setDegrees([]);
-      form.setValue('degree_id', '');
     }
-  }, [watchedInstitutionId, form]);
+  }, [watchedInstitutionId]);
 
   // Load departments when degree changes
   useEffect(() => {
     if (watchedDegreeId) {
-      async function loadDepartments() {
+      const loadDepartments = async () => {
+        setDepartments([]);
         try {
           const data = await DepartmentService.getDepartmentsByDegree(
-            watchedDegreeId
+            watchedDegreeId!
           );
           setDepartments(data);
         } catch (error) {
           console.error('Error loading departments:', error);
           toast.error('Failed to load departments');
         }
-      }
+      };
       loadDepartments();
-    } else {
-      setDepartments([]);
-      form.setValue('department_id', '');
     }
-  }, [watchedDegreeId, form]);
+  }, [watchedDegreeId]);
 
   // Load programs when department changes
   useEffect(() => {
@@ -179,6 +177,10 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
         await SemesterService.createSemester(values);
         toast.success('Semester created successfully');
       }
+
+      // Invalidate and refetch semester queries
+      await queryClient.invalidateQueries({ queryKey: ['semesters'] });
+      await queryClient.invalidateQueries({ queryKey: ['organization-stats'] });
 
       router.push('/organizations/semesters');
       router.refresh();

@@ -1,20 +1,22 @@
 // app/(routes)/organizations/institutions/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useInstitutions } from '@/hooks/organization/use-institutions';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { InstitutionList } from './_components/institution-list';
 import { InstitutionFilter } from './_components/institution-filters';
 import { InstitutionFilters } from '@/types/organizations';
+import { Building } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function InstitutionsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<Partial<InstitutionFilters>>({
-    isActive: true
+    // Default to show all institutions (both active and inactive)
   });
 
   const {
@@ -80,6 +82,54 @@ export default function InstitutionsPage() {
           onFilterChange={handleFilterChange}
           filters={filters}
         />
+
+        {/* Filter-based count display */}
+        <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
+          <div className='flex items-center gap-2'>
+            <div className='flex items-center gap-1'>
+              <Building className='h-4 w-4 text-muted-foreground' />
+              <span className='text-sm font-medium'>
+                {institutionsLoading ? (
+                  'Loading...'
+                ) : (
+                  <>
+                    Showing {institutionsData?.data?.length || 0} of{' '}
+                    <span className='font-semibold text-primary'>
+                      {institutionsData?.metadata?.total || 0}
+                    </span>{' '}
+                    institution
+                    {institutionsData?.metadata?.total !== 1 ? 's' : ''}
+                    {(institutionsData?.metadata?.total || 0) > 0 && (
+                      <span className='text-muted-foreground'>
+                        {' '}
+                        (Page {institutionsData?.metadata?.page || 1} of{' '}
+                        {institutionsData?.metadata?.totalPages || 1})
+                      </span>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+            {!institutionsLoading &&
+              (institutionsData?.metadata?.total || 0) > 0 && (
+                <Badge variant='secondary' className='ml-2'>
+                  {(
+                    ((institutionsData?.data?.length || 0) /
+                      (institutionsData?.metadata?.total || 1)) *
+                    100
+                  ).toFixed(1)}
+                  % of total
+                </Badge>
+              )}
+          </div>
+          {!institutionsLoading &&
+            (institutionsData?.metadata?.total || 0) === 0 && (
+              <div className='text-sm text-muted-foreground'>
+                No institutions found matching the current filters
+              </div>
+            )}
+        </div>
+
         <InstitutionList
           institutions={institutionsData?.data || []}
           metadata={
