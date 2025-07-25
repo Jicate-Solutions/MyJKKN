@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { GoogleOneTap } from '@/components/auth/google-one-tap';
-import { GraduationCap, BookOpen, Users, Award } from 'lucide-react';
+import { GraduationCap, BookOpen, Users, Award, Brain } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BeatLoader } from 'react-spinners';
 import toast from 'react-hot-toast';
@@ -15,16 +15,20 @@ const EducationalHero = () => {
     <div className='flex flex-col items-center justify-center w-full h-full py-4 px-4'>
       {/* Logo and Institution */}
       <div className='text-center mb-6'>
-        <div className='inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl mb-3 shadow-lg'>
+        <div className='inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-green-600 to-emerald-600 rounded-2xl mb-3 shadow-lg'>
           <GraduationCap className='w-8 h-8 text-white' />
         </div>
-        <h1 className='text-xl font-bold text-gray-900 mb-1'>MyJKKN Portal</h1>
-        <p className='text-gray-600 text-sm'>JKKN Educational Institution</p>
+        <h1 className='text-xl font-bold text-gray-900 dark:text-gray-100 mb-1'>
+          MyJKKN Portal
+        </h1>
+        <p className='text-gray-600 dark:text-gray-400 text-sm'>
+          JKKN Educational Institutions
+        </p>
       </div>
 
       {/* Quote */}
       <div className='text-center max-w-xs'>
-        <p className='text-gray-600 text-sm italic'>
+        <p className='text-gray-600 dark:text-gray-400 text-sm italic'>
           &ldquo;Empowering minds, shaping futures through innovative
           education.&rdquo;
         </p>
@@ -102,7 +106,7 @@ export default function LoginPage() {
     return () => {
       isMounted = false;
     };
-  }, [router, supabase.auth]);
+  }, [router, supabase]);
 
   // Check for error params
   useEffect(() => {
@@ -167,7 +171,7 @@ export default function LoginPage() {
         {!isCheckingAuth && <GoogleOneTap />}
 
         {/* Left Panel - Desktop Only */}
-        <div className='hidden lg:flex bg-gradient-to-br from-blue-600 via-blue-700 to-purple-700 text-white relative overflow-hidden'>
+        <div className='hidden lg:flex bg-gradient-to-br from-green-600 via-green-700 to-emerald-700 dark:from-green-800 dark:via-green-900 dark:to-emerald-900 text-white relative overflow-hidden'>
           {/* Background Pattern */}
           <div className='absolute inset-0 opacity-10'>
             <div className='grid grid-cols-8 grid-rows-8 h-full gap-1'>
@@ -179,8 +183,8 @@ export default function LoginPage() {
 
           {/* Logo */}
           <div className='hidden lg:flex absolute top-6 left-6 items-center space-x-2 z-10'>
-            <div className='bg-white rounded-lg p-1.5'>
-              <GraduationCap className='h-5 w-5 text-blue-600' />
+            <div className='bg-white dark:bg-gray-800 rounded-lg p-1.5'>
+              <GraduationCap className='h-5 w-5 text-green-600 dark:text-green-400' />
             </div>
             <span className='text-lg font-bold'>MyJKKN</span>
           </div>
@@ -191,10 +195,10 @@ export default function LoginPage() {
               <div className='inline-flex items-center justify-center w-20 h-20 bg-white/10 rounded-3xl mb-6 backdrop-blur-sm border border-white/20'>
                 <GraduationCap className='w-10 h-10 text-white' />
               </div>
-              <h1 className='text-3xl font-bold mb-4 bg-gradient-to-r from-white via-blue-100 to-white bg-clip-text text-transparent'>
+              <h1 className='text-3xl font-bold mb-4 bg-gradient-to-r from-white via-green-100 to-white dark:from-gray-100 dark:via-green-200 dark:to-gray-100 bg-clip-text text-transparent'>
                 Smart Learning Portal
               </h1>
-              <p className='text-blue-100 text-base leading-relaxed'>
+              <p className='text-green-100 dark:text-green-200 text-base leading-relaxed'>
                 Access your courses, track progress, and connect with faculty
                 all in one platform.
               </p>
@@ -202,25 +206,29 @@ export default function LoginPage() {
 
             {/* Feature highlights */}
             <div className='grid grid-cols-2 gap-3 w-full max-w-sm'>
-              <div className='flex items-center space-x-2 bg-white/10 rounded-lg p-3 backdrop-blur-sm'>
-                <BookOpen className='w-4 h-4 text-blue-200' />
-                <span className='text-sm text-blue-100'>Digital Library</span>
+              <div className='flex items-center space-x-2 bg-white/10 dark:bg-white/5 rounded-lg p-3 backdrop-blur-sm'>
+                <BookOpen className='w-4 h-4 text-green-200 dark:text-green-300' />
+                <span className='text-sm text-green-100 dark:text-green-200'>
+                  Centralized LMS
+                </span>
               </div>
-              <div className='flex items-center space-x-2 bg-white/10 rounded-lg p-3 backdrop-blur-sm'>
-                <Users className='w-4 h-4 text-blue-200' />
-                <span className='text-sm text-blue-100'>Live Classes</span>
+              <div className='flex items-center space-x-2 bg-white/10 dark:bg-white/5 rounded-lg p-3 backdrop-blur-sm'>
+                <Brain className='w-4 h-4 text-green-200 dark:text-green-300' />
+                <span className='text-sm text-green-100 dark:text-green-200'>
+                  AI Insights
+                </span>
               </div>
             </div>
           </div>
 
           {/* Footer */}
-          <div className='absolute bottom-6 left-0 right-0 text-center text-xs text-blue-200/80 z-10'>
-            &copy; {new Date().getFullYear()} JKKN Educational Institution
+          <div className='absolute bottom-6 left-0 right-0 text-center text-xs text-green-200/80 dark:text-green-300/70 z-10'>
+            &copy; {new Date().getFullYear()} JKKN Educational Institutions
           </div>
         </div>
 
         {/* Right Panel - Login Form */}
-        <div className='flex flex-col items-center justify-center h-full bg-white p-4 sm:p-6 lg:p-8'>
+        <div className='flex flex-col items-center justify-center h-full bg-white dark:bg-gray-900 p-4 sm:p-6 lg:p-8'>
           {/* Educational Hero (Mobile Only) */}
           <div className='w-full lg:hidden mb-8'>
             <EducationalHero />
@@ -230,8 +238,10 @@ export default function LoginPage() {
           <div className='w-full max-w-sm space-y-6'>
             {/* Welcome Text */}
             <div className='text-center space-y-2'>
-              <h2 className='text-2xl font-bold text-gray-900'>Welcome Back</h2>
-              <p className='text-gray-600 text-sm'>
+              <h2 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
+                Welcome Back
+              </h2>
+              <p className='text-gray-600 dark:text-gray-400 text-sm'>
                 Sign in to access your learning portal
               </p>
             </div>
@@ -241,7 +251,7 @@ export default function LoginPage() {
               <Button
                 onClick={handleGoogleLogin}
                 disabled={loading}
-                className='w-full h-12 text-base font-medium bg-blue-600 hover:bg-blue-700 text-white'
+                className='w-full h-12 text-base font-medium bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-800 text-white'
               >
                 {loading ? (
                   <div className='flex items-center space-x-2'>
@@ -274,7 +284,7 @@ export default function LoginPage() {
               </Button>
 
               {/* Terms */}
-              <p className='text-xs text-gray-500 text-center leading-relaxed'>
+              <p className='text-xs text-gray-500 dark:text-gray-400 text-center leading-relaxed'>
                 By signing in, you agree to our Terms of Service and Privacy
                 Policy
               </p>
