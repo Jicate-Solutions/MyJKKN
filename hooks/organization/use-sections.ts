@@ -3,7 +3,7 @@ import { Section, SectionFilters } from '@/types/organizations';
 import { SectionService } from '@/lib/services/organization/section-service';
 
 export function useSections(filters: SectionFilters) {
-  return useQuery({
+  const query = useQuery({
     queryKey: ['sections', filters],
     queryFn: async () => {
       const { data, metadata } = await SectionService.getSections(filters);
@@ -12,4 +12,9 @@ export function useSections(filters: SectionFilters) {
     placeholderData: (previousData) => previousData,
     retry: false
   });
+
+  return {
+    ...query,
+    isLoading: query.isLoading && query.isFetching
+  };
 }

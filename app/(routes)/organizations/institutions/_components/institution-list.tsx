@@ -8,6 +8,8 @@ import { format } from 'date-fns';
 import { MoreVertical, Edit, Trash2, Building2 } from 'lucide-react';
 import { Institution } from '@/types/organizations';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { institutionKeys } from '@/hooks/organization/use-institutions';
+import { useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +49,7 @@ export function InstitutionList({
   paginationLoading,
   onSearch
 }: InstitutionListProps) {
+  const queryClient = useQueryClient();
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewInstitutions =
@@ -62,10 +65,21 @@ export function InstitutionList({
       // Process deletions sequentially to handle potential storage cleanup properly
       for (const institution of selectedRows) {
         await OrganizationService.deleteInstitution(institution.id);
+        // Invalidate specific institution detail cache
+        await queryClient.invalidateQueries({
+          queryKey: institutionKeys.detail(institution.id)
+        });
       }
 
+      // Invalidate all institution-related caches
+      await queryClient.invalidateQueries({
+        queryKey: institutionKeys.lists()
+      });
+      await queryClient.invalidateQueries({
+        queryKey: institutionKeys.names()
+      });
+
       toast.success(`${selectedRows.length} institutions deleted successfully`);
-      onRefresh();
     } catch (error) {
       console.error('Error deleting institutions:', error);
       toast.error(
@@ -80,8 +94,19 @@ export function InstitutionList({
     async (institution: Institution) => {
       try {
         await OrganizationService.deleteInstitution(institution.id);
+
+        // Invalidate specific institution caches
+        await queryClient.invalidateQueries({
+          queryKey: institutionKeys.detail(institution.id)
+        });
+        await queryClient.invalidateQueries({
+          queryKey: institutionKeys.lists()
+        });
+        await queryClient.invalidateQueries({
+          queryKey: institutionKeys.names()
+        });
+
         toast.success('Institution deleted successfully');
-        onRefresh();
       } catch (error) {
         console.error('Error deleting institution:', error);
         toast.error(
@@ -91,7 +116,7 @@ export function InstitutionList({
         );
       }
     },
-    [onRefresh]
+    [queryClient]
   );
 
   // Format date helper

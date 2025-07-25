@@ -10,6 +10,8 @@ import BulkUploadCourseMappings from './_components/bulk-upload-course-mappings'
 import DownloadCourseMappingTemplateButton from './_components/download-course-mapping-template';
 import { CourseMappingFilters as CourseMappingFilterType } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { Link2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function CourseMappingsPage() {
   const [filters, setFilters] = useState<CourseMappingFilterType>({
@@ -98,6 +100,53 @@ export default function CourseMappingsPage() {
           filters={filters}
           onFilterChange={handleFilterChange}
         />
+
+        {/* Filter-based count display */}
+        <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
+          <div className='flex items-center gap-2'>
+            <div className='flex items-center gap-1'>
+              <Link2 className='h-4 w-4 text-muted-foreground' />
+              <span className='text-sm font-medium'>
+                {courseMappingsLoading ? (
+                  'Loading...'
+                ) : (
+                  <>
+                    Showing {courseMappingsData?.data?.length || 0} of{' '}
+                    <span className='font-semibold text-primary'>
+                      {courseMappingsData?.metadata?.total || 0}
+                    </span>{' '}
+                    mapping
+                    {courseMappingsData?.metadata?.total !== 1 ? 's' : ''}
+                    {(courseMappingsData?.metadata?.total || 0) > 0 && (
+                      <span className='text-muted-foreground'>
+                        {' '}
+                        (Page {courseMappingsData?.metadata?.page || 1} of{' '}
+                        {courseMappingsData?.metadata?.totalPages || 1})
+                      </span>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+            {!courseMappingsLoading &&
+              (courseMappingsData?.metadata?.total || 0) > 0 && (
+                <Badge variant='secondary' className='ml-2'>
+                  {(
+                    ((courseMappingsData?.data?.length || 0) /
+                      (courseMappingsData?.metadata?.total || 1)) *
+                    100
+                  ).toFixed(1)}
+                  % of total
+                </Badge>
+              )}
+          </div>
+          {!courseMappingsLoading &&
+            (courseMappingsData?.metadata?.total || 0) === 0 && (
+              <div className='text-sm text-muted-foreground'>
+                No course mappings found matching the current filters
+              </div>
+            )}
+        </div>
 
         <CourseMappingList
           courseMappings={courseMappingsData?.data || []}

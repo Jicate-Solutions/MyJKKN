@@ -1,7 +1,6 @@
 'use client';
 
 import { use } from 'react';
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -10,6 +9,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { institutionKeys } from '@/hooks/organization/use-institutions';
+import { useQuery } from '@tanstack/react-query';
 import type { Institution } from '@/types/organizations';
 import {
   Breadcrumb,
@@ -29,34 +30,16 @@ export default function EditInstitutionPage({
 }: EditInstitutionPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [institution, setInstitution] = useState<{
-    institution: Institution;
-    departments: Record<string, any>;
-  } | null>(null);
+  const {
+    data: institution,
+    isLoading,
+    error
+  } = useQuery({
+    queryKey: institutionKeys.detail(id),
+    queryFn: () => OrganizationService.getInstitution(id)
+  });
 
-  useEffect(() => {
-    async function fetchInstitution() {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await OrganizationService.getInstitution(id);
-        setInstitution(data);
-      } catch (err) {
-        console.error('Error fetching institution:', err);
-        setError(
-          err instanceof Error ? err.message : 'Failed to fetch institution'
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchInstitution();
-  }, [id]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <ContentLayout title='Edit Institution'>
         <div className='flex items-center justify-center min-h-[400px]'>
@@ -70,7 +53,7 @@ export default function EditInstitutionPage({
     return (
       <ContentLayout title='Edit Institution'>
         <div className='text-center py-8'>
-          <p className='text-destructive mb-4'>{error}</p>
+          <p className='text-destructive mb-4'>{error.message}</p>
           <Button variant='outline' asChild>
             <Link href='/organizations/institutions'>Back to Institutions</Link>
           </Button>
@@ -130,10 +113,7 @@ export default function EditInstitutionPage({
 
         <Card>
           <CardContent className='p-6'>
-            <InstitutionForm
-              institution={institution.institution}
-              isEditing={true}
-            />
+            <InstitutionForm institution={institution?.institution} isEditing={true} />
           </CardContent>
         </Card>
       </div>

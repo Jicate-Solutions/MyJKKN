@@ -1,13 +1,14 @@
 'use client';
 
 import { use } from 'react';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, PenSquare } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { institutionKeys } from '@/hooks/organization/use-institutions';
+import { useQuery } from '@tanstack/react-query';
 import type { Institution } from '@/types/organizations';
 import {
   Breadcrumb,
@@ -34,39 +35,17 @@ export default function InstitutionDetailsPage({
   params
 }: InstitutionDetailsPageProps) {
   const { id } = use(params);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<{
-    institution: Institution;
-    departments: Record<string, any>;
-  } | null>(null);
+  const { data, isLoading, error } = useQuery({
+    queryKey: institutionKeys.detail(id),
+    queryFn: () => OrganizationService.getInstitution(id)
+  });
 
   // Get permissions
   const { canAccess, isSuperAdmin } = usePermissions();
   const canEditInstitution =
     isSuperAdmin || canAccess('organizations.institutions', 'edit');
 
-  useEffect(() => {
-    async function fetchInstitution() {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await OrganizationService.getInstitution(id);
-        setData(result);
-      } catch (err) {
-        console.error('Error fetching institution:', err);
-        setError(
-          err instanceof Error ? err.message : 'Failed to fetch institution'
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchInstitution();
-  }, [id]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <ContentLayout title='Institution Details'>
         <div className='flex items-center justify-center min-h-[400px]'>
@@ -80,7 +59,7 @@ export default function InstitutionDetailsPage({
     return (
       <ContentLayout title='Institution Details'>
         <div className='text-center py-8'>
-          <p className='text-destructive mb-4'>{error}</p>
+          <p className='text-destructive mb-4'>{error.message}</p>
           <Button variant='outline' asChild>
             <Link href='/organizations/institutions'>Back to Institutions</Link>
           </Button>

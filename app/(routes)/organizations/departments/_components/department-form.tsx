@@ -8,6 +8,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { Department } from '@/types/organizations';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
@@ -58,6 +59,7 @@ interface DepartmentFormProps {
 
 export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string; counselling_code: string }>
@@ -123,6 +125,10 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
       } else {
         await DepartmentService.createDepartment(values);
       }
+
+      // Invalidate and refetch department queries
+      await queryClient.invalidateQueries({ queryKey: ['departments'] });
+      await queryClient.invalidateQueries({ queryKey: ['organization-stats'] });
 
       router.push('/organizations/departments');
       router.refresh();

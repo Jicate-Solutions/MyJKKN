@@ -12,6 +12,8 @@ import { CourseFilters as CourseFilterType } from '@/types/organizations';
 import DownloadCourseTemplateButton from './_components/download-course-template';
 import { ExportCourses } from './_components/export-courses';
 import BulkUploadCourses from './_components/bulk-upload-courses';
+import { BookOpen } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function CoursesPage() {
   const [filters, setFilters] = useState<CourseFilterType>({
@@ -94,13 +96,58 @@ export default function CoursesPage() {
             </p>
           </div>
           <div className='flex items-center gap-2'>
-            {canViewCourses && <DownloadCourseTemplateButton />}
+            {isSuperAdmin && <DownloadCourseTemplateButton />}
             {isSuperAdmin && <ExportCourses />}
-            {canViewCourses && <BulkUploadCourses />}
+            {isSuperAdmin && <BulkUploadCourses />}
           </div>
         </div>
 
         <CourseFilters filters={filters} onFilterChange={handleFilterChange} />
+
+        {/* Filter-based count display */}
+        <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
+          <div className='flex items-center gap-2'>
+            <div className='flex items-center gap-1'>
+              <BookOpen className='h-4 w-4 text-muted-foreground' />
+              <span className='text-sm font-medium'>
+                {coursesLoading ? (
+                  'Loading...'
+                ) : (
+                  <>
+                    Showing {coursesData?.data?.length || 0} of{' '}
+                    <span className='font-semibold text-primary'>
+                      {coursesData?.metadata?.total || 0}
+                    </span>{' '}
+                    course{coursesData?.metadata?.total !== 1 ? 's' : ''}
+                    {(coursesData?.metadata?.total || 0) > 0 && (
+                      <span className='text-muted-foreground'>
+                        {' '}
+                        (Page {coursesData?.metadata?.page || 1} of{' '}
+                        {coursesData?.metadata?.totalPages || 1})
+                      </span>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+            {!coursesLoading && (coursesData?.metadata?.total || 0) > 0 && (
+              <Badge variant='secondary' className='ml-2'>
+                {(
+                  ((coursesData?.data?.length || 0) /
+                    (coursesData?.metadata?.total || 1)) *
+                  100
+                ).toFixed(1)}
+                % of total
+              </Badge>
+            )}
+          </div>
+          {!coursesLoading && (coursesData?.metadata?.total || 0) === 0 && (
+            <div className='text-sm text-muted-foreground'>
+              No courses found matching the current filters
+            </div>
+          )}
+        </div>
+
         <CourseList
           courses={coursesData?.data || []}
           metadata={

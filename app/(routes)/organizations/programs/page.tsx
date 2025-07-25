@@ -7,14 +7,14 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { ProgramList } from './_components/program-list';
 import { ProgramFilters } from './_components/program-filters';
 import { ProgramFilters as ProgramFilterType } from '@/types/organizations';
+import { BookMarked } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function ProgramsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<Partial<ProgramFilterType>>({
-    isActive: true
-  });
+  const [filters, setFilters] = useState<Partial<ProgramFilterType>>({});
 
   const {
     data: programsData,
@@ -73,7 +73,52 @@ export default function ProgramsPage() {
             Manage academic programs
           </p>
         </div>
-        <ProgramFilters filters={filters} onFilterChange={handleFilterChange} />
+        <ProgramFilters onFilterChange={handleFilterChange} filters={filters} />
+
+        {/* Filter-based count display */}
+        <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
+          <div className='flex items-center gap-2'>
+            <div className='flex items-center gap-1'>
+              <BookMarked className='h-4 w-4 text-muted-foreground' />
+              <span className='text-sm font-medium'>
+                {programsLoading ? (
+                  'Loading...'
+                ) : (
+                  <>
+                    Showing {programsData?.data?.length || 0} of{' '}
+                    <span className='font-semibold text-primary'>
+                      {programsData?.metadata?.total || 0}
+                    </span>{' '}
+                    program{programsData?.metadata?.total !== 1 ? 's' : ''}
+                    {(programsData?.metadata?.total || 0) > 0 && (
+                      <span className='text-muted-foreground'>
+                        {' '}
+                        (Page {programsData?.metadata?.page || 1} of{' '}
+                        {programsData?.metadata?.totalPages || 1})
+                      </span>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+            {!programsLoading && (programsData?.metadata?.total || 0) > 0 && (
+              <Badge variant='secondary' className='ml-2'>
+                {(
+                  ((programsData?.data?.length || 0) /
+                    (programsData?.metadata?.total || 1)) *
+                  100
+                ).toFixed(1)}
+                % of total
+              </Badge>
+            )}
+          </div>
+          {!programsLoading && (programsData?.metadata?.total || 0) === 0 && (
+            <div className='text-sm text-muted-foreground'>
+              No programs found matching the current filters
+            </div>
+          )}
+        </div>
+
         <ProgramList
           programs={programsData?.data || []}
           metadata={

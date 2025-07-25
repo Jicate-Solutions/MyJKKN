@@ -130,13 +130,53 @@ export default function AttendancePage() {
   const [existingAttendance, setExistingAttendance] = useState<any[]>([]);
 
   // Data hooks for search form
-  const { institutions, fetchInstitutions } = useInstitutions({});
-  const { academicYears, fetchAcademicYears } = useAcademicYears({});
-  const { degrees, fetchDegrees } = useDegrees({});
-  const { programs, fetchPrograms } = usePrograms({});
-  const { departments, fetchDepartments } = useDepartments({});
-  const { semesters, fetchSemesters } = useSemesters({});
-  const { sections, fetchSections } = useSections({});
+  const { data: institutionsData, refetch: fetchInstitutions } =
+    useInstitutions({});
+  const institutions = institutionsData?.data ?? [];
+
+  const { academicYears, fetchAcademicYears } = useAcademicYears({
+    institution_id: searchContext.institution_id || undefined,
+    isActive: true
+  });
+
+  const { data: degreesData, refetch: fetchDegrees } = useDegrees({
+    institution_id: searchContext.institution_id || undefined,
+    isActive: true
+  });
+  const degrees = degreesData?.data ?? [];
+
+  const { data: programsData, refetch: fetchPrograms } = usePrograms({
+    institution_id: searchContext.institution_id || undefined,
+    degree_id: searchContext.degree_id || undefined,
+    isActive: true
+  });
+  const programs = programsData?.data ?? [];
+
+  const { data: departmentsData, refetch: fetchDepartments } = useDepartments({
+    institution_id: searchContext.institution_id || undefined,
+    degree_id: searchContext.degree_id || undefined,
+    isActive: true
+  });
+  const departments = departmentsData?.data ?? [];
+
+  const { data: semestersData, refetch: fetchSemesters } = useSemesters({
+    institution_id: searchContext.institution_id || undefined,
+    degree_id: searchContext.degree_id || undefined,
+    program_id: searchContext.program_id || undefined,
+    department_id: searchContext.department_id || undefined,
+    isActive: true
+  });
+  const semesters = semestersData?.data ?? [];
+
+  const { data: sectionsData, refetch: fetchSections } = useSections({
+    institution_id: searchContext.institution_id || undefined,
+    degree_id: searchContext.degree_id || undefined,
+    program_id: searchContext.program_id || undefined,
+    department_id: searchContext.department_id || undefined,
+    semester_id: searchContext.semester_id || undefined,
+    isActive: true
+  });
+  const sections = sectionsData?.data ?? [];
 
   const canViewAttendance =
     isSuperAdmin || canAccess('academic.attendance', 'view');
@@ -211,30 +251,15 @@ export default function AttendancePage() {
   // Load dependent data when filters change
   useEffect(() => {
     if (searchContext.institution_id) {
-      fetchAcademicYears({
-        institution_id: searchContext.institution_id,
-        isActive: true
-      });
-      fetchDegrees({
-        institution_id: searchContext.institution_id,
-        isActive: true
-      });
-    } else {
-      // Clear dependent data when institution is reset
-      // Since the hooks don't have explicit clear methods, we'll let the data remain
-      // but the Select components will handle null values properly
+      fetchAcademicYears();
+      fetchDegrees();
     }
   }, [searchContext.institution_id, fetchAcademicYears, fetchDegrees]);
 
   useEffect(() => {
     if (searchContext.institution_id && searchContext.degree_id) {
-      fetchPrograms({
-        institution_id: searchContext.institution_id,
-        degree_id: searchContext.degree_id,
-        isActive: true
-      });
+      fetchPrograms();
     }
-    // Programs will be empty when degree_id is null due to the condition above
   }, [searchContext.institution_id, searchContext.degree_id, fetchPrograms]);
 
   useEffect(() => {
@@ -243,13 +268,8 @@ export default function AttendancePage() {
       searchContext.degree_id &&
       searchContext.program_id
     ) {
-      fetchDepartments({
-        institution_id: searchContext.institution_id,
-        degree_id: searchContext.degree_id,
-        isActive: true
-      });
+      fetchDepartments();
     }
-    // Departments will be empty when program_id is null due to the condition above
   }, [
     searchContext.institution_id,
     searchContext.degree_id,
@@ -264,15 +284,8 @@ export default function AttendancePage() {
       searchContext.program_id &&
       searchContext.department_id
     ) {
-      fetchSemesters({
-        institution_id: searchContext.institution_id,
-        degree_id: searchContext.degree_id,
-        program_id: searchContext.program_id,
-        department_id: searchContext.department_id,
-        isActive: true
-      });
+      fetchSemesters();
     }
-    // Semesters will be empty when department_id is null due to the condition above
   }, [
     searchContext.institution_id,
     searchContext.degree_id,
@@ -289,16 +302,8 @@ export default function AttendancePage() {
       searchContext.department_id &&
       searchContext.semester_id
     ) {
-      fetchSections({
-        institution_id: searchContext.institution_id,
-        degree_id: searchContext.degree_id,
-        program_id: searchContext.program_id,
-        department_id: searchContext.department_id,
-        semester_id: searchContext.semester_id,
-        isActive: true
-      });
+      fetchSections();
     }
-    // Sections will be empty when semester_id is null due to the condition above
   }, [
     searchContext.institution_id,
     searchContext.degree_id,
@@ -571,23 +576,29 @@ export default function AttendancePage() {
               })(),
               staffEmail: 'N/A',
               sectionName:
-                sections.find((s) => s.id === searchContext.section_id)
-                  ?.section_name || 'Unknown Section',
+                sections.find(
+                  (s: { id: string }) => s.id === searchContext.section_id
+                )?.section_name || 'Unknown Section',
               semesterName:
-                semesters.find((s) => s.id === searchContext.semester_id)
-                  ?.semester_name || 'Unknown Semester',
+                semesters.find(
+                  (s: { id: string }) => s.id === searchContext.semester_id
+                )?.semester_name || 'Unknown Semester',
               institutionName:
-                institutions.find((i) => i.id === searchContext.institution_id)
-                  ?.name || 'Unknown Institution',
+                institutions.find(
+                  (i: { id: string }) => i.id === searchContext.institution_id
+                )?.name || 'Unknown Institution',
               departmentName:
-                departments.find((d) => d.id === searchContext.department_id)
-                  ?.department_name || 'Unknown Department',
+                departments.find(
+                  (d: { id: string }) => d.id === searchContext.department_id
+                )?.department_name || 'Unknown Department',
               programName:
-                programs.find((p) => p.id === searchContext.program_id)
-                  ?.program_name || 'Unknown Program',
+                programs.find(
+                  (p: { id: string }) => p.id === searchContext.program_id
+                )?.program_name || 'Unknown Program',
               degreeName:
-                degrees.find((d) => d.id === searchContext.degree_id)
-                  ?.degree_name || 'Unknown Degree'
+                degrees.find(
+                  (d: { id: string }) => d.id === searchContext.degree_id
+                )?.degree_name || 'Unknown Degree'
             }
           });
 
@@ -722,23 +733,29 @@ export default function AttendancePage() {
             })(),
             staffEmail: 'N/A',
             sectionName:
-              sections.find((s) => s.id === searchContext.section_id)
-                ?.section_name || 'Unknown Section',
+              sections.find(
+                (s: { id: string }) => s.id === searchContext.section_id
+              )?.section_name || 'Unknown Section',
             semesterName:
-              semesters.find((s) => s.id === searchContext.semester_id)
-                ?.semester_name || 'Unknown Semester',
+              semesters.find(
+                (s: { id: string }) => s.id === searchContext.semester_id
+              )?.semester_name || 'Unknown Semester',
             institutionName:
-              institutions.find((i) => i.id === searchContext.institution_id)
-                ?.name || 'Unknown Institution',
+              institutions.find(
+                (i: { id: string }) => i.id === searchContext.institution_id
+              )?.name || 'Unknown Institution',
             departmentName:
-              departments.find((d) => d.id === searchContext.department_id)
-                ?.department_name || 'Unknown Department',
+              departments.find(
+                (d: { id: string }) => d.id === searchContext.department_id
+              )?.department_name || 'Unknown Department',
             programName:
-              programs.find((p) => p.id === searchContext.program_id)
-                ?.program_name || 'Unknown Program',
+              programs.find(
+                (p: { id: string }) => p.id === searchContext.program_id
+              )?.program_name || 'Unknown Program',
             degreeName:
-              degrees.find((d) => d.id === searchContext.degree_id)
-                ?.degree_name || 'Unknown Degree'
+              degrees.find(
+                (d: { id: string }) => d.id === searchContext.degree_id
+              )?.degree_name || 'Unknown Degree'
           }
         });
 
@@ -829,13 +846,19 @@ export default function AttendancePage() {
                     {(isSuperAdmin
                       ? institutions
                       : institutions.filter(
-                          (inst) => inst.id === userProfile?.institution_id
+                          (inst: { id: string | null | undefined }) =>
+                            inst.id === userProfile?.institution_id
                         )
-                    ).map((institution) => (
-                      <SelectItem key={institution.id} value={institution.id}>
-                        {institution.name}
-                      </SelectItem>
-                    ))}
+                    ).map(
+                      (institution: {
+                        id: string;
+                        name: import('react').ReactNode;
+                      }) => (
+                        <SelectItem key={institution.id} value={institution.id}>
+                          {institution.name}
+                        </SelectItem>
+                      )
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -862,11 +885,16 @@ export default function AttendancePage() {
                     <SelectValue placeholder='Select degree' />
                   </SelectTrigger>
                   <SelectContent>
-                    {degrees.map((degree) => (
-                      <SelectItem key={degree.id} value={degree.id}>
-                        {degree.degree_name}
-                      </SelectItem>
-                    ))}
+                    {degrees.map(
+                      (degree: {
+                        id: string;
+                        degree_name: import('react').ReactNode;
+                      }) => (
+                        <SelectItem key={degree.id} value={degree.id}>
+                          {degree.degree_name}
+                        </SelectItem>
+                      )
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -892,11 +920,16 @@ export default function AttendancePage() {
                     <SelectValue placeholder='Select program' />
                   </SelectTrigger>
                   <SelectContent>
-                    {programs.map((program) => (
-                      <SelectItem key={program.id} value={program.id}>
-                        {program.program_name}
-                      </SelectItem>
-                    ))}
+                    {programs.map(
+                      (program: {
+                        id: string;
+                        program_name: import('react').ReactNode;
+                      }) => (
+                        <SelectItem key={program.id} value={program.id}>
+                          {program.program_name}
+                        </SelectItem>
+                      )
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -921,11 +954,16 @@ export default function AttendancePage() {
                     <SelectValue placeholder='Select department' />
                   </SelectTrigger>
                   <SelectContent>
-                    {departments.map((department) => (
-                      <SelectItem key={department.id} value={department.id}>
-                        {department.department_name}
-                      </SelectItem>
-                    ))}
+                    {departments.map(
+                      (department: {
+                        id: string;
+                        department_name: import('react').ReactNode;
+                      }) => (
+                        <SelectItem key={department.id} value={department.id}>
+                          {department.department_name}
+                        </SelectItem>
+                      )
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -949,11 +987,16 @@ export default function AttendancePage() {
                     <SelectValue placeholder='Select semester' />
                   </SelectTrigger>
                   <SelectContent>
-                    {semesters.map((semester) => (
-                      <SelectItem key={semester.id} value={semester.id}>
-                        {semester.semester_name}
-                      </SelectItem>
-                    ))}
+                    {semesters.map(
+                      (semester: {
+                        id: string;
+                        semester_name: import('react').ReactNode;
+                      }) => (
+                        <SelectItem key={semester.id} value={semester.id}>
+                          {semester.semester_name}
+                        </SelectItem>
+                      )
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -974,11 +1017,16 @@ export default function AttendancePage() {
                     <SelectValue placeholder='Select section' />
                   </SelectTrigger>
                   <SelectContent>
-                    {sections.map((section) => (
-                      <SelectItem key={section.id} value={section.id}>
-                        {section.section_name}
-                      </SelectItem>
-                    ))}
+                    {sections.map(
+                      (section: {
+                        id: string;
+                        section_name: import('react').ReactNode;
+                      }) => (
+                        <SelectItem key={section.id} value={section.id}>
+                          {section.section_name}
+                        </SelectItem>
+                      )
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -991,7 +1039,8 @@ export default function AttendancePage() {
                   </Label>
                   <div className='px-3 py-2 border rounded-md bg-muted text-sm'>
                     {academicYears.find(
-                      (year) => year.id === searchContext.academic_year_id
+                      (year: { id: string | null }) =>
+                        year.id === searchContext.academic_year_id
                     )?.academic_year_name || 'Loading...'}
                   </div>
                 </div>

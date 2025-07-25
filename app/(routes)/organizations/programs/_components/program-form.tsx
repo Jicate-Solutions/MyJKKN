@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { Program } from '@/types/organizations';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
@@ -73,6 +74,7 @@ interface Department {
 
 export function ProgramForm({ program, isEditing }: ProgramFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [degrees, setDegrees] = useState<Degree[]>([]);
@@ -159,6 +161,10 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
       } else {
         await ProgramService.createProgram(values);
       }
+
+      // Invalidate and refetch program queries
+      await queryClient.invalidateQueries({ queryKey: ['programs'] });
+      await queryClient.invalidateQueries({ queryKey: ['organization-stats'] });
 
       router.push('/organizations/programs');
       router.refresh();

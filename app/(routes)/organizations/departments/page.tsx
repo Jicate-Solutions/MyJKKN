@@ -9,14 +9,14 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { DepartmentList } from './_components/department-list';
 import { DepartmentFilters } from './_components/department-filters';
 import { DepartmentFilters as DepartmentFilterType } from '@/types/organizations';
+import { Building2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function DepartmentsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<Partial<DepartmentFilterType>>({
-    isActive: true
-  });
+  const [filters, setFilters] = useState<Partial<DepartmentFilterType>>({});
 
   const {
     data: departmentsData,
@@ -79,6 +79,54 @@ export default function DepartmentsPage() {
           onFilterChange={handleFilterChange}
           filters={filters}
         />
+
+        {/* Filter-based count display */}
+        <div className='flex items-center justify-between mb-4 p-3 bg-muted/30 rounded-lg border'>
+          <div className='flex items-center gap-2'>
+            <div className='flex items-center gap-1'>
+              <Building2 className='h-4 w-4 text-muted-foreground' />
+              <span className='text-sm font-medium'>
+                {departmentsLoading ? (
+                  'Loading...'
+                ) : (
+                  <>
+                    Showing {departmentsData?.data?.length || 0} of{' '}
+                    <span className='font-semibold text-primary'>
+                      {departmentsData?.metadata?.total || 0}
+                    </span>{' '}
+                    department
+                    {departmentsData?.metadata?.total !== 1 ? 's' : ''}
+                    {(departmentsData?.metadata?.total || 0) > 0 && (
+                      <span className='text-muted-foreground'>
+                        {' '}
+                        (Page {departmentsData?.metadata?.page || 1} of{' '}
+                        {departmentsData?.metadata?.totalPages || 1})
+                      </span>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+            {!departmentsLoading &&
+              (departmentsData?.metadata?.total || 0) > 0 && (
+                <Badge variant='secondary' className='ml-2'>
+                  {(
+                    ((departmentsData?.data?.length || 0) /
+                      (departmentsData?.metadata?.total || 1)) *
+                    100
+                  ).toFixed(1)}
+                  % of total
+                </Badge>
+              )}
+          </div>
+          {!departmentsLoading &&
+            (departmentsData?.metadata?.total || 0) === 0 && (
+              <div className='text-sm text-muted-foreground'>
+                No departments found matching the current filters
+              </div>
+            )}
+        </div>
+
         <DepartmentList
           departments={departmentsData?.data || []}
           metadata={

@@ -6,6 +6,8 @@ import { format } from 'date-fns';
 import { MoreVertical, Edit, Trash2, FileText, Plus, Eye } from 'lucide-react';
 import { CourseMapping } from '@/types/organizations';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
+import { courseMappingKeys } from '@/hooks/organization/use-course-mappings';
+import { useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +45,7 @@ export function CourseMappingList({
   paginationLoading
 }: CourseMappingListProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
+  const queryClient = useQueryClient();
 
   const canViewCourses =
     isSuperAdmin || canAccess('organizations.courses', 'view');
@@ -56,11 +59,18 @@ export function CourseMappingList({
     try {
       for (const mapping of selectedRows) {
         await CourseMappingService.deleteCourseMapping(mapping.id);
+        // Invalidate specific course mapping detail cache
+        await queryClient.invalidateQueries({ 
+          queryKey: courseMappingKeys.detail(mapping.id) 
+        });
       }
+
+      // Invalidate all course mapping-related caches
+      await queryClient.invalidateQueries({ queryKey: courseMappingKeys.lists() });
+
       toast.success(
         `${selectedRows.length} course mappings deleted successfully`
       );
-      onRefresh();
     } catch (error) {
       console.error('Error deleting course mappings:', error);
       toast.error(
@@ -77,8 +87,14 @@ export function CourseMappingList({
     async (mapping: CourseMapping) => {
       try {
         await CourseMappingService.deleteCourseMapping(mapping.id);
+        
+        // Invalidate specific course mapping caches
+        await queryClient.invalidateQueries({ 
+          queryKey: courseMappingKeys.detail(mapping.id) 
+        });
+        await queryClient.invalidateQueries({ queryKey: courseMappingKeys.lists() });
+        
         toast.success('Course mapping deleted successfully');
-        onRefresh();
       } catch (error) {
         console.error('Error deleting course mapping:', error);
         toast.error(
@@ -88,7 +104,7 @@ export function CourseMappingList({
         );
       }
     },
-    [onRefresh]
+    [queryClient]
   );
 
   // Format date helper
