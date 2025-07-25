@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type {
   BillingParentCategory,
   BillingParentCategoryFilters
@@ -22,13 +22,20 @@ export function useBillingParentCategories(
     totalPages: 0
   });
 
-  const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { profile, isLoading: authLoading } = useAuth();
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
 
   const fetchCategories = useCallback(
     async (newFilters?: BillingParentCategoryFilters) => {
-      if (!profile?.id) {
+      // Wait for auth and permissions to load before proceeding
+      if (authLoading || permissionsLoading) {
+        return;
+      }
+
+      // For non-super admin users, we need profile data
+      if (!isSuperAdmin && !profile?.id) {
         setLoading(false);
+        setError('User profile not available');
         return;
       }
 
@@ -43,7 +50,7 @@ export function useBillingParentCategories(
               currentFilters
             )
           : await BillingParentCategoryService.getBillingParentCategoriesForUser(
-              profile.id,
+              profile!.id,
               currentFilters
             );
 
@@ -60,8 +67,15 @@ export function useBillingParentCategories(
         setLoading(false);
       }
     },
-    [filters, profile?.id, isSuperAdmin]
+    [filters, profile?.id, isSuperAdmin, authLoading, permissionsLoading]
   );
+
+  // Auto-fetch when auth and permissions are ready
+  useEffect(() => {
+    if (!authLoading && !permissionsLoading) {
+      fetchCategories();
+    }
+  }, [authLoading, permissionsLoading, fetchCategories]);
 
   const updateFilters = useCallback(
     (newFilters: Partial<BillingParentCategoryFilters>) => {

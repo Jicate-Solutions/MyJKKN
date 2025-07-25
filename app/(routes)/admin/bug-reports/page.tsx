@@ -431,20 +431,7 @@ export default function AdminBugReportsPage() {
           </div>
         )
       },
-      {
-        accessorKey: 'page_url',
-        header: 'Page',
-        cell: ({ row }) => (
-          <Link
-            href={row.original.page_url}
-            target='_blank'
-            className='text-blue-500 hover:underline text-xs sm:text-sm'
-          >
-            <span className='sm:hidden'>View</span>
-            <span className='hidden sm:inline'>View Page</span>
-          </Link>
-        )
-      },
+
       {
         accessorKey: 'status',
         header: 'Status',

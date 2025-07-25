@@ -47,9 +47,21 @@ export function usePushNotifications() {
       try {
         setState((prev) => ({ ...prev, isLoading: true }));
 
-        // Register service worker
-        const registration = await navigator.serviceWorker.register('/sw.js');
-        console.log('Service Worker registered:', registration);
+        // Check if service worker is available
+        if (!('serviceWorker' in navigator)) {
+          throw new Error('Service Worker not supported');
+        }
+
+        // Wait a bit to ensure the page is fully loaded
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        // Register service worker with better error handling
+        const registration = await navigator.serviceWorker.register('/sw.js', {
+          scope: '/',
+          updateViaCache: 'none'
+        });
+
+        console.log('Service Worker registered successfully:', registration);
 
         // Wait for service worker to be ready
         await navigator.serviceWorker.ready;
@@ -69,7 +81,9 @@ export function usePushNotifications() {
         setState((prev) => ({
           ...prev,
           isLoading: false,
-          error: 'Failed to register service worker'
+          error: `Failed to register service worker: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`
         }));
       }
     };

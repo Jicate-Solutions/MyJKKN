@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -36,9 +35,8 @@ export default function BillingParentCategoriesPage() {
   const canCreateCategories =
     isSuperAdmin || canAccess('billing.parent_categories', 'create');
 
-  useEffect(() => {
-    fetchCategories();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The hook now handles auto-fetching when auth/permissions are ready
+  // No need for manual useEffect here
 
   // Show loading state while permissions are loading
   if (permissionsLoading) {
