@@ -3,7 +3,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Profile } from '@/types/auth';
 import { format } from 'date-fns';
-import { GraduationCap } from 'lucide-react';
+import { GraduationCap, LogOut } from 'lucide-react';
 import GradientText from '@/components/ui/gradient-text';
 import {
   DropdownMenu,
@@ -17,6 +17,7 @@ import {
 import { TrophyIcon, ClipboardListIcon } from '@/components/icons';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/providers/auth-provider';
 
 interface LearnerProfileHeaderProps {
   user: Profile | null;
@@ -27,6 +28,8 @@ export function LearnerProfileHeader({
   user,
   currentTime
 }: LearnerProfileHeaderProps) {
+  const { signOut } = useAuth();
+
   const getGreeting = () => {
     const hour = currentTime.getHours();
     if (hour < 12) return 'Good Morning';
@@ -42,6 +45,14 @@ export function LearnerProfileHeader({
       .join('')
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
   };
 
   return (
@@ -124,6 +135,16 @@ export function LearnerProfileHeader({
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuGroup>
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuItem
+                className='text-red-600 cursor-pointer'
+                onClick={handleSignOut}
+              >
+                <LogOut className='mr-2 h-4 w-4' />
+                Sign out
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

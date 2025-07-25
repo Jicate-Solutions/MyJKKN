@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       router.push('/auth/login');
-      toast.success('Signed out successfully');
+      // Note: AuthService.signOut() already shows success toast, so we don't need to show it here
     } catch (error) {
       toast.error('Error signing out');
     }

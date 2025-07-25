@@ -165,10 +165,11 @@ export function DashboardWidget({
       },
       default: {
         gradient: 'from-gray-500 to-slate-500',
-        bgGradient: 'from-gray-50 to-slate-50',
+        bgGradient:
+          'from-gray-50 to-slate-50 dark:from-gray-900 dark:to-slate-900',
         icon: BarChart3,
-        iconColor: 'text-gray-600',
-        ringColor: 'ring-gray-200'
+        iconColor: 'text-muted-foreground',
+        ringColor: 'ring-gray-200 dark:ring-gray-700'
       }
     };
     return configs[category as keyof typeof configs] || configs.default;
@@ -183,38 +184,35 @@ export function DashboardWidget({
     if (loading) {
       return (
         <div className='space-y-4 animate-pulse'>
-          <div className='flex items-center justify-between'>
-            <div className='space-y-2'>
-              <div className='h-8 bg-gradient-to-r from-gray-200 to-gray-300 rounded-lg w-20'></div>
-              <div className='h-4 bg-gradient-to-r from-gray-200 to-gray-300 rounded w-32'></div>
-            </div>
-            <div className='h-6 bg-gradient-to-r from-gray-200 to-gray-300 rounded-full w-16'></div>
+          <div className='flex items-center gap-3'>
+            <div className='h-8 bg-muted rounded-lg w-20'></div>
+            <div className='h-4 bg-muted rounded w-32'></div>
           </div>
-          <div className='h-16 bg-gradient-to-r from-gray-200 to-gray-300 rounded-lg'></div>
+          <div className='h-6 bg-muted rounded-full w-16'></div>
+          <div className='space-y-2'>
+            <div className='h-16 bg-muted rounded-lg'></div>
+          </div>
         </div>
       );
     }
 
     if (error || !data || !widget.widget_type) {
       return (
-        <div className='flex flex-col items-center justify-center h-full text-center p-6'>
-          <div className={`p-3 rounded-full bg-red-100 mb-4`}>
-            <X className='h-6 w-6 text-red-500' />
-          </div>
-          <h4 className='font-medium text-gray-900 mb-1'>
-            Unable to load data
+        <div className='flex flex-col items-center justify-center h-40 text-center p-4'>
+          <h4 className='font-medium text-foreground mb-1'>
+            {title || 'Error loading data'}
           </h4>
-          <p className='text-sm text-gray-500 mb-4'>
-            {error || 'Failed to load widget data'}
+          <p className='text-sm text-muted-foreground mb-4'>
+            {description || 'Please try refreshing the widget'}
           </p>
           <Button
-            variant='outline'
             size='sm'
-            onClick={handleRefresh}
-            className='bg-white border-gray-200 hover:bg-gray-50'
+            variant='outline'
+            onClick={onRetry}
+            className='bg-background border-border hover:bg-muted'
           >
-            <RefreshCw className='h-4 w-4 mr-2' />
-            Try Again
+            <RefreshCw className='h-3 w-3 mr-1' />
+            Retry
           </Button>
         </div>
       );
@@ -231,13 +229,13 @@ export function DashboardWidget({
                 <IconComponent className='h-5 w-5' />
               </div>
               <div>
-                <div className='text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent'>
+                <div className='text-2xl font-bold text-foreground'>
                   {typeof data.value === 'number'
                     ? data.value.toLocaleString()
                     : data.value}
                 </div>
                 {data.label && (
-                  <p className='text-sm text-gray-500 font-medium'>
+                  <p className='text-sm text-muted-foreground font-medium'>
                     {data.label}
                   </p>
                 )}
@@ -292,10 +290,10 @@ export function DashboardWidget({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 + index * 0.1 }}
-                className='text-center p-3 rounded-lg bg-gray-50/50 border border-gray-100'
+                className='text-center p-3 rounded-lg bg-muted/50 border border-border'
               >
-                <p className='text-lg font-bold text-gray-900'>{value}</p>
-                <p className='text-xs text-gray-500 font-medium mt-1'>
+                <p className='text-lg font-bold text-foreground'>{value}</p>
+                <p className='text-xs text-muted-foreground font-medium mt-1'>
                   {key.replace(/_/g, ' ').toUpperCase()}
                 </p>
               </motion.div>
@@ -390,24 +388,22 @@ export function DashboardWidget({
       <Card
         className={cn(
           'h-full relative overflow-hidden',
-          'bg-white/80 backdrop-blur-sm border-0',
-          'shadow-lg shadow-gray-200/50',
-          'hover:shadow-xl hover:shadow-gray-300/60',
+          'bg-card backdrop-blur-sm border-border',
+          'shadow-lg dark:shadow-none',
+          'hover:shadow-xl dark:hover:shadow-none',
           'transition-all duration-300 ease-out',
-          'ring-1 ring-gray-200/50',
-          `bg-gradient-to-br ${categoryConfig.bgGradient}`,
-          'before:absolute before:inset-0 before:bg-gradient-to-br before:from-white/60 before:to-transparent before:pointer-events-none',
-          isEditing && 'ring-2 ring-blue-200 shadow-blue-200/25'
+          'ring-1 ring-border',
+          isEditing && 'ring-2 ring-primary/50 shadow-primary/25'
         )}
       >
-        <div className='absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent pointer-events-none' />
+        <div className='absolute inset-0 bg-gradient-to-br from-background/40 via-transparent to-transparent pointer-events-none' />
 
         {/* Edit Mode Indicator */}
         {isEditing && (
           <div className='absolute top-2 left-2 z-20'>
             <Badge
               variant='secondary'
-              className='text-xs px-2 py-1 bg-blue-100 text-blue-700 border-blue-200 shadow-sm'
+              className='text-xs px-2 py-1 bg-primary/10 text-primary border-primary/20 shadow-sm'
             >
               Edit Mode
             </Badge>
@@ -419,15 +415,13 @@ export function DashboardWidget({
             <div className='flex-1'>
               <CardTitle
                 className={cn(
-                  'text-lg font-semibold leading-tight',
-                  'bg-gradient-to-r from-gray-900 via-gray-800 to-gray-700',
-                  'bg-clip-text text-transparent'
+                  'text-lg font-semibold leading-tight text-foreground'
                 )}
               >
                 {widget.widget_type?.widget_name || 'Unknown Widget'}
               </CardTitle>
               {widget.widget_type?.description && (
-                <CardDescription className='text-sm text-gray-600 mt-1 font-medium'>
+                <CardDescription className='text-sm text-muted-foreground mt-1 font-medium'>
                   {widget.widget_type.description}
                 </CardDescription>
               )}
@@ -439,7 +433,7 @@ export function DashboardWidget({
                   <Button
                     variant='ghost'
                     size='sm'
-                    className='opacity-80 hover:opacity-100 transition-opacity h-8 w-8 p-0 hover:bg-gray-100/80 shadow-sm border border-gray-200'
+                    className='opacity-80 hover:opacity-100 transition-opacity h-8 w-8 p-0 hover:bg-muted border border-border'
                   >
                     <MoreHorizontal className='h-4 w-4' />
                   </Button>
@@ -533,17 +527,11 @@ function KPIWidget({
             <IconComponent className='h-6 w-6' />
           </div>
           <div>
-            <div
-              className={cn(
-                'text-3xl font-bold',
-                'bg-gradient-to-r from-gray-900 to-gray-600',
-                'bg-clip-text text-transparent'
-              )}
-            >
+            <div className={cn('text-3xl font-bold text-foreground')}>
               {formatValue(data.value)}
             </div>
             {data.label && (
-              <p className='text-sm text-gray-600 font-medium mt-1'>
+              <p className='text-sm text-muted-foreground font-medium mt-1'>
                 {data.label}
               </p>
             )}
@@ -561,9 +549,11 @@ function KPIWidget({
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 font-medium border-0 shadow-sm',
                 data.trend.direction === 'up' &&
-                  'bg-emerald-100 text-emerald-700',
-                data.trend.direction === 'down' && 'bg-red-100 text-red-700',
-                data.trend.direction === 'stable' && 'bg-gray-100 text-gray-700'
+                  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+                data.trend.direction === 'down' &&
+                  'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+                data.trend.direction === 'stable' &&
+                  'bg-muted text-muted-foreground'
               )}
             >
               {data.trend.direction === 'up' && (
@@ -598,13 +588,12 @@ function KPIWidget({
               transition={{ delay: 0.4 + index * 0.1 }}
               className={cn(
                 'text-center p-4 rounded-xl',
-                'bg-gradient-to-br from-gray-50 to-gray-100/50',
-                'border border-gray-200/50 shadow-sm',
-                'hover:shadow-md transition-shadow duration-200'
+                'bg-card border border-border shadow-sm',
+                'hover:shadow-md dark:hover:shadow-none transition-shadow duration-200'
               )}
             >
-              <p className='text-xl font-bold text-gray-900'>{value}</p>
-              <p className='text-xs text-gray-600 font-medium mt-1 uppercase tracking-wide'>
+              <p className='text-xl font-bold text-foreground'>{value}</p>
+              <p className='text-xs text-muted-foreground font-medium mt-1 uppercase tracking-wide'>
                 {key.replace(/_/g, ' ')}
               </p>
             </motion.div>
@@ -737,19 +726,11 @@ function TableWidget({
 }) {
   if (!data.tableData || data.tableData.length === 0) {
     return (
-      <div className='flex items-center justify-center h-full text-center py-8'>
-        <div className='text-center'>
-          <div
-            className={cn(
-              'p-3 rounded-full mb-3 mx-auto w-fit',
-              `bg-gradient-to-r ${categoryConfig.gradient}`,
-              'opacity-20'
-            )}
-          >
-            <FileText className='h-6 w-6 text-gray-600' />
-          </div>
-          <p className='text-sm text-gray-500 font-medium'>No data available</p>
-        </div>
+      <div className='flex flex-col items-center justify-center h-32'>
+        <FileText className='h-6 w-6 text-muted-foreground' />
+        <p className='text-sm text-muted-foreground font-medium'>
+          No data available
+        </p>
       </div>
     );
   }
@@ -766,9 +747,8 @@ function TableWidget({
           transition={{ delay: index * 0.1 }}
           className={cn(
             'flex items-center justify-between p-4 rounded-xl',
-            'bg-gradient-to-r from-white to-gray-50/50',
-            'border border-gray-200/60 shadow-sm',
-            'hover:shadow-md hover:border-gray-300/60',
+            'bg-card border border-border shadow-sm',
+            'hover:shadow-md dark:hover:shadow-none hover:border-border',
             'transition-all duration-200'
           )}
         >
@@ -786,11 +766,13 @@ function TableWidget({
               </div>
             )}
             <div className='flex-1 min-w-0'>
-              <p className='text-sm font-semibold text-gray-900 truncate'>
+              <p className='text-sm font-semibold text-foreground truncate'>
                 {item.full_name || item.name || 'Unknown'}
               </p>
               {item.email && (
-                <p className='text-xs text-gray-500 truncate'>{item.email}</p>
+                <p className='text-xs text-muted-foreground truncate'>
+                  {item.email}
+                </p>
               )}
             </div>
           </div>
@@ -810,9 +792,12 @@ function TableWidget({
               <div
                 className={cn(
                   'mt-1 text-xs px-2 py-0.5 rounded-full font-medium',
-                  item.status === 'active' && 'bg-green-100 text-green-700',
-                  item.status === 'inactive' && 'bg-gray-100 text-gray-700',
-                  item.status === 'pending' && 'bg-yellow-100 text-yellow-700'
+                  item.status === 'active' &&
+                    'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+                  item.status === 'inactive' &&
+                    'bg-muted text-muted-foreground',
+                  item.status === 'pending' &&
+                    'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
                 )}
               >
                 {item.status}
@@ -1060,7 +1045,7 @@ function WelcomeWidget({
       </motion.div>
 
       <motion.p
-        className='mt-4 text-sm text-gray-600 max-w-md'
+        className='mt-4 text-sm text-muted-foreground max-w-md'
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.9, duration: 0.5 }}

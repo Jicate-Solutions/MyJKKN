@@ -17,7 +17,13 @@ const isPublicPath = (path: string) =>
   PUBLIC_PATHS.includes(path) ||
   path.startsWith('/_next') ||
   path.startsWith('/api') ||
-  path.includes('favicon.ico');
+  path.includes('favicon.ico') ||
+  path === '/sw.js' ||
+  path.endsWith('.js') ||
+  path.endsWith('.css') ||
+  path.endsWith('.png') ||
+  path.endsWith('.ico') ||
+  path.endsWith('.svg');
 
 export async function middleware(request: NextRequest) {
   try {
