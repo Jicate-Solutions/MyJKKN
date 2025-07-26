@@ -368,6 +368,33 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Resource Management',
+    key: 'resources',
+    permissions: [
+      { key: 'resources.categories.view', label: 'View Resource Categories' },
+      { key: 'resources.categories.create', label: 'Create Resource Categories' },
+      { key: 'resources.categories.edit', label: 'Edit Resource Categories' },
+      { key: 'resources.categories.delete', label: 'Delete Resource Categories' },
+      { key: 'resources.subcategories.view', label: 'View Resource Subcategories' },
+      { key: 'resources.subcategories.create', label: 'Create Resource Subcategories' },
+      { key: 'resources.subcategories.edit', label: 'Edit Resource Subcategories' },
+      { key: 'resources.subcategories.delete', label: 'Delete Resource Subcategories' },
+      { key: 'resources.resources.view', label: 'View Resources' },
+      { key: 'resources.resources.create', label: 'Create Resources' },
+      { key: 'resources.resources.edit', label: 'Edit Resources' },
+      { key: 'resources.resources.delete', label: 'Delete Resources' },
+      { key: 'resources.reservations.view', label: 'View Reservations' },
+      { key: 'resources.reservations.create', label: 'Create Reservations' },
+      { key: 'resources.reservations.edit', label: 'Edit Reservations' },
+      { key: 'resources.reservations.cancel', label: 'Cancel Reservations' },
+      { key: 'resources.approvals.view', label: 'View Resource Approvals' },
+      { key: 'resources.approvals.approve', label: 'Approve Resource Requests' },
+      { key: 'resources.approvals.reject', label: 'Reject Resource Requests' },
+      { key: 'resources.analytics.view', label: 'View Resource Analytics' },
+      { key: 'resources.reports.view', label: 'View Resource Reports' }
+    ]
+  },
+  {
     name: 'Notifications',
     key: 'notifications',
     permissions: [

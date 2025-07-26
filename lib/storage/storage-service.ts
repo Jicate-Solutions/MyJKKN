@@ -6,16 +6,18 @@ const BUCKETS = {
   AVATARS: 'avatars',
   LOGOS: 'institution-logos',
   STUDENT_PHOTOS: 'student-photos',
-  STAFF_PHOTOS: 'staff-images' // Corrected to use the existing bucket
+  STAFF_PHOTOS: 'staff-images', // Corrected to use the existing bucket
+  RESOURCES: 'resource-management' // New bucket for resource management assets
 } as const;
 
-const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif'];
+const ALLOWED_FILE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml'
+];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-
-// Supabase client initialization (assuming it's already done elsewhere)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export class StorageService {
   private static supabase = createClientSupabaseClient();
@@ -901,6 +903,194 @@ export class StorageService {
       console.error('Error deleting staff image by URL:', error);
       return {
         error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  // =============================================
+  // RESOURCE MANAGEMENT METHODS
+  // =============================================
+
+  /**
+   * Upload category image for resource management
+   */
+  static async uploadCategoryImage(
+    file: File,
+    categoryId: string
+  ): Promise<{
+    publicUrl: string | null;
+    error: Error | null;
+  }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      // Delete old category image if exists
+      await this.deleteOldCategoryImage(categoryId);
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `categories/${categoryId}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading category image:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  /**
+   * Delete old category images
+   */
+  private static async deleteOldCategoryImage(
+    categoryId: string
+  ): Promise<void> {
+    try {
+      const { data: existingFiles } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .list(`categories/${categoryId}`);
+
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map(
+          (f) => `categories/${categoryId}/${f.name}`
+        );
+        await this.supabase.storage
+          .from(BUCKETS.RESOURCES)
+          .remove(filesToRemove);
+      }
+    } catch (error) {
+      console.error('Error deleting old category image:', error);
+    }
+  }
+
+  /**
+   * Delete category image by category ID
+   */
+  static async deleteCategoryImage(
+    categoryId: string
+  ): Promise<{ error: Error | null }> {
+    try {
+      await this.deleteOldCategoryImage(categoryId);
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting category image:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  /**
+   * Delete category image by URL
+   */
+  static async deleteCategoryImageByUrl(
+    imageUrl: string
+  ): Promise<{ error: Error | null }> {
+    if (!imageUrl) {
+      return { error: null }; // No image to delete
+    }
+
+    try {
+      // Extract the file path from the full URL
+      const url = new URL(imageUrl);
+      const path = url.pathname.split(
+        `/storage/v1/object/public/${BUCKETS.RESOURCES}/`
+      )[1];
+
+      if (!path) {
+        throw new Error('Could not extract file path from URL');
+      }
+
+      const { error } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .remove([path]);
+
+      if (error) throw error;
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting category image by URL:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  /**
+   * Upload resource image for resource management
+   */
+  static async uploadResourceImage(
+    file: File,
+    resourceId: string
+  ): Promise<{
+    publicUrl: string | null;
+    error: Error | null;
+  }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `resources/${resourceId}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading resource image:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
       };
     }
   }
