@@ -68,9 +68,7 @@ export class StorageServiceDebug {
     });
   }
 
-  private static async validateFileEnhanced(
-    file: File
-  ): Promise<{
+  private static async validateFileEnhanced(file: File): Promise<{
     valid: boolean;
     errors: string[];
     diagnostics: DiagnosticInfo[];
@@ -165,7 +163,7 @@ export class StorageServiceDebug {
       });
 
       // Validate common image signatures
-      const imageSignatures = {
+      const imageSignatures: { [key: string]: string } = {
         ffd8ffe0: 'JPEG',
         ffd8ffe1: 'JPEG',
         ffd8ffe2: 'JPEG',

@@ -133,34 +133,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/periods': 'academic.periods.view',
   '/academic/attendance': 'academic.attendance.view',
 
-  // Resource Management
-
-  // physical Resources
-  '/resources/physical-resources/dashboard':
-    'physical_resources.dashboard.view',
-  '/resources/physical-resources/resources': 'physical_resources.view',
-  '/resources/physical-resources/categories':
-    'physical_resources.categories.view',
-  '/resources/physical-resources/reservations':
-    'physical_resources.reservations.view',
-  '/resources/physical-resources/policies': 'physical_resources.policies.view',
-  '/resources/physical-resources/reports': 'physical_resources.reports.view',
-  '/resources/physical-resources/requests': 'physical_resources.requests.view',
-
-  // digital Resources
-  '/resources/digital-resources/dashboard': 'digital_resources.dashboard.view',
-  '/resources/digital-resources/resources': 'digital_resources.view',
-  '/resources/digital-resources/categories':
-    'digital_resources.categories.view',
-  '/resources/digital-resources/reservations':
-    'digital_resources.reservations.view',
-  '/resources/digital-resources/reports': 'digital_resources.reports.view',
-
-  // Generic resource paths
-  '/resources': 'resources.view',
-  '/physical-resources': 'physical_resources.view',
-  '/digital-resources': 'digital_resources.view',
-
   // Notification Management
   '/admin/notifications': 'notifications.view',
   '/admin/notifications/new': 'notifications.create',
@@ -507,87 +479,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/admissions/crm',
           icon: MessageCircle,
           submenus: []
-        }
-      ]
-    },
-    {
-      groupLabel: 'Resource Management',
-      menus: [
-        {
-          href: '/resources/physical-resources/dashboard',
-          label: 'Physical Resources',
-          icon: Boxes,
-          active: pathname === '',
-          submenus: [
-            {
-              href: '/resources/physical-resources/dashboard',
-              label: 'Dashboard',
-              active: pathname === '/resources/physical-resources/dashboard'
-            },
-            {
-              href: '/resources/physical-resources/resources',
-              label: 'All Resources',
-              active: pathname === '/resources/physical-resources/resources'
-            },
-            {
-              href: '/resources/physical-resources/categories',
-              label: 'Categories',
-              active: pathname === '/resources/physical-resources/categories'
-            },
-            {
-              href: '/resources/physical-resources/reservations',
-              label: 'Reservations',
-              active: pathname === '/resources/physical-resources/reservations'
-            },
-            {
-              href: '/resources/physical-resources/policies',
-              label: 'Sharing Policies',
-              active: pathname === '/resources/physical-resources/policies'
-            },
-            {
-              href: '/resources/physical-resources/reports',
-              label: 'Usage Reports',
-              active: pathname === '/resources/physical-resources/reports'
-            },
-            {
-              href: '/resources/physical-resources/requests',
-              label: 'Resource Requests',
-              active: pathname === '/resources/physical-resources/requests'
-            }
-          ]
-        },
-        {
-          href: '',
-          label: 'Digital Resources',
-          icon: FileBarChart,
-          active: pathname === '',
-          submenus: [
-            {
-              href: '/resources/digital-resources/dashboard',
-              label: 'Dashboard',
-              active: pathname === '/resources/digital-resources/dashboard'
-            },
-            {
-              href: '/resources/digital-resources/resources',
-              label: 'All Resources',
-              active: pathname === '/resources/digital-resources/resources'
-            },
-            {
-              href: '/resources/digital-resources/categories',
-              label: 'Categories',
-              active: pathname === '/resources/digital-resources/categories'
-            },
-            {
-              href: '/resources/digital-resources/reservations',
-              label: 'Reservations',
-              active: pathname === '/resources/digital-resources/reservations'
-            },
-            {
-              href: '/resources/digital-resources/reports',
-              label: 'Usage Reports',
-              active: pathname === '/resources/digital-resources/reports'
-            }
-          ]
         }
       ]
     },
