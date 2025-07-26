@@ -37,10 +37,6 @@ const courseSchema = z.object({
     .string()
     .min(2, 'Course code must be at least 2 characters')
     .max(20, 'Course code must be at most 20 characters')
-    .regex(
-      /^[A-Z0-9_-]+$/,
-      'Course code can only contain uppercase letters, numbers, underscores, and hyphens'
-    )
     .transform((val) => val.toUpperCase()),
   course_name: z.string().min(2, 'Course name must be at least 2 characters'),
   is_active: z.boolean().default(true)
