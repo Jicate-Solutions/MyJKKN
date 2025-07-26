@@ -1416,9 +1416,9 @@ export function BulkCreateStudents() {
             const processedData = {
               ...restData,
               // Provide defaults for NOT NULL fields in database
-              first_name: restData.first_name || 'Unknown',
+              first_name: (restData.first_name || 'Unknown').toUpperCase(),
               // last_name is optional - leave empty if no value provided
-              last_name: restData.last_name || null,
+              last_name: (restData.last_name || '').toUpperCase() || null,
               father_name: restData.father_name || 'Unknown',
               mother_name: restData.mother_name || 'Unknown',
               mother_mobile: restData.mother_mobile || '0000000000',
