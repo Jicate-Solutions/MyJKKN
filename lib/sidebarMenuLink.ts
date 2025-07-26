@@ -44,7 +44,12 @@ import {
   Clock,
   RefreshCw,
   Bug,
-  UserCheck
+  UserCheck,
+  Package,
+  Bookmark,
+  Cpu,
+  CheckSquare,
+  TrendingUp
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 
@@ -180,7 +185,27 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/new': 'billing.invoices.create',
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
-  '/billing/reports': 'billing.reports.view'
+  '/billing/reports': 'billing.reports.view',
+
+  // Resource Management
+  '/resource-management': 'resources.categories.view',
+  '/resource-management/categories': 'resources.categories.view',
+  '/resource-management/categories/new': 'resources.categories.create',
+  '/resource-management/categories/[id]/edit': 'resources.categories.edit',
+  '/resource-management/categories/sub-categories':
+    'resources.subcategories.view',
+  '/resource-management/categories/sub-categories/new':
+    'resources.subcategories.create',
+  '/resource-management/categories/sub-categories/[id]/edit':
+    'resources.subcategories.edit',
+  '/resource-management/resources': 'resources.resources.view',
+  '/resource-management/resources/new': 'resources.resources.create',
+  '/resource-management/resources/[id]/edit': 'resources.resources.edit',
+  '/resource-management/reservations': 'resources.reservations.view',
+  '/resource-management/reservations/new': 'resources.reservations.create',
+  '/resource-management/reservations/[id]/edit': 'resources.reservations.edit',
+  '/resource-management/approvals': 'resources.approvals.view',
+  '/resource-management/analytics': 'resources.analytics.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -451,6 +476,60 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Attendance',
           active: pathname === '/academic/attendance',
           icon: ClipboardCheck,
+          submenus: []
+        }
+      ]
+    },
+
+    {
+      groupLabel: 'Resource Management',
+      menus: [
+        {
+          href: '/resource-management/categories',
+          label: 'Categories',
+          active: pathname === '',
+          icon: FolderTree,
+          submenus: [
+            {
+              href: '/resource-management/categories',
+              label: 'Parent categories',
+              active: pathname === '/resource-management/categories'
+            },
+            {
+              href: '/resource-management/categories/sub-categories',
+              label: 'Sub categories',
+              active:
+                pathname === '/resource-management/categories/sub-categories'
+            }
+          ]
+        },
+
+        {
+          href: '/resource-management/resources',
+          label: 'Resources',
+          active: pathname.startsWith('/resource-management/resources'),
+          icon: Package,
+          submenus: []
+        },
+        {
+          href: '/resource-management/reservations',
+          label: 'Reservations',
+          active: pathname.startsWith('/resource-management/reservations'),
+          icon: Calendar,
+          submenus: []
+        },
+        {
+          href: '/resource-management/approvals',
+          label: 'Approvals',
+          active: pathname.startsWith('/resource-management/approvals'),
+          icon: CheckSquare,
+          submenus: []
+        },
+        {
+          href: '/resource-management/analytics',
+          label: 'Analytics',
+          active: pathname.startsWith('/resource-management/analytics'),
+          icon: TrendingUp,
           submenus: []
         }
       ]
