@@ -107,11 +107,14 @@ export interface DegreeFilters {
   search?: string;
   institution_id?: string;
   degree_type?: DegreeType;
-  isActive?: boolean;
+  status?: 'active' | 'inactive'; // String-based status filter
+  isActive?: boolean; // Legacy boolean filter
   page?: number;
   limit?: number;
   userId?: string; // For applying user-based institution filtering
   bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface DegreeListResponse {
