@@ -177,7 +177,11 @@ export class DegreeService {
         query = query.eq('degree_type', filters.degree_type);
       }
 
-      if (filters.isActive !== undefined) {
+      // Handle status filter (map string to boolean)
+      if (filters.status) {
+        const isActive = filters.status === 'active';
+        query = query.eq('is_active', isActive);
+      } else if (filters.isActive !== undefined) {
         query = query.eq('is_active', filters.isActive);
       }
 
@@ -222,13 +226,22 @@ export class DegreeService {
         );
       }
 
+      // Apply sorting
+      if (filters.sortBy && filters.sortOrder) {
+        query = query.order(filters.sortBy, {
+          ascending: filters.sortOrder === 'asc'
+        });
+      } else {
+        query = query.order('created_at', { ascending: false });
+      }
+
       // Apply pagination
       const page = filters.page || 1;
       const limit = filters.limit || 10;
       const from = (page - 1) * limit;
       const to = from + limit - 1;
 
-      query = query.range(from, to).order('created_at', { ascending: false });
+      query = query.range(from, to);
 
       console.log('DegreeService: Executing query with pagination:', {
         page,
