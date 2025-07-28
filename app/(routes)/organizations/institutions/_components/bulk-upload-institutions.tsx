@@ -37,6 +37,7 @@ const validateRow = (row: any): ValidationResult => {
     'counselling_code',
     'institution_type',
     'category',
+    'timetable_type',
     'accredited_by',
     'address_line1',
     'city',
@@ -80,6 +81,16 @@ const validateRow = (row: any): ValidationResult => {
   const validCategories = ['ug', 'pg', 'ug_pg'];
   if (row.category && !validCategories.includes(row.category)) {
     errors.push('Invalid category. Must be one of: ug, pg, ug_pg');
+  }
+
+  // Validate timetable_type
+  const validTimetableTypes = ['day_order', 'week_order'];
+  if (row.timetable_type && !validTimetableTypes.includes(row.timetable_type)) {
+    errors.push(
+      `Invalid timetable type. Must be one of: ${validTimetableTypes.join(
+        ', '
+      )}`
+    );
   }
 
   return {
@@ -158,12 +169,13 @@ export default function BulkUploadInstitutions() {
       const promises = validRows.map((row) => {
         const institutionData = {
           name: row.name,
-          counselling_code: row.counselling_code,
+          counselling_code: row.counselling_code.toUpperCase(),
           institution_type: row.institution_type,
           category: row.category,
+          timetable_type: row.timetable_type,
           accredited_by: row.accredited_by,
           address_line1: row.address_line1,
-          address_line2: row.address_line2 || null,
+          address_line2: row.address_line2 || '',
           address_line3: row.address_line3 || null,
           city: row.city,
           state: row.state,
@@ -255,7 +267,9 @@ export default function BulkUploadInstitutions() {
                       <TableHead>Row</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Code</TableHead>
-                      <TableHead>Email</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Timetable</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Errors</TableHead>
                     </TableRow>
@@ -266,7 +280,9 @@ export default function BulkUploadInstitutions() {
                         <TableCell>{row.rowNumber}</TableCell>
                         <TableCell>{row.name}</TableCell>
                         <TableCell>{row.counselling_code}</TableCell>
-                        <TableCell>{row.email}</TableCell>
+                        <TableCell>{row.institution_type}</TableCell>
+                        <TableCell>{row.category}</TableCell>
+                        <TableCell>{row.timetable_type}</TableCell>
                         <TableCell>
                           <Badge
                             variant={row.isValid ? 'success' : 'destructive'}

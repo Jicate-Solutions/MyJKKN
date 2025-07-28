@@ -16,7 +16,6 @@ import {
   INSTITUTION_CATEGORIES,
   TIMETABLE_TYPES
 } from '@/lib/constants/institutions';
-import { institutionKeys } from '@/hooks/organization/use-institutions';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -177,21 +176,8 @@ export function InstitutionForm({
         `Institution ${isEditing ? 'updated' : 'created'} successfully`
       );
 
-      // Invalidate and refetch institution queries
-      await queryClient.invalidateQueries({
-        queryKey: institutionKeys.lists()
-      });
-      await queryClient.invalidateQueries({
-        queryKey: institutionKeys.names()
-      });
-
-      // If editing, also invalidate the specific institution detail query
-      if (isEditing && institution) {
-        await queryClient.invalidateQueries({
-          queryKey: institutionKeys.detail(institution.id)
-        });
-      }
-
+      // Invalidate all queries related to institutions to refetch data
+      await queryClient.invalidateQueries({ queryKey: ['institutions'] });
       await queryClient.invalidateQueries({ queryKey: ['organization-stats'] });
 
       router.push('/organizations/institutions');
