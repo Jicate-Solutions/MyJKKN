@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import * as XLSX from 'xlsx';
 import { CategoryService } from '@/lib/services/staff/category-service';
 import { useEffect, useState } from 'react';
-import { useInstitutions } from '@/hooks/organization/use-institutions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import {
   DropdownMenu,
@@ -208,8 +208,9 @@ export default function DownloadStaffTemplateButton() {
   const [categories, setCategories] = useState<
     Array<{ id: string; name: string }>
   >([]);
-  const { institutions } = useInstitutions({ limit: 100 });
-  const { departments } = useDepartments({ limit: 100 });
+  const { institutions } = useInstitutionsWithAccess({});
+  const { data: departmentsData } = useDepartments({ limit: 100 });
+  const departments = departmentsData?.data || [];
 
   useEffect(() => {
     async function loadCategories() {
@@ -330,11 +331,11 @@ export default function DownloadStaffTemplateButton() {
         [''],
         ['Available Institutions:'],
         ['ID', 'Name'],
-        ...institutions.map((inst) => [inst.id, inst.name]),
+        ...institutions.map((inst: any) => [inst.id, inst.name]),
         [''],
         ['Available Departments:'],
         ['ID', 'Institution ID', 'Name'],
-        ...departments.map((dept) => [
+        ...departments.map((dept: any) => [
           dept.id,
           dept.institution_id,
           dept.department_name
@@ -409,8 +410,9 @@ export default function DownloadStaffTemplateButton() {
               category_id: categories[0].id,
               institution_id: institutions[0].id,
               department_id:
-                departments.find((d) => d.institution_id === institutions[0].id)
-                  ?.id || departments[0].id
+                departments.find(
+                  (d: any) => d.institution_id === institutions[0].id
+                )?.id || departments[0].id
             }
           ];
           XLSX.utils.sheet_add_json(filledExampleWs, exampleData, {
@@ -429,8 +431,9 @@ export default function DownloadStaffTemplateButton() {
               category_name: categories[0].name,
               institution_name: institutions[0].name,
               department_name:
-                departments.find((d) => d.institution_id === institutions[0].id)
-                  ?.department_name || departments[0].department_name
+                departments.find(
+                  (d: any) => d.institution_id === institutions[0].id
+                )?.department_name || departments[0].department_name
             }
           ];
           XLSX.utils.sheet_add_json(filledExampleWs, exampleData, {
