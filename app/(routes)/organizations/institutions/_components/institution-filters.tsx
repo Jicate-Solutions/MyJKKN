@@ -8,57 +8,72 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { InstitutionFilters } from '@/types/organizations';
-import DownloadTemplateButton from './download-template-button';
+import { Button } from '@/components/ui/button';
+import { RotateCcw } from 'lucide-react';
+import { InstitutionsSearchParams } from './data-table-schema';
 import ExportInstitutions from './export-institutions';
 import BulkUploadInstitutions from './bulk-upload-institutions';
+import DownloadTemplateButton from './download-template-button';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface InstitutionFiltersProps {
-  filters: InstitutionFilters;
-  onFilterChange: (filters: Partial<InstitutionFilters>) => void;
+  searchParams: InstitutionsSearchParams;
+  onFilterChange: (key: string, value: string | undefined) => void;
+  onClearFilters: () => void;
 }
 
 export function InstitutionFilter({
-  filters,
-  onFilterChange
+  searchParams,
+  onFilterChange,
+  onClearFilters
 }: InstitutionFiltersProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
-  const canEditInstitutions =
+  const canEdit =
     isSuperAdmin || canAccess('organizations.institutions', 'edit');
+  const canExport =
+    isSuperAdmin || canAccess('organizations.institutions', 'export');
 
-  const handleStatusChange = (value: string) => {
-    onFilterChange({
-      isActive: value === 'all' ? undefined : value === 'active' ? true : false
-    });
-  };
+  const hasActiveFilters = !!searchParams.status;
 
   return (
-    <div className='space-y-4 mb-6 w-full'>
-      <div className='grid gap-4 md:grid-cols-2 w-full items-center justify-between'>
-        <Select
-          value={
-            filters.isActive === undefined
-              ? 'all'
-              : filters.isActive
-              ? 'active'
-              : 'inactive'
-          }
-          onValueChange={handleStatusChange}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Filter by status' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Status</SelectItem>
-            <SelectItem value='active'>Active</SelectItem>
-            <SelectItem value='inactive'>Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className='flex items-center justify-end gap-2 w-full'>
-          {canEditInstitutions && <DownloadTemplateButton />}
-          {isSuperAdmin && <ExportInstitutions />}
-          {canEditInstitutions && <BulkUploadInstitutions />}
+    <div className='space-y-4'>
+      <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+          <div className='min-w-[150px]'>
+            <Select
+              value={searchParams.status || 'all'}
+              onValueChange={(value) =>
+                onFilterChange('status', value === 'all' ? undefined : value)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='All Status' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Status</SelectItem>
+                <SelectItem value='active'>Active</SelectItem>
+                <SelectItem value='inactive'>Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {hasActiveFilters && (
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={onClearFilters}
+              className='shrink-0'
+            >
+              <RotateCcw className='mr-2 h-4 w-4' />
+              Clear Filters
+            </Button>
+          )}
+        </div>
+
+        <div className='flex flex-wrap items-center gap-2'>
+          {canEdit && <DownloadTemplateButton />}
+          {canExport && <ExportInstitutions />}
+          {canEdit && <BulkUploadInstitutions />}
         </div>
       </div>
     </div>

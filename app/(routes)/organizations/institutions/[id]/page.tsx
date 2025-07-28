@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, PenSquare } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { institutionKeys } from '@/hooks/organization/use-institutions';
 import { useQuery } from '@tanstack/react-query';
 import type { Institution } from '@/types/organizations';
 import {
@@ -36,7 +35,7 @@ export default function InstitutionDetailsPage({
 }: InstitutionDetailsPageProps) {
   const { id } = use(params);
   const { data, isLoading, error } = useQuery({
-    queryKey: institutionKeys.detail(id),
+    queryKey: ['institutions', 'detail', id],
     queryFn: () => OrganizationService.getInstitution(id)
   });
 

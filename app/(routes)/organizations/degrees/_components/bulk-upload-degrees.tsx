@@ -183,7 +183,7 @@ export default function BulkUploadDegrees() {
       <DialogTrigger asChild>
         <Button variant='outline' className='w-full sm:w-auto'>
           <Upload className='mr-2 h-4 w-4' />
-          Bulk Upload
+          Upload
         </Button>
       </DialogTrigger>
       <DialogContent className='max-w-4xl max-h-[80vh] overflow-y-auto'>

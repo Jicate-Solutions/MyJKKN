@@ -9,7 +9,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { institutionKeys } from '@/hooks/organization/use-institutions';
 import { useQuery } from '@tanstack/react-query';
 import type { Institution } from '@/types/organizations';
 import {
@@ -35,7 +34,7 @@ export default function EditInstitutionPage({
     isLoading,
     error
   } = useQuery({
-    queryKey: institutionKeys.detail(id),
+    queryKey: ['institutions', 'detail', id],
     queryFn: () => OrganizationService.getInstitution(id)
   });
 
@@ -113,7 +112,10 @@ export default function EditInstitutionPage({
 
         <Card>
           <CardContent className='p-6'>
-            <InstitutionForm institution={institution?.institution} isEditing={true} />
+            <InstitutionForm
+              institution={institution?.institution}
+              isEditing={true}
+            />
           </CardContent>
         </Card>
       </div>
