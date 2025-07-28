@@ -283,6 +283,65 @@ export class SemesterService {
   }
 
   /**
+   * Get semesters that actually have students in the selected program
+   * This helps work around data inconsistency where students are assigned to semesters from different programs
+   * @param programId - The program ID
+   * @returns List of semesters that have students in the specified program
+   */
+  static async getSemestersByProgramWithStudents(programId: string) {
+    try {
+      // Fetch semesters that actually have students in the selected program
+      const { data: students, error } = await this.supabase
+        .from('students')
+        .select(
+          `
+          semester_id,
+          semesters!semester_id(
+            id,
+            semester_name,
+            semester_code,
+            is_active
+          )
+        `
+        )
+        .eq('program_id', programId)
+        .not('semester_id', 'is', null);
+
+      if (error) throw error;
+
+      // Extract unique semesters and format them
+      const uniqueSemesters = new Map();
+
+      students?.forEach((student: any) => {
+        const semester = student.semesters;
+        if (
+          semester &&
+          semester.is_active &&
+          !uniqueSemesters.has(semester.id)
+        ) {
+          uniqueSemesters.set(semester.id, {
+            id: semester.id,
+            semester_name: semester.semester_name,
+            semester_code: semester.semester_code
+          });
+        }
+      });
+
+      const semesterList = Array.from(uniqueSemesters.values()).sort(
+        (a: any, b: any) => a.semester_name.localeCompare(b.semester_name)
+      );
+
+      return semesterList;
+    } catch (error) {
+      console.error(
+        'Error fetching semesters by program with students:',
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Get semesters that are mapped to a specific course
    * @param courseId - The course ID
    * @returns List of semesters mapped to the course

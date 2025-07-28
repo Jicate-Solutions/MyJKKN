@@ -36,15 +36,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { useStudent, useUpdateStudent } from '@/hooks/student/use-students';
+
 import { PhotoUpload } from '../../_components/photo-upload';
 import toast from 'react-hot-toast';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { Section } from '@/types/organizations';
-import { useQueryClient } from '@tanstack/react-query';
-import { studentKeys } from '@/hooks/student/use-students';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
+import { StudentService } from '@/lib/services/student/student-service';
 
 // Form schema for student onboarding edit (focusing only on the required fields for onboarding)
 const onboardingEditSchema = z.object({
@@ -74,10 +75,14 @@ export default function EditonboardingPage() {
     }
   }, [id, router]);
 
-  const { data: student, isLoading: isLoadingStudent } = useStudent(
-    id as string
-  );
-  const updateStudent = useUpdateStudent(id as string);
+  const { data: student, isLoading: isLoadingStudent } = useQuery({
+    queryKey: ['students', 'detail', id],
+    queryFn: () => StudentService.getStudent(id as string)
+  });
+  const updateStudent = useMutation({
+    mutationFn: (data: onboardingEditFormValues) =>
+      StudentService.updateStudent(id as string, data)
+  });
 
   // Academic year hook
   const {
@@ -203,7 +208,7 @@ export default function EditonboardingPage() {
       await updateStudent.mutateAsync(updatePayload);
 
       // Invalidate all student queries to force data refresh across the app
-      queryClient.invalidateQueries({ queryKey: studentKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
 
       toast.success('Student profile updated for onboarding');
 

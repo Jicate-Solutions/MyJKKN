@@ -6,7 +6,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
-import { useStudent } from '@/hooks/student/use-students';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { StudentService } from '@/lib/services/student/student-service';
@@ -31,8 +30,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useQueryClient } from '@tanstack/react-query';
-import { studentKeys } from '@/hooks/student/use-students';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Loading from '@/components/Loading/Loading';
 
 // Schema for the promotion form
@@ -51,7 +49,10 @@ export default function EditStudentPromotionPage({
   const { id } = params;
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data: student, isLoading: isLoadingStudent } = useStudent(id);
+  const { data: student, isLoading: isLoadingStudent } = useQuery({
+    queryKey: ['students', 'detail', id],
+    queryFn: () => StudentService.getStudent(id)
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Permission checks
@@ -169,8 +170,8 @@ export default function EditStudentPromotionPage({
       });
 
       // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: studentKeys.all });
-      queryClient.invalidateQueries({ queryKey: studentKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
+      queryClient.invalidateQueries({ queryKey: ['students', 'detail', id] });
 
       toast.success('Student promoted successfully');
       router.push(`/students/${id}`);

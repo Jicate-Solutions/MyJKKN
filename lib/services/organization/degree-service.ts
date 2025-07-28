@@ -19,26 +19,15 @@ export class DegreeService {
   private static async getUserAccessibleInstitutionIds(
     userId: string
   ): Promise<string[]> {
-    console.log(
-      'DegreeService: Getting accessible institution IDs for user:',
-      userId
-    );
     try {
       // Import the service to avoid circular dependency
       const { UserInstitutionAccessService } = await import(
         '@/lib/services/users/user-institution-access-service'
       );
-      console.log(
-        'DegreeService: UserInstitutionAccessService imported, calling getUserAccessibleInstitutionIds'
-      );
       const result =
         await UserInstitutionAccessService.getUserAccessibleInstitutionIds(
           userId
         );
-      console.log(
-        'DegreeService: getUserAccessibleInstitutionIds returned:',
-        result
-      );
       return result;
     } catch (error) {
       console.error(
@@ -148,7 +137,6 @@ export class DegreeService {
   static async getDegrees(
     filters: DegreeFilters = {}
   ): Promise<DegreeListResponse> {
-    console.log('DegreeService.getDegrees called with filters:', filters);
     try {
       let query = this.supabase.from('degrees').select(
         `
@@ -187,24 +175,12 @@ export class DegreeService {
 
       // Apply institution filtering based on user access if userId is provided
       if (filters.userId && !filters.bypassInstitutionFilter) {
-        console.log(
-          'DegreeService: Applying institution filtering for user:',
-          filters.userId
-        );
         const accessibleInstitutionIds =
           await this.getUserAccessibleInstitutionIds(filters.userId);
-        console.log(
-          'DegreeService: User accessible institution IDs:',
-          accessibleInstitutionIds
-        );
 
         if (accessibleInstitutionIds.length > 0) {
           query = query.in('institution_id', accessibleInstitutionIds);
-          console.log('DegreeService: Applied institution filter');
         } else {
-          console.log(
-            'DegreeService: User has no accessible institutions, returning empty result'
-          );
           // If user has no accessible institutions, return empty result
           return {
             data: [],
@@ -217,13 +193,7 @@ export class DegreeService {
           };
         }
       } else if (filters.bypassInstitutionFilter) {
-        console.log(
-          'DegreeService: Bypassing institution filter for super admin'
-        );
       } else {
-        console.log(
-          'DegreeService: No userId provided, not applying institution filtering'
-        );
       }
 
       // Apply sorting
@@ -243,25 +213,12 @@ export class DegreeService {
 
       query = query.range(from, to);
 
-      console.log('DegreeService: Executing query with pagination:', {
-        page,
-        limit,
-        from,
-        to
-      });
       const { data: degrees, error, count } = await query;
 
       if (error) {
         console.error('DegreeService: Query error:', error);
         throw error;
       }
-
-      console.log(
-        'DegreeService: Query successful, got',
-        degrees?.length || 0,
-        'degrees, total count:',
-        count
-      );
 
       return {
         data: degrees || [],
@@ -326,9 +283,6 @@ export class DegreeService {
           .order('degree_name');
       } else {
         // If it's not a UUID, we need to first find the institution by name
-        console.log('Searching for institution with name:', institutionId);
-
-        // Option 1: Find the institution by name first, then get degrees for it
         const { data: institution } = await this.supabase
           .from('institutions')
           .select('id')
@@ -336,7 +290,6 @@ export class DegreeService {
           .single();
 
         if (institution) {
-          console.log('Found institution with ID:', institution.id);
           query = this.supabase
             .from('degrees')
             .select('*')
@@ -344,7 +297,6 @@ export class DegreeService {
             .eq('is_active', true)
             .order('degree_name');
         } else {
-          console.log('No institution found with name:', institutionId);
           // Return empty array if no institution found
           return [];
         }

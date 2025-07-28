@@ -40,7 +40,6 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { useStudents } from '@/hooks/student/use-students';
 import { StudentFilters, Student } from '@/types/student';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -84,6 +83,7 @@ import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { DownloadNewStudentTemplateButton } from '../_components/download-new-student-template-button';
 import { BulkCreateStudents } from '../_components/bulk-create-students';
+import { useQuery } from '@tanstack/react-query';
 
 // Define the DateRange type
 type DateRange = {
@@ -136,15 +136,10 @@ export default function StudentOnboardingPage() {
     to: undefined
   });
 
-  const {
-    data: studentsData,
-    isLoading,
-    refetch,
-    isError,
-    error
-  } = useStudents({
-    ...filters,
-    page: currentPage
+
+  const { data: studentsData, isLoading, refetch, isError, error } = useQuery({
+    queryKey: ['students', 'onboarding', filters],
+    queryFn: () => StudentService.getStudents(filters)
   });
 
   // Debug logging to diagnose the data fetching issue

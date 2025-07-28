@@ -277,10 +277,11 @@ export class CourseService {
   }
 
   static async getCourseById(courseId: string): Promise<Course | null> {
-    try {
-      if (!courseId) return null;
+    if (!courseId) {
+      return null;
+    }
 
-      console.log(`Fetching course by ID: ${courseId}`);
+    try {
       const { data, error } = await this.supabase
         .from('courses')
         .select('*')
@@ -288,14 +289,18 @@ export class CourseService {
         .single();
 
       if (error) {
-        console.error('Error fetching course by ID:', error);
+        console.error(`Error fetching course ${courseId}:`, error.message);
         return null;
       }
 
-      console.log(`Found course:`, data);
       return data;
     } catch (error) {
-      console.error(`Error fetching course by ID ${courseId}:`, error);
+      const errorMessage =
+        error instanceof Error ? error.message : 'An unknown error occurred';
+      console.error(
+        `An unexpected error occurred in getCourseById for course ${courseId}:`,
+        errorMessage
+      );
       return null;
     }
   }

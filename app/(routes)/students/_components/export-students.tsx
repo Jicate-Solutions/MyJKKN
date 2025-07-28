@@ -45,16 +45,20 @@ export function ExportStudents({ currentFilters }: ExportStudentsProps) {
       const params = new URLSearchParams();
       params.append('format', fileFormat);
       params.append('includeInactive', String(includeInactive));
-      params.append('exportAll', String(exportAll));
 
-      // Optional: Pass current table filters to the export endpoint
-      // if (!exportAll && currentFilters) {
-      //   Object.entries(currentFilters).forEach(([key, value]) => {
-      //     if (value !== undefined && value !== '') {
-      //       params.append(key, String(value));
-      //     }
-      //   });
-      // }
+      // Pass current table filters to the export endpoint
+      if (currentFilters) {
+        Object.entries(currentFilters).forEach(([key, value]) => {
+          if (
+            value !== undefined &&
+            value !== '' &&
+            key !== 'page' &&
+            key !== 'limit'
+          ) {
+            params.append(key, String(value));
+          }
+        });
+      }
 
       // Make the request to the export endpoint
       const response = await fetch(
