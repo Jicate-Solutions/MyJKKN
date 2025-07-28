@@ -2,128 +2,83 @@
 
 'use client';
 
-import { useEffect } from 'react';
-import Link from 'next/link';
-import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
-import { useAcademicYears } from '@/hooks/academic/use-academic-years';
-import { usePermissions } from '@/hooks/use-permissions';
-import { Card, CardContent } from '@/components/ui/card';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
-import { BeatLoader } from 'react-spinners';
+import { PageBreadcrumb } from '@/components/navigation';
+import { AcademicYearsDataTable } from './_components/academic-year-data-table';
+import { academicYearsSearchParamsSchema } from './_components/data-table-schema';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback } from 'react';
 import { AcademicYearFilters } from './_components/academic-year-filters';
-import { AcademicYearList } from './_components/academic-year-list';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 
 export default function AcademicYearsPage() {
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const {
-    academicYears,
-    loading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    fetchAcademicYears
-  } = useAcademicYears({
-    page: 1,
-    limit: 10,
-    institution_id:
-      !isSuperAdmin && userProfile?.institution_id
-        ? userProfile.institution_id
-        : undefined
-  });
+  // Parse current search parameters
+  const search = academicYearsSearchParamsSchema.parse(
+    Object.fromEntries(searchParams.entries())
+  );
 
-  useEffect(() => {
-    fetchAcademicYears();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Handle filter changes by updating URL
+  const handleFilterChange = useCallback(
+    (key: string, value: string | undefined) => {
+      const params = new URLSearchParams(searchParams);
 
-  if (error) {
-    return (
-      <ContentLayout title='Academic Years'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchAcademicYears()}
-            className='mt-4'
-          >
-            Try Again
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
+      if (value) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
+
+      // Reset page to 1 when filters change
+      params.set('page', '1');
+
+      router.push(`/academic/years?${params.toString()}`);
+    },
+    [router, searchParams]
+  );
+
+  // Handle clearing all filters
+  const handleClearFilters = useCallback(() => {
+    const params = new URLSearchParams();
+    // Keep only page and pageSize
+    params.set('page', '1');
+    if (searchParams.get('pageSize')) {
+      params.set('pageSize', searchParams.get('pageSize')!);
+    }
+    router.push(`/academic/years?${params.toString()}`);
+  }, [router, searchParams]);
 
   return (
-    <ContentLayout title='Academic Years'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/academic'>Academic</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Academic Years</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
+    <PermissionGuard module='academic.years' action='view'>
+      <ContentLayout title='Academic Years'>
+        <PageBreadcrumb
+          items={[
+            { label: 'Home', href: '/' },
+            { label: 'Academic' },
+            { label: 'Academic Years' }
+          ]}
+        />
+        <div className='space-y-6 mt-4'>
           <div>
             <h1 className='text-2xl font-bold py-1'>Academic Years</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
               Manage academic years for your institutions
             </p>
           </div>
-          <Button className='w-full sm:w-auto' asChild>
-            <Link href='/academic/years/new'>
-              <Plus className='mr-2 h-4 w-4' />
-              Add Academic Year
-            </Link>
-          </Button>
+
+          {/* Filters */}
+          <AcademicYearFilters
+            searchParams={search}
+            onFilterChange={handleFilterChange}
+            onClearFilters={handleClearFilters}
+          />
+
+          {/* Data Table */}
+          <AcademicYearsDataTable search={search} />
         </div>
-
-        <Card>
-          <CardContent className='p-6'>
-            <AcademicYearFilters
-              filters={filters}
-              onFilterChange={updateFilters}
-            />
-
-            {loading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <AcademicYearList
-                academicYears={academicYears}
-                metadata={metadata}
-                onPageChange={changePage}
-                onRefresh={fetchAcademicYears}
-              />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </ContentLayout>
+      </ContentLayout>
+    </PermissionGuard>
   );
 }

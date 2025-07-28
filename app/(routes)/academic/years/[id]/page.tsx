@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface AcademicYearDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -33,6 +34,11 @@ export default function AcademicYearDetailsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [academicYear, setAcademicYear] = useState<AcademicYear | null>(null);
+
+  const { canAccess, isSuperAdmin } = usePermissions();
+  // Permission checks
+  const canEditAcademicYear =
+    isSuperAdmin || canAccess('academic.years', 'edit');
 
   useEffect(() => {
     async function fetchAcademicYear() {
@@ -117,12 +123,14 @@ export default function AcademicYearDetailsPage({
               Academic Year Details
             </p>
           </div>
-          <Button asChild>
-            <Link href={`/academic/years/${id}/edit`}>
-              <PenSquare className='mr-2 h-4 w-4' />
-              Edit Academic Year
-            </Link>
-          </Button>
+          {canEditAcademicYear && (
+            <Button asChild>
+              <Link href={`/academic/years/${id}/edit`}>
+                <PenSquare className='mr-2 h-4 w-4' />
+                Edit Academic Year
+              </Link>
+            </Button>
+          )}
         </div>
 
         <Card>
