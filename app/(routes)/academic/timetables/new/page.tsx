@@ -42,10 +42,9 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
 import { useTimetables } from '@/hooks/academic/use-timetables';
 import { useAcademicYears } from '@/hooks/academic/use-academic-years';
-import { useInstitutions } from '@/hooks/organization/use-institutions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { useDepartments } from '@/hooks/organization/use-departments';
@@ -104,7 +103,6 @@ type TimetableFormValues = z.infer<typeof timetableFormSchema>;
 
 export default function NewTimetablePage() {
   const router = useRouter();
-  const { toast } = useToast();
   const { createTimetable } = useTimetables();
   const { isSuperAdmin, userProfile } = usePermissions();
 
@@ -116,11 +114,12 @@ export default function NewTimetablePage() {
     fetchAcademicYears
   } = useAcademicYears();
 
-  const institutionsQuery = useInstitutions({
-    isActive: true,
-    bypassInstitutionFilter: isSuperAdmin,
-    limit: 1000 // Fetch all institutions
-  });
+  const {
+    institutions,
+    loading: loadingInstitutions,
+    refetch: fetchInstitutions
+  } = useInstitutionsWithAccess({});
+
   const degreesQuery = useDegrees({
     bypassInstitutionFilter: isSuperAdmin,
     userId: userProfile?.id,
@@ -143,9 +142,6 @@ export default function NewTimetablePage() {
   });
 
   // Extract data and loading states
-  const institutions = institutionsQuery.data?.data || [];
-  const loadingInstitutions = institutionsQuery.isLoading;
-  const fetchInstitutions = institutionsQuery.refetch;
 
   const allDegrees = degreesQuery.data?.data || [];
   const loadingDegrees = degreesQuery.isLoading;
@@ -167,7 +163,6 @@ export default function NewTimetablePage() {
   console.log('🔍 Query Status:', {
     Institutions: {
       loading: loadingInstitutions,
-      error: institutionsQuery.error,
       dataLength: institutions.length
     },
     Degrees: {
@@ -367,7 +362,7 @@ export default function NewTimetablePage() {
   // Update state and fetch dependent data when institution changes
   useEffect(() => {
     if (watchInstitutionId !== selectedInstitutionId) {
-      setSelectedInstitutionId(watchInstitutionId);
+      setSelectedInstitutionId(watchInstitutionId || '');
 
       if (watchInstitutionId) {
         // Filter academic years by selected institution
@@ -404,7 +399,7 @@ export default function NewTimetablePage() {
   // Update state and fetch dependent data when degree changes
   useEffect(() => {
     if (watchDegreeId !== selectedDegreeId) {
-      setSelectedDegreeId(watchDegreeId);
+      setSelectedDegreeId(watchDegreeId || '');
 
       // Reset ALL dependent fields when degree changes
       setSelectedDepartmentId('');
@@ -418,7 +413,7 @@ export default function NewTimetablePage() {
   // Update state and fetch dependent data when department changes
   useEffect(() => {
     if (watchDepartmentId !== selectedDepartmentId) {
-      setSelectedDepartmentId(watchDepartmentId);
+      setSelectedDepartmentId(watchDepartmentId || '');
 
       // Reset dependent fields when department changes
       setSelectedProgramId('');
@@ -430,7 +425,7 @@ export default function NewTimetablePage() {
   // Update state when program changes
   useEffect(() => {
     if (watchProgramId !== selectedProgramId) {
-      setSelectedProgramId(watchProgramId);
+      setSelectedProgramId(watchProgramId || '');
 
       // Reset semester when program changes
       form.setValue('semester', '');
@@ -458,25 +453,11 @@ export default function NewTimetablePage() {
 
       const success = await createTimetable(formattedValues);
       if (success) {
-        toast({
-          title: 'Timetable created',
-          description: 'Your timetable has been created successfully.'
-        });
         router.push('/academic/timetables');
       } else {
-        toast({
-          title: 'Error',
-          description: 'Failed to create timetable. Please try again.',
-          variant: 'destructive'
-        });
       }
     } catch (error) {
       console.error('Error creating timetable:', error);
-      toast({
-        title: 'Error',
-        description: 'An unexpected error occurred. Please try again.',
-        variant: 'destructive'
-      });
     } finally {
       setLoading(false);
     }

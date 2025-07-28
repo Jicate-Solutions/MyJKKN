@@ -44,16 +44,8 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import Loading from '@/components/Loading/Loading';
-import { useToast } from '@/hooks/use-toast';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { useTimetables } from '@/hooks/academic/use-timetables';
-import { useAcademicYears } from '@/hooks/academic/use-academic-years';
-import { useInstitutions } from '@/hooks/organization/use-institutions';
-import { useDegrees } from '@/hooks/organization/use-degrees';
-import { usePrograms } from '@/hooks/organization/use-programs';
-import { useDepartments } from '@/hooks/organization/use-departments';
-import { useSemesters } from '@/hooks/organization/use-semesters';
-import { useSections } from '@/hooks/organization/use-sections';
 import { Timetable, UpdateTimetableDto } from '@/types/academics';
 import { cn } from '@/lib/utils';
 
@@ -91,7 +83,6 @@ export default function EditTimetablePage({
 }) {
   const { id: timetableId } = use(params);
   const router = useRouter();
-  const { toast } = useToast();
   const { updateTimetable } = useTimetables();
 
   // State for form submission and data loading
@@ -175,25 +166,11 @@ export default function EditTimetablePage({
 
       const success = await updateTimetable(timetableId, updateData);
       if (success) {
-        toast({
-          title: 'Timetable updated',
-          description: 'Your timetable has been updated successfully.'
-        });
         router.push(`/academic/timetables/${timetableId}`);
       } else {
-        toast({
-          title: 'Error',
-          description: 'Failed to update timetable. Please try again.',
-          variant: 'destructive'
-        });
       }
     } catch (error) {
       console.error('Error updating timetable:', error);
-      toast({
-        title: 'Error',
-        description: 'An unexpected error occurred. Please try again.',
-        variant: 'destructive'
-      });
     } finally {
       setSubmitting(false);
     }

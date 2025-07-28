@@ -44,7 +44,6 @@ import {
   useDeleteAdmission
 } from '@/hooks/admission/use-admissions';
 import { useQueryClient } from '@tanstack/react-query';
-import { studentKeys } from '@/hooks/student/use-students';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import BulkUploadAdmissions from './bulk-upload-admissions';
@@ -128,9 +127,8 @@ export function AdmissionDataTable({
         }`
       );
 
-      // If approved, invalidate student data to trigger real-time updates
+      // If approved, refresh to trigger real-time updates
       if (newStatus === 'approved') {
-        await queryClient.invalidateQueries({ queryKey: studentKeys.all });
         router.refresh();
       }
 

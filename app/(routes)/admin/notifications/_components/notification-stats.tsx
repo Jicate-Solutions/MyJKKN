@@ -21,7 +21,7 @@ export function NotificationStats({ stats }: NotificationStatsProps) {
         </CardHeader>
         <CardContent>
           <div className='text-2xl font-bold'>
-            {stats.totalSent.toLocaleString()}
+            {stats.total_sent.toLocaleString()}
           </div>
           <p className='text-xs text-muted-foreground'>
             All time notifications
@@ -31,39 +31,41 @@ export function NotificationStats({ stats }: NotificationStatsProps) {
 
       <Card>
         <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-          <CardTitle className='text-sm font-medium'>This Month</CardTitle>
+          <CardTitle className='text-sm font-medium'>Total Read</CardTitle>
         </CardHeader>
         <CardContent>
           <div className='text-2xl font-bold'>
-            {stats.thisMonth.toLocaleString()}
+            {stats.total_read.toLocaleString()}
           </div>
           <p className='text-xs text-muted-foreground'>
-            Notifications sent this month
+            Notifications read by users
           </p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-          <CardTitle className='text-sm font-medium'>Today</CardTitle>
+          <CardTitle className='text-sm font-medium'>Target Users</CardTitle>
         </CardHeader>
         <CardContent>
           <div className='text-2xl font-bold'>
-            {stats.today.toLocaleString()}
+            {stats.target_users.toLocaleString()}
           </div>
           <p className='text-xs text-muted-foreground'>
-            Notifications sent today
+            Users targeted by notifications
           </p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-          <CardTitle className='text-sm font-medium'>Success Rate</CardTitle>
+          <CardTitle className='text-sm font-medium'>Read Rate</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className='text-2xl font-bold'>{stats.successRate}%</div>
-          <p className='text-xs text-muted-foreground'>Delivery success rate</p>
+          <div className='text-2xl font-bold'>{stats.read_percentage}%</div>
+          <p className='text-xs text-muted-foreground'>
+            Notification read rate
+          </p>
         </CardContent>
       </Card>
     </div>

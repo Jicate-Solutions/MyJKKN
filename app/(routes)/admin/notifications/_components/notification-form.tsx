@@ -36,7 +36,7 @@ import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Bell, Send, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { useInstitutions } from '@/hooks/organization/use-institutions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { useSemesters } from '@/hooks/organization/use-semesters';
@@ -123,12 +123,7 @@ export function NotificationForm() {
   const selectedSemesterId = watchedValues.semester_id;
 
   // Fetch data with hierarchical dependencies
-  const { data: institutionsResponse } = useInstitutions({
-    bypassInstitutionFilter: true,
-    isActive: true,
-    page: 1,
-    limit: 100
-  });
+  const { institutions: institutionsData } = useInstitutionsWithAccess({});
 
   const { data: departmentsResponse } = useDepartments({
     bypassInstitutionFilter: true,
@@ -168,7 +163,7 @@ export function NotificationForm() {
     limit: 100
   });
 
-  const institutions = institutionsResponse?.data || [];
+  const institutions = institutionsData || [];
   const departments = departmentsResponse?.data || [];
   const programs = programsResponse?.data || [];
   const semesters = semestersResponse?.data || [];
