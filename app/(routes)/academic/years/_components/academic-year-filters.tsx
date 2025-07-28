@@ -2,9 +2,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { useEffect, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -12,115 +10,134 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useDebounce } from '@/hooks/use-debounce';
+import { Button } from '@/components/ui/button';
+import { RotateCcw } from 'lucide-react';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { AcademicYearsSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import type { AcademicYearFilters } from '@/types/academics';
 
 interface AcademicYearFiltersProps {
-  filters: AcademicYearFilters;
-  onFilterChange: (filters: Partial<AcademicYearFilters>) => void;
+  searchParams: AcademicYearsSearchParams;
+  onFilterChange: (key: string, value: string | undefined) => void;
+  onClearFilters: () => void;
 }
 
 export function AcademicYearFilters({
-  filters,
-  onFilterChange
+  searchParams,
+  onFilterChange,
+  onClearFilters
 }: AcademicYearFiltersProps) {
-  const { isSuperAdmin, userProfile } = usePermissions();
-  const { institutions, loading: institutionsLoading } =
-    useInstitutionsWithAccess({
-      isActive: true
-    });
+  const [institutions, setInstitutions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
 
-  // Auto-set institution filter for faculty users
   useEffect(() => {
-    if (!isSuperAdmin && userProfile?.institution_id) {
-      // Only set if not already set to avoid infinite loops
-      if (filters.institution_id !== userProfile.institution_id) {
-        onFilterChange({ institution_id: userProfile.institution_id });
+    async function loadInstitutions() {
+      try {
+        setLoading(true);
+        const data = await OrganizationService.getInstitutionNames(true);
+        setInstitutions(data);
+      } catch (error) {
+        console.error('Error loading institutions:', error);
+      } finally {
+        setLoading(false);
       }
     }
-  }, [userProfile, isSuperAdmin, filters.institution_id, onFilterChange]);
+    loadInstitutions();
+  }, []);
 
-  const debouncedSearch = useDebounce((value: string) => {
-    onFilterChange({ search: value });
-  }, 300);
+  // Auto-set institution filter for non-super admin users
+  useEffect(() => {
+    if (
+      !isSuperAdmin &&
+      userProfile?.institution_id &&
+      !searchParams.institution_id &&
+      !loading
+    ) {
+      onFilterChange('institution_id', userProfile.institution_id);
+    }
+  }, [
+    userProfile,
+    isSuperAdmin,
+    searchParams.institution_id,
+    onFilterChange,
+    loading
+  ]);
 
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      debouncedSearch(e.target.value);
-    },
-    [debouncedSearch]
+  const hasActiveFilters = !!(
+    searchParams.institution_id || searchParams.status
   );
 
   return (
-    <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 md:grid-cols-3'>
-        <div className='relative'>
-          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            placeholder='Search academic years...'
-            onChange={handleSearchChange}
-            defaultValue={filters.search}
-            className='pl-9'
-          />
+    <div className='space-y-4'>
+      {/* Filters Row */}
+      <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+          {/* Institution Filter - Only show for super admins */}
+          {isSuperAdmin && (
+            <div className='min-w-[200px]'>
+              <Select
+                value={searchParams.institution_id || 'all'}
+                onValueChange={(value) =>
+                  onFilterChange(
+                    'institution_id',
+                    value === 'all' ? undefined : value
+                  )
+                }
+                disabled={loading}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={loading ? 'Loading...' : 'All Institutions'}
+                  />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Institutions</SelectItem>
+                  {institutions.map((inst) => (
+                    <SelectItem key={inst.id} value={inst.id}>
+                      {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Status Filter */}
+          <div className='min-w-[150px]'>
+            <Select
+              value={searchParams.status || 'all'}
+              onValueChange={(value) =>
+                onFilterChange('status', value === 'all' ? undefined : value)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='All Status' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Status</SelectItem>
+                <SelectItem value='active'>Active</SelectItem>
+                <SelectItem value='inactive'>Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <Button
+              variant='ghost'
+              onClick={onClearFilters}
+              size='sm'
+              className='h-8 px-2 lg:px-3'
+            >
+              <RotateCcw className='mr-2 h-4 w-4' />
+              Reset
+            </Button>
+          )}
         </div>
-
-        {/* Institution Filter - Only show for super admins */}
-        {isSuperAdmin && (
-          <Select
-            value={filters.institution_id || 'all'}
-            onValueChange={(value) =>
-              onFilterChange({
-                institution_id: value === 'all' ? undefined : value
-              })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder='Select institution' />
-            </SelectTrigger>
-            <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Institutions</SelectItem>
-              {institutions.map((inst) => (
-                <SelectItem key={inst.id} value={inst.id}>
-                  {inst.name} ({inst.counselling_code})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-
-        <Select
-          value={
-            filters.isActive === undefined
-              ? 'all'
-              : filters.isActive
-              ? 'active'
-              : 'inactive'
-          }
-          onValueChange={(value) =>
-            onFilterChange({
-              isActive: value === 'all' ? undefined : value === 'active'
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Filter by status' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Status</SelectItem>
-            <SelectItem value='active'>Active</SelectItem>
-            <SelectItem value='inactive'>Inactive</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
-
-      {/* Show current institution for faculty users */}
-      {!isSuperAdmin && userProfile?.institution_id && (
-        <div className='text-sm text-muted-foreground'>
-          Showing academic years for your institution only
-        </div>
-      )}
     </div>
   );
 }
