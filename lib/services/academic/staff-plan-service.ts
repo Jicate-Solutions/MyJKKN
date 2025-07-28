@@ -311,9 +311,6 @@ export class StaffPlanService {
           staff_plan_id: id,
           course_id: course.course_id,
           staff_id: course.staff_id,
-          hours_allocated: course.hours_allocated,
-          is_coordinator: course.is_coordinator,
-          is_combined: course.is_combined,
           staff_type: course.staff_type
         }));
 
@@ -404,23 +401,18 @@ export class StaffPlanService {
 
   static async deleteStaffPlan(id: string): Promise<void> {
     try {
-      // Check if staff plan exists
-      const { data: existing, error: checkError } = await this.supabase
-        .from('staff_plans')
-        .select('id')
-        .eq('id', id)
-        .single();
-
-      if (checkError) throw checkError;
-      if (!existing) throw new Error('Staff plan not found');
-
       // Delete the staff plan (courses will be deleted automatically due to CASCADE)
-      const { error: deleteError } = await this.supabase
+      const { error: deleteError, count } = await this.supabase
         .from('staff_plans')
-        .delete()
+        .delete({ count: 'exact' })
         .eq('id', id);
 
       if (deleteError) throw deleteError;
+
+      // Check if any rows were actually deleted
+      if (count === 0) {
+        throw new Error('Staff plan not found or has already been deleted');
+      }
     } catch (error) {
       console.error('Error deleting staff plan:', error);
       throw error;

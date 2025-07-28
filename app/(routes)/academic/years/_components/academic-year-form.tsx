@@ -94,12 +94,41 @@ export function AcademicYearForm({
 
   // Set initial values when data is available
   useEffect(() => {
-    const institutionId =
-      academicYear?.institution_id || userProfile?.institution_id || '';
-    if (institutionId && form.getValues('institution_id') !== institutionId) {
-      form.setValue('institution_id', institutionId);
+    if (isEditing && academicYear) {
+      // Ensure dates are in proper YYYY-MM-DD format to avoid timezone issues
+      const formatDateForForm = (dateString: string) => {
+        if (!dateString) return '';
+        try {
+          const date = new Date(dateString);
+          // Format as YYYY-MM-DD to avoid timezone conversion issues
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        } catch (error) {
+          console.error('Error formatting date:', dateString, error);
+          return dateString; // Fallback to original string
+        }
+      };
+
+      // Reset the entire form with the loaded academic year data
+      const formData = {
+        institution_id: academicYear.institution_id,
+        academic_year_name: academicYear.academic_year_name,
+        start_date: formatDateForForm(academicYear.start_date),
+        end_date: formatDateForForm(academicYear.end_date),
+        is_active: academicYear.is_active
+      };
+
+      form.reset(formData);
+    } else if (!isEditing) {
+      // For new academic years, set institution from user profile
+      const institutionId = userProfile?.institution_id || '';
+      if (institutionId && form.getValues('institution_id') !== institutionId) {
+        form.setValue('institution_id', institutionId);
+      }
     }
-  }, [academicYear, userProfile, form]);
+  }, [academicYear, userProfile, form, isEditing]);
 
   // Fetch institutions for dropdown
   useEffect(() => {
@@ -257,7 +286,22 @@ export function AcademicYearForm({
                             )}
                           >
                             {field.value ? (
-                              format(new Date(field.value), 'PPP')
+                              (() => {
+                                try {
+                                  // Handle YYYY-MM-DD format properly
+                                  const date = new Date(
+                                    field.value + 'T00:00:00'
+                                  );
+                                  return format(date, 'PPP');
+                                } catch (error) {
+                                  console.error(
+                                    'Error formatting start date:',
+                                    field.value,
+                                    error
+                                  );
+                                  return field.value; // Fallback to raw value
+                                }
+                              })()
                             ) : (
                               <span>Pick a date</span>
                             )}
@@ -269,11 +313,38 @@ export function AcademicYearForm({
                         <Calendar
                           mode='single'
                           selected={
-                            field.value ? new Date(field.value) : undefined
+                            field.value
+                              ? (() => {
+                                  try {
+                                    // Handle YYYY-MM-DD format properly
+                                    return new Date(field.value + 'T00:00:00');
+                                  } catch (error) {
+                                    console.error(
+                                      'Error parsing start date for calendar:',
+                                      field.value,
+                                      error
+                                    );
+                                    return undefined;
+                                  }
+                                })()
+                              : undefined
                           }
-                          onSelect={(date) =>
-                            field.onChange(date?.toISOString())
-                          }
+                          onSelect={(date) => {
+                            if (date) {
+                              // Format as YYYY-MM-DD to avoid timezone issues
+                              const year = date.getFullYear();
+                              const month = String(
+                                date.getMonth() + 1
+                              ).padStart(2, '0');
+                              const day = String(date.getDate()).padStart(
+                                2,
+                                '0'
+                              );
+                              field.onChange(`${year}-${month}-${day}`);
+                            } else {
+                              field.onChange('');
+                            }
+                          }}
                           disabled={(date) => date < new Date('1900-01-01')}
                           initialFocus
                         />
@@ -301,7 +372,22 @@ export function AcademicYearForm({
                             )}
                           >
                             {field.value ? (
-                              format(new Date(field.value), 'PPP')
+                              (() => {
+                                try {
+                                  // Handle YYYY-MM-DD format properly
+                                  const date = new Date(
+                                    field.value + 'T00:00:00'
+                                  );
+                                  return format(date, 'PPP');
+                                } catch (error) {
+                                  console.error(
+                                    'Error formatting end date:',
+                                    field.value,
+                                    error
+                                  );
+                                  return field.value; // Fallback to raw value
+                                }
+                              })()
                             ) : (
                               <span>Pick a date</span>
                             )}
@@ -313,11 +399,38 @@ export function AcademicYearForm({
                         <Calendar
                           mode='single'
                           selected={
-                            field.value ? new Date(field.value) : undefined
+                            field.value
+                              ? (() => {
+                                  try {
+                                    // Handle YYYY-MM-DD format properly
+                                    return new Date(field.value + 'T00:00:00');
+                                  } catch (error) {
+                                    console.error(
+                                      'Error parsing end date for calendar:',
+                                      field.value,
+                                      error
+                                    );
+                                    return undefined;
+                                  }
+                                })()
+                              : undefined
                           }
-                          onSelect={(date) =>
-                            field.onChange(date?.toISOString())
-                          }
+                          onSelect={(date) => {
+                            if (date) {
+                              // Format as YYYY-MM-DD to avoid timezone issues
+                              const year = date.getFullYear();
+                              const month = String(
+                                date.getMonth() + 1
+                              ).padStart(2, '0');
+                              const day = String(date.getDate()).padStart(
+                                2,
+                                '0'
+                              );
+                              field.onChange(`${year}-${month}-${day}`);
+                            } else {
+                              field.onChange('');
+                            }
+                          }}
                           disabled={(date) => date < new Date('1900-01-01')}
                           initialFocus
                         />

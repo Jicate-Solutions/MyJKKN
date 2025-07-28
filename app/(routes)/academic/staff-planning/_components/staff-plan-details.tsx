@@ -223,10 +223,7 @@ export function StaffPlanDetailsPage({
                 <TableRow>
                   <TableHead>Course</TableHead>
                   <TableHead>Staff Member</TableHead>
-                  <TableHead>Hours</TableHead>
                   <TableHead>Staff Type</TableHead>
-                  <TableHead>Coordinator</TableHead>
-                  <TableHead>Combined</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -255,7 +252,6 @@ export function StaffPlanDetailsPage({
                       <TableCell>
                         {course.staff?.first_name} {course.staff?.last_name}
                       </TableCell>
-                      <TableCell>{course.hours_allocated}</TableCell>
                       <TableCell>
                         <Badge variant='outline'>
                           {course.staff_type
@@ -265,22 +261,6 @@ export function StaffPlanDetailsPage({
                                 word.charAt(0).toUpperCase() + word.slice(1)
                             )
                             .join(' ')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            course.is_coordinator ? 'default' : 'secondary'
-                          }
-                        >
-                          {course.is_coordinator ? 'Yes' : 'No'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={course.is_combined ? 'default' : 'secondary'}
-                        >
-                          {course.is_combined ? 'Yes' : 'No'}
                         </Badge>
                       </TableCell>
                     </TableRow>

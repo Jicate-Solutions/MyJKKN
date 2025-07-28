@@ -28,6 +28,148 @@ import { Card, CardContent } from '@/components/ui/card';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { usePermissions } from '@/hooks/use-permissions';
 
+// Custom TimeSelector component for 12-hour format
+interface TimeSelectorProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}
+
+function TimeSelector({ value, onChange, placeholder }: TimeSelectorProps) {
+  // Convert 24-hour format to 12-hour format for display
+  const convertTo12Hour = (time24: string) => {
+    if (!time24) return { hour: '', minute: '', ampm: 'AM' };
+
+    const [hours, minutes] = time24.split(':');
+    const hour24 = parseInt(hours, 10);
+    const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+    const ampm = hour24 >= 12 ? 'PM' : 'AM';
+
+    return {
+      hour: hour12.toString(),
+      minute: minutes || '00',
+      ampm
+    };
+  };
+
+  // Convert 12-hour format to 24-hour format for storage
+  const convertTo24Hour = (hour: string, minute: string, ampm: string) => {
+    if (!hour || !minute) return '';
+
+    let hour24 = parseInt(hour, 10);
+    if (ampm === 'AM' && hour24 === 12) hour24 = 0;
+    if (ampm === 'PM' && hour24 !== 12) hour24 += 12;
+
+    return `${hour24.toString().padStart(2, '0')}:${minute.padStart(2, '0')}`;
+  };
+
+  const currentTime = convertTo12Hour(value);
+
+  const handleTimeChange = (
+    newHour: string,
+    newMinute: string,
+    newAmpm: string
+  ) => {
+    const time24 = convertTo24Hour(newHour, newMinute, newAmpm);
+    console.log('TimeSelector:', { newHour, newMinute, newAmpm, time24 }); // Debug log
+    onChange(time24);
+  };
+
+  // Generate hour options (1-12)
+  const hourOptions = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
+
+  // Generate minute options (every 5 minutes)
+  const minuteOptions = [
+    '00',
+    '05',
+    '10',
+    '15',
+    '20',
+    '25',
+    '30',
+    '35',
+    '40',
+    '45',
+    '50',
+    '55'
+  ];
+
+  // Create display time string
+  const displayTime =
+    currentTime.hour && currentTime.minute && currentTime.ampm
+      ? `${currentTime.hour}:${currentTime.minute} ${currentTime.ampm}`
+      : '';
+
+  return (
+    <div className='space-y-2'>
+      <div className='flex gap-2 items-center'>
+        <Select
+          value={currentTime.hour || ''}
+          onValueChange={(hour) =>
+            handleTimeChange(hour, currentTime.minute || '00', currentTime.ampm)
+          }
+        >
+          <SelectTrigger className='w-20'>
+            <SelectValue placeholder='Hr' />
+          </SelectTrigger>
+          <SelectContent>
+            {hourOptions.map((hour) => (
+              <SelectItem key={hour} value={hour}>
+                {hour}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <span className='text-muted-foreground'>:</span>
+
+        <Select
+          value={currentTime.minute || ''}
+          onValueChange={(minute) =>
+            handleTimeChange(currentTime.hour || '12', minute, currentTime.ampm)
+          }
+        >
+          <SelectTrigger className='w-20'>
+            <SelectValue placeholder='Min' />
+          </SelectTrigger>
+          <SelectContent>
+            {minuteOptions.map((minute) => (
+              <SelectItem key={minute} value={minute}>
+                {minute}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={currentTime.ampm || ''}
+          onValueChange={(ampm) =>
+            handleTimeChange(
+              currentTime.hour || '12',
+              currentTime.minute || '00',
+              ampm
+            )
+          }
+        >
+          <SelectTrigger className='w-20'>
+            <SelectValue placeholder='AM/PM' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='AM'>AM</SelectItem>
+            <SelectItem value='PM'>PM</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {displayTime && (
+        <div className='text-sm text-muted-foreground bg-muted px-2 py-1 rounded'>
+          Selected: {displayTime}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Validation schema
 const formSchema = z.object({
   period_name: z.string().min(1, 'Period name is required'),
@@ -102,15 +244,15 @@ export function PeriodForm({
     defaultValues: period
       ? {
           period_name: period.period_name,
-          start_time: period.start_time.substring(0, 5), // Format to HH:MM
-          end_time: period.end_time.substring(0, 5), // Format to HH:MM
+          start_time: period.start_time, // Keep full format for proper conversion
+          end_time: period.end_time, // Keep full format for proper conversion
           institution_id: period.institution_id,
           is_break: period.is_break
         }
       : {
           period_name: '',
-          start_time: '',
-          end_time: '',
+          start_time: '09:00', // Default to 9:00 AM
+          end_time: '10:00', // Default to 10:00 AM
           institution_id: userProfile?.institution_id || '',
           is_break: false
         }
@@ -239,10 +381,15 @@ export function PeriodForm({
                   <FormItem>
                     <FormLabel>Start Time</FormLabel>
                     <FormControl>
-                      <Input type='time' placeholder='09:00' {...field} />
+                      <TimeSelector
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder='Select start time'
+                      />
                     </FormControl>
                     <FormDescription>
-                      When does this period start?
+                      When does this period start? (12-hour format: e.g., 9:00
+                      AM)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -256,10 +403,15 @@ export function PeriodForm({
                   <FormItem>
                     <FormLabel>End Time</FormLabel>
                     <FormControl>
-                      <Input type='time' placeholder='10:00' {...field} />
+                      <TimeSelector
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder='Select end time'
+                      />
                     </FormControl>
                     <FormDescription>
-                      When does this period end?
+                      When does this period end? (12-hour format: e.g., 10:00
+                      AM)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -303,8 +455,8 @@ export function PeriodForm({
             {isSubmitting
               ? 'Saving...'
               : period
-              ? 'Update Period'
-              : 'Create Period'}
+              ? 'Update Period (12h format)'
+              : 'Create Period (12h format)'}
           </Button>
         </div>
       </form>

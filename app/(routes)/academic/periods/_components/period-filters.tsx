@@ -1,8 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { useEffect, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -10,131 +8,133 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { PeriodFilters as PeriodFiltersType } from '@/types/academics';
-import { useDebounceValue } from '@/hooks/use-debounce-value';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { Button } from '@/components/ui/button';
+import { RotateCcw } from 'lucide-react';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { PeriodsSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface PeriodFiltersProps {
-  filters: PeriodFiltersType;
-  onFilterChange: (filters: Partial<PeriodFiltersType>) => void;
+  searchParams: PeriodsSearchParams;
+  onFilterChange: (key: string, value: string | undefined) => void;
+  onClearFilters: () => void;
 }
 
-export function PeriodFilters({ filters, onFilterChange }: PeriodFiltersProps) {
-  const [searchTerm, setSearchTerm] = useState(filters.search || '');
-  const debouncedSearchTerm = useDebounceValue(searchTerm, 500);
+export function PeriodFilters({
+  searchParams,
+  onFilterChange,
+  onClearFilters
+}: PeriodFiltersProps) {
+  const [institutions, setInstitutions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
 
-  const { isSuperAdmin, userProfile } = usePermissions();
+  useEffect(() => {
+    async function loadInstitutions() {
+      try {
+        setLoading(true);
+        const data = await OrganizationService.getInstitutionNames(true);
+        setInstitutions(data);
+      } catch (error) {
+        console.error('Error loading institutions:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadInstitutions();
+  }, []);
 
-  // Use ref to track if we've already auto-set the institution to prevent loops
-  const hasAutoSetInstitution = useRef(false);
-
-  // Memoize the institutions hook options to prevent recreation
-  const institutionsOptions = useMemo(
-    () => ({
-      isActive: true
-    }),
-    []
-  );
-
-  // Fetch institutions with proper access control
-  const { institutions, loading: institutionsLoading } =
-    useInstitutionsWithAccess(institutionsOptions);
-
-  // Auto-set institution filter for faculty users (only once)
+  // Auto-set institution filter for non-super admin users
   useEffect(() => {
     if (
       !isSuperAdmin &&
       userProfile?.institution_id &&
-      !filters.institution_id &&
-      !hasAutoSetInstitution.current
+      !searchParams.institution_id &&
+      !loading
     ) {
-      hasAutoSetInstitution.current = true;
-      onFilterChange({ institution_id: userProfile.institution_id });
+      onFilterChange('institution_id', userProfile.institution_id);
     }
-  }, [userProfile?.institution_id, isSuperAdmin, filters.institution_id]);
+  }, [
+    userProfile,
+    isSuperAdmin,
+    searchParams.institution_id,
+    onFilterChange,
+    loading
+  ]);
 
-  // Handle search term changes
-  useEffect(() => {
-    if (debouncedSearchTerm !== filters.search) {
-      onFilterChange({ search: debouncedSearchTerm || undefined });
-    }
-  }, [debouncedSearchTerm, filters.search]);
-
-  const handleInstitutionChange = (value: string) => {
-    if (value === 'all') {
-      onFilterChange({ institution_id: undefined });
-    } else {
-      onFilterChange({ institution_id: value });
-    }
-  };
-
-  const handleIsBreakChange = (value: string) => {
-    if (value === 'all') {
-      onFilterChange({ isBreak: undefined });
-    } else {
-      onFilterChange({ isBreak: value === 'true' });
-    }
-  };
+  const hasActiveFilters = !!(
+    searchParams.institution_id || searchParams.is_break
+  );
 
   return (
-    <div className='flex flex-col sm:flex-row gap-4'>
-      <div className='relative flex-1'>
-        <Search className='absolute left-3 top-3 h-4 w-4 text-muted-foreground' />
-        <Input
-          placeholder='Search periods...'
-          className='pl-9'
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
+    <div className='space-y-4'>
+      {/* Filters Row */}
+      <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+          {/* Institution Filter - Only show for super admins */}
+          {isSuperAdmin && (
+            <div className='min-w-[200px]'>
+              <Select
+                value={searchParams.institution_id || 'all'}
+                onValueChange={(value) =>
+                  onFilterChange(
+                    'institution_id',
+                    value === 'all' ? undefined : value
+                  )
+                }
+                disabled={loading}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={loading ? 'Loading...' : 'All Institutions'}
+                  />
+                </SelectTrigger>
+                <SelectContent className='max-h-60 overflow-y-auto'>
+                  <SelectItem value='all'>All Institutions</SelectItem>
+                  {institutions.map((inst) => (
+                    <SelectItem key={inst.id} value={inst.id}>
+                      {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Type Filter */}
+          <div className='min-w-[150px]'>
+            <Select
+              value={searchParams.is_break || 'all'}
+              onValueChange={(value) =>
+                onFilterChange('is_break', value === 'all' ? undefined : value)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='All Types' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Types</SelectItem>
+                <SelectItem value='false'>Period</SelectItem>
+                <SelectItem value='true'>Break</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Clear Filters Button */}
+        {hasActiveFilters && (
+          <Button
+            variant='ghost'
+            onClick={onClearFilters}
+            className='h-8 px-2 lg:px-3'
+          >
+            Reset
+            <RotateCcw className='ml-2 h-4 w-4' />
+          </Button>
+        )}
       </div>
-
-      {/* Institution Filter - Only show for super admins */}
-      {isSuperAdmin && (
-        <Select
-          value={filters.institution_id || 'all'}
-          onValueChange={handleInstitutionChange}
-          disabled={institutionsLoading}
-        >
-          <SelectTrigger className='w-full sm:w-[200px]'>
-            <SelectValue placeholder='Filter by institution' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Institutions</SelectItem>
-            {institutions.length === 0 && !institutionsLoading ? (
-              <SelectItem value='no-data' disabled>
-                No institutions available
-              </SelectItem>
-            ) : (
-              institutions.map((institution) => (
-                <SelectItem key={institution.id} value={institution.id}>
-                  {institution.name}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
-      )}
-
-      <Select
-        value={
-          filters.isBreak === undefined
-            ? 'all'
-            : filters.isBreak
-            ? 'true'
-            : 'false'
-        }
-        onValueChange={handleIsBreakChange}
-      >
-        <SelectTrigger className='w-full sm:w-[180px]'>
-          <SelectValue placeholder='Filter by type' />
-        </SelectTrigger>
-        <SelectContent className='max-h-60 overflow-y-auto'>
-          <SelectItem value='all'>All Types</SelectItem>
-          <SelectItem value='false'>Academic</SelectItem>
-          <SelectItem value='true'>Break</SelectItem>
-        </SelectContent>
-      </Select>
     </div>
   );
 }

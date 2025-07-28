@@ -2,22 +2,20 @@
 
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
-import type { AcademicYearsSearchParams } from './data-table-schema';
+import type { PeriodsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
-import { AcademicYear } from '@/types/academics';
+import { PeriodService } from '@/lib/services/academic/period-service';
+import { Period } from '@/types/academics';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
 
-interface AcademicYearsDataTableProps {
-  search: AcademicYearsSearchParams;
+interface PeriodsDataTableProps {
+  search: PeriodsSearchParams;
 }
 
-export function AcademicYearsDataTable({
-  search
-}: AcademicYearsDataTableProps) {
+export function PeriodsDataTable({ search }: PeriodsDataTableProps) {
   const router = useRouter();
   const {
     canAccess,
@@ -30,10 +28,10 @@ export function AcademicYearsDataTable({
   const isReady = !permissionsLoading && !!userProfile;
 
   // Permission checks
-  const canCreateAcademicYear =
-    isSuperAdmin || canAccess('academic.years', 'create');
-  const canDeleteAcademicYear =
-    isSuperAdmin || canAccess('academic.years', 'delete');
+  const canCreatePeriod =
+    isSuperAdmin || canAccess('academic.periods', 'create');
+  const canDeletePeriod =
+    isSuperAdmin || canAccess('academic.periods', 'delete');
 
   const fetchData = async (params: {
     page: number;
@@ -45,7 +43,7 @@ export function AcademicYearsDataTable({
     sort_order: string;
   }) => {
     try {
-      // Map the DataTable parameters to our AcademicYearService parameters
+      // Map the DataTable parameters to our PeriodService parameters
       const filters = {
         page: params.page,
         limit: params.limit,
@@ -57,20 +55,19 @@ export function AcademicYearsDataTable({
           (!isSuperAdmin && userProfile?.institution_id
             ? userProfile.institution_id
             : undefined),
-        isActive:
-          search.status === 'active'
+        isBreak:
+          search.is_break === 'true'
             ? true
-            : search.status === 'inactive'
+            : search.is_break === 'false'
             ? false
             : undefined
       };
 
-      const { data, metadata } =
-        await AcademicYearService.getAcademicYearsWithAccess(
-          filters,
-          userProfile?.institution_id,
-          isSuperAdmin
-        );
+      const { data, metadata } = await PeriodService.getPeriodsWithAccess(
+        filters,
+        userProfile?.institution_id,
+        isSuperAdmin
+      );
 
       return {
         success: true,
@@ -83,19 +80,19 @@ export function AcademicYearsDataTable({
         }
       };
     } catch (error) {
-      console.error('Error fetching academic years:', error);
+      console.error('Error fetching periods:', error);
       throw error;
     }
   };
 
   const handleBulkDelete = async (
-    selectedRows: AcademicYear[],
+    selectedRows: Period[],
     resetSelection: () => void
   ) => {
     if (selectedRows.length === 0) return;
 
     const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedRows.length} academic year${
+      `Are you sure you want to delete ${selectedRows.length} period${
         selectedRows.length > 1 ? 's' : ''
       }? This action cannot be undone.`
     );
@@ -103,10 +100,10 @@ export function AcademicYearsDataTable({
     if (!confirmed) return;
 
     try {
-      // Delete all selected academic years
+      // Delete all selected periods
       await Promise.all(
-        selectedRows.map((academicYear: AcademicYear) =>
-          AcademicYearService.deleteAcademicYear(academicYear.id)
+        selectedRows.map((period: Period) =>
+          PeriodService.deletePeriod(period.id)
         )
       );
 
@@ -114,7 +111,7 @@ export function AcademicYearsDataTable({
       resetSelection();
       // The DataTable will automatically refetch data after this
     } catch (error) {
-      console.error('Error deleting academic years:', error);
+      console.error('Error deleting periods:', error);
     }
   };
 
@@ -125,22 +122,22 @@ export function AcademicYearsDataTable({
     resetSelection: () => void;
   }) => (
     <div className='flex items-center gap-2'>
-      {canCreateAcademicYear && (
+      {canCreatePeriod && (
         <Button
-          onClick={() => router.push('/academic/years/new')}
+          onClick={() => router.push('/academic/periods/new')}
           size='sm'
           className='h-8'
         >
           <Plus className='mr-2 h-4 w-4' />
-          Add Academic Year
+          Add Period
         </Button>
       )}
 
-      {canDeleteAcademicYear && props.selectedRows.length > 0 && (
+      {canDeletePeriod && props.selectedRows.length > 0 && (
         <Button
           onClick={() =>
             handleBulkDelete(
-              props.selectedRows as AcademicYear[],
+              props.selectedRows as Period[],
               props.resetSelection
             )
           }
@@ -177,7 +174,7 @@ export function AcademicYearsDataTable({
       fetchDataFn={fetchData}
       getColumns={() => columns as any}
       exportConfig={{
-        entityName: 'academic-years',
+        entityName: 'periods',
         columnMapping: {},
         columnWidths: [],
         headers: []
@@ -192,7 +189,7 @@ export function AcademicYearsDataTable({
         enableColumnFilters: false,
         enableColumnVisibility: true,
         enableColumnResizing: true,
-        columnResizingTableId: 'academic-years-table'
+        columnResizingTableId: 'periods-table'
       }}
       renderToolbarContent={renderCustomToolbar}
     />

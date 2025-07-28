@@ -102,8 +102,6 @@ export function StaffSearchSelector({
     if (!selectedStaffIds.includes(staffId)) {
       const newAssignment: StaffAssignment = {
         staff_id: staffId,
-        hours_allocated: 0,
-        is_coordinator: false,
         staff_type: '',
         assignment_id: generateAssignmentId()
       };
@@ -141,22 +139,6 @@ export function StaffSearchSelector({
     return staff?.designation || '';
   };
 
-  const handleCoordinatorToggle = (assignmentId: string, checked: boolean) => {
-    if (checked) {
-      const updatedAssignments = uniqueAssignments.map((assignment) => ({
-        ...assignment,
-        is_coordinator: assignment.assignment_id === assignmentId
-      }));
-      onChange(updatedAssignments);
-    } else {
-      updateStaffAssignment(assignmentId, { is_coordinator: false });
-    }
-  };
-
-  const coordinatorAssignment = uniqueAssignments.find(
-    (assignment) => assignment.is_coordinator
-  );
-
   return (
     <div className={cn('space-y-4', className)}>
       {courseName && (
@@ -180,18 +162,13 @@ export function StaffSearchSelector({
                 return (
                   <Badge
                     key={`header-badge-${assignment.assignment_id}`}
-                    variant={
-                      assignment.is_coordinator ? 'default' : 'secondary'
-                    }
+                    variant='secondary'
                     className='text-xs'
                   >
                     {staffName
                       .split(' ')
                       .map((n) => n[0])
                       .join('.')}
-                    {assignment.is_coordinator && (
-                      <span className='ml-1 text-xs'>(C)</span>
-                    )}
                   </Badge>
                 );
               })}
@@ -210,11 +187,6 @@ export function StaffSearchSelector({
               </Badge>
             )}
           </div>
-          {coordinatorAssignment && (
-            <Badge variant='outline' className='text-xs'>
-              Coordinator: {getStaffName(coordinatorAssignment.staff_id)}
-            </Badge>
-          )}
         </div>
 
         <Popover open={open} onOpenChange={setOpen}>
@@ -325,11 +297,6 @@ export function StaffSearchSelector({
                             </p>
                           )}
                         </div>
-                        {assignment.is_coordinator && (
-                          <Badge variant='default' className='text-xs'>
-                            Coordinator
-                          </Badge>
-                        )}
                       </div>
                       <Button
                         variant='ghost'
@@ -345,31 +312,7 @@ export function StaffSearchSelector({
                   </CardHeader>
 
                   <CardContent className='pt-0'>
-                    <div className='grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'>
-                      <div className='space-y-2'>
-                        <Label className='text-xs'>Hours Allocated</Label>
-                        <Input
-                          type='number'
-                          min={0}
-                          max={100}
-                          value={assignment.hours_allocated || ''}
-                          onChange={(e) => {
-                            const value =
-                              e.target.value === ''
-                                ? 0
-                                : Math.max(
-                                    0,
-                                    Math.min(100, parseInt(e.target.value))
-                                  );
-                            updateStaffAssignment(assignment.assignment_id!, {
-                              hours_allocated: value
-                            });
-                          }}
-                          placeholder='Enter hours'
-                          className='h-8'
-                        />
-                      </div>
-
+                    <div className='grid gap-4 grid-cols-1'>
                       <div className='space-y-2'>
                         <Label className='text-xs'>Staff Type</Label>
                         <Select
@@ -392,36 +335,11 @@ export function StaffSearchSelector({
                               Associate Professor
                             </SelectItem>
                             <SelectItem value='professor'>Professor</SelectItem>
+                            <SelectItem value='hod'>HOD</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
-
-                      <div className='space-y-2'>
-                        <Label className='text-xs'>Course Coordinator</Label>
-                        <div className='flex items-center space-x-2'>
-                          <Switch
-                            checked={assignment.is_coordinator}
-                            onCheckedChange={(checked) =>
-                              handleCoordinatorToggle(
-                                assignment.assignment_id!,
-                                checked
-                              )
-                            }
-                            className='scale-75'
-                          />
-                          <Label className='text-xs text-muted-foreground'>
-                            {assignment.is_coordinator ? 'Yes' : 'No'}
-                          </Label>
-                        </div>
-                      </div>
                     </div>
-
-                    {(!assignment.hours_allocated ||
-                      assignment.hours_allocated === 0) && (
-                      <div className='mt-3 text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200'>
-                        ⚠️ Hours allocated is required
-                      </div>
-                    )}
 
                     {!assignment.staff_type && (
                       <div className='mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200'>
@@ -450,14 +368,6 @@ export function StaffSearchSelector({
                   className='text-xs'
                 >
                   {staffName}
-                  {assignment.hours_allocated > 0 && (
-                    <span className='ml-1'>
-                      ({assignment.hours_allocated}h)
-                    </span>
-                  )}
-                  {assignment.is_coordinator && (
-                    <span className='ml-1 text-primary'>(Coordinator)</span>
-                  )}
                 </Badge>
               );
             })}

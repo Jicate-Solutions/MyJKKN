@@ -2,17 +2,12 @@
 export interface StaffPlanCourseDto {
   course_id: string;
   staff_id: string;
-  hours_allocated: number;
-  is_coordinator: boolean;
-  is_combined: boolean;
   staff_type: string;
 }
 
 // Interface for staff assignments used in forms (with assignment_id for React keys)
 export interface StaffAssignment {
   staff_id: string;
-  hours_allocated: number;
-  is_coordinator: boolean;
   staff_type: string;
   assignment_id?: string; // Optional for backwards compatibility
 }
@@ -21,7 +16,6 @@ export interface StaffAssignment {
 export interface CourseAssignment {
   course_id: string;
   staff_assignments: StaffAssignment[];
-  is_combined: boolean;
 }
 
 // Create base staff plan data interface
