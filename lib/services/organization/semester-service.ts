@@ -265,6 +265,13 @@ export class SemesterService {
     }
   }
 
+  /**
+   * Get semesters by program ID following proper organizational hierarchy
+   * This is the recommended method for fetching semesters within a program.
+   * 
+   * @param programId - The program ID to fetch semesters for
+   * @returns Promise<Semester[]> - List of active semesters in the specified program
+   */
   static async getSemestersByProgram(programId: string) {
     try {
       const { data, error } = await this.supabase
@@ -283,12 +290,22 @@ export class SemesterService {
   }
 
   /**
+   * @deprecated This method was created to work around data inconsistencies and should no longer be used.
+   * Use getSemestersByProgram() instead, which follows proper organizational hierarchy.
+   * Data inconsistencies have been fixed in migration 048_fix_semester_program_inconsistencies.
+   * 
    * Get semesters that actually have students in the selected program
-   * This helps work around data inconsistency where students are assigned to semesters from different programs
+   * This helped work around data inconsistency where students were assigned to semesters from different programs
    * @param programId - The program ID
    * @returns List of semesters that have students in the specified program
    */
   static async getSemestersByProgramWithStudents(programId: string) {
+    // Log deprecation warning
+    console.warn(
+      '[DEPRECATED] getSemestersByProgramWithStudents() is deprecated. ' +
+      'Use getSemestersByProgram() instead. Data inconsistencies have been fixed.'
+    );
+    
     try {
       // Fetch semesters that actually have students in the selected program
       const { data: students, error } = await this.supabase

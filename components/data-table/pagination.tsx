@@ -64,15 +64,8 @@ export function DataTablePagination<TData>({
               }
 
               try {
-                // Force URL update via direct window manipulation first
-                // This ensures the URL gets updated before the table state changes
-                const url = new URL(window.location.href);
-                url.searchParams.set('pageSize', value);
-                url.searchParams.set('page', '1'); // Always reset to page 1
-                window.history.replaceState({}, '', url.toString());
-
-                // Then use the table's pagination change handler to update table state
-                // This order ensures the URL is already set when the table state updates
+                // Let the table's built-in pagination handler manage both URL and state
+                // This prevents conflicts with the URL state management system
                 table.setPagination({
                   pageIndex: 0, // Reset to first page
                   pageSize: numericValue
