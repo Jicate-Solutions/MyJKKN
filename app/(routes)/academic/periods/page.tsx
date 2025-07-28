@@ -1,10 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useCallback } from 'react';
-import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -13,166 +11,90 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { usePeriods } from '@/hooks/academic/use-periods';
-import { PeriodTable } from './_components/period-table';
-import { Pagination } from './_components/pagination';
-import { PeriodFilters } from './_components/period-filters';
-import type { PeriodFilters as PeriodFiltersType } from '@/types/academics';
-import Loading from '@/components/Loading/Loading';
-import { PeriodEmptyState } from './_components/period-empty-state';
-import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PeriodsDataTable } from './_components/period-data-table';
+import { periodsSearchParamsSchema } from './_components/data-table-schema';
+import { PeriodFilters } from './_components/period-filters';
 
 export default function PeriodsPage() {
-  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  // Memoize the initial filters to prevent recreation on every render
-  const initialFilters = useMemo(
-    () => ({
-      page: 1,
-      limit: 10,
-      institution_id:
-        !isSuperAdmin && userProfile?.institution_id
-          ? userProfile.institution_id
-          : undefined
-    }),
-    [isSuperAdmin, userProfile?.institution_id]
+  // Parse current search parameters
+  const search = periodsSearchParamsSchema.parse(
+    Object.fromEntries(searchParams.entries())
   );
 
-  const {
-    periods,
-    loading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    fetchPeriods,
-    deletePeriod
-  } = usePeriods(initialFilters);
-
-  const canViewPeriods = isSuperAdmin || canAccess('academic.periods', 'view');
-  const canCreatePeriods =
-    isSuperAdmin || canAccess('academic.periods', 'create');
-  const canEditPeriods = isSuperAdmin || canAccess('academic.periods', 'edit');
-  const canDeletePeriods =
-    isSuperAdmin || canAccess('academic.periods', 'delete');
-
-  // Memoize the filter change handler to prevent infinite loops
+  // Handle filter changes by updating URL
   const handleFilterChange = useCallback(
-    (newFilters: Partial<PeriodFiltersType>) => {
-      updateFilters(newFilters);
+    (key: string, value: string | undefined) => {
+      const params = new URLSearchParams(searchParams);
+
+      if (value) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
+
+      // Reset page to 1 when filters change
+      params.set('page', '1');
+
+      router.push(`/academic/periods?${params.toString()}`);
     },
-    [updateFilters]
+    [router, searchParams]
   );
 
-  useEffect(() => {
-    fetchPeriods();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  if (!canViewPeriods) {
-    return <Loading title='Loading academic periods...' />;
-  }
-
-  if (error) {
-    return (
-      <ContentLayout title='Academic Periods'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchPeriods()}
-            className='mt-4'
-          >
-            Try Again
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
+  // Handle clearing all filters
+  const handleClearFilters = useCallback(() => {
+    const params = new URLSearchParams();
+    // Keep only page and pageSize
+    params.set('page', '1');
+    if (searchParams.get('pageSize')) {
+      params.set('pageSize', searchParams.get('pageSize')!);
+    }
+    router.push(`/academic/periods?${params.toString()}`);
+  }, [router, searchParams]);
 
   return (
-    <ContentLayout title='Academic Periods'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/academic'>Academic</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Periods</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    <PermissionGuard module='academic.periods' action='view'>
+      <ContentLayout title='Academic Periods'>
+        <div className='space-y-6'>
+          {/* Breadcrumb */}
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink href='/'>Dashboard</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbLink href='/academic'>Academic</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Periods</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
 
-      <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Academic Periods</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage academic periods for timetable scheduling
-            </p>
-          </div>
-          {canCreatePeriods ? (
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/academic/periods/new'>
-                <Plus className='mr-2 h-4 w-4' />
-                Create Period
-              </Link>
-            </Button>
-          ) : (
-            <Button
-              className='w-full sm:w-auto opacity-50'
-              disabled
-              variant='outline'
-            >
-              <Plus className='mr-2 h-4 w-4' />
-              Create Period
-            </Button>
-          )}
+          {/* Main Content */}
+          <Card>
+            <CardContent className='p-6'>
+              <div className='space-y-6'>
+                {/* Filters */}
+                <PeriodFilters
+                  searchParams={search}
+                  onFilterChange={handleFilterChange}
+                  onClearFilters={handleClearFilters}
+                />
+
+                {/* Data Table */}
+                <PeriodsDataTable search={search} />
+              </div>
+            </CardContent>
+          </Card>
         </div>
-
-        <Card>
-          <CardContent className='p-6'>
-            <PeriodFilters
-              filters={filters}
-              onFilterChange={handleFilterChange}
-            />
-
-            {loading && <Loading title='Loading periods...' />}
-
-            {!loading && !error && periods.length === 0 && (
-              <PeriodEmptyState canCreate={canCreatePeriods} />
-            )}
-
-            {!loading && !error && periods.length > 0 && (
-              <>
-                <PeriodTable
-                  periods={periods}
-                  deletePeriod={deletePeriod}
-                  canEdit={canEditPeriods}
-                  canDelete={canDeletePeriods}
-                  onRefresh={fetchPeriods}
-                />
-                <Pagination
-                  currentPage={metadata.page}
-                  totalPages={metadata.totalPages}
-                  onPageChange={changePage}
-                />
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </ContentLayout>
+      </ContentLayout>
+    </PermissionGuard>
   );
 }

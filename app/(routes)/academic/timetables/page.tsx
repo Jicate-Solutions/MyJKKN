@@ -19,7 +19,7 @@ import Loading from '@/components/Loading/Loading';
 import { usePermissions } from '@/hooks/use-permissions';
 import { TimetableTable } from './_components/timetable-table';
 
-import { Pagination } from '../periods/_components/pagination';
+import { Pagination } from '@/components/pagination';
 import { TimetableFilters } from './_components/timetable-filters';
 import { TimetableEmptyState } from './_components/timetable-empty-state';
 import type { TimetableFilters as TimetableFiltersType } from '@/types/academics';

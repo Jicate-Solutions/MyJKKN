@@ -2,38 +2,58 @@
 
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
-import type { AcademicYearsSearchParams } from './data-table-schema';
+import type { StaffPlanningSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
-import { AcademicYear } from '@/types/academics';
+import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
+import { StaffPlan } from '@/types/staff-planning';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
-interface AcademicYearsDataTableProps {
-  search: AcademicYearsSearchParams;
+interface StaffPlanningDataTableProps {
+  search: StaffPlanningSearchParams;
 }
 
-export function AcademicYearsDataTable({
+export function StaffPlanningDataTable({
   search
-}: AcademicYearsDataTableProps) {
+}: StaffPlanningDataTableProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const {
     canAccess,
     isSuperAdmin,
     userProfile,
     isLoading: permissionsLoading
   } = usePermissions();
-
-  // Wait for permissions and profile to be loaded before rendering the table
   const isReady = !permissionsLoading && !!userProfile;
 
-  // Permission checks
-  const canCreateAcademicYear =
-    isSuperAdmin || canAccess('academic.years', 'create');
-  const canDeleteAcademicYear =
-    isSuperAdmin || canAccess('academic.years', 'delete');
+  const canCreateStaffPlan =
+    isSuperAdmin || canAccess('academic.staff.planning', 'create');
+  const canDeleteStaffPlan =
+    isSuperAdmin || canAccess('academic.staff.planning', 'delete');
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const result = await StaffPlanService.bulkDeleteStaffPlans(ids);
+      if (result.failed.length > 0) {
+        throw new Error(`Failed to delete ${result.failed.length} staff plans`);
+      }
+      return result;
+    },
+    onSuccess: (result) => {
+      toast.success(
+        `Successfully deleted ${result.success.length} staff plans`
+      );
+      queryClient.invalidateQueries({ queryKey: ['staff-plans'] });
+    },
+    onError: (error: any) => {
+      console.error('Error bulk deleting staff plans:', error);
+      toast.error(error?.message || 'Failed to delete staff plans');
+    }
+  });
 
   const fetchData = async (params: {
     page: number;
@@ -45,7 +65,6 @@ export function AcademicYearsDataTable({
     sort_order: string;
   }) => {
     try {
-      // Map the DataTable parameters to our AcademicYearService parameters
       const filters = {
         page: params.page,
         limit: params.limit,
@@ -57,105 +76,85 @@ export function AcademicYearsDataTable({
           (!isSuperAdmin && userProfile?.institution_id
             ? userProfile.institution_id
             : undefined),
+        degree_id: search.degree_id || undefined,
+        department_id: search.department_id || undefined,
+        program_id: search.program_id || undefined,
+        semester_id: search.semester_id || undefined,
+        academic_year_id: search.academic_year_id || undefined,
         isActive:
-          search.status === 'active'
+          search.isActive === 'true'
             ? true
-            : search.status === 'inactive'
+            : search.isActive === 'false'
             ? false
             : undefined
       };
 
-      const { data, metadata } =
-        await AcademicYearService.getAcademicYearsWithAccess(
-          filters,
-          userProfile?.institution_id,
-          isSuperAdmin
-        );
+      const response = await StaffPlanService.getStaffPlans(filters);
 
       return {
         success: true,
-        data: data || [],
+        data: response.data || [],
         pagination: {
           page: params.page,
           limit: params.limit,
-          total_pages: metadata?.totalPages ?? 0,
-          total_items: metadata?.total ?? 0
+          total_pages: response.metadata?.totalPages ?? 0,
+          total_items: response.metadata?.total ?? 0
         }
       };
     } catch (error) {
-      console.error('Error fetching academic years:', error);
+      console.error('Error fetching staff plans:', error);
       throw error;
     }
   };
 
   const handleBulkDelete = async (
-    selectedRows: AcademicYear[],
+    selectedRows: StaffPlan[],
     resetSelection: () => void
   ) => {
     if (selectedRows.length === 0) return;
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedRows.length} academic year${
-        selectedRows.length > 1 ? 's' : ''
-      }? This action cannot be undone.`
-    );
-
-    if (!confirmed) return;
-
-    try {
-      // Delete all selected academic years
-      await Promise.all(
-        selectedRows.map((academicYear: AcademicYear) =>
-          AcademicYearService.deleteAcademicYear(academicYear.id)
-        )
-      );
-
-      // Reset selection and refresh data
-      resetSelection();
-      // The DataTable will automatically refetch data after this
-    } catch (error) {
-      console.error('Error deleting academic years:', error);
-    }
+    const ids = selectedRows.map((row) => row.id);
+    bulkDeleteMutation.mutate(ids);
+    resetSelection();
   };
 
   const renderCustomToolbar = (props: {
     selectedRows: any[];
-    allSelectedIds: (string | number)[];
-    totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
     <div className='flex items-center gap-2'>
-      {canCreateAcademicYear && (
+      {canCreateStaffPlan && (
         <Button
-          onClick={() => router.push('/academic/years/new')}
+          onClick={() => router.push('/academic/staff-planning/new')}
           size='sm'
           className='h-8'
         >
           <Plus className='mr-2 h-4 w-4' />
-          Add Academic Year
+          Create Staff Plan
         </Button>
       )}
-
-      {canDeleteAcademicYear && props.selectedRows.length > 0 && (
+      {canDeleteStaffPlan && props.selectedRows.length > 0 && (
         <Button
           onClick={() =>
             handleBulkDelete(
-              props.selectedRows as AcademicYear[],
+              props.selectedRows as StaffPlan[],
               props.resetSelection
             )
           }
           variant='destructive'
           size='sm'
           className='h-8'
+          disabled={bulkDeleteMutation.isPending}
         >
           <TrashIcon className='mr-2 h-4 w-4' />
-          Delete Selected ({props.selectedRows.length})
+          {bulkDeleteMutation.isPending
+            ? 'Deleting...'
+            : `Delete Selected (${props.selectedRows.length})`}
         </Button>
       )}
     </div>
   );
 
-  // Show loading state while waiting for permissions and profile
   if (!isReady) {
     return (
       <div className='space-y-4'>
@@ -177,7 +176,7 @@ export function AcademicYearsDataTable({
       fetchDataFn={fetchData}
       getColumns={() => columns as any}
       exportConfig={{
-        entityName: 'academic-years',
+        entityName: 'staff-plans',
         columnMapping: {},
         columnWidths: [],
         headers: []
@@ -192,7 +191,7 @@ export function AcademicYearsDataTable({
         enableColumnFilters: false,
         enableColumnVisibility: true,
         enableColumnResizing: true,
-        columnResizingTableId: 'academic-years-table'
+        columnResizingTableId: 'staff-planning-table'
       }}
       renderToolbarContent={renderCustomToolbar}
     />

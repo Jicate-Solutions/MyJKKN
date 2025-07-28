@@ -61,14 +61,11 @@ const staffPlanSchema = z.object({
         .array(
           z.object({
             staff_id: z.string().min(1, 'Staff member is required'),
-            hours_allocated: z.number().min(1, 'Hours must be at least 1'),
-            is_coordinator: z.boolean().default(false),
             staff_type: z.string().min(1, 'Staff type is required'),
             assignment_id: z.string().optional() // Optional for React key management
           })
         )
-        .min(1, 'At least one staff member must be assigned'),
-      is_combined: z.boolean().default(false)
+        .min(1, 'At least one staff member must be assigned')
     })
   ),
   is_active: z.boolean().default(true)
@@ -215,10 +212,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             AcademicYearService.getAcademicYearsByInstitution(
               staffPlan.institution_id
             ),
+            // Try to get courses for specific semester first, fallback to all program courses
             CourseService.getCoursesByMapping(
               staffPlan.program_id,
               staffPlan.semester_id
-            )
+            ).then(async (coursesData) => {
+              // If no courses found for specific semester, try without semester filter
+              if (coursesData.length === 0) {
+                return CourseService.getCoursesByMapping(staffPlan.program_id);
+              }
+              return coursesData;
+            })
           ]);
 
           // Set all dropdown options
@@ -234,16 +238,40 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
               coursesData.map((course: any) => [course.id, course])
             ).values()
           );
-          setCourses(
-            uniqueCourses.map((course: any) => ({
-              id: course.id,
-              course_name: course.course_name,
-              course_code: course.course_code
-            }))
-          );
+          const formattedCourses = uniqueCourses.map((course: any) => ({
+            id: course.id,
+            course_name: course.course_name,
+            course_code: course.course_code
+          }));
+
+          setCourses(formattedCourses);
 
           // Fetch staff members for the selected institution (all departments)
           await fetchStaffMembers(staffPlan.institution_id);
+
+          // Transform courses data for form
+          const transformedCourses =
+            staffPlan.courses?.reduce((acc, course) => {
+              // Group courses by course_id to handle multiple staff assignments
+              const existingCourse = acc.find(
+                (c) => c.course_id === course.course_id
+              );
+              const staffAssignment = {
+                staff_id: course.staff_id,
+                staff_type: course.staff_type,
+                assignment_id: `${course.staff_id}-${course.course_id}` // Generate unique ID for React keys
+              };
+
+              if (existingCourse) {
+                existingCourse.staff_assignments.push(staffAssignment);
+              } else {
+                acc.push({
+                  course_id: course.course_id,
+                  staff_assignments: [staffAssignment]
+                });
+              }
+              return acc;
+            }, [] as FormValues['courses']) || [];
 
           // Set form values
           form.reset({
@@ -255,30 +283,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             academic_year_id: staffPlan.academic_year_id,
             start_date: new Date(staffPlan.start_date),
             end_date: new Date(staffPlan.end_date),
-            courses:
-              staffPlan.courses?.reduce((acc, course) => {
-                // Group courses by course_id to handle multiple staff assignments
-                const existingCourse = acc.find(
-                  (c) => c.course_id === course.course_id
-                );
-                const staffAssignment = {
-                  staff_id: course.staff_id,
-                  hours_allocated: course.hours_allocated,
-                  is_coordinator: course.is_coordinator,
-                  staff_type: course.staff_type
-                };
-
-                if (existingCourse) {
-                  existingCourse.staff_assignments.push(staffAssignment);
-                } else {
-                  acc.push({
-                    course_id: course.course_id,
-                    staff_assignments: [staffAssignment],
-                    is_combined: course.is_combined
-                  });
-                }
-                return acc;
-              }, [] as FormValues['courses']) || [],
+            courses: transformedCourses,
             is_active: staffPlan.is_active
           });
         } catch (error) {
@@ -306,7 +311,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     }
 
     loadInitialEditData();
-  }, [staffPlan, form, fetchStaffMembers]);
+  }, [staffPlan?.id, fetchStaffMembers]); // Only depend on staffPlan ID to prevent loops
 
   // Load academic years when institution changes (for new forms)
   useEffect(() => {
@@ -442,9 +447,6 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         course.staff_assignments.map((assignment) => ({
           course_id: course.course_id,
           staff_id: assignment.staff_id,
-          hours_allocated: assignment.hours_allocated,
-          is_coordinator: assignment.is_coordinator,
-          is_combined: course.is_combined,
           staff_type: assignment.staff_type
         }))
       );
@@ -770,8 +772,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                   onClick={() =>
                     append({
                       course_id: '',
-                      staff_assignments: [],
-                      is_combined: false
+                      staff_assignments: []
                     })
                   }
                 >
@@ -784,7 +785,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
               {fields.map((field, index) => {
                 const courseAssignment = form.watch(`courses.${index}`);
                 const selectedCourse = courses.find(
-                  (c) => c.id === courseAssignment.course_id
+                  (c) => c.id === courseAssignment?.course_id
                 );
                 const courseName = selectedCourse
                   ? `${selectedCourse.course_code} - ${selectedCourse.course_name}`
@@ -814,7 +815,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                                   <SelectContent className='max-h-60 overflow-y-auto'>
                                     {courses.length === 0 ? (
                                       <div className='p-2 text-center text-sm text-muted-foreground'>
-                                        No courses available
+                                        No courses available for this
+                                        program/semester
                                       </div>
                                     ) : (
                                       courses.map((course) => (
@@ -835,26 +837,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                           />
                         </div>
 
-                        <div className='flex items-center gap-4'>
-                          {/* Combined Course Toggle */}
-                          <FormField
-                            control={form.control}
-                            name={`courses.${index}.is_combined`}
-                            render={({ field }) => (
-                              <FormItem className='flex flex-row items-center space-x-2 space-y-0'>
-                                <FormControl>
-                                  <Switch
-                                    checked={field.value}
-                                    onCheckedChange={field.onChange}
-                                  />
-                                </FormControl>
-                                <FormLabel className='text-sm'>
-                                  Combined Course
-                                </FormLabel>
-                              </FormItem>
-                            )}
-                          />
-
+                        <div className='flex items-center justify-end'>
                           {/* Remove Course Button */}
                           <Button
                             type='button'
@@ -869,7 +852,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                       </div>
 
                       {/* Staff Assignments */}
-                      {courseAssignment.course_id && (
+                      {courseAssignment?.course_id && (
                         <FormField
                           control={form.control}
                           name={`courses.${index}.staff_assignments`}
@@ -888,7 +871,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
                         />
                       )}
 
-                      {!courseAssignment.course_id && (
+                      {!courseAssignment?.course_id && (
                         <div className='text-center py-8 text-muted-foreground'>
                           Select a course to assign staff members
                         </div>

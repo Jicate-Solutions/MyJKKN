@@ -3,13 +3,12 @@
 import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
-import { AcademicYear } from '@/types/academics';
+import { StaffPlan } from '@/types/staff-planning';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 
-export const columns: ColumnDef<AcademicYear>[] = [
+export const columns: ColumnDef<StaffPlan>[] = [
   {
     id: 'select',
     header: ({ table }) => (
@@ -30,50 +29,62 @@ export const columns: ColumnDef<AcademicYear>[] = [
     enableHiding: false
   },
   {
-    accessorKey: 'academic_year_name',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Academic Year' />
-    ),
-    cell: ({ row }) => {
-      const academicYear = row.original;
-      return (
-        <Link
-          href={`/academic/years/${academicYear.id}`}
-          className='font-medium text-primary hover:underline'
-        >
-          {academicYear.academic_year_name}
-        </Link>
-      );
-    }
-  },
-  {
-    accessorKey: 'start_date',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Start Date' />
-    ),
-    cell: ({ row }) => {
-      const date = row.getValue('start_date') as string;
-      return date ? format(new Date(date), 'dd MMM yyyy') : 'N/A';
-    }
-  },
-  {
-    accessorKey: 'end_date',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='End Date' />
-    ),
-    cell: ({ row }) => {
-      const date = row.getValue('end_date') as string;
-      return date ? format(new Date(date), 'dd MMM yyyy') : 'N/A';
-    }
-  },
-  {
-    accessorKey: 'institution',
+    accessorKey: 'institution.name',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Institution' />
     ),
     cell: ({ row }) => {
-      const academicYear = row.original;
-      return academicYear.institution?.name || 'N/A';
+      const staffPlan = row.original;
+      return (
+        <Link
+          href={`/academic/staff-planning/${staffPlan.id}`}
+          className='font-medium hover:text-primary hover:underline'
+        >
+          {staffPlan.institution?.name || '-'}
+        </Link>
+      );
+    },
+    size: 200,
+    minSize: 200,
+    maxSize: 250
+  },
+  {
+    accessorKey: 'program.program_name',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Program' />
+    ),
+    cell: ({ row }) => {
+      const staffPlan = row.original;
+      return (
+        <div>
+          <div className='font-medium'>
+            {staffPlan.program?.program_name || '-'}
+          </div>
+          <div className='text-sm text-muted-foreground'>
+            {staffPlan.department?.department_name || '-'}
+          </div>
+        </div>
+      );
+    }
+  },
+  {
+    accessorKey: 'semester.semester_name',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Semester' />
+    ),
+    cell: ({ row }) => {
+      const staffPlan = row.original;
+      return staffPlan.semester?.semester_name || '-';
+    }
+  },
+  {
+    accessorKey: 'academic_year.academic_year_name',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Academic Year' />
+    ),
+    cell: ({ row }) => {
+      const staffPlan = row.original;
+      return staffPlan.academic_year?.academic_year_name || '-';
     }
   },
   {
@@ -90,30 +101,11 @@ export const columns: ColumnDef<AcademicYear>[] = [
       );
     }
   },
-  {
-    accessorKey: 'created_at',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Created At' />
-    ),
-    cell: ({ row }) => {
-      const date = row.getValue('created_at') as string;
-      return date ? format(new Date(date), 'dd MMM yyyy') : 'N/A';
-    }
-  },
+
   {
     id: 'actions',
     header: 'Actions',
-    cell: ({ row }) => (
-      <DataTableRowActions
-        row={row}
-        onEdit={(id) => {
-          // Navigation will be handled in the DataTableRowActions component
-        }}
-        onDelete={(id) => {
-          // Deletion will be handled in the DataTableRowActions component
-        }}
-      />
-    ),
+    cell: ({ row }) => <DataTableRowActions row={row} />,
     enableSorting: false,
     enableHiding: false,
     size: 60,
