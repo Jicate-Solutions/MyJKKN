@@ -1,11 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback } from 'react';
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -14,167 +12,94 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { useTimetables } from '@/hooks/academic/use-timetables';
-import Loading from '@/components/Loading/Loading';
-import { usePermissions } from '@/hooks/use-permissions';
-import { TimetableTable } from './_components/timetable-table';
-
-import { Pagination } from '@/components/pagination';
+import { Card, CardContent } from '@/components/ui/card';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { TimetablesDataTable } from './_components/timetables-data-table';
+import { timetablesSearchParamsSchema } from './_components/data-table-schema';
 import { TimetableFilters } from './_components/timetable-filters';
-import { TimetableEmptyState } from './_components/timetable-empty-state';
-import type { TimetableFilters as TimetableFiltersType } from '@/types/academics';
 
 export default function TimetablesPage() {
-  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  // Memoize the initial filters to prevent recreation on every render
-  const initialFilters = useMemo(
-    () => ({
-      limit: 10,
-      ...(!isSuperAdmin &&
-        userProfile?.institution_id && {
-          institution_id: userProfile.institution_id
-        })
-    }),
-    [isSuperAdmin, userProfile?.institution_id]
+  // Parse current search parameters
+  const search = timetablesSearchParamsSchema.parse(
+    Object.fromEntries(searchParams.entries())
   );
 
-  const {
-    timetables,
-    loading,
-    error,
-    metadata,
-    filters,
-    updateFilters,
-    changePage,
-    fetchTimetables,
-    deleteTimetable
-  } = useTimetables(initialFilters);
-
-  const canViewTimetables =
-    isSuperAdmin || canAccess('academic.timetables', 'view');
-  const canCreateTimetables =
-    isSuperAdmin || canAccess('academic.timetables', 'create');
-  const canEditTimetables =
-    isSuperAdmin || canAccess('academic.timetables', 'edit');
-  const canDeleteTimetables =
-    isSuperAdmin || canAccess('academic.timetables', 'delete');
-
-  // Memoize the filter change handler to prevent infinite loops
+  // Handle filter changes by updating URL
   const handleFilterChange = useCallback(
-    (newFilters: Partial<TimetableFiltersType>) => {
-      updateFilters(newFilters);
+    (key: string, value: string | undefined) => {
+      const params = new URLSearchParams(searchParams);
+
+      if (value) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
+
+      // Reset page to 1 when filters change
+      params.set('page', '1');
+
+      router.push(`/academic/timetables?${params.toString()}`);
     },
-    [updateFilters]
+    [router, searchParams]
   );
 
-  useEffect(() => {
-    fetchTimetables();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  if (!canViewTimetables) {
-    return <Loading title='Loading timetables...' />;
-  }
-
-  if (error) {
-    return (
-      <ContentLayout title='Timetables'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>{error}</p>
-          <Button
-            variant='outline'
-            onClick={() => fetchTimetables()}
-            className='mt-4'
-          >
-            Try Again
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
+  // Handle clearing all filters
+  const handleClearFilters = useCallback(() => {
+    const params = new URLSearchParams();
+    // Keep only page and pageSize
+    params.set('page', '1');
+    if (searchParams.get('pageSize')) {
+      params.set('pageSize', searchParams.get('pageSize')!);
+    }
+    router.push(`/academic/timetables?${params.toString()}`);
+  }, [router, searchParams]);
 
   return (
-    <ContentLayout title='Timetables'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/academic'>Academic</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Timetables</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    <PermissionGuard module='academic.timetables' action='view'>
+      <ContentLayout title='Academic Timetables'>
+        <div className='space-y-6'>
+          {/* Breadcrumb */}
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href='/'>Dashboard</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href='/academic'>Academic</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Timetables</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
 
-      <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Timetables</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage timetables for academic scheduling
-            </p>
-          </div>
-          {canCreateTimetables ? (
-            <Button className='w-full sm:w-auto' asChild>
-              <Link href='/academic/timetables/new'>
-                <Plus className='mr-2 h-4 w-4' />
-                Create Timetable
-              </Link>
-            </Button>
-          ) : (
-            <Button
-              className='w-full sm:w-auto opacity-50'
-              disabled
-              variant='outline'
-            >
-              <Plus className='mr-2 h-4 w-4' />
-              Create Timetable
-            </Button>
-          )}
+          {/* Main Content */}
+          <Card>
+            <CardContent className='p-6'>
+              <div className='space-y-6'>
+                {/* Filters */}
+                <TimetableFilters
+                  searchParams={search}
+                  onFilterChange={handleFilterChange}
+                  onClearFilters={handleClearFilters}
+                />
+
+                {/* Data Table */}
+                <TimetablesDataTable search={search} />
+              </div>
+            </CardContent>
+          </Card>
         </div>
-
-        <Card>
-          <CardContent className='p-6'>
-            <TimetableFilters
-              filters={filters}
-              onFilterChange={handleFilterChange}
-            />
-
-            {loading && <Loading title='Loading timetables...' />}
-
-            {!loading && !error && timetables.length === 0 && (
-              <TimetableEmptyState canCreate={canCreateTimetables} />
-            )}
-
-            {!loading && !error && timetables.length > 0 && (
-              <>
-                <TimetableTable
-                  timetables={timetables}
-                  deleteTimetable={deleteTimetable}
-                  onRefresh={fetchTimetables}
-                  canEdit={canEditTimetables}
-                  canDelete={canDeleteTimetables}
-                />
-                <Pagination
-                  currentPage={metadata.page}
-                  totalPages={metadata.totalPages}
-                  onPageChange={changePage}
-                />
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </ContentLayout>
+      </ContentLayout>
+    </PermissionGuard>
   );
 }
