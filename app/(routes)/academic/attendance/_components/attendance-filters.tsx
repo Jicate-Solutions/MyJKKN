@@ -18,7 +18,7 @@ import {
   PopoverContent,
   PopoverTrigger
 } from '@/components/ui/popover';
-import { useInstitutions } from '@/hooks/organization/use-institutions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useAcademicYears } from '@/hooks/academic/use-academic-years';
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { usePrograms } from '@/hooks/organization/use-programs';
@@ -57,9 +57,8 @@ export function AttendanceFilters({
   const [checkingPermissions, setCheckingPermissions] = useState(false);
 
   // Fetch data hooks
-  const { data: institutionsData, refetch: fetchInstitutions } =
-    useInstitutions({});
-  const institutions = institutionsData?.data ?? [];
+  const { institutions, refetch: fetchInstitutions } =
+    useInstitutionsWithAccess({});
 
   const { academicYears, fetchAcademicYears } = useAcademicYears({
     institution_id: searchContext.institution_id || undefined

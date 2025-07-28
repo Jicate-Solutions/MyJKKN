@@ -60,13 +60,13 @@ import Loading from '@/components/Loading/Loading';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useAttendanceRoster } from '@/hooks/academic/use-attendance';
-import { useInstitutions } from '@/hooks/organization/use-institutions';
 import { useAcademicYears } from '@/hooks/academic/use-academic-years';
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -130,9 +130,8 @@ export default function AttendancePage() {
   const [existingAttendance, setExistingAttendance] = useState<any[]>([]);
 
   // Data hooks for search form
-  const { data: institutionsData, refetch: fetchInstitutions } =
-    useInstitutions({});
-  const institutions = institutionsData?.data ?? [];
+  const { institutions, refetch: fetchInstitutions } =
+    useInstitutionsWithAccess({});
 
   const { academicYears, fetchAcademicYears } = useAcademicYears({
     institution_id: searchContext.institution_id || undefined,
