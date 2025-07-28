@@ -317,8 +317,6 @@ export class DepartmentService {
           .order('department_name');
       } else {
         // If it's not a UUID, try to find the degree by name first
-        console.log('Searching for degree with name:', degreeId);
-
         const { data: degree } = await this.supabase
           .from('degrees')
           .select('id')
@@ -326,7 +324,6 @@ export class DepartmentService {
           .single();
 
         if (degree) {
-          console.log('Found degree with ID:', degree.id);
           query = this.supabase
             .from('departments')
             .select('*')
@@ -334,7 +331,6 @@ export class DepartmentService {
             .eq('is_active', true)
             .order('department_name');
         } else {
-          console.log('No degree found with name:', degreeId);
           // Return empty array if no degree found
           return [];
         }

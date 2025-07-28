@@ -272,11 +272,10 @@ export class ProgramService {
           .from('programs')
           .select('*')
           .eq('department_id', departmentId)
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .order('program_name');
       } else {
         // If it's not a UUID, try to find the department by name first
-        console.log('Searching for department with name:', departmentId);
-
         const { data: department } = await this.supabase
           .from('departments')
           .select('id')
@@ -284,20 +283,19 @@ export class ProgramService {
           .single();
 
         if (department) {
-          console.log('Found department with ID:', department.id);
           query = this.supabase
             .from('programs')
             .select('*')
             .eq('department_id', department.id)
-            .eq('is_active', true);
+            .eq('is_active', true)
+            .order('program_name');
         } else {
-          console.log('No department found with name:', departmentId);
           // Return empty array if no department found
           return [];
         }
       }
 
-      const { data: programs } = await query;
+      const { data: programs, error } = await query;
       return programs || [];
     } catch (error) {
       console.error('Error fetching programs:', error);

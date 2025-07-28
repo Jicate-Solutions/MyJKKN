@@ -38,7 +38,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { useStudent, useUpdateStudent } from '@/hooks/student/use-students';
+
 import { studentSchema, UpdateStudentDto } from '@/types/student';
 import { PhotoUpload } from '../../_components/photo-upload';
 import toast from 'react-hot-toast';
@@ -49,9 +49,9 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { Section } from '@/types/organizations';
-import { useQueryClient } from '@tanstack/react-query';
-import { studentKeys } from '@/hooks/student/use-students';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
+import { StudentService } from '@/lib/services/student/student-service';
 
 // Form schema for student edit (focusing on additional required fields)
 const editStudentSchema = z.object({
@@ -298,8 +298,14 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
   const { id } = resolvedParams;
 
   const router = useRouter();
-  const { data: student, isLoading: isLoadingStudent } = useStudent(id);
-  const updateStudent = useUpdateStudent(id);
+  const { data: student, isLoading: isLoadingStudent } = useQuery({
+    queryKey: ['students', 'detail', id],
+    queryFn: () => StudentService.getStudent(id)
+  });
+  const updateStudent = useMutation({
+    mutationFn: (data: UpdateStudentDto) =>
+      StudentService.updateStudent(id, data)
+  });
   const queryClient = useQueryClient();
 
   // Academic year hook
@@ -868,7 +874,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
       await updateStudent.mutateAsync(updatePayload);
 
       // Invalidate all student queries to force data refresh across the app
-      queryClient.invalidateQueries({ queryKey: studentKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
 
       toast.success('Student record updated');
 

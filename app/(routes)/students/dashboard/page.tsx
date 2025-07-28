@@ -36,8 +36,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { useStudentDashboardStats } from '@/hooks/student/use-students';
 import { DashboardFilters } from '@/types/student';
+import { useQuery } from '@tanstack/react-query';
 
 // Import dashboard components
 import { RegistrationTrends } from './_components/registration-trends';
@@ -52,6 +52,7 @@ import { GeographicDistribution } from './_components/geographic-distribution';
 import { OnboardingFunnel } from './_components/onboarding-funnel';
 import { DashboardFiltersPanel } from './_components/dashboard-filters';
 import { ProfileCompletionStats } from './_components/profile-completion-stats';
+import { StudentService } from '@/lib/services/student/student-service';
 
 export default function StudentDashboardPage() {
   const [filters, setFilters] = useState<DashboardFilters>({
@@ -66,7 +67,10 @@ export default function StudentDashboardPage() {
     isLoading,
     error,
     refetch
-  } = useStudentDashboardStats(filters);
+  } = useQuery({
+    queryKey: ['students', 'dashboard', filters],
+    queryFn: () => StudentService.getDashboardStats(filters)
+  });
 
   const handleFilterChange = (newFilters: DashboardFilters) => {
     setFilters(newFilters);
