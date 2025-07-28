@@ -527,13 +527,8 @@ export function DataTable<TData extends ExportableData, TValue>({
 
       // Special handling: When page size changes, always reset to page 1
       if (newPagination.pageSize !== pageSize) {
-        // First, directly update URL to ensure it's in sync
-        const url = new URL(window.location.href);
-        url.searchParams.set('pageSize', String(newPagination.pageSize));
-        url.searchParams.set('page', '1'); // Always reset to page 1
-        window.history.replaceState({}, '', url.toString());
-
-        // Then update our state
+        // Let the URL state system handle the URL updates through batch processing
+        // This prevents conflicts and ensures proper synchronization
         setPageSize(newPagination.pageSize);
         setPage(1);
         return;
@@ -985,7 +980,7 @@ export function DataTable<TData extends ExportableData, TValue>({
           table={table}
           totalItems={data?.pagination.total_items || 0}
           totalSelectedItems={totalSelectedItems}
-          pageSizeOptions={pageSizeOptions || [10, 20, 30, 40, 50]}
+          pageSizeOptions={pageSizeOptions || [10, 25, 50, 100, 200]}
           size={tableConfig.size}
         />
       )}

@@ -204,12 +204,11 @@ export function StudentFilters({
 
       try {
         setLoadingSemesters(true);
-        // Fetch semesters that actually have students in the selected program
-        // This works around data inconsistency where students are assigned to semesters from different programs
-        const semesterData =
-          await SemesterService.getSemestersByProgramWithStudents(
-            searchParams.program_id
-          );
+        // Fetch semesters by program following proper organizational hierarchy
+        // Data inconsistencies have been fixed in migration 048_fix_semester_program_inconsistencies
+        const semesterData = await SemesterService.getSemestersByProgram(
+          searchParams.program_id
+        );
         setSemesters(semesterData || []);
       } catch (error) {
         console.error('Error fetching semesters:', error);
