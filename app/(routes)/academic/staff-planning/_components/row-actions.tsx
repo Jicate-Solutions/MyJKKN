@@ -140,8 +140,8 @@ export function DataTableRowActions<TData>({
           <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
           <AlertDialogDescription>
             This action cannot be undone. This will permanently delete the staff
-            plan "{staffPlan.institution?.name} -{' '}
-            {staffPlan.program?.program_name}" and all associated course
+            plan &quot;{staffPlan.institution?.name} -{' '}
+            {staffPlan.program?.program_name}&quot; and all associated course
             assignments.
           </AlertDialogDescription>
         </AlertDialogHeader>
