@@ -55,28 +55,6 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from '@/components/ui/alert-dialog';
-import { Checkbox } from '@/components/ui/checkbox';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import Loading from '@/components/Loading/Loading';
 import { useToast } from '@/hooks/use-toast';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
@@ -104,7 +82,6 @@ import { TimetableGrid } from './_components/timetable-grid';
 import { SlotDialog } from './_components/slot-dialog';
 import { PeriodConfiguration } from './_components/period-configuration';
 import { SortablePeriodItem } from './_components/sortable-period-item';
-import { LeaveCalendar } from './_components/leave-calendar';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
@@ -736,6 +713,17 @@ export default function TimetableDetailPage({
     period: Period,
     existingSlot?: TimetableSlot
   ) => {
+    // Prevent slot creation/editing for break periods
+    if (period.is_break && !existingSlot) {
+      toast({
+        title: 'Break Period',
+        description:
+          'Slots cannot be created during break periods. Break periods are reserved for breaks across all days.',
+        variant: 'default'
+      });
+      return;
+    }
+
     setSelectedDay(day);
     setSelectedPeriod(period);
 
@@ -1872,13 +1860,6 @@ export default function TimetableDetailPage({
                 </div>
               </div>
             )}
-          </div>
-        </div>
-
-        {/* Leave Management Section */}
-        <div className='bg-white rounded-lg shadow-sm border'>
-          <div className='p-6'>
-            <LeaveCalendar timetableId={timetableId} />
           </div>
         </div>
       </div>

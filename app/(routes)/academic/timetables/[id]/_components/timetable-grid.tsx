@@ -174,16 +174,31 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                 key={period.id}
                 className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
               >
-                <td className='border border-gray-200 p-2 bg-gradient-to-r from-green-600 to-green-700 text-white sticky left-0'>
+                <td
+                  className={`border border-gray-200 p-2 sticky left-0 ${
+                    period.is_break
+                      ? 'bg-gradient-to-r from-orange-600 to-orange-700 text-white'
+                      : 'bg-gradient-to-r from-green-600 to-green-700 text-white'
+                  }`}
+                >
                   <div className='flex items-center gap-1'>
                     {lockedPeriods.includes(period.id) && (
-                      <Lock className='h-2 w-2 text-green-200' />
+                      <Lock
+                        className={`h-2 w-2 ${
+                          period.is_break ? 'text-orange-200' : 'text-green-200'
+                        }`}
+                      />
                     )}
                     <div>
-                      <div className='font-semibold text-xs leading-tight'>
+                      <div className='font-semibold text-xs leading-tight flex items-center gap-1'>
                         {period.period_name}
+                        {period.is_break}
                       </div>
-                      <div className='text-xs text-green-100 leading-tight'>
+                      <div
+                        className={`text-xs leading-tight ${
+                          period.is_break ? 'text-orange-100' : 'text-green-100'
+                        }`}
+                      >
                         {new Date(
                           `2000-01-01T${period.start_time}`
                         ).toLocaleTimeString('en-US', {
@@ -203,50 +218,98 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                     </div>
                   </div>
                 </td>
-                {selectedDays.map((day) => {
-                  const slot = getSlotForDayAndPeriod(day, period.id);
-                  return (
-                    <td
-                      key={`${day}-${period.id}`}
-                      className='border border-gray-200 p-1.5 text-center align-top'
+                {period.is_break ? (
+                  // For break periods, show a single merged cell spanning all days
+                  <td
+                    colSpan={selectedDays.length}
+                    className='border border-gray-200 p-1.5 text-center align-middle'
+                  >
+                    <div
+                      className='w-full h-14 border-2 border-dashed border-orange-200 bg-orange-50 rounded flex flex-col items-center justify-center text-orange-600 cursor-not-allowed mx-auto'
+                      title={`Break period: ${period.period_name} (${new Date(
+                        `2000-01-01T${period.start_time}`
+                      ).toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                      })} - ${new Date(
+                        `2000-01-01T${period.end_time}`
+                      ).toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                      })})`}
                     >
-                      {slot ? (
-                        <div
-                          className={`
-                            p-1.5 border-2 rounded cursor-pointer transition-all duration-200 
-                            hover:shadow-md min-h-[60px] flex flex-col justify-center
-                            ${
-                              slot.is_break_slot
-                                ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
-                                : slot.is_combined
-                                ? 'bg-purple-50 border-purple-200 hover:bg-purple-100'
-                                : 'bg-blue-50 border-blue-200 hover:bg-blue-100'
-                            }
-                          `}
-                          onClick={() => onSlotClick(day, period, slot)}
-                        >
-                          {slot.is_break_slot
-                            ? renderBreakSlot(slot)
-                            : slot.is_combined
-                            ? renderCombinedSlot(slot)
-                            : renderRegularSlot(slot)}
-                        </div>
-                      ) : (
-                        <Button
-                          variant='ghost'
-                          size='sm'
-                          className='w-full h-14 border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200'
-                          onClick={() => onSlotClick(day, period)}
-                        >
-                          <div className='flex flex-col items-center gap-0.5'>
-                            <Plus className='h-3 w-3 text-gray-400' />
-                            <span className='text-xs text-gray-500'>Add</span>
+                      <div className='text-sm font-semibold text-red-800'>
+                        {period.period_name}
+                      </div>
+                      <div className='text-xs font-semibold text-black mt-1'>
+                        {new Date(
+                          `2000-01-01T${period.start_time}` 
+                        ).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}{' '}
+                        -{' '}
+                        {new Date(
+                          `2000-01-01T${period.end_time}`
+                        ).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}
+                      </div>
+                    </div>
+                  </td>
+                ) : (
+                  // For regular periods, show individual cells for each day
+                  selectedDays.map((day) => {
+                    const slot = getSlotForDayAndPeriod(day, period.id);
+
+                    return (
+                      <td
+                        key={`${day}-${period.id}`}
+                        className='border border-gray-200 p-1.5 text-center align-top'
+                      >
+                        {slot ? (
+                          <div
+                            className={`
+                              p-1.5 border-2 rounded cursor-pointer transition-all duration-200 
+                              hover:shadow-md min-h-[60px] flex flex-col justify-center
+                              ${
+                                slot.is_break_slot
+                                  ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+                                  : slot.is_combined
+                                  ? 'bg-purple-50 border-purple-200 hover:bg-purple-100'
+                                  : 'bg-blue-50 border-blue-200 hover:bg-blue-100'
+                              }
+                            `}
+                            onClick={() => onSlotClick(day, period, slot)}
+                          >
+                            {slot.is_break_slot
+                              ? renderBreakSlot(slot)
+                              : slot.is_combined
+                              ? renderCombinedSlot(slot)
+                              : renderRegularSlot(slot)}
                           </div>
-                        </Button>
-                      )}
-                    </td>
-                  );
-                })}
+                        ) : (
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            className='w-full h-14 border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200'
+                            onClick={() => onSlotClick(day, period)}
+                          >
+                            <div className='flex flex-col items-center gap-0.5'>
+                              <Plus className='h-3 w-3 text-gray-400' />
+                              <span className='text-xs text-gray-500'>Add</span>
+                            </div>
+                          </Button>
+                        )}
+                      </td>
+                    );
+                  })
+                )}
               </tr>
             ))}
           </tbody>

@@ -46,6 +46,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import Loading from '@/components/Loading/Loading';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { useTimetables } from '@/hooks/academic/use-timetables';
+import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useDegrees } from '@/hooks/organization/use-degrees';
+import { usePrograms } from '@/hooks/organization/use-programs';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { useSemesters } from '@/hooks/organization/use-semesters';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useToast } from '@/hooks/use-toast';
 import { Timetable, UpdateTimetableDto } from '@/types/academics';
 import { cn } from '@/lib/utils';
 
@@ -54,6 +62,24 @@ const timetableFormSchema = z
   .object({
     timetable_name: z.string().min(3, {
       message: 'Timetable name must be at least 3 characters.'
+    }),
+    institution_id: z.string().min(1, {
+      message: 'Please select an institution.'
+    }),
+    academic_year_id: z.string().min(1, {
+      message: 'Please select an academic year.'
+    }),
+    degree_id: z.string().min(1, {
+      message: 'Please select a degree.'
+    }),
+    program_id: z.string().min(1, {
+      message: 'Please select a program.'
+    }),
+    department_id: z.string().min(1, {
+      message: 'Please select a department.'
+    }),
+    semester: z.string().min(1, {
+      message: 'Please select a semester.'
     }),
     start_date: z.date().optional(),
     end_date: z.date().optional(),
@@ -84,6 +110,8 @@ export default function EditTimetablePage({
   const { id: timetableId } = use(params);
   const router = useRouter();
   const { updateTimetable } = useTimetables();
+  const { isSuperAdmin, userProfile } = usePermissions();
+  const { toast } = useToast();
 
   // State for form submission and data loading
   const [loading, setLoading] = useState(true);
@@ -91,11 +119,82 @@ export default function EditTimetablePage({
   const [error, setError] = useState<string | null>(null);
   const [timetable, setTimetable] = useState<Timetable | null>(null);
 
+  // State for hierarchical dropdowns
+  const [selectedInstitutionId, setSelectedInstitutionId] =
+    useState<string>('');
+  const [selectedDegreeId, setSelectedDegreeId] = useState<string>('');
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
+  const [selectedProgramId, setSelectedProgramId] = useState<string>('');
+
+  // Organization hooks for real data
+  const {
+    academicYears,
+    loading: loadingYears,
+    error: academicYearsError,
+    fetchAcademicYears
+  } = useAcademicYearsByInstitution();
+
+  const {
+    institutions,
+    loading: loadingInstitutions,
+    refetch: fetchInstitutions
+  } = useInstitutionsWithAccess({});
+
+  const degreesQuery = useDegrees({
+    bypassInstitutionFilter: isSuperAdmin,
+    userId: userProfile?.id,
+    limit: 1000
+  });
+  const programsQuery = usePrograms({
+    bypassInstitutionFilter: isSuperAdmin,
+    userId: userProfile?.id,
+    limit: 1000
+  });
+  const departmentsQuery = useDepartments({
+    bypassInstitutionFilter: isSuperAdmin,
+    userId: userProfile?.id,
+    limit: 1000
+  });
+  const semestersQuery = useSemesters({
+    bypassInstitutionFilter: isSuperAdmin,
+    userId: userProfile?.id,
+    limit: 1000
+  });
+
+  // Extract data and loading states
+  const allDegrees = degreesQuery.data?.data || [];
+  const loadingDegrees = degreesQuery.isLoading;
+  const fetchDegrees = degreesQuery.refetch;
+
+  const allPrograms = programsQuery.data?.data || [];
+  const loadingPrograms = programsQuery.isLoading;
+  const fetchPrograms = programsQuery.refetch;
+
+  const allDepartments = departmentsQuery.data?.data || [];
+  const loadingDepartments = departmentsQuery.isLoading;
+  const fetchDepartments = departmentsQuery.refetch;
+
+  const allSemesters = semestersQuery.data?.data || [];
+  const loadingSemesters = semestersQuery.isLoading;
+  const fetchSemesters = semestersQuery.refetch;
+
+  // Apply hierarchical filtering based on current selections
+  let degrees = allDegrees;
+  let programs = allPrograms;
+  let departments = allDepartments;
+  let filteredSemesters = allSemesters;
+
   // Initialize the form
   const form = useForm<TimetableFormValues>({
     resolver: zodResolver(timetableFormSchema),
     defaultValues: {
       timetable_name: '',
+      institution_id: '',
+      academic_year_id: '',
+      degree_id: '',
+      program_id: '',
+      department_id: '',
+      semester: '',
       start_date: undefined,
       end_date: undefined,
       is_active: true,
@@ -104,8 +203,38 @@ export default function EditTimetablePage({
     }
   });
 
-  // Watch form values
+  // Watch form values for cascading dropdowns
   const watchIsTemplate = form.watch('is_template');
+  const watchInstitutionId = form.watch('institution_id');
+  const watchDegreeId = form.watch('degree_id');
+  const watchProgramId = form.watch('program_id');
+  const watchDepartmentId = form.watch('department_id');
+
+  // Apply hierarchical filtering based on current selections
+  degrees = allDegrees.filter(
+    (degree) =>
+      !watchInstitutionId || degree.institution_id === watchInstitutionId
+  );
+
+  departments = allDepartments.filter(
+    (department) => !watchDegreeId || department.degree_id === watchDegreeId
+  );
+
+  programs = allPrograms.filter(
+    (program) =>
+      !watchDepartmentId || program.department_id === watchDepartmentId
+  );
+
+  filteredSemesters = allSemesters.filter(
+    (semester) => !watchProgramId || semester.program_id === watchProgramId
+  );
+
+  // Deduplicate semesters by semester_name to avoid duplicate keys
+  const uniqueSemesters = filteredSemesters.filter(
+    (semester, index, self) =>
+      index ===
+      self.findIndex((s) => s.semester_name === semester.semester_name)
+  );
 
   // Fetch timetable data
   useEffect(() => {
@@ -119,6 +248,12 @@ export default function EditTimetablePage({
         // Update form values
         form.reset({
           timetable_name: timetableData.timetable_name,
+          institution_id: timetableData.institution_id,
+          academic_year_id: timetableData.academic_year_id,
+          degree_id: timetableData.degree_id,
+          program_id: timetableData.program_id,
+          department_id: timetableData.department_id,
+          semester: String(timetableData.semester),
           start_date: timetableData.start_date
             ? new Date(timetableData.start_date)
             : undefined,
@@ -129,6 +264,17 @@ export default function EditTimetablePage({
           is_template: timetableData.is_template,
           template_name: timetableData.template_name || ''
         });
+
+        // Set state variables for hierarchical dropdowns
+        setSelectedInstitutionId(timetableData.institution_id);
+        setSelectedDegreeId(timetableData.degree_id);
+        setSelectedDepartmentId(timetableData.department_id);
+        setSelectedProgramId(timetableData.program_id);
+
+        // Fetch academic years for the timetable's institution
+        if (timetableData.institution_id) {
+          fetchAcademicYears(timetableData.institution_id);
+        }
       } catch (err) {
         console.error('Error fetching timetable:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -138,7 +284,143 @@ export default function EditTimetablePage({
     };
 
     fetchTimetable();
-  }, [timetableId, form]);
+  }, [timetableId, form, fetchAcademicYears]);
+
+  // Initial data loading - fetch all required data
+  useEffect(() => {
+    fetchInstitutions();
+    fetchDegrees();
+    fetchPrograms();
+    fetchDepartments();
+    fetchSemesters();
+    // Academic years will be fetched when institution is selected
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Update state and fetch dependent data when institution changes
+  useEffect(() => {
+    if (watchInstitutionId !== selectedInstitutionId) {
+      setSelectedInstitutionId(watchInstitutionId || '');
+
+      if (watchInstitutionId) {
+        // Fetch academic years for the selected institution
+        fetchAcademicYears(watchInstitutionId);
+
+        // Refetch data with institution filter to ensure we get the right data
+        fetchDegrees();
+        fetchDepartments();
+        fetchPrograms();
+        fetchSemesters();
+      } else {
+        // Clear academic years when no institution is selected - pass empty string
+        fetchAcademicYears('');
+      }
+
+      // Reset ALL dependent fields and state when institution changes
+      setSelectedDegreeId('');
+      setSelectedDepartmentId('');
+      setSelectedProgramId('');
+
+      // Clear form values for all dependent fields
+      form.setValue('academic_year_id', '');
+      form.setValue('degree_id', '');
+      form.setValue('department_id', '');
+      form.setValue('program_id', '');
+      form.setValue('semester', '');
+
+      // Show notification when resetting dependent fields
+      if (watchInstitutionId) {
+        toast({
+          title: 'Fields Reset',
+          description:
+            'Changing institution has reset academic year, degree, department, program, and semester fields.',
+          duration: 3000
+        });
+      }
+    }
+  }, [
+    watchInstitutionId,
+    selectedInstitutionId,
+    fetchAcademicYears,
+    form,
+    fetchDegrees,
+    fetchDepartments,
+    fetchPrograms,
+    fetchSemesters,
+    toast
+  ]);
+
+  // Add academic year change handler (doesn't affect other fields but useful for validation)
+  const watchAcademicYearId = form.watch('academic_year_id');
+
+  // Update state and fetch dependent data when degree changes
+  useEffect(() => {
+    if (watchDegreeId !== selectedDegreeId) {
+      setSelectedDegreeId(watchDegreeId || '');
+
+      // Reset ALL dependent fields and state when degree changes
+      setSelectedDepartmentId('');
+      setSelectedProgramId('');
+
+      // Clear form values for all dependent fields
+      form.setValue('department_id', '');
+      form.setValue('program_id', '');
+      form.setValue('semester', '');
+
+      // Show notification when resetting dependent fields
+      if (watchDegreeId) {
+        toast({
+          title: 'Fields Reset',
+          description:
+            'Changing degree has reset department, program, and semester fields.',
+          duration: 2500
+        });
+      }
+    }
+  }, [watchDegreeId, selectedDegreeId, form, toast]);
+
+  // Update state and fetch dependent data when department changes
+  useEffect(() => {
+    if (watchDepartmentId !== selectedDepartmentId) {
+      setSelectedDepartmentId(watchDepartmentId || '');
+
+      // Reset ALL dependent fields and state when department changes
+      setSelectedProgramId('');
+
+      // Clear form values for all dependent fields
+      form.setValue('program_id', '');
+      form.setValue('semester', '');
+
+      // Show notification when resetting dependent fields
+      if (watchDepartmentId) {
+        toast({
+          title: 'Fields Reset',
+          description:
+            'Changing department has reset program and semester fields.',
+          duration: 2000
+        });
+      }
+    }
+  }, [watchDepartmentId, selectedDepartmentId, form, toast]);
+
+  // Update state when program changes
+  useEffect(() => {
+    if (watchProgramId !== selectedProgramId) {
+      setSelectedProgramId(watchProgramId || '');
+
+      // Reset semester when program changes
+      form.setValue('semester', '');
+
+      // Show notification when resetting dependent fields
+      if (watchProgramId) {
+        toast({
+          title: 'Field Reset',
+          description: 'Changing program has reset the semester field.',
+          duration: 1500
+        });
+      }
+    }
+  }, [watchProgramId, selectedProgramId, form, toast]);
 
   // Form submission handler
   const onSubmit = async (values: TimetableFormValues) => {
@@ -157,6 +439,12 @@ export default function EditTimetablePage({
 
       const updateData: UpdateTimetableDto = {
         timetable_name: values.timetable_name,
+        institution_id: values.institution_id,
+        academic_year_id: values.academic_year_id,
+        degree_id: values.degree_id,
+        program_id: values.program_id,
+        department_id: values.department_id,
+        semester: values.semester as string | number,
         start_date: formatDateForDB(values.start_date),
         end_date: formatDateForDB(values.end_date),
         is_active: values.is_active,
@@ -176,7 +464,17 @@ export default function EditTimetablePage({
     }
   };
 
-  if (loading) {
+  // Check if data is still loading
+  const isLoading =
+    loading ||
+    loadingYears ||
+    loadingInstitutions ||
+    loadingDegrees ||
+    loadingPrograms ||
+    loadingDepartments ||
+    loadingSemesters;
+
+  if (isLoading) {
     return <Loading title='Loading timetable data...' />;
   }
 
@@ -259,58 +557,263 @@ export default function EditTimetablePage({
                 <div className='space-y-4'>
                   <h3 className='text-lg font-medium'>Timetable Context</h3>
                   <div className='grid grid-cols-2 gap-4'>
-                    <div>
-                      <p className='font-medium mb-1'>Institution</p>
-                      <p className='text-muted-foreground text-sm'>
-                        {timetable.institution?.name}
-                      </p>
-                    </div>
-                    <div>
-                      <p className='font-medium mb-1'>Academic Year</p>
-                      <p className='text-muted-foreground text-sm'>
-                        {timetable.academic_year?.academic_year_name}
-                      </p>
-                    </div>
-                    <div>
-                      <p className='font-medium mb-1'>Degree</p>
-                      <p className='text-muted-foreground text-sm'>
-                        {timetable.degree?.degree_name}
-                      </p>
-                    </div>
-                    <div>
-                      <p className='font-medium mb-1'>Program</p>
-                      <p className='text-muted-foreground text-sm'>
-                        {timetable.program?.program_name}
-                      </p>
-                    </div>
-                    <div>
-                      <p className='font-medium mb-1'>Department</p>
-                      <p className='text-muted-foreground text-sm'>
-                        {timetable.department?.department_name}
-                      </p>
-                    </div>
-                    <div>
-                      <p className='font-medium mb-1'>Semester</p>
-                      <p className='text-muted-foreground text-sm'>
-                        {timetable.semester}
-                      </p>
-                    </div>
-                    <div>
-                      <p className='font-medium mb-1'>Start Date</p>
-                      <p className='text-muted-foreground text-sm'>
-                        {timetable.start_date
-                          ? format(new Date(timetable.start_date), 'PPP')
-                          : 'Not set'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className='font-medium mb-1'>End Date</p>
-                      <p className='text-muted-foreground text-sm'>
-                        {timetable.end_date
-                          ? format(new Date(timetable.end_date), 'PPP')
-                          : 'Not set'}
-                      </p>
-                    </div>
+                    {/* Institution Field */}
+                    <FormField
+                      control={form.control}
+                      name='institution_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Institution</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={
+                              loadingInstitutions ||
+                              (!isSuperAdmin && institutions.length <= 1)
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder='Choose your institution' />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
+                              {institutions.map((institution) => (
+                                <SelectItem
+                                  key={institution.id}
+                                  value={institution.id}
+                                >
+                                  {institution.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            The institution for this timetable
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Academic Year Field */}
+                    <FormField
+                      control={form.control}
+                      name='academic_year_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Academic Year</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={
+                              loadingYears ||
+                              !watchInstitutionId ||
+                              academicYears.length === 0
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchInstitutionId
+                                      ? 'First select an institution'
+                                      : 'Choose academic year'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
+                              {academicYears.map((year: any) => (
+                                <SelectItem key={year.id} value={year.id}>
+                                  {year.academic_year_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            The academic year for this timetable
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Degree Field */}
+                    <FormField
+                      control={form.control}
+                      name='degree_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Degree</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={
+                              loadingDegrees ||
+                              !watchInstitutionId ||
+                              degrees.length === 0
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchInstitutionId
+                                      ? 'First select an institution'
+                                      : 'Choose degree program'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
+                              {degrees.map((degree) => (
+                                <SelectItem key={degree.id} value={degree.id}>
+                                  {degree.degree_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>The degree program</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Department Field */}
+                    <FormField
+                      control={form.control}
+                      name='department_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Department</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={
+                              loadingDepartments ||
+                              !watchDegreeId ||
+                              departments.length === 0
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchDegreeId
+                                      ? 'First select a degree'
+                                      : 'Choose department'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
+                              {departments.map((department) => (
+                                <SelectItem
+                                  key={department.id}
+                                  value={department.id}
+                                >
+                                  {department.department_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            The department within the degree
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Program Field */}
+                    <FormField
+                      control={form.control}
+                      name='program_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Program</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={
+                              loadingPrograms ||
+                              !watchDepartmentId ||
+                              programs.length === 0
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchDepartmentId
+                                      ? 'First select a department'
+                                      : 'Choose program'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
+                              {programs.map((program) => (
+                                <SelectItem key={program.id} value={program.id}>
+                                  {program.program_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            The specific program within the department
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Semester Field */}
+                    <FormField
+                      control={form.control}
+                      name='semester'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Semester</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={
+                              loadingSemesters ||
+                              !watchProgramId ||
+                              uniqueSemesters.length === 0
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchProgramId
+                                      ? 'First select a program'
+                                      : 'Choose semester'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
+                              {uniqueSemesters.map((semester) => (
+                                <SelectItem
+                                  key={semester.id}
+                                  value={semester.semester_name}
+                                >
+                                  {semester.semester_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            The semester for this timetable
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   </div>
                 </div>
 
