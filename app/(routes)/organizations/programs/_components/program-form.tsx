@@ -113,7 +113,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
       async function loadDegrees() {
         try {
           const data = await DegreeService.getDegreesByInstitution(
-            institutionId
+            institutionId as string
           );
           setDegrees(data);
         } catch (error) {
@@ -137,7 +137,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
       async function loadDepartments() {
         try {
           // Implement this method in your department service
-          const data = await DepartmentService.getDepartmentsByDegree(degreeId);
+          const data = await DepartmentService.getDepartmentsByDegree(degreeId as string);
           setDepartments(data);
         } catch (error) {
           console.error('Error loading departments:', error);

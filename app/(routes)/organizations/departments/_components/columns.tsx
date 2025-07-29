@@ -4,11 +4,11 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { DataTableRowActions } from './row-actions';
-import { Degree } from '@/types/organizations';
+import { Department } from '@/types/organizations';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Degree>[] = [
+export const columns: ColumnDef<Department>[] = [
   {
     id: 'select',
     header: ({ table }) => (
@@ -26,48 +26,43 @@ export const columns: ColumnDef<Degree>[] = [
       />
     ),
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    size: 40,
+    minSize: 40,
+    maxSize: 40
   },
   {
-    accessorKey: 'degree_id',
+    accessorKey: 'department_code',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree ID' />
+      <DataTableColumnHeader column={column} title='Code' />
     ),
     cell: ({ row }) => {
-      const degree = row.original;
-      return <div className='font-medium '>{degree.degree_id}</div>;
-    }
+      const department = row.original;
+      return <div className='font-medium '>{department.department_code}</div>;
+    },
+    size: 120,
+    minSize: 100,
+    maxSize: 150
   },
   {
-    accessorKey: 'degree_name',
+    accessorKey: 'department_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree Name' />
+      <DataTableColumnHeader column={column} title='Department Name' />
     ),
     cell: ({ row }) => {
-      const degree = row.original;
+      const department = row.original;
       return (
         <Link
-          href={`/organizations/degrees/${degree.id}`}
+          href={`/organizations/departments/${department.id}`}
           className='font-medium hover:text-primary hover:underline'
         >
-          {degree.degree_name}
+          {department.department_name}
         </Link>
       );
-    }
-  },
-  {
-    accessorKey: 'degree_type',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Type' />
-    ),
-    cell: ({ row }) => {
-      const type = row.getValue('degree_type') as string;
-      return (
-        <Badge variant={type === 'ug' ? 'default' : 'secondary'}>
-          {type?.toUpperCase()}
-        </Badge>
-      );
-    }
+    },
+    size: 250,
+    minSize: 200,
+    maxSize: 350
   },
   {
     accessorKey: 'institution',
@@ -75,9 +70,25 @@ export const columns: ColumnDef<Degree>[] = [
       <DataTableColumnHeader column={column} title='Institution' />
     ),
     cell: ({ row }) => {
-      const degree = row.original;
-      return degree.institution?.name || 'N/A';
-    }
+      const department = row.original;
+      return department.institution?.name || 'N/A';
+    },
+    size: 200,
+    minSize: 150,
+    maxSize: 300
+  },
+  {
+    accessorKey: 'degree',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Degree' />
+    ),
+    cell: ({ row }) => {
+      const department = row.original;
+      return department.degree?.degree_name || 'N/A';
+    },
+    size: 180,
+    minSize: 150,
+    maxSize: 250
   },
   {
     accessorKey: 'is_active',
@@ -91,20 +102,15 @@ export const columns: ColumnDef<Degree>[] = [
           {isActive ? 'Active' : 'Inactive'}
         </Badge>
       );
-    }
+    },
+    size: 100,
+    minSize: 80,
+    maxSize: 120
   },
-  {
-    accessorKey: 'created_at',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Created At' />
-    ),
-    cell: ({ row }) => {
-      const date = new Date(row.getValue('created_at'));
-      return date.toLocaleDateString();
-    }
-  },
+
   {
     id: 'actions',
+    header: 'Actions',
     cell: ({ row }) => (
       <DataTableRowActions
         row={row}
@@ -115,6 +121,11 @@ export const columns: ColumnDef<Degree>[] = [
           // Deletion will be handled in the DataTableRowActions component
         }}
       />
-    )
+    ),
+    enableSorting: false,
+    enableHiding: false,
+    size: 60,
+    minSize: 60,
+    maxSize: 80
   }
 ];

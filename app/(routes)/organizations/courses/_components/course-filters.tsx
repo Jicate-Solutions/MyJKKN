@@ -1,8 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
-
+import { useEffect, useState } from 'react';
 import {
   Select,
   SelectContent,
@@ -10,79 +8,144 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-
+import { Button } from '@/components/ui/button';
+import { RotateCcw } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { CourseFilters as CourseFilterType } from '@/types/organizations';
-import { useDebounce } from '@/hooks/use-debounce';
+import { CoursesSearchParams } from './data-table-schema';
+import DownloadCourseTemplateButton from './download-course-template';
+import { ExportCourses } from './export-courses';
+import BulkUploadCourses from './bulk-upload-courses';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface CourseFiltersProps {
-  filters: CourseFilterType;
-  onFilterChange: (filters: Partial<CourseFilterType>) => void;
+  searchParams: CoursesSearchParams;
+  onFilterChange: (key: string, value: string | undefined) => void;
+  onClearFilters: () => void;
 }
 
-export function CourseFilters({ filters, onFilterChange }: CourseFiltersProps) {
+export function CourseFilters({
+  searchParams,
+  onFilterChange,
+  onClearFilters
+}: CourseFiltersProps) {
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
+  const [loading, setLoading] = useState(false);
+  const { canAccess, isSuperAdmin } = usePermissions();
+  
+  const canEditCourses =
+    isSuperAdmin || canAccess('organizations.courses', 'edit');
 
   useEffect(() => {
     async function loadInstitutions() {
       try {
+        setLoading(true);
         const data = await OrganizationService.getInstitutionNames(true);
         setInstitutions(data);
       } catch (error) {
         console.error('Error loading institutions:', error);
+      } finally {
+        setLoading(false);
       }
     }
     loadInstitutions();
   }, []);
 
-  const debouncedSearch = useDebounce((value: string) => {
-    onFilterChange({ search: value });
-  }, 300);
-
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      debouncedSearch(e.target.value);
-    },
-    [debouncedSearch]
+  const hasActiveFilters = !!(
+    searchParams.institution_id ||
+    searchParams.status
   );
 
   return (
-    <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 w-full md:grid-cols-2'>
-        <div className='relative'>
-          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            placeholder='Search courses by code or name...'
-            onChange={handleSearchChange}
-            defaultValue={filters.search}
-            className='pl-9'
-          />
+    <div className='space-y-4'>
+      {/* Filters and Actions */}
+      <div className='space-y-4'>
+        {/* First Row - Filters */}
+        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'>
+          {/* Institution Filter */}
+          <div className='w-full'>
+            <Select
+              value={searchParams.institution_id || 'all'}
+              onValueChange={(value) =>
+                onFilterChange('institution_id', value === 'all' ? undefined : value)
+              }
+              disabled={loading}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue
+                  placeholder={loading ? 'Loading...' : 'All Institutions'}
+                />
+              </SelectTrigger>
+              <SelectContent className='max-h-60 overflow-y-auto'>
+                <SelectItem value='all'>All Institutions</SelectItem>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Status Filter */}
+          <div className='w-full'>
+            <Select
+              value={searchParams.status || 'all'}
+              onValueChange={(value) =>
+                onFilterChange('status', value === 'all' ? undefined : value)
+              }
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue placeholder='All Status' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Status</SelectItem>
+                <SelectItem value='active'>Active</SelectItem>
+                <SelectItem value='inactive'>Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Empty div for grid alignment on larger screens */}
+          <div className='hidden lg:block'></div>
         </div>
 
-        <div className='flex items-center justify-between gap-2 w-full'>
-          <Select
-            value={filters.institution_id || 'all'}
-            onValueChange={(value) =>
-              onFilterChange({
-                institution_id: value === 'all' ? undefined : value
-              })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder='Select institution' />
-            </SelectTrigger>
-            <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Institutions</SelectItem>
-              {institutions.map((inst) => (
-                <SelectItem key={inst.id} value={inst.id}>
-                  {inst.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        {/* Second Row - Clear Filters and Action Buttons */}
+        <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
+          <div className='flex items-center gap-2'>
+            {/* Clear Filters Button */}
+            {hasActiveFilters && (
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={onClearFilters}
+                className='w-full sm:w-auto'
+              >
+                <RotateCcw className='mr-2 h-4 w-4' />
+                Clear Filters
+              </Button>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2'>
+            {canEditCourses && (
+              <div className='w-full sm:w-auto'>
+                <DownloadCourseTemplateButton />
+              </div>
+            )}
+            {canEditCourses && (
+              <div className='w-full sm:w-auto'>
+                <ExportCourses />
+              </div>
+            )}
+            {canEditCourses && (
+              <div className='w-full sm:w-auto'>
+                <BulkUploadCourses />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
