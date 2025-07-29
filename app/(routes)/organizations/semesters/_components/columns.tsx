@@ -4,11 +4,11 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { DataTableRowActions } from './row-actions';
-import { Degree } from '@/types/organizations';
+import { Semester } from '@/types/organizations';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Degree>[] = [
+export const columns: ColumnDef<Semester>[] = [
   {
     id: 'select',
     header: ({ table }) => (
@@ -26,58 +26,73 @@ export const columns: ColumnDef<Degree>[] = [
       />
     ),
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    size: 40,
+    minSize: 40,
+    maxSize: 40
   },
   {
-    accessorKey: 'degree_id',
+    accessorKey: 'semester_code',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree ID' />
+      <DataTableColumnHeader column={column} title='Semester Code' />
     ),
     cell: ({ row }) => {
-      const degree = row.original;
-      return <div className='font-medium '>{degree.degree_id}</div>;
-    }
+      const semester = row.original;
+      return <div className='font-medium '>{semester.semester_code}</div>;
+    },
+    size: 120,
+    minSize: 100,
+    maxSize: 150
   },
   {
-    accessorKey: 'degree_name',
+    accessorKey: 'semester_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree Name' />
+      <DataTableColumnHeader column={column} title='Semester Name' />
     ),
     cell: ({ row }) => {
-      const degree = row.original;
+      const semester = row.original;
       return (
         <Link
-          href={`/organizations/degrees/${degree.id}`}
+          href={`/organizations/semesters/${semester.id}`}
           className='font-medium hover:text-primary hover:underline'
         >
-          {degree.degree_name}
+          {semester.semester_name}
         </Link>
       );
-    }
+    },
+    size: 200,
+    minSize: 150,
+    maxSize: 300
   },
   {
-    accessorKey: 'degree_type',
+    accessorKey: 'semester_type',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Type' />
     ),
     cell: ({ row }) => {
-      const type = row.getValue('degree_type') as string;
+      const type = row.getValue('semester_type') as string;
       return (
-        <Badge variant={type === 'ug' ? 'default' : 'secondary'}>
-          {type?.toUpperCase()}
+        <Badge variant='outline' className='capitalize'>
+          {type}
         </Badge>
       );
-    }
+    },
+    size: 100,
+    minSize: 80,
+    maxSize: 120
   },
   {
-    accessorKey: 'institution',
+    accessorKey: 'program',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Institution' />
+      <DataTableColumnHeader column={column} title='Program' />
     ),
     cell: ({ row }) => {
-      const degree = row.original;
-      return degree.institution?.name || 'N/A';
-    }
+      const semester = row.original;
+      return semester.program?.program_name || 'N/A';
+    },
+    size: 200,
+    minSize: 150,
+    maxSize: 300
   },
   {
     accessorKey: 'is_active',
@@ -91,7 +106,10 @@ export const columns: ColumnDef<Degree>[] = [
           {isActive ? 'Active' : 'Inactive'}
         </Badge>
       );
-    }
+    },
+    size: 100,
+    minSize: 80,
+    maxSize: 120
   },
   {
     accessorKey: 'created_at',
@@ -101,10 +119,14 @@ export const columns: ColumnDef<Degree>[] = [
     cell: ({ row }) => {
       const date = new Date(row.getValue('created_at'));
       return date.toLocaleDateString();
-    }
+    },
+    size: 120,
+    minSize: 100,
+    maxSize: 150
   },
   {
     id: 'actions',
+    header: 'Actions',
     cell: ({ row }) => (
       <DataTableRowActions
         row={row}
@@ -115,6 +137,11 @@ export const columns: ColumnDef<Degree>[] = [
           // Deletion will be handled in the DataTableRowActions component
         }}
       />
-    )
+    ),
+    enableSorting: false,
+    enableHiding: false,
+    size: 60,
+    minSize: 60,
+    maxSize: 80
   }
 ];

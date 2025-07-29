@@ -8,240 +8,165 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { DegreeService } from '@/lib/services/organization/degree-service';
-import { DepartmentService } from '@/lib/services/organization/department-service';
+import { Button } from '@/components/ui/button';
+import { RotateCcw } from 'lucide-react';
 import { ProgramService } from '@/lib/services/organization/program-service';
-import { SemesterFilters as SemesterFilterType } from '@/types/organizations';
+import { SemestersSearchParams } from './data-table-schema';
 import DownloadSemesterTemplateButton from './download-semester-template';
 import { ExportSemesters } from './export-semesters';
 import BulkUploadSemesters from './bulk-upload-semesters';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface SemesterFiltersProps {
-  filters: Partial<SemesterFilterType>;
-  onFilterChange: (filters: Partial<SemesterFilterType>) => void;
+  searchParams: SemestersSearchParams;
+  onFilterChange: (key: string, value: string | undefined) => void;
+  onClearFilters: () => void;
 }
 
 export function SemesterFilters({
-  filters,
-  onFilterChange
+  searchParams,
+  onFilterChange,
+  onClearFilters
 }: SemesterFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
-  const [degrees, setDegrees] = useState<
-    Array<{ id: string; degree_name: string }>
-  >([]);
-  const [departments, setDepartments] = useState<
-    Array<{ id: string; department_name: string }>
-  >([]);
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
+  
   const canEditSemesters =
     isSuperAdmin || canAccess('organizations.semesters', 'edit');
+  const canExportSemesters =
+    isSuperAdmin || canAccess('organizations.semesters', 'export');
+
   useEffect(() => {
-    async function loadInstitutions() {
+    async function loadPrograms() {
       try {
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
+        setLoading(true);
+        const { data } = await ProgramService.getPrograms({
+          isActive: true
+        });
+        setPrograms(data);
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        console.error('Error loading programs:', error);
+      } finally {
+        setLoading(false);
       }
     }
-    loadInstitutions();
+    loadPrograms();
   }, []);
 
-  useEffect(() => {
-    if (filters.institution_id) {
-      async function loadDegrees() {
-        try {
-          setLoading(true);
-          const data = await DegreeService.getDegreesByInstitution(
-            filters.institution_id!
-          );
-          setDegrees(data);
-        } catch (error) {
-          console.error('Error loading degrees:', error);
-        } finally {
-          setLoading(false);
-        }
-      }
-      loadDegrees();
-    } else {
-      setDegrees([]);
-    }
-  }, [filters.institution_id]);
-
-  useEffect(() => {
-    if (filters.degree_id) {
-      async function loadDepartments() {
-        try {
-          setLoading(true);
-          const data = await DepartmentService.getDepartmentsByDegree(
-            filters.degree_id!
-          );
-          setDepartments(data);
-        } catch (error) {
-          console.error('Error loading departments:', error);
-        } finally {
-          setLoading(false);
-        }
-      }
-      loadDepartments();
-    } else {
-      setDepartments([]);
-    }
-  }, [filters.degree_id]);
-
-  useEffect(() => {
-    if (filters.department_id) {
-      async function loadPrograms() {
-        try {
-          setLoading(true);
-          const { data } = await ProgramService.getPrograms({
-            department_id: filters.department_id,
-            isActive: true
-          });
-          setPrograms(data);
-        } catch (error) {
-          console.error('Error loading programs:', error);
-        } finally {
-          setLoading(false);
-        }
-      }
-      loadPrograms();
-    } else {
-      setPrograms([]);
-    }
-  }, [filters.department_id]);
+  const hasActiveFilters = !!(
+    searchParams.program_id ||
+    searchParams.semester_type ||
+    searchParams.status
+  );
 
   return (
-    <div className='space-y-4 mb-6'>
-      <div className='grid md:grid-cols-2 items-center justify-between gap-2 w-full'>
-        <Select
-          value={filters.institution_id || 'all'}
-          onValueChange={(value) =>
-            onFilterChange({
-              ...filters,
-              institution_id: value === 'all' ? undefined : value,
-              degree_id: undefined,
-              department_id: undefined,
-              program_id: undefined
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Select institution' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Institutions</SelectItem>
-            {institutions.map((inst) => (
-              <SelectItem key={inst.id} value={inst.id}>
-                {inst.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <div className='space-y-4'>
+      {/* Filters and Actions */}
+      <div className='space-y-4'>
+        {/* First Row - Filters */}
+        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'>
+          {/* Program Filter */}
+          <div className='w-full'>
+            <Select
+              value={searchParams.program_id || 'all'}
+              onValueChange={(value) =>
+                onFilterChange('program_id', value === 'all' ? undefined : value)
+              }
+              disabled={loading}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue
+                  placeholder={loading ? 'Loading...' : 'All Programs'}
+                />
+              </SelectTrigger>
+              <SelectContent className='max-h-60 overflow-y-auto'>
+                <SelectItem value='all'>All Programs</SelectItem>
+                {programs.map((program) => (
+                  <SelectItem key={program.id} value={program.id}>
+                    {program.program_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <Select
-          value={filters.degree_id || 'all'}
-          onValueChange={(value) =>
-            onFilterChange({
-              ...filters,
-              degree_id: value === 'all' ? undefined : value,
-              department_id: undefined,
-              program_id: undefined
-            })
-          }
-          disabled={!filters.institution_id || loading}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Select degree' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Degrees</SelectItem>
-            {degrees.map((degree) => (
-              <SelectItem key={degree.id} value={degree.id}>
-                {degree.degree_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {/* Semester Type Filter */}
+          <div className='w-full'>
+            <Select
+              value={searchParams.semester_type || 'all'}
+              onValueChange={(value) =>
+                onFilterChange('semester_type', value === 'all' ? undefined : value)
+              }
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue placeholder='All Types' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Types</SelectItem>
+                <SelectItem value='even'>Even</SelectItem>
+                <SelectItem value='odd'>Odd</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-        <Select
-          value={filters.department_id || 'all'}
-          onValueChange={(value) =>
-            onFilterChange({
-              ...filters,
-              department_id: value === 'all' ? undefined : value,
-              program_id: undefined
-            })
-          }
-          disabled={!filters.degree_id || loading}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Select department' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Departments</SelectItem>
-            {departments.map((dept) => (
-              <SelectItem key={dept.id} value={dept.id}>
-                {dept.department_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {/* Status Filter */}
+          <div className='w-full'>
+            <Select
+              value={searchParams.status || 'all'}
+              onValueChange={(value) =>
+                onFilterChange('status', value === 'all' ? undefined : value)
+              }
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue placeholder='All Status' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Status</SelectItem>
+                <SelectItem value='active'>Active</SelectItem>
+                <SelectItem value='inactive'>Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
-        <Select
-          value={filters.program_id || 'all'}
-          onValueChange={(value) =>
-            onFilterChange({
-              ...filters,
-              program_id: value === 'all' ? undefined : value
-            })
-          }
-          disabled={!filters.department_id || loading}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Select program' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Programs</SelectItem>
-            {programs.map((program) => (
-              <SelectItem key={program.id} value={program.id}>
-                {program.program_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Second Row - Clear Filters and Action Buttons */}
+        <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
+          <div className='flex items-center gap-2'>
+            {/* Clear Filters Button */}
+            {hasActiveFilters && (
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={onClearFilters}
+                className='w-full sm:w-auto'
+              >
+                <RotateCcw className='mr-2 h-4 w-4' />
+                Clear Filters
+              </Button>
+            )}
+          </div>
 
-        <Select
-          value={filters.semester_type || 'all'}
-          onValueChange={(value) =>
-            onFilterChange({
-              ...filters,
-              semester_type:
-                value === 'all' ? undefined : (value as 'even' | 'odd')
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder='Select type' />
-          </SelectTrigger>
-          <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Types</SelectItem>
-            <SelectItem value='even'>Even</SelectItem>
-            <SelectItem value='odd'>Odd</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className='flex items-center justify-between gap-2 w-full'>
-          {canEditSemesters && <DownloadSemesterTemplateButton />}
-          {isSuperAdmin && <ExportSemesters />}
-          {canEditSemesters && <BulkUploadSemesters />}
+          {/* Action Buttons */}
+          <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2'>
+            {canEditSemesters && (
+              <div className='w-full sm:w-auto'>
+                <DownloadSemesterTemplateButton />
+              </div>
+            )}
+            {canExportSemesters && (
+              <div className='w-full sm:w-auto'>
+                <ExportSemesters />
+              </div>
+            )}
+            {canEditSemesters && (
+              <div className='w-full sm:w-auto'>
+                <BulkUploadSemesters />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

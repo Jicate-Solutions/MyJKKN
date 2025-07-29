@@ -4,11 +4,11 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { DataTableRowActions } from './row-actions';
-import { Degree } from '@/types/organizations';
+import { Program } from '@/types/organizations';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Degree>[] = [
+export const columns: ColumnDef<Program>[] = [
   {
     id: 'select',
     header: ({ table }) => (
@@ -26,48 +26,69 @@ export const columns: ColumnDef<Degree>[] = [
       />
     ),
     enableSorting: false,
-    enableHiding: false
+    enableHiding: false,
+    size: 40,
+    minSize: 40,
+    maxSize: 40
   },
   {
-    accessorKey: 'degree_id',
+    accessorKey: 'program_id',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree ID' />
+      <DataTableColumnHeader column={column} title='Program ID' />
     ),
     cell: ({ row }) => {
-      const degree = row.original;
-      return <div className='font-medium '>{degree.degree_id}</div>;
-    }
+      const program = row.original;
+      return <div className='font-medium '>{program.program_id}</div>;
+    },
+    size: 120,
+    minSize: 100,
+    maxSize: 150
   },
   {
-    accessorKey: 'degree_name',
+    accessorKey: 'program_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree Name' />
+      <DataTableColumnHeader column={column} title='Program Name' />
     ),
     cell: ({ row }) => {
-      const degree = row.original;
+      const program = row.original;
       return (
         <Link
-          href={`/organizations/degrees/${degree.id}`}
+          href={`/organizations/programs/${program.id}`}
           className='font-medium hover:text-primary hover:underline'
         >
-          {degree.degree_name}
+          {program.program_name}
         </Link>
       );
-    }
+    },
+    size: 250,
+    minSize: 200,
+    maxSize: 350
   },
   {
-    accessorKey: 'degree_type',
+    accessorKey: 'degree',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Type' />
+      <DataTableColumnHeader column={column} title='Degree' />
     ),
     cell: ({ row }) => {
-      const type = row.getValue('degree_type') as string;
-      return (
-        <Badge variant={type === 'ug' ? 'default' : 'secondary'}>
-          {type?.toUpperCase()}
-        </Badge>
-      );
-    }
+      const program = row.original;
+      return program.degree?.degree_name || 'N/A';
+    },
+    size: 180,
+    minSize: 150,
+    maxSize: 250
+  },
+  {
+    accessorKey: 'department',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Department' />
+    ),
+    cell: ({ row }) => {
+      const program = row.original;
+      return program.department?.department_name || 'N/A';
+    },
+    size: 200,
+    minSize: 150,
+    maxSize: 300
   },
   {
     accessorKey: 'institution',
@@ -75,9 +96,12 @@ export const columns: ColumnDef<Degree>[] = [
       <DataTableColumnHeader column={column} title='Institution' />
     ),
     cell: ({ row }) => {
-      const degree = row.original;
-      return degree.institution?.name || 'N/A';
-    }
+      const program = row.original;
+      return program.institution?.name || 'N/A';
+    },
+    size: 200,
+    minSize: 150,
+    maxSize: 300
   },
   {
     accessorKey: 'is_active',
@@ -91,7 +115,10 @@ export const columns: ColumnDef<Degree>[] = [
           {isActive ? 'Active' : 'Inactive'}
         </Badge>
       );
-    }
+    },
+    size: 100,
+    minSize: 80,
+    maxSize: 120
   },
   {
     accessorKey: 'created_at',
@@ -101,10 +128,14 @@ export const columns: ColumnDef<Degree>[] = [
     cell: ({ row }) => {
       const date = new Date(row.getValue('created_at'));
       return date.toLocaleDateString();
-    }
+    },
+    size: 120,
+    minSize: 100,
+    maxSize: 150
   },
   {
     id: 'actions',
+    header: 'Actions',
     cell: ({ row }) => (
       <DataTableRowActions
         row={row}
@@ -115,6 +146,11 @@ export const columns: ColumnDef<Degree>[] = [
           // Deletion will be handled in the DataTableRowActions component
         }}
       />
-    )
+    ),
+    enableSorting: false,
+    enableHiding: false,
+    size: 60,
+    minSize: 60,
+    maxSize: 80
   }
 ];

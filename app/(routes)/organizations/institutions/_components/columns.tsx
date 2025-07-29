@@ -67,7 +67,14 @@ export const columns: ColumnDef<Institution>[] = [
       <DataTableColumnHeader column={column} title='Name' />
     ),
     cell: ({ row }) => {
-      return <span className='font-medium'>{row.original.name}</span>;
+      return (
+        <Link
+          href={`/organizations/institutions/${row.original.id}`}
+          className='font-medium hover:text-primary hover:underline'
+        >
+          {row.original.name}
+        </Link>
+      );
     }
   },
   {
