@@ -466,8 +466,6 @@ export class StaffPlanService {
       last_name: string;
       staff_id: string;
       designation?: string;
-      hours_allocated: number;
-      is_coordinator: boolean;
       staff_type: string;
       staff_plan_id: string;
     }>
@@ -477,8 +475,6 @@ export class StaffPlanService {
         .from('staff_plan_courses')
         .select(
           `
-          hours_allocated,
-          is_coordinator,
           staff_type,
           staff_plan_id,
           staff:staff (
@@ -516,8 +512,6 @@ export class StaffPlanService {
         last_name: string;
         staff_id: string;
         designation?: string;
-        hours_allocated: number;
-        is_coordinator: boolean;
         staff_type: string;
         staff_plan_id: string;
       }> = [];
@@ -563,8 +557,6 @@ export class StaffPlanService {
             last_name: assignment.staff.last_name,
             staff_id: assignment.staff.staff_id,
             designation: assignment.staff.designation,
-            hours_allocated: assignment.hours_allocated,
-            is_coordinator: assignment.is_coordinator,
             staff_type: assignment.staff_type,
             staff_plan_id: assignment.staff_plan_id
           });

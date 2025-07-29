@@ -91,14 +91,14 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
       try {
         setLoading(true);
         setError(null);
-        await TimetableService.createTimetable(data);
+        const createdTimetable = await TimetableService.createTimetable(data);
         // Refresh timetables list
         fetchTimetables();
-        return true;
+        return createdTimetable;
       } catch (err) {
         console.error('Error creating timetable:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
-        return false;
+        return null;
       } finally {
         setLoading(false);
       }
@@ -171,17 +171,17 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
       try {
         setLoading(true);
         setError(null);
-        await TimetableService.createTimetableFromTemplate(
+        const createdTimetable = await TimetableService.createTimetableFromTemplate(
           templateId,
           timetableData
         );
         // Refresh timetables list
         fetchTimetables();
-        return true;
+        return createdTimetable;
       } catch (err) {
         console.error('Error creating timetable from template:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
-        return false;
+        return null;
       } finally {
         setLoading(false);
       }

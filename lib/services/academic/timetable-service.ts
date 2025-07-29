@@ -7,15 +7,12 @@ import {
 import type {
   Timetable,
   TimetableSlot,
-  TimetableSlotWithLeave,
   CreateTimetableDto,
   UpdateTimetableDto,
   TimetableFilters,
   TimetableListResponse,
   CreateTimetableSlotDto,
   UpdateTimetableSlotDto,
-  DayOrderShiftConfig,
-  DayLeaveStatus,
   DayOfWeek
 } from '@/types/academics';
 
@@ -1290,50 +1287,6 @@ export class TimetableService {
     }
   }
 
-  static async getLeaveStatus(
-    timetableId: string,
-    startDate: string,
-    endDate: string
-  ): Promise<DayLeaveStatus[]> {
-    try {
-      const { data: leaves, error } = await this.supabase
-        .from('timetable_leaves')
-        .select('*')
-        .eq('timetable_id', timetableId)
-        .eq('is_active', true)
-        .gte('leave_date', startDate)
-        .lte('leave_date', endDate)
-        .order('leave_date');
-
-      if (error) throw error;
-
-      // Convert to DayLeaveStatus array
-      const leaveStatuses: DayLeaveStatus[] = [];
-      const currentDate = new Date(startDate);
-      const endDateObj = new Date(endDate);
-
-      while (currentDate <= endDateObj) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const leave = leaves?.find((l) => l.leave_date === dateStr);
-
-        leaveStatuses.push({
-          date: dateStr,
-          is_leave: !!leave,
-          leave_type: leave?.leave_type,
-          reason: leave?.reason,
-          leave_id: leave?.id
-        });
-
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-
-      return leaveStatuses;
-    } catch (error) {
-      console.error('Error fetching leave status:', error);
-      throw error;
-    }
-  }
-
   // Helper methods for date/day conversions
   private static dayOfWeekToDate(dayOfWeek: string, baseDate: string): string {
     const days = [
@@ -1391,25 +1344,6 @@ export class TimetableService {
     } catch (error) {
       console.error('Error fetching institution timetable type:', error);
       return 'week_order'; // Default fallback
-    }
-  }
-
-  static async getDayOrderShifts(
-    timetableId: string
-  ): Promise<DayOrderShiftConfig[]> {
-    try {
-      const { data: shifts, error } = await this.supabase
-        .from('timetable_day_order_shifts')
-        .select('*')
-        .eq('timetable_id', timetableId)
-        .order('original_date');
-
-      if (error) throw error;
-
-      return shifts || [];
-    } catch (error) {
-      console.error('Error fetching day order shifts:', error);
-      throw error;
     }
   }
 }

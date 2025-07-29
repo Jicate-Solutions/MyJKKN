@@ -7,6 +7,7 @@ import { Timetable } from '@/types/academics';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
+import Link from 'next/link';
 
 export const columns: ColumnDef<Timetable>[] = [
   {
@@ -36,9 +37,11 @@ export const columns: ColumnDef<Timetable>[] = [
     cell: ({ row }) => {
       const timetable = row.original;
       return (
-        <div className='font-medium hover:text-primary hover:underline'>
-          {timetable.timetable_name}
-        </div>
+        <Link href={`/academic/timetables/${timetable.id}`}>
+          <div className='font-medium hover:text-primary hover:underline'>
+            {timetable.timetable_name}
+          </div>
+        </Link>
       );
     }
   },

@@ -31,16 +31,13 @@ import type {
   Timetable,
   TimetableSlot,
   Period,
-  DayOfWeek,
-  DayLeaveStatus,
-  LeaveType
+  DayOfWeek
 } from '@/types/academics';
 import type { Student } from '@/types/student';
 import { format, startOfWeek, addDays, isToday } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { PeriodService } from '@/lib/services/academic/period-service';
 import { UserService } from '@/lib/services/users/user-service';
-import { TimetableLeaveService } from '@/lib/services/academic/timetable-leave-service';
 
 const DAYS_OF_WEEK: DayOfWeek[] = [
   'MONDAY',
@@ -50,20 +47,6 @@ const DAYS_OF_WEEK: DayOfWeek[] = [
   'FRIDAY',
   'SATURDAY'
 ];
-
-const LEAVE_TYPE_COLORS: Record<LeaveType, string> = {
-  holiday: 'bg-green-100 text-green-800 border-green-200',
-  sick_leave: 'bg-red-100 text-red-800 border-red-200',
-  emergency: 'bg-orange-100 text-orange-800 border-orange-200',
-  planned: 'bg-blue-100 text-blue-800 border-blue-200'
-};
-
-const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
-  holiday: 'Holiday',
-  sick_leave: 'Sick Leave',
-  emergency: 'Emergency',
-  planned: 'Planned'
-};
 
 const DAY_ABBREVIATIONS: Record<DayOfWeek, string> = {
   MONDAY: 'Mon',
@@ -87,17 +70,10 @@ export default function TimeTablePage() {
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(
     () => startOfWeek(new Date(), { weekStartsOn: 1 }) // Start week on Monday
   );
-  const [leaves, setLeaves] = useState<DayLeaveStatus[]>([]);
 
   useEffect(() => {
     fetchStudentAndTimetable();
   }, []);
-
-  useEffect(() => {
-    if (timetable) {
-      fetchLeavesForWeek();
-    }
-  }, [timetable, currentWeekStart]);
 
   const fetchStudentAndTimetable = async () => {
     try {
@@ -185,36 +161,9 @@ export default function TimeTablePage() {
     }
   };
 
-  const fetchLeavesForWeek = async () => {
-    if (!timetable?.id) return;
-
-    try {
-      // Get dates for the current week
-      const weekEnd = addDays(currentWeekStart, 6);
-
-      const leavesData = await TimetableLeaveService.getLeavesByDateRange(
-        timetable.id,
-        format(currentWeekStart, 'yyyy-MM-dd'),
-        format(weekEnd, 'yyyy-MM-dd')
-      );
-
-      setLeaves(leavesData);
-    } catch (error) {
-      console.error('Error fetching leaves:', error);
-    }
-  };
-
   const getDateForDay = (day: DayOfWeek): Date => {
     const dayIndex = DAYS_OF_WEEK.indexOf(day);
     return addDays(currentWeekStart, dayIndex);
-  };
-
-  const getLeaveForDate = (date: Date): DayLeaveStatus | undefined => {
-    return leaves.find(
-      (leave) =>
-        format(new Date(leave.date), 'yyyy-MM-dd') ===
-        format(date, 'yyyy-MM-dd')
-    );
   };
 
   const getSlotForDayAndPeriod = (
@@ -411,7 +360,6 @@ export default function TimeTablePage() {
                       <th className='p-3 text-left font-medium'>Time</th>
                       {timetable.selected_days?.map((day) => {
                         const date = getDateForDay(day as DayOfWeek);
-                        const leave = getLeaveForDate(date);
 
                         return (
                           <th key={day} className='p-3 text-center font-medium'>
@@ -420,23 +368,6 @@ export default function TimeTablePage() {
                               <div className='text-xs font-normal text-muted-foreground'>
                                 {format(date, 'MMM dd')}
                               </div>
-                              {leave && leave.is_leave && (
-                                <Badge
-                                  variant='secondary'
-                                  className={cn(
-                                    'mt-1 text-xs font-normal',
-                                    LEAVE_TYPE_COLORS[
-                                      leave.leave_type || 'holiday'
-                                    ]
-                                  )}
-                                >
-                                  {
-                                    LEAVE_TYPE_LABELS[
-                                      leave.leave_type || 'holiday'
-                                    ]
-                                  }
-                                </Badge>
-                              )}
                             </div>
                           </th>
                         );
@@ -459,41 +390,10 @@ export default function TimeTablePage() {
                             </div>
                           </td>
                           {timetable.selected_days?.map((day) => {
-                            const date = getDateForDay(day as DayOfWeek);
-                            const leave = getLeaveForDate(date);
                             const slot = getSlotForDayAndPeriod(
                               day as DayOfWeek,
                               period.id
                             );
-
-                            // If the day is marked as leave, show leave status
-                            if (leave && leave.is_leave) {
-                              return (
-                                <td key={day} className='p-3'>
-                                  <div
-                                    className={cn(
-                                      'p-3 rounded-lg border text-center',
-                                      LEAVE_TYPE_COLORS[
-                                        leave.leave_type || 'holiday'
-                                      ]
-                                    )}
-                                  >
-                                    <p className='text-sm font-medium'>
-                                      {
-                                        LEAVE_TYPE_LABELS[
-                                          leave.leave_type || 'holiday'
-                                        ]
-                                      }
-                                    </p>
-                                    {leave.reason && (
-                                      <p className='text-xs mt-1'>
-                                        {leave.reason}
-                                      </p>
-                                    )}
-                                  </div>
-                                </td>
-                              );
-                            }
 
                             return (
                               <td key={day} className='p-3'>
@@ -550,26 +450,6 @@ export default function TimeTablePage() {
                       <div className='text-sm text-muted-foreground'>
                         {format(getDateForDay(selectedDay), 'MMM dd, yyyy')}
                       </div>
-                      {getLeaveForDate(getDateForDay(selectedDay))
-                        ?.is_leave && (
-                        <Badge
-                          variant='secondary'
-                          className={cn(
-                            'mt-1 text-xs',
-                            LEAVE_TYPE_COLORS[
-                              getLeaveForDate(getDateForDay(selectedDay))
-                                ?.leave_type || 'holiday'
-                            ]
-                          )}
-                        >
-                          {
-                            LEAVE_TYPE_LABELS[
-                              getLeaveForDate(getDateForDay(selectedDay))
-                                ?.leave_type || 'holiday'
-                            ]
-                          }
-                        </Badge>
-                      )}
                     </div>
                     <Button
                       variant='ghost'
@@ -586,43 +466,7 @@ export default function TimeTablePage() {
               </Card>
 
               {/* Day Schedule */}
-              {(() => {
-                const selectedDate = getDateForDay(selectedDay);
-                const dayLeave = getLeaveForDate(selectedDate);
-
-                // If the entire day is marked as leave
-                if (dayLeave && dayLeave.is_leave) {
-                  return (
-                    <div className='space-y-3'>
-                      <Card
-                        className={cn(
-                          'p-6 text-center',
-                          LEAVE_TYPE_COLORS[dayLeave.leave_type || 'holiday']
-                        )}
-                      >
-                        <CardContent className='space-y-2 p-0'>
-                          <Calendar className='h-12 w-12 mx-auto opacity-50' />
-                          <h3 className='text-lg font-medium'>
-                            {
-                              LEAVE_TYPE_LABELS[
-                                dayLeave.leave_type || 'holiday'
-                              ]
-                            }
-                          </h3>
-                          {dayLeave.reason && (
-                            <p className='text-sm'>{dayLeave.reason}</p>
-                          )}
-                          <p className='text-xs text-muted-foreground'>
-                            No classes scheduled for this day
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  );
-                }
-
-                // Regular schedule display
-                return (
+              <div className='space-y-3'>
                   <div className='space-y-3'>
                     {sortedPeriods.map((periodItem) => {
                       const period = periodItem;
@@ -759,13 +603,8 @@ export default function TimeTablePage() {
           )}
         </div>
 
-        {/* Course Summary - Hide when viewing a leave day in day view */}
-        {viewMode === 'list' &&
-        (() => {
-          const selectedDate = getDateForDay(selectedDay);
-          const dayLeave = getLeaveForDate(selectedDate);
-          return dayLeave && dayLeave.is_leave;
-        })() ? null : (
+        {/* Course Summary */}
+        {viewMode === 'list' ? null : (
           <Card>
             <CardHeader>
               <h3 className='text-lg font-semibold'>Course Summary</h3>

@@ -144,13 +144,6 @@ export default function AttendancePage() {
   });
   const degrees = degreesData?.data ?? [];
 
-  const { data: programsData, refetch: fetchPrograms } = usePrograms({
-    institution_id: searchContext.institution_id || undefined,
-    degree_id: searchContext.degree_id || undefined,
-    isActive: true
-  });
-  const programs = programsData?.data ?? [];
-
   const { data: departmentsData, refetch: fetchDepartments } = useDepartments({
     institution_id: searchContext.institution_id || undefined,
     degree_id: searchContext.degree_id || undefined,
@@ -158,11 +151,19 @@ export default function AttendancePage() {
   });
   const departments = departmentsData?.data ?? [];
 
+  const { data: programsData, refetch: fetchPrograms } = usePrograms({
+    institution_id: searchContext.institution_id || undefined,
+    degree_id: searchContext.degree_id || undefined,
+    department_id: searchContext.department_id || undefined,
+    isActive: true
+  });
+  const programs = programsData?.data ?? [];
+
   const { data: semestersData, refetch: fetchSemesters } = useSemesters({
     institution_id: searchContext.institution_id || undefined,
     degree_id: searchContext.degree_id || undefined,
-    program_id: searchContext.program_id || undefined,
     department_id: searchContext.department_id || undefined,
+    program_id: searchContext.program_id || undefined,
     isActive: true
   });
   const semesters = semestersData?.data ?? [];
@@ -170,8 +171,8 @@ export default function AttendancePage() {
   const { data: sectionsData, refetch: fetchSections } = useSections({
     institution_id: searchContext.institution_id || undefined,
     degree_id: searchContext.degree_id || undefined,
-    program_id: searchContext.program_id || undefined,
     department_id: searchContext.department_id || undefined,
+    program_id: searchContext.program_id || undefined,
     semester_id: searchContext.semester_id || undefined,
     isActive: true
   });
@@ -251,65 +252,120 @@ export default function AttendancePage() {
   useEffect(() => {
     if (searchContext.institution_id) {
       fetchAcademicYears();
-      fetchDegrees();
     }
-  }, [searchContext.institution_id, fetchAcademicYears, fetchDegrees]);
+  }, [searchContext.institution_id, fetchAcademicYears]);
 
   useEffect(() => {
-    if (searchContext.institution_id && searchContext.degree_id) {
-      fetchPrograms();
+    if (searchContext.institution_id && searchContext.academic_year_id) {
+      fetchDegrees();
     }
-  }, [searchContext.institution_id, searchContext.degree_id, fetchPrograms]);
+  }, [
+    searchContext.institution_id,
+    searchContext.academic_year_id,
+    fetchDegrees
+  ]);
 
   useEffect(() => {
     if (
       searchContext.institution_id &&
-      searchContext.degree_id &&
-      searchContext.program_id
+      searchContext.academic_year_id &&
+      searchContext.degree_id
     ) {
       fetchDepartments();
     }
   }, [
     searchContext.institution_id,
+    searchContext.academic_year_id,
     searchContext.degree_id,
-    searchContext.program_id,
     fetchDepartments
   ]);
 
   useEffect(() => {
     if (
       searchContext.institution_id &&
+      searchContext.academic_year_id &&
       searchContext.degree_id &&
-      searchContext.program_id &&
       searchContext.department_id
+    ) {
+      fetchPrograms();
+    }
+  }, [
+    searchContext.institution_id,
+    searchContext.academic_year_id,
+    searchContext.degree_id,
+    searchContext.department_id,
+    fetchPrograms
+  ]);
+
+  useEffect(() => {
+    if (
+      searchContext.institution_id &&
+      searchContext.academic_year_id &&
+      searchContext.degree_id &&
+      searchContext.department_id &&
+      searchContext.program_id
     ) {
       fetchSemesters();
     }
   }, [
     searchContext.institution_id,
+    searchContext.academic_year_id,
     searchContext.degree_id,
-    searchContext.program_id,
     searchContext.department_id,
+    searchContext.program_id,
     fetchSemesters
   ]);
 
   useEffect(() => {
     if (
       searchContext.institution_id &&
+      searchContext.academic_year_id &&
       searchContext.degree_id &&
-      searchContext.program_id &&
       searchContext.department_id &&
+      searchContext.program_id &&
       searchContext.semester_id
     ) {
       fetchSections();
     }
   }, [
     searchContext.institution_id,
+    searchContext.academic_year_id,
     searchContext.degree_id,
-    searchContext.program_id,
     searchContext.department_id,
+    searchContext.program_id,
     searchContext.semester_id,
     fetchSections
+  ]);
+
+  // Reset dependent state when parent fields change
+  useEffect(() => {
+    // Reset all form-related state when institution changes
+    setSelectedPeriod(null);
+    setStudentsForSection([]);
+    setShowResults(false);
+    setShowStudents(false);
+    setStudentSearchTerm('');
+    setAttendanceCompleted({ isCompleted: false, details: null });
+    setExistingAttendance([]);
+    setAttendancePermissions(new Map());
+  }, [searchContext.institution_id]);
+
+  useEffect(() => {
+    // Reset period-related state when academic structure changes
+    setSelectedPeriod(null);
+    setStudentsForSection([]);
+    setShowResults(false);
+    setShowStudents(false);
+    setStudentSearchTerm('');
+    setAttendanceCompleted({ isCompleted: false, details: null });
+    setExistingAttendance([]);
+  }, [
+    searchContext.academic_year_id,
+    searchContext.degree_id,
+    searchContext.department_id,
+    searchContext.program_id,
+    searchContext.semester_id,
+    searchContext.section_id
   ]);
 
   // Handle search form submission - Focus on loading periods first
@@ -459,6 +515,7 @@ export default function AttendancePage() {
 
   // Get student initials for avatar fallback
   const getInitials = (name: string) => {
+    if (!name || typeof name !== 'string') return 'ST';
     return name
       .split(' ')
       .map((part) => part[0])
@@ -472,7 +529,10 @@ export default function AttendancePage() {
     if (!studentSearchTerm) return true;
 
     const searchLower = studentSearchTerm.toLowerCase();
-    const nameMatch = student.student_name.toLowerCase().includes(searchLower);
+    const fullName = `${student.first_name || ''} ${
+      student.last_name || ''
+    }`.trim();
+    const nameMatch = fullName.toLowerCase().includes(searchLower);
     const rollMatch =
       student.roll_number?.toLowerCase().includes(searchLower) || false;
 
@@ -825,7 +885,7 @@ export default function AttendancePage() {
                 </Label>
                 <Select
                   value={searchContext.institution_id || undefined}
-                  onValueChange={async (value) =>
+                  onValueChange={async (value) => {
                     await updateSearchContext({
                       institution_id: value,
                       academic_year_id: null,
@@ -834,12 +894,18 @@ export default function AttendancePage() {
                       department_id: null,
                       semester_id: null,
                       section_id: null
-                    })
-                  }
+                    });
+                  }}
                   disabled={!isSuperAdmin && !userProfile?.institution_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select institution' />
+                    <SelectValue
+                      placeholder={
+                        !isSuperAdmin && !userProfile?.institution_id
+                          ? 'No institution access'
+                          : 'Select institution'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {(isSuperAdmin
@@ -862,6 +928,49 @@ export default function AttendancePage() {
                 </Select>
               </div>
 
+              {/* Academic Year */}
+              <div className='space-y-2'>
+                <Label htmlFor='academic-year'>
+                  Academic Year <span className='text-red-500'>*</span>
+                </Label>
+                <Select
+                  value={searchContext.academic_year_id || undefined}
+                  onValueChange={async (value) => {
+                    await updateSearchContext({
+                      academic_year_id: value,
+                      degree_id: null,
+                      department_id: null,
+                      program_id: null,
+                      semester_id: null,
+                      section_id: null
+                    });
+                  }}
+                  disabled={!searchContext.institution_id}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        !searchContext.institution_id
+                          ? 'First select an institution'
+                          : 'Select academic year'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {academicYears.map(
+                      (year: {
+                        id: string;
+                        academic_year_name: import('react').ReactNode;
+                      }) => (
+                        <SelectItem key={year.id} value={year.id}>
+                          {year.academic_year_name}
+                        </SelectItem>
+                      )
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Degree */}
               <div className='space-y-2'>
                 <Label htmlFor='degree'>
@@ -869,19 +978,30 @@ export default function AttendancePage() {
                 </Label>
                 <Select
                   value={searchContext.degree_id || undefined}
-                  onValueChange={async (value) =>
+                  onValueChange={async (value) => {
                     await updateSearchContext({
                       degree_id: value,
-                      program_id: null,
                       department_id: null,
+                      program_id: null,
                       semester_id: null,
                       section_id: null
-                    })
+                    });
+                  }}
+                  disabled={
+                    !searchContext.institution_id ||
+                    !searchContext.academic_year_id
                   }
-                  disabled={!searchContext.institution_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select degree' />
+                    <SelectValue
+                      placeholder={
+                        !searchContext.institution_id
+                          ? 'First select an institution'
+                          : !searchContext.academic_year_id
+                          ? 'First select academic year'
+                          : 'Select degree'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {degrees.map(
@@ -898,41 +1018,6 @@ export default function AttendancePage() {
                 </Select>
               </div>
 
-              {/* Program */}
-              <div className='space-y-2'>
-                <Label htmlFor='program'>
-                  Program <span className='text-red-500'>*</span>
-                </Label>
-                <Select
-                  value={searchContext.program_id || undefined}
-                  onValueChange={async (value) =>
-                    await updateSearchContext({
-                      program_id: value,
-                      department_id: null,
-                      semester_id: null,
-                      section_id: null
-                    })
-                  }
-                  disabled={!searchContext.degree_id}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder='Select program' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {programs.map(
-                      (program: {
-                        id: string;
-                        program_name: import('react').ReactNode;
-                      }) => (
-                        <SelectItem key={program.id} value={program.id}>
-                          {program.program_name}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
               {/* Department */}
               <div className='space-y-2'>
                 <Label htmlFor='department'>
@@ -940,17 +1025,24 @@ export default function AttendancePage() {
                 </Label>
                 <Select
                   value={searchContext.department_id || undefined}
-                  onValueChange={async (value) =>
+                  onValueChange={async (value) => {
                     await updateSearchContext({
                       department_id: value,
+                      program_id: null,
                       semester_id: null,
                       section_id: null
-                    })
-                  }
-                  disabled={!searchContext.program_id}
+                    });
+                  }}
+                  disabled={!searchContext.degree_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select department' />
+                    <SelectValue
+                      placeholder={
+                        !searchContext.degree_id
+                          ? 'First select a degree'
+                          : 'Select department'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {departments.map(
@@ -967,6 +1059,46 @@ export default function AttendancePage() {
                 </Select>
               </div>
 
+              {/* Program */}
+              <div className='space-y-2'>
+                <Label htmlFor='program'>
+                  Program <span className='text-red-500'>*</span>
+                </Label>
+                <Select
+                  value={searchContext.program_id || undefined}
+                  onValueChange={async (value) => {
+                    await updateSearchContext({
+                      program_id: value,
+                      semester_id: null,
+                      section_id: null
+                    });
+                  }}
+                  disabled={!searchContext.department_id}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        !searchContext.department_id
+                          ? 'First select a department'
+                          : 'Select program'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {programs.map(
+                      (program: {
+                        id: string;
+                        program_name: import('react').ReactNode;
+                      }) => (
+                        <SelectItem key={program.id} value={program.id}>
+                          {program.program_name}
+                        </SelectItem>
+                      )
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Semester */}
               <div className='space-y-2'>
                 <Label htmlFor='semester'>
@@ -974,16 +1106,22 @@ export default function AttendancePage() {
                 </Label>
                 <Select
                   value={searchContext.semester_id || undefined}
-                  onValueChange={async (value) =>
+                  onValueChange={async (value) => {
                     await updateSearchContext({
                       semester_id: value,
                       section_id: null
-                    })
-                  }
-                  disabled={!searchContext.department_id}
+                    });
+                  }}
+                  disabled={!searchContext.program_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select semester' />
+                    <SelectValue
+                      placeholder={
+                        !searchContext.program_id
+                          ? 'First select a program'
+                          : 'Select semester'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {semesters.map(
@@ -1013,7 +1151,13 @@ export default function AttendancePage() {
                   disabled={!searchContext.semester_id}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder='Select section' />
+                    <SelectValue
+                      placeholder={
+                        !searchContext.semester_id
+                          ? 'First select a semester'
+                          : 'Select section'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {sections.map(
@@ -1029,21 +1173,6 @@ export default function AttendancePage() {
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Academic Year - Auto-populated */}
-              {searchContext.academic_year_id && (
-                <div className='space-y-2'>
-                  <Label htmlFor='academic-year'>
-                    Academic Year (Auto-selected)
-                  </Label>
-                  <div className='px-3 py-2 border rounded-md bg-muted text-sm'>
-                    {academicYears.find(
-                      (year: { id: string | null }) =>
-                        year.id === searchContext.academic_year_id
-                    )?.academic_year_name || 'Loading...'}
-                  </div>
-                </div>
-              )}
 
               {/* Attendance Date */}
               <div className='space-y-2'>
@@ -2059,9 +2188,13 @@ export default function AttendancePage() {
                               const rollB = b.roll_number || '';
                               return rollA.localeCompare(rollB);
                             } else if (sortByName) {
-                              return a.student_name.localeCompare(
-                                b.student_name
-                              );
+                              const nameA = `${a.first_name || ''} ${
+                                a.last_name || ''
+                              }`.trim();
+                              const nameB = `${b.first_name || ''} ${
+                                b.last_name || ''
+                              }`.trim();
+                              return nameA.localeCompare(nameB);
                             }
                             return 0; // No sorting
                           })
@@ -2085,12 +2218,18 @@ export default function AttendancePage() {
                                     src={student.student_photo_url}
                                   />
                                   <AvatarFallback className='text-lg'>
-                                    {getInitials(student.student_name)}
+                                    {getInitials(
+                                      `${student.first_name || ''} ${
+                                        student.last_name || ''
+                                      }`.trim()
+                                    )}
                                   </AvatarFallback>
                                 </Avatar>
 
                                 <h4 className='font-medium text-sm mb-1'>
-                                  {student.student_name}
+                                  {`${student.first_name || ''} ${
+                                    student.last_name || ''
+                                  }`.trim() || 'Unknown Student'}
                                 </h4>
                                 <p className='text-xs text-muted-foreground mb-3'>
                                   {student.roll_number || 'No Roll Number'}

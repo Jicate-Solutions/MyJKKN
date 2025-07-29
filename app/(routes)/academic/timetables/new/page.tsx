@@ -193,30 +193,6 @@ export default function NewTimetablePage() {
   let departments = allDepartments;
   let filteredSemesters = allSemesters;
 
-  // Deduplicate semesters by semester_name to avoid duplicate keys
-  const uniqueSemesters = filteredSemesters.filter(
-    (semester, index, self) =>
-      index ===
-      self.findIndex((s) => s.semester_name === semester.semester_name)
-  );
-
-  // Debug log to track duplicate removal
-  if (filteredSemesters.length !== uniqueSemesters.length) {
-    console.log(
-      `Removed ${
-        filteredSemesters.length - uniqueSemesters.length
-      } duplicate semesters`
-    );
-    console.log(
-      'Original semesters:',
-      filteredSemesters.map((s) => s.semester_name)
-    );
-    console.log(
-      'Unique semesters:',
-      uniqueSemesters.map((s) => s.semester_name)
-    );
-  }
-
   // Sections hook removed - timetables are now semester-wise
 
   // State for form submission and selected values
@@ -286,6 +262,31 @@ export default function NewTimetablePage() {
     (semester) => !watchProgramId || semester.program_id === watchProgramId
   );
 
+  // Deduplicate semesters by semester_name to avoid duplicate keys
+  // THIS MUST HAPPEN AFTER FILTERING TO ENSURE ONLY PROGRAM-RELATED SEMESTERS ARE SHOWN
+  const uniqueSemesters = filteredSemesters.filter(
+    (semester, index, self) =>
+      index ===
+      self.findIndex((s) => s.semester_name === semester.semester_name)
+  );
+
+  // Debug log to track duplicate removal
+  if (filteredSemesters.length !== uniqueSemesters.length) {
+    console.log(
+      `Removed ${
+        filteredSemesters.length - uniqueSemesters.length
+      } duplicate semesters`
+    );
+    console.log(
+      'Original filtered semesters:',
+      filteredSemesters.map((s) => s.semester_name)
+    );
+    console.log(
+      'Unique filtered semesters:',
+      uniqueSemesters.map((s) => s.semester_name)
+    );
+  }
+
   // Debug log for hierarchy
   console.log('🔍 Hierarchy Debug:', {
     'Form Values': {
@@ -298,7 +299,8 @@ export default function NewTimetablePage() {
       degrees: degrees.length,
       departments: departments.length,
       programs: programs.length,
-      semesters: filteredSemesters.length
+      semesters: filteredSemesters.length,
+      uniqueSemesters: uniqueSemesters.length
     },
     'All Data': {
       allDegrees: allDegrees.length,
@@ -451,10 +453,12 @@ export default function NewTimetablePage() {
         end_date: formatDateForDB(values.end_date)
       };
 
-      const success = await createTimetable(formattedValues);
-      if (success) {
-        router.push('/academic/timetables');
+      const createdTimetable = await createTimetable(formattedValues);
+      if (createdTimetable) {
+        // Redirect to the newly created timetable's details page
+        router.push(`/academic/timetables/${createdTimetable.id}`);
       } else {
+        console.error('Failed to create timetable');
       }
     } catch (error) {
       console.error('Error creating timetable:', error);

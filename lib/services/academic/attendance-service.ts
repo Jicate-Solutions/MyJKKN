@@ -32,8 +32,10 @@ export class AttendanceService {
         .select(
           `
           id,
-          student_name,
+          first_name,
+          last_name,
           roll_number,
+          student_photo_url,
           institution_id,
           degree_id,
           program_id,
@@ -72,7 +74,13 @@ export class AttendanceService {
 
       if (error) throw error;
 
-      return (data || []) as AttendanceStudent[];
+      // Transform the data to include student_name constructed from first_name and last_name
+      return (data || []).map((student: any) => ({
+        ...student,
+        student_name:
+          `${student.first_name || ''} ${student.last_name || ''}`.trim() ||
+          'Unknown Student'
+      })) as AttendanceStudent[];
     } catch (error) {
       console.error('Error fetching students for attendance:', error);
       throw error;
@@ -288,7 +296,8 @@ export class AttendanceService {
           updated_at,
           student:student_id(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number
           ),
           marked_by_user:marked_by(
@@ -420,8 +429,10 @@ export class AttendanceService {
         .select(
           `
           id,
-          student_name,
+          first_name,
+          last_name,
           roll_number,
+          student_photo_url,
           institution_id,
           degree_id,
           program_id,
@@ -484,8 +495,10 @@ export class AttendanceService {
           const attendanceRecord = attendanceMap.get(student.id);
           return {
             id: student.id,
-            student_name: student.student_name,
+            first_name: student.first_name || 'Unknown',
+            last_name: student.last_name || '',
             roll_number: student.roll_number,
+            student_photo_url: student.student_photo_url,
             status: attendanceRecord ? attendanceRecord.status : 'Present', // Default to Present
             attendance_id: attendanceRecord?.id
           };
@@ -843,7 +856,8 @@ export class AttendanceService {
           *,
           student:student_id(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number
           ),
           timetable_slot:timetable_slot_id(

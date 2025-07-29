@@ -5,6 +5,7 @@ export interface AttendanceStudent {
   id: string;
   student_name: string;
   roll_number?: string;
+  student_photo_url?: string;
   institution_id: string;
   degree_id?: string;
   program_id?: string;
@@ -106,6 +107,7 @@ export interface AttendanceRosterStudent {
   first_name: string;
   last_name?: string;
   roll_number?: string;
+  student_photo_url?: string;
   status: 'Present' | 'Absent';
   attendance_id?: string; // If attendance record exists
 }
