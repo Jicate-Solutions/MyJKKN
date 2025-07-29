@@ -467,55 +467,45 @@ export default function TimeTablePage() {
 
               {/* Day Schedule */}
               <div className='space-y-3'>
-                  <div className='space-y-3'>
-                    {sortedPeriods.map((periodItem) => {
-                      const period = periodItem;
-                      if (!period) return null;
+                {sortedPeriods.map((periodItem) => {
+                  const period = periodItem;
+                  if (!period) return null;
 
-                      const slot = getSlotForDayAndPeriod(
-                        selectedDay,
-                        period.id
-                      );
+                  const slot = getSlotForDayAndPeriod(selectedDay, period.id);
 
-                      return (
-                        <Card
-                          key={period.id}
-                          className={cn(
-                            'transition-all',
-                            slot?.is_break_slot && 'opacity-75'
+                  return (
+                    <Card
+                      key={period.id}
+                      className={cn(
+                        'transition-all',
+                        slot?.is_break_slot && 'opacity-75'
+                      )}
+                    >
+                      <CardContent className='p-4'>
+                        <div className='flex items-start justify-between mb-2'>
+                          <div>
+                            <p className='font-medium'>{period.period_name}</p>
+                            <p className='text-sm text-muted-foreground'>
+                              <Clock className='inline h-3 w-3 mr-1' />
+                              {period.start_time} - {period.end_time}
+                            </p>
+                          </div>
+                          {slot?.is_break_slot && (
+                            <Badge variant='secondary'>Break</Badge>
                           )}
-                        >
-                          <CardContent className='p-4'>
-                            <div className='flex items-start justify-between mb-2'>
-                              <div>
-                                <p className='font-medium'>
-                                  {period.period_name}
-                                </p>
-                                <p className='text-sm text-muted-foreground'>
-                                  <Clock className='inline h-3 w-3 mr-1' />
-                                  {period.start_time} - {period.end_time}
-                                </p>
-                              </div>
-                              {slot?.is_break_slot && (
-                                <Badge variant='secondary'>Break</Badge>
-                              )}
-                            </div>
-                            {slot ? (
-                              <div className='mt-3'>
-                                {renderSlotContent(slot)}
-                              </div>
-                            ) : (
-                              <p className='text-sm text-muted-foreground'>
-                                No class scheduled
-                              </p>
-                            )}
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
+                        </div>
+                        {slot ? (
+                          <div className='mt-3'>{renderSlotContent(slot)}</div>
+                        ) : (
+                          <p className='text-sm text-muted-foreground'>
+                            No class scheduled
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
             </>
           ) : (
             /* Mobile Week View */
