@@ -113,11 +113,7 @@ export function DegreeForm({ degree, isEditing }: DegreeFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Institution</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={isEditing}
-                    >
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder='Select institution' />

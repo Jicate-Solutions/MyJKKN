@@ -33,9 +33,15 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
         search: params.search || undefined,
         sortBy: params.sort_by || undefined,
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
+        // Hierarchical filters
+        institution_id: search.institution_id,
+        degree_id: search.degree_id,
+        department_id: search.department_id,
         program_id: search.program_id,
+        // Additional filters
         semester_type: search.semester_type,
-        status: search.status
+        // Map status to boolean for isActive
+        isActive: search.status ? search.status === 'active' : undefined
       };
 
       const { data, metadata } = await SemesterService.getSemesters(filters);

@@ -190,7 +190,7 @@ export function DepartmentForm({ department, isEditing }: DepartmentFormProps) {
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
-                      disabled={!selectedInstitution || isEditing}
+                      disabled={!form.watch('institution_id')}
                     >
                       <FormControl>
                         <SelectTrigger>

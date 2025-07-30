@@ -293,11 +293,7 @@ export function SemesterForm({ semester, isEditing }: SemesterFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Program</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={isEditing || !watchedDepartmentId}
-                    >
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder='Select program' />

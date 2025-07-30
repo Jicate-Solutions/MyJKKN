@@ -39,7 +39,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileCheck,
-  FileX
+  FileX,
+  UserCheck,
+  ChevronDown
 } from 'lucide-react';
 import { useRouter } from 'next/navigation'; // Import useRouter
 import {
@@ -62,6 +64,11 @@ import {
   CardTitle
 } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger
+} from '@/components/ui/collapsible';
 
 // Helper function to parse and normalize date formats
 const parseAndNormalizeDate = (dateString: string): string | null => {
@@ -474,7 +481,8 @@ const resolveProgramName = async (
 
 const resolveSemesterName = async (
   name: string,
-  institutionId: string
+  institutionId: string,
+  programId?: string
 ): Promise<string | null> => {
   try {
     const { createClientSupabaseClient } = await import(
@@ -482,15 +490,29 @@ const resolveSemesterName = async (
     );
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await supabase
+    // Build query - if programId is provided, validate semester belongs to the program
+    let query = supabase
       .from('semesters')
       .select('id')
       .ilike('semester_name', name.trim())
-      .eq('institution_id', institutionId)
-      .limit(1)
-      .single();
+      .eq('institution_id', institutionId);
 
-    if (error || !data) return null;
+    // Add program validation if programId is available
+    if (programId) {
+      query = query.eq('program_id', programId);
+    }
+
+    const { data, error } = await query.limit(1).single();
+
+    if (error || !data) {
+      // If validation with program failed, log detailed error
+      if (programId) {
+        console.warn(
+          `Semester "${name.trim()}" not found in program ${programId} for institution ${institutionId}`
+        );
+      }
+      return null;
+    }
     return data.id;
   } catch (error) {
     console.error('Error resolving semester name:', error);
@@ -692,13 +714,15 @@ const resolveNameFields = async (
     if (data.semester_name && !data.semester_id && institutionId) {
       const semesterId = await resolveSemesterName(
         data.semester_name,
-        institutionId
+        institutionId,
+        resolved.program_id || undefined // Pass program_id for hierarchy validation
       );
       if (semesterId) {
         resolved.semester_id = semesterId;
       } else {
+        const programInfo = resolved.program_id ? ` and program` : '';
         errors.push(
-          `Semester "${data.semester_name}" not found in the specified institution`
+          `Semester "${data.semester_name}" not found in the specified institution${programInfo}. Please verify the semester belongs to the correct program.`
         );
       }
     }
@@ -1459,6 +1483,22 @@ export function BulkCreateStudents() {
                   : Boolean(restData.bus_required)
             };
 
+            // Enhanced debugging - log the exact data being sent to create student
+            console.log(
+              `[BULK UPLOAD DEBUG] Creating student at row ${rowIndex}:`,
+              {
+                name: displayStudentName,
+                originalRowData: rowData,
+                processedData: processedData,
+                hasRequiredFields: {
+                  first_name: !!processedData.first_name,
+                  institution_id: !!processedData.institution_id,
+                  department_id: !!processedData.department_id,
+                  program_id: !!processedData.program_id
+                }
+              }
+            );
+
             // Create student using the standard service method with suppressToast
             console.log(
               `Creating student: ${processedData.first_name} ${processedData.last_name}`
@@ -1499,8 +1539,104 @@ export function BulkCreateStudents() {
           } catch (error) {
             console.error(`Error creating student at row ${rowIndex}:`, error);
             failedCount++;
-            const errorMessage =
-              error instanceof Error ? error.message : 'Unknown error';
+
+            // Enhanced error parsing to get more specific error details
+            let errorMessage = 'Unknown error';
+
+            if (error instanceof Error) {
+              errorMessage = error.message;
+
+              // Parse Supabase/PostgreSQL specific errors for better user feedback
+              if (errorMessage.includes('duplicate key value')) {
+                if (errorMessage.includes('students_student_email_key')) {
+                  errorMessage = `Student email "${row.student_email}" already exists in the database`;
+                } else if (
+                  errorMessage.includes('students_college_email_key')
+                ) {
+                  errorMessage = `College email "${row.college_email}" already exists in the database`;
+                } else if (errorMessage.includes('students_roll_number_key')) {
+                  errorMessage = `Roll number "${row.roll_number}" already exists in the database`;
+                } else {
+                  errorMessage =
+                    'Duplicate data found - student may already exist';
+                }
+              } else if (
+                errorMessage.includes('Semester hierarchy violation') ||
+                errorMessage.includes(
+                  'Student semester assignment violates hierarchy'
+                ) ||
+                errorMessage.includes('does not belong to student program')
+              ) {
+                // Parse semester hierarchy violation errors
+                errorMessage = `Semester-Program Mismatch: The selected semester "${
+                  row.semester_name || 'Unknown'
+                }" does not belong to the program "${
+                  row.program_name || 'Unknown'
+                }". Please verify that this semester is available within the student's program and institution.`;
+              } else if (
+                errorMessage.includes(
+                  'Student can only be assigned to semesters within their program'
+                )
+              ) {
+                // Handle the specific hint message from database constraint
+                errorMessage = `Program Hierarchy Error: The semester "${
+                  row.semester_name || 'Unknown'
+                }" is not available for the program "${
+                  row.program_name || 'Unknown'
+                }". Please check your data and ensure the semester belongs to the correct program.`;
+              } else if (errorMessage.includes('null value in column')) {
+                const columnMatch = errorMessage.match(
+                  /null value in column "([^"]+)"/
+                );
+                const columnName = columnMatch ? columnMatch[1] : 'unknown';
+                errorMessage = `Required field "${columnName}" is missing or empty`;
+              } else if (
+                errorMessage.includes('violates foreign key constraint')
+              ) {
+                if (errorMessage.includes('institution_id')) {
+                  errorMessage = `Invalid institution ID - the specified institution does not exist`;
+                } else if (errorMessage.includes('department_id')) {
+                  errorMessage = `Invalid department ID - the specified department does not exist`;
+                } else if (errorMessage.includes('program_id')) {
+                  errorMessage = `Invalid program ID - the specified program does not exist`;
+                } else if (errorMessage.includes('semester_id')) {
+                  errorMessage = `Invalid semester ID - the specified semester does not exist`;
+                } else if (errorMessage.includes('section_id')) {
+                  errorMessage = `Invalid section ID - the specified section does not exist`;
+                } else {
+                  errorMessage =
+                    'Invalid reference data - one or more IDs do not exist in the database';
+                }
+              } else if (errorMessage.includes('invalid input syntax')) {
+                errorMessage =
+                  'Invalid data format - please check date formats, email addresses, and numeric fields';
+              } else if (errorMessage.includes('value too long')) {
+                errorMessage =
+                  'One or more text fields exceed the maximum allowed length';
+              }
+            }
+
+            // Enhanced error logging with more context
+            console.error(`[BULK UPLOAD ERROR] Row ${rowIndex} failed:`, {
+              studentName: `${row.first_name || 'Unknown'} ${
+                row.last_name || ''
+              }`,
+              rollNumber: row.roll_number,
+              email: row.college_email,
+              originalError: error,
+              parsedErrorMessage: errorMessage,
+              rowData: {
+                first_name: row.first_name,
+                last_name: row.last_name,
+                roll_number: row.roll_number,
+                college_email: row.college_email,
+                institution_id: row.institution_id,
+                department_id: row.department_id,
+                program_id: row.program_id,
+                semester_id: row.semester_id,
+                section_id: row.section_id
+              }
+            });
 
             failedRows.push({
               row: rowIndex,
@@ -1510,7 +1646,7 @@ export function BulkCreateStudents() {
                 roll_number: row.roll_number,
                 college_email: row.college_email
               },
-              error: errorMessage
+              error: errorMessage // Use the enhanced error message
             });
 
             if (row.college_email) {
@@ -2185,124 +2321,391 @@ export function BulkCreateStudents() {
         </div>
 
         {/* Enhanced Footer with Summary Statistics */}
-        <div className='border-t bg-muted/50 p-4'>
-          <div className='flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center'>
-            {/* Enhanced Summary */}
-            {file && (validRows.length > 0 || validationErrors.length > 0) && (
-              <div className='text-sm text-muted-foreground'>
-                <span className='block sm:inline'>
-                  Total: {validRows.length + validationErrors.length} rows
-                </span>
-                <span className='block sm:inline sm:ml-4'>
-                  Valid:{' '}
-                  <span className='text-green-600 font-medium'>
-                    {validRows.length}
-                  </span>
-                </span>
-                <span className='block sm:inline sm:ml-4'>
-                  Invalid:{' '}
-                  <span className='text-red-600 font-medium'>
-                    {validationErrors.length}
-                  </span>
-                </span>
-                {validationErrors.length > 0 && validRows.length > 0 && (
-                  <span className='block sm:inline sm:ml-4 text-blue-600'>
-                    Use &quot;Valid Only&quot; to upload {validRows.length}{' '}
-                    valid records
-                  </span>
-                )}
-                {validationErrors.length > 0 && validRows.length === 0 && (
-                  <span className='block sm:inline sm:ml-4 text-amber-600'>
-                    Fix validation errors before uploading
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Upload Mode Toggle - Show when there are validation errors */}
-            {validRows.length > 0 &&
-              validationErrors.length > 0 &&
-              !showUploadReport && (
-                <div className='flex flex-col gap-2 w-full sm:w-auto'>
-                  <div className='text-xs text-muted-foreground'>
-                    Upload Options:
-                  </div>
-                  <div className='flex gap-1'>
-                    <Button
-                      variant={uploadMode === 'valid' ? 'default' : 'outline'}
-                      size='sm'
-                      onClick={() => setUploadMode('valid')}
-                      disabled={isUploading || isValidating}
-                      className='text-xs px-3 py-1'
-                    >
-                      Valid Only ({validRows.length})
-                    </Button>
-                    <Button
-                      variant={uploadMode === 'all' ? 'default' : 'outline'}
-                      size='sm'
-                      onClick={() => setUploadMode('all')}
-                      disabled={
-                        isUploading ||
-                        isValidating ||
-                        validationErrors.length > 0
-                      }
-                      className='text-xs px-3 py-1'
-                    >
-                      All Rows ({validRows.length + validationErrors.length})
-                    </Button>
-                  </div>
+        <div className='border-t bg-muted/50'>
+          {/* Upload Report Section - Enhanced with Better Scrolling */}
+          {showUploadReport && uploadResult && (
+            <div className='h-full max-h-[60vh] overflow-y-auto'>
+              <div className='p-4 border-b'>
+                <div className='flex items-center justify-between mb-4'>
+                  <h3 className='text-lg font-semibold'>Upload Report</h3>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => {
+                      setShowUploadReport(false);
+                      setUploadResult(null);
+                    }}
+                  >
+                    <X className='h-4 w-4' />
+                  </Button>
                 </div>
-              )}
 
-            {/* Action Buttons */}
-            <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
-              <DialogClose asChild>
-                <Button
-                  variant='outline'
-                  onClick={() => resetState()}
-                  disabled={isUploading}
-                  className='w-full sm:w-auto'
-                >
-                  Cancel
-                </Button>
-              </DialogClose>
-              <DownloadNewStudentTemplateButton />
-              {validRows.length > 0 && !showUploadReport && (
-                <Button
-                  onClick={handleUpload}
-                  disabled={
-                    !file ||
-                    validRows.length === 0 ||
-                    (uploadMode === 'all' && validationErrors.length > 0) ||
-                    isUploading ||
-                    isValidating
-                  }
-                  className='w-full sm:w-auto'
-                >
-                  {isUploading ? (
-                    <>
-                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      <Upload className='mr-2 h-4 w-4' />
-                      Upload {uploadMode === 'valid' ? 'Valid' : ''}{' '}
-                      {uploadMode === 'valid'
-                        ? validRows.length
-                        : validRows.length + validationErrors.length}{' '}
-                      Student
-                      {(uploadMode === 'valid'
-                        ? validRows.length
-                        : validRows.length + validationErrors.length) !== 1
-                        ? 's'
-                        : ''}
-                    </>
+                {/* Upload Summary */}
+                <div className='grid grid-cols-1 md:grid-cols-3 gap-4 mb-4'>
+                  <Card className='p-4'>
+                    <div className='flex items-center space-x-2'>
+                      <CheckCircle className='h-5 w-5 text-green-600' />
+                      <div>
+                        <p className='text-sm font-medium'>Successful</p>
+                        <p className='text-lg font-bold text-green-600'>
+                          {uploadResult.created || 0}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card className='p-4'>
+                    <div className='flex items-center space-x-2'>
+                      <XCircle className='h-5 w-5 text-red-600' />
+                      <div>
+                        <p className='text-sm font-medium'>Failed</p>
+                        <p className='text-lg font-bold text-red-600'>
+                          {uploadResult.failed || 0}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card className='p-4'>
+                    <div className='flex items-center space-x-2'>
+                      <UserCheck className='h-5 w-5 text-blue-600' />
+                      <div>
+                        <p className='text-sm font-medium'>User Accounts</p>
+                        <p className='text-lg font-bold text-blue-600'>
+                          {uploadResult.usersCreated || 0}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+
+                {/* Upload Result Message */}
+                <Alert className='mb-4'>
+                  <AlertCircle className='h-4 w-4' />
+                  <AlertTitle>Upload Summary</AlertTitle>
+                  <AlertDescription>{uploadResult.message}</AlertDescription>
+                </Alert>
+              </div>
+
+              <div className='p-4 space-y-6'>
+                {/* Failed Rows Details - Enhanced with Better Scrolling */}
+                {uploadResult.failedRows &&
+                  uploadResult.failedRows.length > 0 && (
+                    <div>
+                      <h4 className='font-medium text-red-700 mb-3 flex items-center sticky top-0 bg-background py-2 z-10'>
+                        <XCircle className='h-4 w-4 mr-2' />
+                        Failed Uploads ({uploadResult.failedRows.length})
+                      </h4>
+
+                      {/* Debugging Help */}
+                      <div className='mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm'>
+                        <div className='flex items-start space-x-2'>
+                          <AlertCircle className='h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0' />
+                          <div>
+                            <p className='font-medium text-blue-800'>
+                              Debugging Tip:
+                            </p>
+                            <p className='text-blue-700 text-xs mt-1'>
+                              For detailed error logs, open your browser&apos;s
+                              Developer Tools (F12) and check the Console tab.
+                              Look for entries starting with &quot;[BULK UPLOAD
+                              ERROR]&quot; for comprehensive debugging
+                              information.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className='space-y-3'>
+                        {uploadResult.failedRows.map((failedRow, index) => (
+                          <div
+                            key={index}
+                            className='border border-red-200 bg-red-50 rounded-lg p-3'
+                          >
+                            <div className='flex items-center justify-between mb-2'>
+                              <span className='text-sm font-medium'>
+                                Row {failedRow.row}
+                              </span>
+                              <Badge variant='destructive' className='text-xs'>
+                                Failed
+                              </Badge>
+                            </div>
+
+                            <div className='grid grid-cols-1 md:grid-cols-2 gap-2 text-sm mb-2'>
+                              <div>
+                                <span className='font-medium'>Name: </span>
+                                <span>
+                                  {failedRow.data?.first_name || 'Unknown'}{' '}
+                                  {failedRow.data?.last_name || ''}
+                                </span>
+                              </div>
+                              <div>
+                                <span className='font-medium'>
+                                  Roll Number:{' '}
+                                </span>
+                                <span>
+                                  {failedRow.data?.roll_number || 'N/A'}
+                                </span>
+                              </div>
+                              <div className='md:col-span-2'>
+                                <span className='font-medium'>Email: </span>
+                                <span className='break-all'>
+                                  {failedRow.data?.college_email || 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Detailed Error Message - Enhanced Display */}
+                            <div className='mt-2 p-2 bg-red-100 rounded text-red-700 text-xs'>
+                              <span className='font-medium'>Error: </span>
+                              <span className='break-words'>
+                                {failedRow.error}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
-                </Button>
-              )}
+
+                {/* Successful Rows Details - Enhanced with Collapsible Design */}
+                {uploadResult.successfulRows &&
+                  uploadResult.successfulRows.length > 0 && (
+                    <Collapsible>
+                      <CollapsibleTrigger asChild>
+                        <Button
+                          variant='ghost'
+                          className='w-full justify-between p-0 h-auto'
+                        >
+                          <h4 className='font-medium text-green-700 flex items-center'>
+                            <CheckCircle className='h-4 w-4 mr-2' />
+                            Successful Uploads (
+                            {uploadResult.successfulRows.length})
+                          </h4>
+                          <ChevronDown className='h-4 w-4' />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className='mt-3'>
+                        <div className='space-y-3'>
+                          {uploadResult.successfulRows.map(
+                            (successRow, index) => (
+                              <div
+                                key={index}
+                                className='border border-green-200 bg-green-50 rounded-lg p-3'
+                              >
+                                <div className='flex items-center justify-between mb-2'>
+                                  <span className='text-sm font-medium'>
+                                    Row {successRow.row}
+                                  </span>
+                                  <Badge
+                                    variant='default'
+                                    className='text-xs bg-green-600'
+                                  >
+                                    Success
+                                  </Badge>
+                                </div>
+
+                                <div className='grid grid-cols-1 md:grid-cols-2 gap-2 text-sm'>
+                                  <div>
+                                    <span className='font-medium'>Name: </span>
+                                    <span>{successRow.studentName}</span>
+                                  </div>
+                                  <div>
+                                    <span className='font-medium'>
+                                      Roll Number:{' '}
+                                    </span>
+                                    <span>
+                                      {successRow.rollNumber || 'N/A'}
+                                    </span>
+                                  </div>
+                                  <div className='md:col-span-2'>
+                                    <span className='font-medium'>
+                                      Student ID:{' '}
+                                    </span>
+                                    <span className='text-xs text-muted-foreground break-all'>
+                                      {successRow.studentId}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+
+                {/* User Creation Results */}
+                {getUserCreationSummary()}
+
+                {/* Action Buttons */}
+                <div className='flex flex-col sm:flex-row justify-end gap-2 pt-4 border-t sticky bottom-0 bg-background'>
+                  <Button
+                    variant='outline'
+                    onClick={() => {
+                      setShowUploadReport(false);
+                      setUploadResult(null);
+                    }}
+                    className='w-full sm:w-auto'
+                  >
+                    Close Report
+                  </Button>
+                  {uploadResult.failed && uploadResult.failed > 0 && (
+                    <Button
+                      variant='outline'
+                      onClick={() => {
+                        // Reset to allow trying again
+                        setShowUploadReport(false);
+                        setUploadResult(null);
+                      }}
+                      className='w-full sm:w-auto'
+                    >
+                      Try Again
+                    </Button>
+                  )}
+                  {uploadResult.success && (
+                    <Button
+                      onClick={() => {
+                        resetState();
+                        router.refresh();
+                      }}
+                      className='w-full sm:w-auto'
+                    >
+                      Upload More Students
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Regular Footer Content - Only shown when upload report is not visible */}
+          {!showUploadReport && (
+            <div className='p-4'>
+              <div className='flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center'>
+                {/* Enhanced Summary */}
+                {file &&
+                  (validRows.length > 0 || validationErrors.length > 0) && (
+                    <div className='text-sm text-muted-foreground'>
+                      <span className='block sm:inline'>
+                        Total: {validRows.length + validationErrors.length} rows
+                      </span>
+                      <span className='block sm:inline sm:ml-4'>
+                        Valid:{' '}
+                        <span className='text-green-600 font-medium'>
+                          {validRows.length}
+                        </span>
+                      </span>
+                      <span className='block sm:inline sm:ml-4'>
+                        Invalid:{' '}
+                        <span className='text-red-600 font-medium'>
+                          {validationErrors.length}
+                        </span>
+                      </span>
+                      {validationErrors.length > 0 && validRows.length > 0 && (
+                        <span className='block sm:inline sm:ml-4 text-blue-600'>
+                          Use &quot;Valid Only&quot; to upload{' '}
+                          {validRows.length} valid records
+                        </span>
+                      )}
+                      {validationErrors.length > 0 &&
+                        validRows.length === 0 && (
+                          <span className='block sm:inline sm:ml-4 text-amber-600'>
+                            Fix validation errors before uploading
+                          </span>
+                        )}
+                    </div>
+                  )}
+
+                {/* Upload Mode Toggle - Show when there are validation errors */}
+                {validRows.length > 0 &&
+                  validationErrors.length > 0 &&
+                  !showUploadReport && (
+                    <div className='flex flex-col gap-2 w-full sm:w-auto'>
+                      <div className='text-xs text-muted-foreground'>
+                        Upload Options:
+                      </div>
+                      <div className='flex gap-1'>
+                        <Button
+                          variant={
+                            uploadMode === 'valid' ? 'default' : 'outline'
+                          }
+                          size='sm'
+                          onClick={() => setUploadMode('valid')}
+                          disabled={isUploading || isValidating}
+                          className='text-xs px-3 py-1'
+                        >
+                          Valid Only ({validRows.length})
+                        </Button>
+                        <Button
+                          variant={uploadMode === 'all' ? 'default' : 'outline'}
+                          size='sm'
+                          onClick={() => setUploadMode('all')}
+                          disabled={
+                            isUploading ||
+                            isValidating ||
+                            validationErrors.length > 0
+                          }
+                          className='text-xs px-3 py-1'
+                        >
+                          All Rows ({validRows.length + validationErrors.length}
+                          )
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                {/* Action Buttons */}
+                <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto'>
+                  <DialogClose asChild>
+                    <Button
+                      variant='outline'
+                      onClick={() => resetState()}
+                      disabled={isUploading}
+                      className='w-full sm:w-auto'
+                    >
+                      Cancel
+                    </Button>
+                  </DialogClose>
+                  <DownloadNewStudentTemplateButton />
+                  {validRows.length > 0 && !showUploadReport && (
+                    <Button
+                      onClick={handleUpload}
+                      disabled={
+                        !file ||
+                        validRows.length === 0 ||
+                        (uploadMode === 'all' && validationErrors.length > 0) ||
+                        isUploading ||
+                        isValidating
+                      }
+                      className='w-full sm:w-auto'
+                    >
+                      {isUploading ? (
+                        <>
+                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                          Uploading...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className='mr-2 h-4 w-4' />
+                          Upload {uploadMode === 'valid' ? 'Valid' : ''}{' '}
+                          {uploadMode === 'valid'
+                            ? validRows.length
+                            : validRows.length + validationErrors.length}{' '}
+                          Student
+                          {(uploadMode === 'valid'
+                            ? validRows.length
+                            : validRows.length + validationErrors.length) !== 1
+                            ? 's'
+                            : ''}
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

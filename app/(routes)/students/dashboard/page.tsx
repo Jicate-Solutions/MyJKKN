@@ -37,7 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { DashboardFilters } from '@/types/student';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 // Import dashboard components
 import { RegistrationTrends } from './_components/registration-trends';
@@ -62,14 +62,20 @@ export default function StudentDashboardPage() {
     }
   });
 
+  const queryClient = useQueryClient();
+
   const {
     data: dashboardStats,
     isLoading,
     error,
     refetch
   } = useQuery({
-    queryKey: ['students', 'dashboard', filters],
-    queryFn: () => StudentService.getDashboardStats(filters)
+    queryKey: ['students', 'dashboard', filters, 'v2'], // Added version to force cache bust
+    queryFn: () => StudentService.getDashboardStats(filters),
+    staleTime: 0, // Force fresh data on every request
+    gcTime: 0, // Don't cache results
+    refetchOnMount: true, // Always fetch fresh data on mount
+    refetchOnWindowFocus: true // Refetch when window gains focus
   });
 
   const handleFilterChange = (newFilters: DashboardFilters) => {
@@ -77,6 +83,10 @@ export default function StudentDashboardPage() {
   };
 
   const handleRefresh = async () => {
+    // Invalidate cache first to ensure fresh data
+    await queryClient.invalidateQueries({
+      queryKey: ['students', 'dashboard']
+    });
     await refetch();
   };
 

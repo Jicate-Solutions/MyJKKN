@@ -137,7 +137,9 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
       async function loadDepartments() {
         try {
           // Implement this method in your department service
-          const data = await DepartmentService.getDepartmentsByDegree(degreeId as string);
+          const data = await DepartmentService.getDepartmentsByDegree(
+            degreeId as string
+          );
           setDepartments(data);
         } catch (error) {
           console.error('Error loading departments:', error);
@@ -248,11 +250,7 @@ export function ProgramForm({ program, isEditing }: ProgramFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Department</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={!form.watch('degree_id') || isEditing}
-                    >
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder='Select department' />
