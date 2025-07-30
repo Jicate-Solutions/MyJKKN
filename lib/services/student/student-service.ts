@@ -785,6 +785,65 @@ export class StudentService {
     }
   }
 
+  // Helper method to fetch all students with pagination to overcome Supabase 1000-row limit
+  private static async fetchAllStudents(
+    selectFields: string,
+    filters?: any,
+    additionalConditions?: (query: any) => any
+  ): Promise<any[]> {
+    let allStudents: any[] = [];
+    let hasMore = true;
+    const pageSize = 1000;
+    let currentPage = 0;
+
+    while (hasMore) {
+      let query = this.supabase
+        .from('students')
+        .select(selectFields)
+        .range(currentPage * pageSize, (currentPage + 1) * pageSize - 1);
+
+      // Apply additional conditions (like date ranges, specific filters)
+      if (additionalConditions) {
+        query = additionalConditions(query);
+      }
+
+      // Apply standard filters
+      if (filters?.institutionId) {
+        query = query.eq('institution_id', filters.institutionId);
+      }
+      if (filters?.departmentId) {
+        query = query.eq('department_id', filters.departmentId);
+      }
+      if (filters?.programId) {
+        query = query.eq('program_id', filters.programId);
+      }
+      if (filters?.status && filters.status.length > 0) {
+        query = query.in('status', filters.status);
+      }
+      if (filters?.dateRange?.from && filters?.dateRange?.to) {
+        query = query
+          .gte('created_at', filters.dateRange.from.toISOString())
+          .lte('created_at', filters.dateRange.to.toISOString());
+      }
+
+      const { data: pageStudents, error } = await query;
+      if (error) throw error;
+
+      if (pageStudents && pageStudents.length > 0) {
+        allStudents = allStudents.concat(pageStudents);
+        currentPage++;
+
+        if (pageStudents.length < pageSize) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
+    return allStudents;
+  }
+
   // Real-time dashboard statistics from database
   static async getDashboardStats(filters?: any) {
     try {
@@ -834,31 +893,30 @@ export class StudentService {
   // Get overview statistics
   private static async getOverviewStats(filters?: any) {
     try {
-      // Build base query
-      let query = this.supabase
+      // First, let's check the count without filters to debug
+      const { count: totalCount, error: countError } = await this.supabase
         .from('students')
-        .select('status, is_profile_complete');
+        .select('*', { count: 'exact', head: true });
 
-      // Apply filters
-      if (filters?.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-      if (filters?.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-      if (filters?.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-      if (filters?.dateRange?.from && filters?.dateRange?.to) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
+      if (!countError) {
+        console.log(
+          '[DEBUG] Total students in database (no filters):',
+          totalCount
+        );
       }
 
-      const { data: students, error } = await query;
-      if (error) throw error;
+      // Fetch all students using the helper method
+      const students = await this.fetchAllStudents(
+        'status, is_profile_complete',
+        filters
+      );
 
       const totalStudents = students?.length || 0;
+      console.log(
+        '[DEBUG] getOverviewStats - Total students fetched:',
+        totalStudents
+      );
+
       const activeStudents =
         students?.filter((s) => s.status === 'active').length || 0;
       const inactiveStudents =
@@ -899,24 +957,12 @@ export class StudentService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      let query = this.supabase
-        .from('students')
-        .select('created_at')
-        .gte('created_at', thirtyDaysAgo.toISOString());
-
-      // Apply filters
-      if (filters?.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-      if (filters?.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-      if (filters?.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-
-      const { data: students, error } = await query;
-      if (error) throw error;
+      // Fetch all students using the helper method with date filter
+      const students = await this.fetchAllStudents(
+        'created_at',
+        filters,
+        (query) => query.gte('created_at', thirtyDaysAgo.toISOString())
+      );
 
       // Group by date
       const dateGroups: { [key: string]: number } = {};
@@ -954,27 +1000,14 @@ export class StudentService {
   // Get institution statistics
   private static async getInstitutionStats(filters?: any) {
     try {
-      let query = this.supabase.from('students').select(`
-          institution_id,
-          status,
-          institutions!inner(id, name)
-        `);
-
-      // Apply filters (excluding institution filter for this specific query)
-      if (filters?.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-      if (filters?.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-      if (filters?.dateRange?.from && filters?.dateRange?.to) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
-
-      const { data: students, error } = await query;
-      if (error) throw error;
+      // Fetch all students using the helper method (excluding institution filter for this query)
+      const students = await this.fetchAllStudents(
+        `institution_id, status, institutions!inner(id, name)`,
+        {
+          ...filters,
+          institutionId: undefined // Exclude institution filter for this specific query
+        }
+      );
 
       const totalStudents = students?.length || 0;
 
@@ -1019,27 +1052,11 @@ export class StudentService {
   // Get department statistics
   private static async getDepartmentStats(filters?: any) {
     try {
-      let query = this.supabase.from('students').select(`
-          department_id,
-          departments!inner(id, department_name),
-          institutions!inner(name)
-        `);
-
-      // Apply filters
-      if (filters?.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-      if (filters?.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-      if (filters?.dateRange?.from && filters?.dateRange?.to) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
-
-      const { data: students, error } = await query;
-      if (error) throw error;
+      // Fetch all students using the helper method
+      const students = await this.fetchAllStudents(
+        `department_id, departments!inner(id, department_name), institutions!inner(name)`,
+        filters
+      );
 
       const totalStudents = students?.length || 0;
 
@@ -1081,27 +1098,11 @@ export class StudentService {
   // Get program statistics
   private static async getProgramStats(filters?: any) {
     try {
-      let query = this.supabase.from('students').select(`
-          program_id,
-          programs!inner(id, program_name),
-          departments!inner(department_name)
-        `);
-
-      // Apply filters
-      if (filters?.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-      if (filters?.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-      if (filters?.dateRange?.from && filters?.dateRange?.to) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
-
-      const { data: students, error } = await query;
-      if (error) throw error;
+      // Fetch all students using the helper method
+      const students = await this.fetchAllStudents(
+        `program_id, programs!inner(id, program_name), departments!inner(department_name)`,
+        filters
+      );
 
       const totalStudents = students?.length || 0;
 
@@ -1143,29 +1144,11 @@ export class StudentService {
   // Get semester statistics
   private static async getSemesterStats(filters?: any) {
     try {
-      let query = this.supabase.from('students').select(`
-          semester_id,
-          semesters!inner(id, semester_name)
-        `);
-
-      // Apply filters
-      if (filters?.institutionId) {
-        query = query.eq('institution_id', filters.institutionId);
-      }
-      if (filters?.departmentId) {
-        query = query.eq('department_id', filters.departmentId);
-      }
-      if (filters?.programId) {
-        query = query.eq('program_id', filters.programId);
-      }
-      if (filters?.dateRange?.from && filters?.dateRange?.to) {
-        query = query
-          .gte('created_at', filters.dateRange.from.toISOString())
-          .lte('created_at', filters.dateRange.to.toISOString());
-      }
-
-      const { data: students, error } = await query;
-      if (error) throw error;
+      // Fetch all students using the helper method
+      const students = await this.fetchAllStudents(
+        `semester_id, semesters!inner(id, semester_name)`,
+        filters
+      );
 
       const totalStudents = students?.length || 0;
 
@@ -1203,11 +1186,13 @@ export class StudentService {
   // Get section statistics
   private static async getSectionStats(filters?: any) {
     try {
-      let query = this.supabase.from('students').select(`
+      let query = this.supabase.from('students').select(
+        `
           section_id,
           sections!inner(id, section_name),
           semesters!inner(semester_name)
-        `);
+        `
+      );
 
       // Apply filters
       if (filters?.institutionId) {
@@ -1468,7 +1453,8 @@ export class StudentService {
   // Get onboarding statistics
   private static async getOnboardingStats(filters?: any) {
     try {
-      let query = this.supabase.from('students').select(`
+      let query = this.supabase.from('students').select(
+        `
           roll_number,
           college_email,
           student_photo_url,
@@ -1478,7 +1464,8 @@ export class StudentService {
           is_profile_complete,
           created_at,
           updated_at
-        `);
+        `
+      );
 
       // Apply filters
       if (filters?.institutionId) {

@@ -336,7 +336,6 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={isEditing}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -370,7 +369,7 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={!watchedInstitutionId || isEditing}
+                    disabled={!watchedInstitutionId}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -403,7 +402,7 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={!watchedDegreeId || isEditing}
+                    disabled={!watchedDegreeId}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -435,7 +434,7 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={!watchedDepartmentId || isEditing}
+                    disabled={!watchedDepartmentId}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -466,7 +465,7 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={!watchedProgramId || isEditing}
+                    disabled={!watchedProgramId}
                   >
                     <FormControl>
                       <SelectTrigger>

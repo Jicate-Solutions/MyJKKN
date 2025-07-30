@@ -105,6 +105,7 @@ export const columns: ColumnDef<Degree>[] = [
   },
   {
     id: 'actions',
+    header: 'Actions',
     cell: ({ row }) => (
       <DataTableRowActions
         row={row}

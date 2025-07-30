@@ -10,8 +10,13 @@ export const semestersSearchParamsSchema = z.object({
   sortBy: z.string().optional(),
   sortOrder: z.enum(['asc', 'desc']).optional(),
 
-  // Custom filters for semesters
+  // Hierarchical filters for organizational structure
+  institution_id: z.string().optional(),
+  degree_id: z.string().optional(),
+  department_id: z.string().optional(),
   program_id: z.string().optional(),
+
+  // Custom filters for semesters
   semester_type: z.enum(['odd', 'even']).optional(),
   status: z.enum(['active', 'inactive']).optional(),
 

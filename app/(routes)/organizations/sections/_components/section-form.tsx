@@ -505,7 +505,9 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
-                      disabled={!isSuperAdmin || loadingInstitutions}
+                      disabled={
+                        !isSuperAdmin || loadingInstitutions || isEditing
+                      }
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -558,7 +560,11 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
-                      disabled={!form.watch('institution_id') || loadingDegrees}
+                      disabled={
+                        !form.watch('institution_id') ||
+                        loadingDegrees ||
+                        isEditing
+                      }
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -603,7 +609,11 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
-                      disabled={!form.watch('degree_id') || loadingDepartments}
+                      disabled={
+                        !form.watch('degree_id') ||
+                        loadingDepartments ||
+                        isEditing
+                      }
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -649,7 +659,11 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
-                      disabled={!form.watch('department_id') || loadingPrograms}
+                      disabled={
+                        !form.watch('department_id') ||
+                        loadingPrograms ||
+                        isEditing
+                      }
                     >
                       <FormControl>
                         <SelectTrigger>
