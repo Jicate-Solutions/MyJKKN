@@ -133,10 +133,11 @@ export default function AttendancePage() {
   const { institutions, refetch: fetchInstitutions } =
     useInstitutionsWithAccess({});
 
-  const { academicYears, fetchAcademicYears } = useAcademicYears({
-    institution_id: searchContext.institution_id || undefined,
-    isActive: true
-  });
+  const { academicYears, fetchAcademicYears, refetchWithCurrentFilters } =
+    useAcademicYears({
+      institution_id: searchContext.institution_id || undefined,
+      isActive: true
+    });
 
   const { data: degreesData, refetch: fetchDegrees } = useDegrees({
     institution_id: searchContext.institution_id || undefined,
@@ -227,7 +228,12 @@ export default function AttendancePage() {
     fetchInstitutions();
     // Set default date to today if not set
     if (!searchContext.attendance_date) {
-      const today = new Date().toISOString().split('T')[0];
+      // Get today's date in local timezone
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const today = `${year}-${month}-${day}`;
       updateSearchContext({ attendance_date: today });
     }
 
@@ -251,9 +257,12 @@ export default function AttendancePage() {
   // Load dependent data when filters change
   useEffect(() => {
     if (searchContext.institution_id) {
-      fetchAcademicYears();
+      refetchWithCurrentFilters({
+        institution_id: searchContext.institution_id,
+        isActive: true
+      });
     }
-  }, [searchContext.institution_id, fetchAcademicYears]);
+  }, [searchContext.institution_id, refetchWithCurrentFilters]);
 
   useEffect(() => {
     if (searchContext.institution_id && searchContext.academic_year_id) {
@@ -469,7 +478,13 @@ export default function AttendancePage() {
         department_id: null,
         semester_id: null,
         section_id: null,
-        attendance_date: new Date().toISOString().split('T')[0]
+        attendance_date: (() => {
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = String(now.getMonth() + 1).padStart(2, '0');
+          const day = String(now.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        })()
       };
 
       // Update context
