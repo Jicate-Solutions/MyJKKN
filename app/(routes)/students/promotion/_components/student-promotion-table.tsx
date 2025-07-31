@@ -9,7 +9,8 @@ import {
   ArrowUp,
   MoreVertical,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  X
 } from 'lucide-react';
 import { Student } from '@/types/student';
 import { Button } from '@/components/ui/button';
@@ -60,6 +61,7 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
+import { Progress } from '@/components/ui/progress';
 
 interface StudentPromotionTableProps {
   students: Student[];
@@ -76,7 +78,8 @@ interface StudentPromotionTableProps {
     studentIds: string[],
     semesterId: string,
     sectionId: string,
-    departmentId?: string
+    departmentId?: string,
+    onProgress?: (progress: number, success: string[], failed: { id: string; error: string }[]) => void
   ) => Promise<boolean>;
 }
 
@@ -114,6 +117,19 @@ export function StudentPromotionTable({
     semesterName: string;
     sectionName: string;
   } | null>(null);
+  
+  // Progress tracking states
+  const [showProgressDialog, setShowProgressDialog] = useState(false);
+  const [promotionProgress, setPromotionProgress] = useState(0);
+  const [promotionResults, setPromotionResults] = useState<{
+    success: string[];
+    failed: { id: string; error: string }[];
+    total: number;
+  }>({
+    success: [],
+    failed: [],
+    total: 0
+  });
 
   // State for departments, semesters and sections
   const [departments, setDepartments] = useState<
@@ -319,12 +335,32 @@ export function StudentPromotionTable({
         ? [singleStudentId]
         : currentDialogStudents.map((s) => s.id);
 
-      // Call the bulk promote function with optional department
+      // Initialize progress tracking
+      setPromotionResults({
+        success: [],
+        failed: [],
+        total: studentsToPromote.length
+      });
+      setPromotionProgress(0);
+      
+      // Hide confirmation dialog and show progress dialog
+      setShowConfirmationDialog(false);
+      setShowProgressDialog(true);
+
+      // Call the bulk promote function with optional department and progress callback
       const success = await onBulkPromote(
         studentsToPromote,
         pendingPromotionData.semester_id,
         pendingPromotionData.section_id,
-        pendingPromotionData.department_id
+        pendingPromotionData.department_id,
+        (progress, successList, failedList) => {
+          setPromotionProgress(progress);
+          setPromotionResults({
+            success: successList,
+            failed: failedList,
+            total: studentsToPromote.length
+          });
+        }
       );
 
       if (success) {
@@ -333,13 +369,6 @@ export function StudentPromotionTable({
             studentsToPromote.length > 1 ? 's' : ''
           }`
         );
-
-        // Reset all states
-        setShowConfirmationDialog(false);
-        setBulkPromotionStudents([]);
-        setCurrentDialogStudents([]);
-        setSingleStudentId(null);
-        setPendingPromotionData(null);
       }
     } catch (error) {
       console.error('Error promoting students:', error);
@@ -354,6 +383,22 @@ export function StudentPromotionTable({
     setShowConfirmationDialog(false);
     setShowPromotionDialog(true); // Go back to form dialog
     setPendingPromotionData(null);
+  };
+
+  // Handle closing progress dialog
+  const handleCloseProgressDialog = () => {
+    setShowProgressDialog(false);
+    // Reset all states
+    setBulkPromotionStudents([]);
+    setCurrentDialogStudents([]);
+    setSingleStudentId(null);
+    setPendingPromotionData(null);
+    setPromotionProgress(0);
+    setPromotionResults({
+      success: [],
+      failed: [],
+      total: 0
+    });
   };
 
   // Handle bulk promotion using the new bulk action system
@@ -802,6 +847,104 @@ export function StudentPromotionTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Progress Dialog */}
+      <Dialog
+        open={showProgressDialog}
+        onOpenChange={(open) => {
+          // Only allow closing if promotion is complete
+          if (!open && !isPromoting) {
+            handleCloseProgressDialog();
+          }
+        }}
+      >
+        <DialogContent className='sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle className='flex items-center justify-between'>
+              <span>Promotion Progress</span>
+              {!isPromoting && (
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  onClick={handleCloseProgressDialog}
+                  className='h-6 w-6 p-0'
+                >
+                  <X className='h-4 w-4' />
+                </Button>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {isPromoting 
+                ? 'Promoting students to their new assignments...' 
+                : 'Promotion complete!'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='space-y-4 py-4'>
+            {/* Progress Bar */}
+            <div className='space-y-2'>
+              <div className='flex justify-between text-sm'>
+                <span>Progress</span>
+                <span>{Math.round(promotionProgress)}%</span>
+              </div>
+              <Progress value={promotionProgress} className='h-2' />
+            </div>
+
+            {/* Status Summary */}
+            <div className='grid grid-cols-2 gap-4 text-sm'>
+              <div className='space-y-1'>
+                <div className='flex items-center gap-2'>
+                  <CheckCircle className='h-4 w-4 text-green-600' />
+                  <span className='font-medium'>Successful</span>
+                </div>
+                <p className='text-2xl font-bold text-green-600'>
+                  {promotionResults.success.length}
+                </p>
+              </div>
+              <div className='space-y-1'>
+                <div className='flex items-center gap-2'>
+                  <X className='h-4 w-4 text-red-600' />
+                  <span className='font-medium'>Failed</span>
+                </div>
+                <p className='text-2xl font-bold text-red-600'>
+                  {promotionResults.failed.length}
+                </p>
+              </div>
+            </div>
+
+            {/* Current Status */}
+            <div className='text-sm text-muted-foreground'>
+              <p>
+                Processing {promotionResults.success.length + promotionResults.failed.length} of {promotionResults.total} students
+              </p>
+            </div>
+
+            {/* Error Details (if any) */}
+            {promotionResults.failed.length > 0 && !isPromoting && (
+              <div className='mt-4 p-3 bg-red-50 border border-red-200 rounded-lg'>
+                <h4 className='font-medium text-red-800 text-sm mb-2'>
+                  Failed Promotions ({promotionResults.failed.length})
+                </h4>
+                <div className='max-h-32 overflow-y-auto space-y-1'>
+                  {promotionResults.failed.map((failure, index) => (
+                    <p key={index} className='text-xs text-red-700'>
+                      Student ID {failure.id}: {failure.error}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {!isPromoting && (
+            <DialogFooter>
+              <Button onClick={handleCloseProgressDialog} className='w-full'>
+                Done
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
