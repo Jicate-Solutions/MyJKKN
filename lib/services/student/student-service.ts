@@ -1747,4 +1747,141 @@ export class StudentService {
 
     return { success, failed };
   }
+
+  static async bulkPromoteStudents(
+    studentIds: string[],
+    semesterId: string,
+    sectionId: string,
+    departmentId?: string
+  ): Promise<{
+    success: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const success: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    try {
+      // Validate that all student IDs exist
+      const { data: existingStudents, error: studentsError } = await this.supabase
+        .from('students')
+        .select('id, student_name')
+        .in('id', studentIds);
+
+      if (studentsError) {
+        throw new Error(`Failed to validate students: ${studentsError.message}`);
+      }
+
+      if (!existingStudents || existingStudents.length !== studentIds.length) {
+        const foundIds = existingStudents?.map(s => s.id) || [];
+        const missingIds = studentIds.filter(id => !foundIds.includes(id));
+        throw new Error(`Some students not found: ${missingIds.join(', ')}`);
+      }
+
+      // First, get the semester details to ensure hierarchy consistency
+      const { data: semester, error: semesterError } = await this.supabase
+        .from('semesters')
+        .select('program_id, department_id, institution_id')
+        .eq('id', semesterId)
+        .single();
+
+      if (semesterError || !semester) {
+        throw new Error(`Invalid semester ID: ${semesterId}`);
+      }
+
+      // Validate that the section belongs to the same semester and institution
+      const { data: section, error: sectionError } = await this.supabase
+        .from('sections')
+        .select('id, institution_id, department_id, program_id, semester_id')
+        .eq('id', sectionId)
+        .single();
+
+      if (sectionError || !section) {
+        throw new Error(`Invalid section ID: ${sectionId}`);
+      }
+
+      // Validate section-semester consistency
+      if (section.semester_id !== semesterId) {
+        throw new Error(`Section ${sectionId} does not belong to semester ${semesterId}`);
+      }
+
+      if (section.institution_id !== semester.institution_id) {
+        throw new Error(`Section ${sectionId} does not belong to the same institution as semester ${semesterId}`);
+      }
+
+      // Validate department if provided
+      let finalDepartmentId = semester.department_id;
+      if (departmentId && departmentId !== semester.department_id) {
+        const { data: department, error: departmentError } = await this.supabase
+          .from('departments')
+          .select('id, institution_id')
+          .eq('id', departmentId)
+          .single();
+
+        if (departmentError || !department) {
+          throw new Error(`Invalid department ID: ${departmentId}`);
+        }
+
+        if (department.institution_id !== semester.institution_id) {
+          throw new Error(`Department ${departmentId} does not belong to the same institution as semester ${semesterId}`);
+        }
+
+        finalDepartmentId = departmentId;
+      }
+
+      // Build update payload with hierarchy-consistent values
+      const updatePayload: any = {
+        semester_id: semesterId,
+        section_id: sectionId,
+        program_id: semester.program_id,
+        department_id: finalDepartmentId,
+        institution_id: semester.institution_id,
+        updated_at: new Date().toISOString(),
+        updated_by: (await this.supabase.auth.getUser()).data.user?.id
+      };
+
+      // Process in chunks to avoid overwhelming the server
+      const chunkSize = 50;
+      for (let i = 0; i < studentIds.length; i += chunkSize) {
+        const chunk = studentIds.slice(i, i + chunkSize);
+        try {
+          const { error, data } = await this.supabase
+            .from('students')
+            .update(updatePayload)
+            .in('id', chunk)
+            .select('id');
+
+          if (error) {
+            throw new Error(
+              `Failed to promote students in chunk ${i / chunkSize + 1}: ${
+                error.message
+              }`
+            );
+          }
+
+          // Log successful updates for debugging
+          console.log(`Successfully updated ${data?.length || 0} students in chunk ${i / chunkSize + 1}`);
+          success.push(...chunk);
+        } catch (error) {
+          console.error('Error in bulk promotion chunk:', error);
+          chunk.forEach((id) => {
+            failed.push({
+              id,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          });
+        }
+      }
+
+      return { success, failed };
+    } catch (error) {
+      console.error('Error in bulk promotion:', error);
+      studentIds.forEach((id) => {
+        failed.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      });
+      return { success, failed };
+    }
+  }
 }

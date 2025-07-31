@@ -12,11 +12,12 @@ import { StudentPromotionTable } from './_components/student-promotion-table';
 import { StudentFilters } from '@/types/student';
 import { BeatLoader } from 'react-spinners';
 import { Users, Search, AlertCircle } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { StudentService } from '@/lib/services/student/student-service';
 import { toast } from 'sonner';
 
 export default function StudentPromotionPage() {
+  const queryClient = useQueryClient();
   const [hasSearched, setHasSearched] = useState(false);
   const [filters, setFilters] = useState<StudentFilters>({
     page: 1,
@@ -81,6 +82,14 @@ export default function StudentPromotionPage() {
     setFilters((prevFilters) => ({ ...prevFilters, page: newPage }));
   };
 
+  const handlePageSizeChange = (newPageSize: number) => {
+    setFilters((prevFilters) => ({
+      ...prevFilters,
+      limit: newPageSize,
+      page: 1 // Reset to first page when changing page size
+    }));
+  };
+
   const bulkPromoteStudents = async (
     studentIds: string[],
     semesterId: string,
@@ -88,19 +97,33 @@ export default function StudentPromotionPage() {
     departmentId?: string
   ): Promise<boolean> => {
     try {
-      // NOTE: StudentService.bulkPromoteStudents does not exist.
-      // This is a placeholder implementation.
-      console.log('Promoting students:', {
+      const result = await StudentService.bulkPromoteStudents(
         studentIds,
         semesterId,
         sectionId,
         departmentId
-      });
-      toast.success(
-        `Successfully promoted ${studentIds.length} student(s). (This is a simulation)`
       );
-      await refetch();
-      return true;
+
+      if (result.success.length > 0) {
+        toast.success(
+          `Successfully promoted ${result.success.length} student(s)`
+        );
+
+        if (result.failed.length > 0) {
+          toast.error(
+            `Failed to promote ${result.failed.length} student(s). Check console for details.`
+          );
+          console.error('Failed promotions:', result.failed);
+        }
+
+        // Invalidate all student-related queries to ensure fresh data
+        await queryClient.invalidateQueries({ queryKey: ['students'] });
+        await refetch();
+        return true;
+      } else {
+        toast.error('No students were promoted successfully.');
+        return false;
+      }
     } catch (e) {
       toast.error('Failed to promote students.');
       console.error(e);
@@ -249,6 +272,7 @@ export default function StudentPromotionPage() {
                   students={students}
                   metadata={metadata}
                   onPageChange={changePage}
+                  onPageSizeChange={handlePageSizeChange}
                   canEdit={canEditStudents}
                   onBulkPromote={bulkPromoteStudents}
                 />

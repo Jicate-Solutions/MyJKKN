@@ -70,6 +70,7 @@ interface StudentPromotionTableProps {
     totalPages: number;
   };
   onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
   canEdit: boolean;
   onBulkPromote: (
     studentIds: string[],
@@ -91,6 +92,7 @@ export function StudentPromotionTable({
   students,
   metadata,
   onPageChange,
+  onPageSizeChange,
   canEdit,
   onBulkPromote
 }: StudentPromotionTableProps) {
@@ -479,9 +481,7 @@ export function StudentPromotionTable({
     hasNextPage: metadata.page < metadata.totalPages,
     hasPreviousPage: metadata.page > 1,
     onPageChange: onPageChange,
-    onPageSizeChange: () => {
-      // Page size change is handled by the parent component through filters
-    },
+    onPageSizeChange: onPageSizeChange,
     isLoading: false
   };
 
