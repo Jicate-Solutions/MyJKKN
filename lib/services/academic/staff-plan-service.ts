@@ -18,27 +18,64 @@ export class StaffPlanService {
     try {
       const { courses, ...staffPlanData } = data;
 
-      // Start a transaction
-      const { data: staffPlan, error: planError } = await this.supabase
+      // Check if a staff plan already exists for this semester hierarchy
+      const { data: existingPlans, error: checkError } = await this.supabase
         .from('staff_plans')
-        .insert([
-          {
-            ...staffPlanData,
-            institution_id: staffPlanData.institution_id,
-            degree_id: staffPlanData.degree_id,
-            program_id: staffPlanData.program_id,
-            department_id: staffPlanData.department_id,
-            semester_id: staffPlanData.semester_id,
-            academic_year_id: staffPlanData.academic_year_id,
-            start_date: staffPlanData.start_date,
-            end_date: staffPlanData.end_date,
-            is_active: staffPlanData.is_active
-          }
-        ])
-        .select()
-        .single();
+        .select('id, is_active, end_date')
+        .eq('institution_id', staffPlanData.institution_id)
+        .eq('program_id', staffPlanData.program_id)
+        .eq('semester_id', staffPlanData.semester_id)
+        .eq('academic_year_id', staffPlanData.academic_year_id);
 
-      if (planError) throw planError;
+      if (checkError) throw checkError;
+
+      let staffPlan: any;
+
+      if (existingPlans && existingPlans.length > 0) {
+        // Update existing plan instead of creating duplicate
+        const primaryPlan = existingPlans[0];
+
+        const { data: updatedPlan, error: updateError } = await this.supabase
+          .from('staff_plans')
+          .update({
+            end_date: staffPlanData.end_date,
+            is_active: staffPlanData.is_active,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', primaryPlan.id)
+          .select()
+          .single();
+
+        if (updateError) throw updateError;
+        staffPlan = updatedPlan;
+
+        console.log(
+          `Updated existing staff plan ${primaryPlan.id} instead of creating duplicate`
+        );
+      } else {
+        // Create new staff plan
+        const { data: newPlan, error: planError } = await this.supabase
+          .from('staff_plans')
+          .insert([
+            {
+              ...staffPlanData,
+              institution_id: staffPlanData.institution_id,
+              degree_id: staffPlanData.degree_id,
+              program_id: staffPlanData.program_id,
+              department_id: staffPlanData.department_id,
+              semester_id: staffPlanData.semester_id,
+              academic_year_id: staffPlanData.academic_year_id,
+              start_date: staffPlanData.start_date,
+              end_date: staffPlanData.end_date,
+              is_active: staffPlanData.is_active
+            }
+          ])
+          .select()
+          .single();
+
+        if (planError) throw planError;
+        staffPlan = newPlan;
+      }
 
       // Insert course assignments if courses exist and is not empty
       if (courses.length > 0) {
@@ -47,21 +84,76 @@ export class StaffPlanService {
           ...course
         }));
 
+        // Use upsert to handle potential duplicates
         const { error: coursesError } = await this.supabase
           .from('staff_plan_courses')
-          .insert(courseAssignments);
+          .upsert(courseAssignments, {
+            onConflict: 'staff_id,course_id,staff_plan_id',
+            ignoreDuplicates: false
+          });
 
         if (coursesError) throw coursesError;
       }
 
       return staffPlan;
     } catch (error) {
-      console.error('Error creating staff plan:', error);
+      console.error('Error creating/updating staff plan:', error);
       throw error;
     }
   }
 
   static async getStaffPlans(
+    filters: StaffPlanFilters = {}
+  ): Promise<StaffPlanListResponse> {
+    try {
+      // Get consolidated staff plans by grouping duplicates
+      const { data: rawPlans, error } = await this.supabase.rpc(
+        'get_consolidated_staff_plans',
+        {
+          p_institution_id: filters.institution_id || null,
+          p_degree_id: filters.degree_id || null,
+          p_department_id: filters.department_id || null,
+          p_program_id: filters.program_id || null,
+          p_semester_id: filters.semester_id || null,
+          p_academic_year_id: filters.academic_year_id || null,
+          p_is_active: filters.isActive,
+          p_search: filters.search || null,
+          p_page: filters.page || 1,
+          p_limit: filters.limit || 10
+        }
+      );
+
+      if (error) {
+        console.warn(
+          'Consolidated RPC failed, falling back to original method:',
+          error
+        );
+        return this.getStaffPlansOriginal(filters);
+      }
+
+      const page = filters.page || 1;
+      const limit = filters.limit || 10;
+
+      return {
+        data: rawPlans?.data || [],
+        metadata: {
+          total: rawPlans?.total_count || 0,
+          page,
+          limit,
+          totalPages: rawPlans?.total_count
+            ? Math.ceil(rawPlans.total_count / limit)
+            : 0
+        }
+      };
+    } catch (error) {
+      console.error('Error fetching consolidated staff plans:', error);
+      // Fallback to original method
+      return this.getStaffPlansOriginal(filters);
+    }
+  }
+
+  // Fallback method - original implementation
+  private static async getStaffPlansOriginal(
     filters: StaffPlanFilters = {}
   ): Promise<StaffPlanListResponse> {
     try {
@@ -127,8 +219,6 @@ export class StaffPlanService {
 
       // Apply text search across relevant fields
       if (filters.search) {
-        // Use textSearch or ilike on the main table fields, and handle related table search client-side
-        // For now, let's search by the main table fields and handle complex search on the client side
         query = query.or(`
           institution.name.ilike.%${filters.search}%,
           degree.degree_name.ilike.%${filters.search}%,
@@ -151,8 +241,13 @@ export class StaffPlanService {
 
       if (error) throw error;
 
+      // Group duplicate plans and aggregate their course data
+      const consolidatedPlans = await this.consolidateDuplicatePlans(
+        plans || []
+      );
+
       return {
-        data: plans || [],
+        data: consolidatedPlans,
         metadata: {
           total: count || 0,
           page,
@@ -164,6 +259,75 @@ export class StaffPlanService {
       console.error('Error fetching staff plans:', error);
       throw error;
     }
+  }
+
+  // Helper method to consolidate duplicate plans client-side with proper course/staff counts
+  private static async consolidateDuplicatePlans(plans: any[]): Promise<any[]> {
+    const consolidatedMap = new Map();
+
+    // Group plans by semester hierarchy
+    plans.forEach((plan) => {
+      const key = `${plan.institution_id}-${plan.program_id}-${plan.semester_id}-${plan.academic_year_id}`;
+
+      if (consolidatedMap.has(key)) {
+        const existing = consolidatedMap.get(key);
+        existing.plan_ids.push(plan.id);
+        existing.end_date =
+          new Date(existing.end_date) > new Date(plan.end_date)
+            ? existing.end_date
+            : plan.end_date;
+        existing.is_active = existing.is_active || plan.is_active;
+        existing.duplicate_count = existing.duplicate_count + 1;
+      } else {
+        consolidatedMap.set(key, {
+          ...plan,
+          plan_ids: [plan.id],
+          duplicate_count: 1,
+          consolidated_id: key
+        });
+      }
+    });
+
+    // Now fetch course data for each consolidated group
+    const consolidatedPlans = [];
+
+    for (const [key, consolidatedPlan] of consolidatedMap) {
+      try {
+        // Get all course assignments for all plans in this semester
+        const { data: allCourses, error: coursesError } = await this.supabase
+          .from('staff_plan_courses')
+          .select('course_id, staff_id')
+          .in('staff_plan_id', consolidatedPlan.plan_ids);
+
+        if (coursesError) {
+          console.warn(
+            'Error fetching courses for consolidation:',
+            coursesError
+          );
+          // Use fallback counts
+          consolidatedPlan.course_count = consolidatedPlan.duplicate_count;
+          consolidatedPlan.total_staff = consolidatedPlan.duplicate_count;
+        } else {
+          // Calculate actual unique course and staff counts
+          const uniqueCourses = new Set(
+            allCourses?.map((c) => c.course_id) || []
+          );
+          const uniqueStaff = new Set(allCourses?.map((c) => c.staff_id) || []);
+
+          consolidatedPlan.course_count = uniqueCourses.size;
+          consolidatedPlan.total_staff = uniqueStaff.size;
+        }
+      } catch (error) {
+        console.warn('Error in consolidation:', error);
+        // Use fallback counts
+        consolidatedPlan.course_count = consolidatedPlan.duplicate_count;
+        consolidatedPlan.total_staff = consolidatedPlan.duplicate_count;
+      }
+
+      consolidatedPlans.push(consolidatedPlan);
+    }
+
+    return consolidatedPlans;
   }
 
   /**
@@ -395,6 +559,128 @@ export class StaffPlanService {
       };
     } catch (error) {
       console.error('Error fetching staff plan:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get consolidated staff plan details for a semester hierarchy
+   * This method aggregates all staff plans for the same semester and returns
+   * a unified view with all courses and staff assignments
+   */
+  static async getConsolidatedStaffPlan(
+    institutionId: string,
+    programId: string,
+    semesterId: string,
+    academicYearId: string
+  ): Promise<
+    StaffPlan & {
+      total_courses: number;
+      total_staff: number;
+      all_courses: StaffPlanCourse[];
+    }
+  > {
+    try {
+      // Get all staff plans for this semester hierarchy
+      const { data: staffPlans, error: plansError } = await this.supabase
+        .from('staff_plans')
+        .select(
+          `
+          *,
+          institution:institutions (
+            id,
+            name
+          ),
+          degree:degrees (
+            id,
+            degree_name
+          ),
+          program:programs (
+            id,
+            program_name
+          ),
+          department:departments (
+            id,
+            department_name
+          ),
+          semester:semesters (
+            id,
+            semester_name
+          ),
+          academic_year:academic_years (
+            id,
+            academic_year_name
+          )
+        `
+        )
+        .eq('institution_id', institutionId)
+        .eq('program_id', programId)
+        .eq('semester_id', semesterId)
+        .eq('academic_year_id', academicYearId)
+        .order('created_at', { ascending: true });
+
+      if (plansError) throw plansError;
+
+      if (!staffPlans || staffPlans.length === 0) {
+        throw new Error('No staff plans found for this semester');
+      }
+
+      // Use the earliest created plan as the primary plan
+      const primaryPlan = staffPlans[0];
+      const allPlanIds = staffPlans.map((plan) => plan.id);
+
+      // Get all course assignments for all plans in this semester
+      const { data: allCourses, error: coursesError } = await this.supabase
+        .from('staff_plan_courses')
+        .select(
+          `
+          *,
+          course:courses (
+            id,
+            course_name,
+            course_code
+          ),
+          staff:staff (
+            id,
+            first_name,
+            last_name,
+            staff_id
+          )
+        `
+        )
+        .in('staff_plan_id', allPlanIds);
+
+      if (coursesError) throw coursesError;
+
+      // Calculate consolidated metrics
+      const uniqueCourses = new Set(allCourses?.map((c) => c.course_id) || []);
+      const uniqueStaff = new Set(allCourses?.map((c) => c.staff_id) || []);
+
+      // Consolidate plan data (use latest end_date and any active status)
+      const consolidatedPlan = {
+        ...primaryPlan,
+        end_date: staffPlans.reduce(
+          (latest, plan) =>
+            new Date(plan.end_date) > new Date(latest) ? plan.end_date : latest,
+          primaryPlan.end_date
+        ),
+        is_active: staffPlans.some((plan) => plan.is_active),
+        updated_at: staffPlans.reduce(
+          (latest, plan) =>
+            new Date(plan.updated_at) > new Date(latest)
+              ? plan.updated_at
+              : latest,
+          primaryPlan.updated_at
+        ),
+        total_courses: uniqueCourses.size,
+        total_staff: uniqueStaff.size,
+        all_courses: allCourses || [],
+        courses: allCourses || [] // For backward compatibility
+      };
+
+      return consolidatedPlan;
+    } catch (error) {
+      console.error('Error fetching consolidated staff plan:', error);
       throw error;
     }
   }

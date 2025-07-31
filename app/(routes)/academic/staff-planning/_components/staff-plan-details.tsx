@@ -51,24 +51,37 @@ export function StaffPlanDetailsPage({
       try {
         setLoading(true);
 
-        // Load staff plan data
+        // First try to load individual staff plan
         try {
           const planData = await StaffPlanService.getStaffPlan(id);
           setStaffPlan(planData);
+
+          // Try to load consolidated view for this semester
+          try {
+            const consolidatedData =
+              await StaffPlanService.getConsolidatedStaffPlan(
+                planData.institution_id,
+                planData.program_id,
+                planData.semester_id,
+                planData.academic_year_id
+              );
+
+            // Use consolidated data if available
+            setStaffPlan(consolidatedData);
+            setCourses(consolidatedData.all_courses);
+          } catch (consolidatedError) {
+            console.log(
+              'Consolidated view not available, using individual plan'
+            );
+            // Fallback to individual course data
+            const coursesData = await StaffPlanService.getStaffPlanCourses(id);
+            setCourses(coursesData);
+          }
         } catch (planError) {
           console.error('Error loading staff plan:', planError);
           setError('Failed to load staff plan details');
           setLoading(false);
           return;
-        }
-
-        // Load course data separately, so page can still load if this fails
-        try {
-          const coursesData = await StaffPlanService.getStaffPlanCourses(id);
-          setCourses(coursesData);
-        } catch (coursesError) {
-          console.error('Error loading course assignments:', coursesError);
-          // Don't set the main error state, just show empty courses
         }
       } catch (error) {
         console.error('Error loading staff plan:', error);
@@ -138,10 +151,19 @@ export function StaffPlanDetailsPage({
       <div className='space-y-6 mt-4'>
         <div className='flex justify-between items-start'>
           <div>
-            <h1 className='text-2xl font-bold'>Staff Plan Details</h1>
+            <h1 className='text-2xl font-bold'>
+              {staffPlan.total_courses ? 'Consolidated ' : ''}Staff Plan Details
+            </h1>
             <p className='text-muted-foreground'>
-              View staff plan details and course assignments
+              {staffPlan.total_courses
+                ? `Complete semester view with ${staffPlan.total_courses} courses and ${staffPlan.total_staff} staff assignments`
+                : 'View staff plan details and course assignments'}
             </p>
+            {staffPlan.total_courses && (
+              <Badge variant='secondary' className='mt-2'>
+                Consolidated View
+              </Badge>
+            )}
           </div>
           {canEdit ? (
             <Button asChild>
@@ -215,59 +237,94 @@ export function StaffPlanDetailsPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Course Assignments</CardTitle>
+            <CardTitle>
+              Course Assignments
+              {staffPlan.total_courses && (
+                <Badge variant='outline' className='ml-2'>
+                  {staffPlan.total_courses} courses
+                </Badge>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Course</TableHead>
-                  <TableHead>Staff Member</TableHead>
-                  <TableHead>Staff Type</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {courses.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className='text-center text-muted-foreground h-24'
-                    >
-                      No course assignments found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  courses.map((course) => (
-                    <TableRow key={course.id}>
-                      <TableCell>
-                        <div>
-                          <p className='font-medium'>
-                            {course.course?.course_name}
-                          </p>
-                          <p className='text-sm text-muted-foreground'>
-                            {course.course?.course_code}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {course.staff?.first_name} {course.staff?.last_name}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant='outline'>
-                          {course.staff_type
-                            .split('_')
-                            .map(
-                              (word) =>
-                                word.charAt(0).toUpperCase() + word.slice(1)
-                            )
-                            .join(' ')}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+            {courses.length === 0 ? (
+              <div className='text-center text-muted-foreground h-24 flex items-center justify-center'>
+                No course assignments found
+              </div>
+            ) : (
+              <div className='space-y-6'>
+                {(() => {
+                  // Group courses by course_id to show all staff for each course
+                  const groupedCourses = courses.reduce((acc, course) => {
+                    const courseId = course.course_id;
+                    if (!acc[courseId]) {
+                      acc[courseId] = {
+                        course: course.course,
+                        assignments: []
+                      };
+                    }
+                    acc[courseId].assignments.push(course);
+                    return acc;
+                  }, {} as Record<string, { course: any; assignments: any[] }>);
+
+                  return Object.entries(groupedCourses).map(
+                    ([courseId, data]) => (
+                      <Card
+                        key={courseId}
+                        className='border-l-4 border-l-primary/20'
+                      >
+                        <CardHeader className='pb-3'>
+                          <div className='flex items-center justify-between'>
+                            <div>
+                              <CardTitle className='text-lg'>
+                                {data.course?.course_name || 'Unknown Course'}
+                              </CardTitle>
+                              <p className='text-sm text-muted-foreground'>
+                                {data.course?.course_code || 'No code'} •{' '}
+                                {data.assignments.length} staff assigned
+                              </p>
+                            </div>
+                            <Badge variant='secondary'>
+                              {data.assignments.length} staff
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className='pt-0'>
+                          <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+                            {data.assignments.map((assignment) => (
+                              <div
+                                key={assignment.id}
+                                className='flex items-center justify-between p-3 bg-muted/50 rounded-lg'
+                              >
+                                <div>
+                                  <p className='font-medium text-sm'>
+                                    {assignment.staff?.first_name}{' '}
+                                    {assignment.staff?.last_name}
+                                  </p>
+                                  <p className='text-xs text-muted-foreground'>
+                                    {assignment.staff?.staff_id || 'No ID'}
+                                  </p>
+                                </div>
+                                <Badge variant='outline' className='text-xs'>
+                                  {assignment.staff_type
+                                    .split('_')
+                                    .map(
+                                      (word) =>
+                                        word.charAt(0).toUpperCase() +
+                                        word.slice(1)
+                                    )
+                                    .join(' ')}
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  );
+                })()}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
