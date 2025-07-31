@@ -442,6 +442,39 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     try {
       setIsSubmitting(true);
 
+      // Check for existing staff plan if creating new one
+      if (!isEditing) {
+        try {
+          const existingPlans = await StaffPlanService.getStaffPlans({
+            institution_id: values.institution_id,
+            program_id: values.program_id,
+            semester_id: values.semester_id,
+            academic_year_id: values.academic_year_id,
+            limit: 1
+          });
+
+          if (existingPlans.data && existingPlans.data.length > 0) {
+            const existing = existingPlans.data[0];
+            const confirmed = window.confirm(
+              `A staff plan already exists for this semester (${existing.institution?.name} - ${existing.program?.program_name} - ${existing.semester?.semester_name} - ${existing.academic_year?.academic_year_name}).\n\nWould you like to:\n- OK: Add courses to existing plan\n- Cancel: Go back and edit existing plan`
+            );
+
+            if (!confirmed) {
+              toast.info(
+                'Please edit the existing staff plan instead of creating a new one.'
+              );
+              router.push(`/academic/staff-planning/${existing.id}/edit`);
+              return;
+            } else {
+              toast.info('Adding courses to existing staff plan...');
+            }
+          }
+        } catch (checkError) {
+          console.warn('Could not check for existing plans:', checkError);
+          // Continue with creation if check fails
+        }
+      }
+
       // Flatten staff assignments back to the API format
       const flattenedCourses = values.courses.flatMap((course) =>
         course.staff_assignments.map((assignment) => ({
@@ -469,7 +502,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         toast.success('Staff plan updated successfully');
       } else {
         await StaffPlanService.createStaffPlan(apiPayload);
-        toast.success('Staff plan created successfully');
+        toast.success('Staff plan created/updated successfully');
       }
 
       router.push('/academic/staff-planning');

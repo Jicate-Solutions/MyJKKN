@@ -51,7 +51,7 @@ export const columns: ColumnDef<StaffPlan>[] = [
   {
     accessorKey: 'program.program_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program' />
+      <DataTableColumnHeader column={column} title='Program & Semester' />
     ),
     cell: ({ row }) => {
       const staffPlan = row.original;
@@ -61,6 +61,10 @@ export const columns: ColumnDef<StaffPlan>[] = [
             {staffPlan.program?.program_name || '-'}
           </div>
           <div className='text-sm text-muted-foreground'>
+            {staffPlan.semester?.semester_name || '-'} •{' '}
+            {staffPlan.academic_year?.academic_year_name || '-'}
+          </div>
+          <div className='text-xs text-muted-foreground'>
             {staffPlan.department?.department_name || '-'}
           </div>
         </div>
@@ -68,23 +72,61 @@ export const columns: ColumnDef<StaffPlan>[] = [
     }
   },
   {
-    accessorKey: 'semester.semester_name',
+    accessorKey: 'course_count',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Semester' />
+      <DataTableColumnHeader column={column} title='Courses' />
     ),
     cell: ({ row }) => {
       const staffPlan = row.original;
-      return staffPlan.semester?.semester_name || '-';
-    }
+      const courseCount = staffPlan.course_count || 0;
+      const duplicateCount = staffPlan.duplicate_count || 1;
+
+      return (
+        <div className='text-center'>
+          <div className='font-medium text-lg'>{courseCount}</div>
+          <div className='text-xs text-muted-foreground'>
+            {courseCount === 1 ? 'course' : 'courses'}
+          </div>
+          {duplicateCount > 1 && (
+            <div className='text-xs text-orange-600 mt-1'>
+              From {duplicateCount} plans
+            </div>
+          )}
+        </div>
+      );
+    },
+    size: 80,
+    minSize: 80,
+    maxSize: 100
   },
   {
-    accessorKey: 'academic_year.academic_year_name',
+    accessorKey: 'staff_summary',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Academic Year' />
+      <DataTableColumnHeader column={column} title='Staff Assigned' />
     ),
     cell: ({ row }) => {
       const staffPlan = row.original;
-      return staffPlan.academic_year?.academic_year_name || '-';
+      const staffCount = staffPlan.total_staff || 0;
+      const duplicateCount = staffPlan.duplicate_count || 1;
+
+      return (
+        <div>
+          <div className='font-medium'>
+            {staffCount} {staffCount === 1 ? 'staff member' : 'staff members'}
+          </div>
+          <div className='text-xs text-muted-foreground'>
+            {duplicateCount > 1 ? (
+              <Badge variant='secondary' className='text-xs'>
+                Consolidated from {duplicateCount} plans
+              </Badge>
+            ) : (
+              <span className='text-muted-foreground'>
+                {staffCount > 0 ? 'Assigned' : 'No assignments'}
+              </span>
+            )}
+          </div>
+        </div>
+      );
     }
   },
   {
