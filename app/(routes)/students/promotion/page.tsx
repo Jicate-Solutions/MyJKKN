@@ -94,14 +94,16 @@ export default function StudentPromotionPage() {
     studentIds: string[],
     semesterId: string,
     sectionId: string,
-    departmentId?: string
+    departmentId?: string,
+    onProgress?: (progress: number, success: string[], failed: { id: string; error: string }[]) => void
   ): Promise<boolean> => {
     try {
       const result = await StudentService.bulkPromoteStudents(
         studentIds,
         semesterId,
         sectionId,
-        departmentId
+        departmentId,
+        onProgress
       );
 
       if (result.success.length > 0) {

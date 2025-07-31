@@ -1752,7 +1752,8 @@ export class StudentService {
     studentIds: string[],
     semesterId: string,
     sectionId: string,
-    departmentId?: string
+    departmentId?: string,
+    onProgress?: (progress: number, success: string[], failed: { id: string; error: string }[]) => void
   ): Promise<{
     success: string[];
     failed: { id: string; error: string }[];
@@ -1842,6 +1843,8 @@ export class StudentService {
 
       // Process in chunks to avoid overwhelming the server
       const chunkSize = 50;
+      let processedCount = 0;
+      
       for (let i = 0; i < studentIds.length; i += chunkSize) {
         const chunk = studentIds.slice(i, i + chunkSize);
         try {
@@ -1862,6 +1865,7 @@ export class StudentService {
           // Log successful updates for debugging
           console.log(`Successfully updated ${data?.length || 0} students in chunk ${i / chunkSize + 1}`);
           success.push(...chunk);
+          processedCount += chunk.length;
         } catch (error) {
           console.error('Error in bulk promotion chunk:', error);
           chunk.forEach((id) => {
@@ -1870,6 +1874,13 @@ export class StudentService {
               error: error instanceof Error ? error.message : 'Unknown error'
             });
           });
+          processedCount += chunk.length;
+        }
+        
+        // Call progress callback
+        if (onProgress) {
+          const progress = (processedCount / studentIds.length) * 100;
+          onProgress(progress, [...success], [...failed]);
         }
       }
 
