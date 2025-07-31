@@ -83,6 +83,18 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
     [filters, fetchAcademicYears]
   );
 
+  // Add a method to refetch with current context filters
+  const refetchWithCurrentFilters = useCallback(
+    async (contextFilters?: Partial<AcademicYearFilters>) => {
+      const updatedFilters = {
+        ...filters,
+        ...contextFilters
+      };
+      await fetchAcademicYears(updatedFilters);
+    },
+    [filters, fetchAcademicYears]
+  );
+
   return {
     academicYears,
     loading,
@@ -91,7 +103,8 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
     filters,
     updateFilters,
     changePage,
-    fetchAcademicYears
+    fetchAcademicYears,
+    refetchWithCurrentFilters
   };
 }
 

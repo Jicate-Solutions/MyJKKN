@@ -1760,11 +1760,12 @@ export class StudentService {
     const success: string[] = [];
     const failed: { id: string; error: string }[] = [];
 
+
     try {
       // Validate that all student IDs exist
       const { data: existingStudents, error: studentsError } = await this.supabase
         .from('students')
-        .select('id, student_name')
+        .select('id, first_name, last_name')
         .in('id', studentIds);
 
       if (studentsError) {

@@ -125,6 +125,15 @@ export class AttendanceService {
       }
 
       // First, find the active timetable for the given filters that includes the selected date
+      console.log('Searching for timetable with date:', date);
+      console.log('Filters:', {
+        institution_id: filters.institution_id,
+        academic_year_id: filters.academic_year_id,
+        degree_id: filters.degree_id,
+        program_id: filters.program_id,
+        department_id: filters.department_id,
+        semester: semesterFilter
+      });
 
       const timetableQuery = this.supabase
         .from('timetables')
@@ -148,8 +157,33 @@ export class AttendanceService {
         throw timetableError;
       }
 
+      console.log('Found timetables:', timetables?.length || 0);
+      if (timetables && timetables.length > 0) {
+        console.log('Timetable date range:', {
+          start_date: timetables[0].start_date,
+          end_date: timetables[0].end_date,
+          selected_date: date
+        });
+      }
+
       if (!timetables || timetables.length === 0) {
         console.log('No active timetable found for date:', date);
+        
+        // Debug: Check all timetables for this configuration
+        const { data: allTimetables, error: allError } = await this.supabase
+          .from('timetables')
+          .select('id, start_date, end_date, timetable_name, is_active')
+          .eq('institution_id', filters.institution_id)
+          .eq('academic_year_id', filters.academic_year_id)
+          .eq('degree_id', filters.degree_id)
+          .eq('program_id', filters.program_id)
+          .eq('department_id', filters.department_id)
+          .eq('semester', semesterFilter);
+        
+        if (!allError && allTimetables) {
+          console.log('All timetables for this configuration:', allTimetables);
+        }
+        
         return [];
       }
 
@@ -157,6 +191,7 @@ export class AttendanceService {
 
       // Determine day of week from date
       const dayOfWeek = this.getDayOfWeekFromDate(date);
+      console.log('Day of week for date', date, 'is:', dayOfWeek);
 
       // Get timetable slots for that day with sections
       const { data: slots, error: slotsError } = await this.supabase
@@ -203,6 +238,8 @@ export class AttendanceService {
         console.error('Slots query error:', slotsError);
         throw slotsError;
       }
+
+      console.log('Found slots before filtering:', slots?.length || 0);
 
       // Filter slots based on section if specified
       let filteredSlots = slots || [];
@@ -945,7 +982,10 @@ export class AttendanceService {
       'FRIDAY',
       'SATURDAY'
     ];
-    const dateObj = new Date(date);
+    // Parse the date parts to avoid timezone issues
+    const [year, month, day] = date.split('-').map(Number);
+    // Create date using local timezone (month is 0-indexed in JS)
+    const dateObj = new Date(year, month - 1, day);
     return days[dateObj.getDay()];
   }
 }
