@@ -49,8 +49,8 @@ import { useDegrees } from '@/hooks/organization/use-degrees';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
+import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
-// Sections removed - timetables are now semester-wise
 import Loading from '@/components/Loading/Loading';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
@@ -79,7 +79,9 @@ const timetableFormSchema = z
     semester: z.string().min(1, {
       message: 'Please select a semester.'
     }),
-    // section field removed - timetables are now semester-wise
+    section: z.string().min(1, {
+      message: 'Please select a section.'
+    }),
     start_date: z.date().optional(),
     end_date: z.date().optional(),
     is_active: z.boolean().default(true),
@@ -193,8 +195,6 @@ export default function NewTimetablePage() {
   let departments = allDepartments;
   let filteredSemesters = allSemesters;
 
-  // Sections hook removed - timetables are now semester-wise
-
   // State for form submission and selected values
   const [loading, setLoading] = useState(false);
   const [selectedInstitutionId, setSelectedInstitutionId] =
@@ -223,6 +223,30 @@ export default function NewTimetablePage() {
     }
   });
 
+  // Watch form values for cascading dropdowns
+  const watchIsTemplate = form.watch('is_template');
+  const watchInstitutionId = form.watch('institution_id');
+  const watchDegreeId = form.watch('degree_id');
+  const watchProgramId = form.watch('program_id');
+  const watchDepartmentId = form.watch('department_id');
+  const watchSemesterId = form.watch('semester');
+  const watchSectionId = form.watch('section');
+
+  // Sections hook
+  const {
+    data: sectionsData,
+    refetch: fetchSections,
+    isLoading: loadingSections
+  } = useSections({
+    institution_id: watchInstitutionId || undefined,
+    degree_id: watchDegreeId || undefined,
+    department_id: watchDepartmentId || undefined,
+    program_id: watchProgramId || undefined,
+    semester_id: watchSemesterId || undefined,
+    isActive: true
+  });
+  const sections = sectionsData?.data ?? [];
+
   // Initial data loading - fetch all required data
   useEffect(() => {
     fetchInstitutions();
@@ -233,13 +257,6 @@ export default function NewTimetablePage() {
     fetchSemesters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Watch form values for cascading dropdowns
-  const watchIsTemplate = form.watch('is_template');
-  const watchInstitutionId = form.watch('institution_id');
-  const watchDegreeId = form.watch('degree_id');
-  const watchProgramId = form.watch('program_id');
-  const watchDepartmentId = form.watch('department_id');
 
   // Apply hierarchical filtering based on current selections
   // NEW HIERARCHY: institution → academic year → degree → department → program → semester
@@ -462,6 +479,29 @@ export default function NewTimetablePage() {
       }
     } catch (error) {
       console.error('Error creating timetable:', error);
+
+      // Handle duplicate timetable error specifically
+      if (error instanceof Error) {
+        if (
+          error.message.includes(
+            'already exists for this semester and section'
+          ) ||
+          error.message.includes('already exists for')
+        ) {
+          // Set form error for semester field to show the validation message
+          form.setError('semester', {
+            type: 'manual',
+            message: error.message
+          });
+        } else {
+          // Generic error handling
+          form.setError('root', {
+            type: 'manual',
+            message:
+              error.message || 'Failed to create timetable. Please try again.'
+          });
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -474,7 +514,8 @@ export default function NewTimetablePage() {
     loadingDegrees ||
     loadingPrograms ||
     loadingDepartments ||
-    loadingSemesters;
+    loadingSemesters ||
+    loadingSections;
 
   if (isLoading && !institutions.length) {
     return <Loading title='Loading academic data...' />;
@@ -765,7 +806,44 @@ export default function NewTimetablePage() {
                     )}
                   />
 
-                  {/* Section field removed - timetables are now semester-wise */}
+                  <FormField
+                    control={form.control}
+                    name='section'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Section</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          disabled={
+                            loadingSections ||
+                            !watchSemesterId ||
+                            sections.length === 0
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select section' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
+                            {sections.map((section) => (
+                              <SelectItem
+                                key={section.id}
+                                value={section.section_name}
+                              >
+                                {section.section_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          The section for this timetable (e.g., A, B, C)
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
 
                 {/* Date Fields */}

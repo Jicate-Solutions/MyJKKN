@@ -79,6 +79,7 @@ export default function AttendancePage() {
     error,
     searchContext,
     updateSearchContext,
+    fetchAvailablePeriods,
     fetchAttendanceRoster,
     saveAttendance
   } = useAttendanceRoster();
@@ -346,6 +347,17 @@ export default function AttendancePage() {
     fetchSections
   ]);
 
+  // Update attendance permissions when available periods change
+  useEffect(() => {
+    // Since periods are now pre-filtered by staff assignment,
+    // we can set all permissions to true for the returned periods
+    const permissionMap = new Map<string, boolean>();
+    availablePeriods.forEach((period) => {
+      permissionMap.set(period.timetable_slot_id, true);
+    });
+    setAttendancePermissions(permissionMap);
+  }, [availablePeriods]);
+
   // Reset dependent state when parent fields change
   useEffect(() => {
     // Reset all form-related state when institution changes
@@ -404,7 +416,7 @@ export default function AttendancePage() {
         '@/lib/services/academic/attendance-service'
       );
 
-      // Fetch available periods for the date first
+      // Fetch available periods for the date with staff-based filtering
       if (
         searchContext.academic_year_id &&
         searchContext.degree_id &&
@@ -412,32 +424,11 @@ export default function AttendancePage() {
         searchContext.department_id
       ) {
         try {
-          const periods = await AttendanceService.getAvailablePeriodsForDate(
-            {
-              institution_id: searchContext.institution_id,
-              academic_year_id: searchContext.academic_year_id,
-              degree_id: searchContext.degree_id,
-              program_id: searchContext.program_id,
-              department_id: searchContext.department_id,
-              semester: searchContext.semester_id,
-              section: searchContext.section_id
-            },
-            searchContext.attendance_date
-          );
-
-          // Check staff permissions for each period
-          const permissionMap = new Map<string, boolean>();
-          await Promise.all(
-            periods.map(async (period) => {
-              const canMark = await checkStaffPermissionForPeriod(
-                period.timetable_slot_id
-              );
-              permissionMap.set(period.timetable_slot_id, canMark);
-            })
-          );
-          setAttendancePermissions(permissionMap);
-
-          // The periods will be automatically set by the useAttendanceRoster hook
+          // Use the hook's fetchAvailablePeriods method with staff filtering
+          await fetchAvailablePeriods(searchContext, {
+            filterByStaffAssignment: true,
+            isSuperAdmin: isSuperAdmin
+          });
         } catch (periodError) {
           console.warn('Could not fetch periods:', periodError);
         }

@@ -19,8 +19,76 @@ import type {
 export class TimetableService {
   private static supabase = createClientSupabaseClient();
 
+  // Check if a timetable already exists for the given semester and section
+  static async checkExistingTimetable(data: {
+    institution_id: string;
+    academic_year_id: string;
+    degree_id: string;
+    program_id: string;
+    department_id: string;
+    semester: string;
+    section?: string;
+  }): Promise<{
+    exists: boolean;
+    existingTimetable?: Timetable;
+    message?: string;
+  }> {
+    try {
+      const { data: existingTimetables, error } = await this.supabase
+        .from('timetables')
+        .select('*')
+        .eq('institution_id', data.institution_id)
+        .eq('academic_year_id', data.academic_year_id)
+        .eq('degree_id', data.degree_id)
+        .eq('program_id', data.program_id)
+        .eq('department_id', data.department_id)
+        .eq('semester', data.semester)
+        .eq('section', data.section || null)
+        .eq('is_active', true)
+        .limit(1);
+
+      if (error) throw error;
+
+      if (existingTimetables && existingTimetables.length > 0) {
+        const existing = existingTimetables[0];
+        return {
+          exists: true,
+          existingTimetable: existing,
+          message: `A timetable already exists for ${data.semester}${
+            data.section ? ` - Section ${data.section}` : ''
+          }. Timetable name: "${
+            existing.timetable_name
+          }". Please use a different section or deactivate the existing timetable first.`
+        };
+      }
+
+      return { exists: false };
+    } catch (error) {
+      console.error('Error checking existing timetable:', error);
+      throw error;
+    }
+  }
+
   static async createTimetable(data: CreateTimetableDto): Promise<Timetable> {
     try {
+      // Check for existing timetable first
+      const validationResult = await this.checkExistingTimetable({
+        institution_id: data.institution_id,
+        academic_year_id: data.academic_year_id,
+        degree_id: data.degree_id,
+        program_id: data.program_id,
+        department_id: data.department_id,
+        semester: String(data.semester),
+        section: data.section
+      });
+
+      if (validationResult.exists) {
+        throw new Error(
+          validationResult.message ||
+            'A timetable already exists for this semester and section'
+        );
+      }
+
       const { data: timetable, error } = await this.supabase
         .from('timetables')
         .insert([
@@ -36,6 +104,15 @@ export class TimetableService {
         .single();
 
       if (error) {
+        // Handle database constraint violation
+        if (
+          error.code === '23505' &&
+          error.message.includes('unique_active_timetable_per_semester_section')
+        ) {
+          throw new Error(
+            'A timetable already exists for this semester and section. Please use a different section or deactivate the existing timetable first.'
+          );
+        }
         throw error;
       }
 
@@ -1167,159 +1244,6 @@ export class TimetableService {
       console.error('Error saving timetable days:', error);
       throw error;
     }
-  }
-
-  // Leave-Aware Timetable Methods
-  static async getTimetableWithLeaves(
-    id: string,
-    startDate?: string,
-    endDate?: string
-  ): Promise<Timetable & { slots_with_leaves: TimetableSlotWithLeave[] }> {
-    try {
-      // Get basic timetable data
-      const timetable = await this.getTimetable(id);
-
-      // Get institution timetable type
-      const { data: institutionData, error: institutionError } =
-        await this.supabase
-          .from('timetables')
-          .select(
-            `
-          institution:institution_id(
-            timetable_type
-          )
-        `
-          )
-          .eq('id', id)
-          .single();
-
-      if (institutionError) throw institutionError;
-
-      const timetableType =
-        (institutionData as any)?.institution?.timetable_type || 'week_order';
-
-      // Get leaves for the specified date range or current month
-      const now = new Date();
-      const searchStartDate =
-        startDate ||
-        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
-          2,
-          '0'
-        )}-01`;
-      const searchEndDate =
-        endDate ||
-        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
-          2,
-          '0'
-        )}-${new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()}`;
-
-      const { data: leaves, error: leavesError } = await this.supabase
-        .from('timetable_leaves')
-        .select('*')
-        .eq('timetable_id', id)
-        .eq('is_active', true)
-        .gte('leave_date', searchStartDate)
-        .lte('leave_date', searchEndDate);
-
-      if (leavesError) throw leavesError;
-
-      // Get day order shifts if applicable
-      let dayOrderShifts: DayOrderShiftConfig[] = [];
-      if (timetableType === 'day_order') {
-        const { data: shifts, error: shiftsError } = await this.supabase
-          .from('timetable_day_order_shifts')
-          .select('*')
-          .eq('timetable_id', id)
-          .gte('original_date', searchStartDate)
-          .lte('shifted_date', searchEndDate);
-
-        if (shiftsError) throw shiftsError;
-        dayOrderShifts = shifts || [];
-      }
-
-      // Process slots with leave information
-      const slotsWithLeaves: TimetableSlotWithLeave[] = (
-        timetable.slots || []
-      ).map((slot) => {
-        const slotWithLeave: TimetableSlotWithLeave = {
-          ...slot,
-          original_day_of_week: slot.day_of_week,
-          is_shifted: false,
-          shift_reason: undefined
-        };
-
-        // For day_order institutions, check if this slot is affected by shifts
-        if (timetableType === 'day_order') {
-          const relevantShift = dayOrderShifts.find(
-            (shift) =>
-              this.dayOfWeekToDate(slot.day_of_week, searchStartDate) ===
-                shift.original_date ||
-              this.dayOfWeekToDate(slot.day_of_week, searchStartDate) ===
-                shift.shifted_date
-          );
-
-          if (relevantShift) {
-            slotWithLeave.is_shifted = true;
-            slotWithLeave.shift_reason = relevantShift.reason;
-
-            // If this is a shifted slot, update the day
-            if (
-              this.dayOfWeekToDate(slot.day_of_week, searchStartDate) ===
-              relevantShift.shifted_date
-            ) {
-              slotWithLeave.original_day_of_week = this.dateToDayOfWeek(
-                relevantShift.original_date
-              );
-            }
-          }
-        }
-
-        return slotWithLeave;
-      });
-
-      return {
-        ...timetable,
-        slots_with_leaves: slotsWithLeaves
-      };
-    } catch (error) {
-      console.error('Error fetching timetable with leaves:', error);
-      throw error;
-    }
-  }
-
-  // Helper methods for date/day conversions
-  private static dayOfWeekToDate(dayOfWeek: string, baseDate: string): string {
-    const days = [
-      'SUNDAY',
-      'MONDAY',
-      'TUESDAY',
-      'WEDNESDAY',
-      'THURSDAY',
-      'FRIDAY',
-      'SATURDAY'
-    ];
-    const targetDay = days.indexOf(dayOfWeek.toUpperCase());
-
-    const date = new Date(baseDate);
-    const currentDay = date.getDay();
-    const diff = targetDay - currentDay;
-
-    date.setDate(date.getDate() + diff);
-    return date.toISOString().split('T')[0];
-  }
-
-  private static dateToDayOfWeek(dateStr: string): DayOfWeek {
-    const days: DayOfWeek[] = [
-      'SUNDAY',
-      'MONDAY',
-      'TUESDAY',
-      'WEDNESDAY',
-      'THURSDAY',
-      'FRIDAY',
-      'SATURDAY'
-    ];
-    const date = new Date(dateStr);
-    return days[date.getDay()];
   }
 
   static async getInstitutionTimetableType(

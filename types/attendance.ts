@@ -15,6 +15,28 @@ export interface AttendanceStudent {
   status: string;
 }
 
+// New consolidated attendance types for JSONB structure
+export interface ConsolidatedAttendanceStudent {
+  student_id: string;
+  status: 'Present' | 'Absent';
+  marked_at: string;
+}
+
+export interface ConsolidatedAttendancePeriod {
+  period_id: string;
+  period_name: string;
+  start_time: string;
+  end_time: string;
+  course_id: string;
+  course_name: string;
+  students: ConsolidatedAttendanceStudent[];
+}
+
+export interface ConsolidatedAttendanceData {
+  [timetable_slot_id: string]: ConsolidatedAttendancePeriod;
+}
+
+// Legacy individual student attendance record (kept for backward compatibility)
 export interface StudentAttendance {
   id: string;
   student_id: string;
@@ -58,6 +80,41 @@ export interface StudentAttendance {
   };
 }
 
+// New consolidated attendance record structure
+export interface ConsolidatedStudentAttendance {
+  id: string;
+  timetable_id: string;
+  section_id: string;
+  attendance_date: string; // YYYY-MM-DD format
+  attendance_data: ConsolidatedAttendanceData;
+  marked_by: string;
+  institution_id: string;
+  is_consolidated: boolean;
+  created_at: string;
+  updated_at: string;
+
+  // Relations
+  timetable?: {
+    id: string;
+    timetable_name: string;
+    semester: string;
+    section?: string;
+  };
+  section?: {
+    id: string;
+    section_name: string;
+  };
+  marked_by_profile?: {
+    id: string;
+    email: string;
+    full_name?: string;
+  };
+  institution?: {
+    id: string;
+    name: string;
+  };
+}
+
 export interface CreateStudentAttendanceDto {
   student_id: string;
   timetable_slot_id: string;
@@ -74,6 +131,30 @@ export interface UpdateStudentAttendanceDto {
 
 export interface BatchUpdateAttendanceDto {
   records: CreateStudentAttendanceDto[];
+}
+
+// New DTOs for consolidated attendance
+export interface CreateConsolidatedAttendanceDto {
+  timetable_id: string;
+  section_id: string;
+  attendance_date: string;
+  attendance_data: ConsolidatedAttendanceData;
+  marked_by: string;
+  institution_id: string;
+}
+
+export interface UpdateConsolidatedAttendanceDto {
+  attendance_data: ConsolidatedAttendanceData;
+  marked_by: string;
+}
+
+export interface UpsertConsolidatedAttendanceDto {
+  timetable_id: string;
+  section_id: string;
+  attendance_date: string;
+  attendance_data: ConsolidatedAttendanceData;
+  marked_by: string;
+  institution_id: string;
 }
 
 export interface AttendanceFilters {

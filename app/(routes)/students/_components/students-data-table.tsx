@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { StudentsSearchParams } from './data-table-schema';
@@ -8,6 +9,17 @@ import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { StudentService } from '@/lib/services/student/student-service';
 import { Student } from '@/types/student';
+import toast from 'react-hot-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 
 interface StudentsDataTableProps {
   search: StudentsSearchParams;
@@ -15,6 +27,12 @@ interface StudentsDataTableProps {
 
 export function StudentsDataTable({ search }: StudentsDataTableProps) {
   const router = useRouter();
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [studentsToDelete, setStudentsToDelete] = useState<Student[]>([]);
+  const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(
+    null
+  );
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchData = async (params: {
     page: number;
@@ -61,29 +79,73 @@ export function StudentsDataTable({ search }: StudentsDataTableProps) {
     }
   };
 
-  const handleBulkDelete = async (
+  const handleBulkDelete = (
     selectedRows: Student[],
     resetSelection: () => void
   ) => {
     if (selectedRows.length === 0) return;
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedRows.length} student${
-        selectedRows.length > 1 ? 's' : ''
-      }? This action cannot be undone.`
-    );
+    // Store the selected rows and reset function for the confirmation dialog
+    setStudentsToDelete(selectedRows);
+    setResetSelectionFn(() => resetSelection);
+    setShowBulkDeleteDialog(true);
+  };
 
-    if (!confirmed) return;
+  const confirmBulkDelete = async () => {
+    if (studentsToDelete.length === 0) return;
 
+    setIsDeleting(true);
     try {
-      await Promise.all(
-        selectedRows.map((student: Student) =>
-          StudentService.deleteStudent(student.id)
-        )
+      // Use the bulk delete method from StudentService
+      const result = await StudentService.bulkDeleteStudents(
+        studentsToDelete.map((student) => student.id)
       );
-      resetSelection();
+
+      const { success, failed } = result;
+
+      // Reset selection after deletion
+      if (resetSelectionFn) {
+        resetSelectionFn();
+      }
+
+      // Close dialog
+      setShowBulkDeleteDialog(false);
+      setStudentsToDelete([]);
+      setResetSelectionFn(null);
+
+      // Show appropriate toast messages
+      if (success.length > 0 && failed.length === 0) {
+        toast.success(
+          `${success.length} student${
+            success.length > 1 ? 's' : ''
+          } deleted successfully`
+        );
+      } else if (success.length > 0 && failed.length > 0) {
+        toast.success(
+          `${success.length} student${
+            success.length > 1 ? 's' : ''
+          } deleted successfully`
+        );
+        toast.error(
+          `Failed to delete ${failed.length} student${
+            failed.length > 1 ? 's' : ''
+          }`
+        );
+      } else if (failed.length > 0) {
+        toast.error(
+          `Failed to delete ${failed.length} student${
+            failed.length > 1 ? 's' : ''
+          }`
+        );
+      }
+
+      // Refresh the table data
+      // The DataTable component should handle this automatically
     } catch (error) {
       console.error('Error deleting students:', error);
+      toast.error('Failed to delete students. Please try again.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -114,23 +176,55 @@ export function StudentsDataTable({ search }: StudentsDataTableProps) {
   );
 
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      exportConfig={{
-        entityName: 'students',
-        columnMapping: {},
-        columnWidths: [],
-        headers: []
-      }}
-      idField='id'
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: false,
-        enableRowSelection: true
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <>
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        exportConfig={{
+          entityName: 'students',
+          columnMapping: {},
+          columnWidths: [],
+          headers: []
+        }}
+        idField='id'
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: false,
+          enableRowSelection: true
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog
+        open={showBulkDeleteDialog}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {studentsToDelete.length} student
+              {studentsToDelete.length > 1 ? 's' : ''}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the
+              selected students and remove any associated data including photos
+              and user accounts.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmBulkDelete}
+              disabled={isDeleting}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isDeleting ? 'Deleting...' : 'Delete All'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

@@ -369,9 +369,15 @@ export class StudentService {
         .from('students')
         .select('college_email, student_photo_url')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (fetchError) throw fetchError;
+
+      // If student doesn't exist, return early (already deleted)
+      if (!student) {
+        console.log(`Student ${id} not found - may already be deleted`);
+        return;
+      }
 
       // Delete student photo from storage if it exists
       if (student?.student_photo_url) {
@@ -395,7 +401,7 @@ export class StudentService {
             .from('profiles')
             .select('id')
             .eq('email', student.college_email)
-            .single();
+            .maybeSingle();
 
           if (!profileError && profile) {
             // Delete the profile using the API endpoint (which handles auth table deletion too)
@@ -1753,7 +1759,11 @@ export class StudentService {
     semesterId: string,
     sectionId: string,
     departmentId?: string,
-    onProgress?: (progress: number, success: string[], failed: { id: string; error: string }[]) => void
+    onProgress?: (
+      progress: number,
+      success: string[],
+      failed: { id: string; error: string }[]
+    ) => void
   ): Promise<{
     success: string[];
     failed: { id: string; error: string }[];
@@ -1761,21 +1771,23 @@ export class StudentService {
     const success: string[] = [];
     const failed: { id: string; error: string }[] = [];
 
-
     try {
       // Validate that all student IDs exist
-      const { data: existingStudents, error: studentsError } = await this.supabase
-        .from('students')
-        .select('id, first_name, last_name')
-        .in('id', studentIds);
+      const { data: existingStudents, error: studentsError } =
+        await this.supabase
+          .from('students')
+          .select('id, first_name, last_name')
+          .in('id', studentIds);
 
       if (studentsError) {
-        throw new Error(`Failed to validate students: ${studentsError.message}`);
+        throw new Error(
+          `Failed to validate students: ${studentsError.message}`
+        );
       }
 
       if (!existingStudents || existingStudents.length !== studentIds.length) {
-        const foundIds = existingStudents?.map(s => s.id) || [];
-        const missingIds = studentIds.filter(id => !foundIds.includes(id));
+        const foundIds = existingStudents?.map((s) => s.id) || [];
+        const missingIds = studentIds.filter((id) => !foundIds.includes(id));
         throw new Error(`Some students not found: ${missingIds.join(', ')}`);
       }
 
@@ -1803,11 +1815,15 @@ export class StudentService {
 
       // Validate section-semester consistency
       if (section.semester_id !== semesterId) {
-        throw new Error(`Section ${sectionId} does not belong to semester ${semesterId}`);
+        throw new Error(
+          `Section ${sectionId} does not belong to semester ${semesterId}`
+        );
       }
 
       if (section.institution_id !== semester.institution_id) {
-        throw new Error(`Section ${sectionId} does not belong to the same institution as semester ${semesterId}`);
+        throw new Error(
+          `Section ${sectionId} does not belong to the same institution as semester ${semesterId}`
+        );
       }
 
       // Validate department if provided
@@ -1824,7 +1840,9 @@ export class StudentService {
         }
 
         if (department.institution_id !== semester.institution_id) {
-          throw new Error(`Department ${departmentId} does not belong to the same institution as semester ${semesterId}`);
+          throw new Error(
+            `Department ${departmentId} does not belong to the same institution as semester ${semesterId}`
+          );
         }
 
         finalDepartmentId = departmentId;
@@ -1844,7 +1862,7 @@ export class StudentService {
       // Process in chunks to avoid overwhelming the server
       const chunkSize = 50;
       let processedCount = 0;
-      
+
       for (let i = 0; i < studentIds.length; i += chunkSize) {
         const chunk = studentIds.slice(i, i + chunkSize);
         try {
@@ -1863,7 +1881,11 @@ export class StudentService {
           }
 
           // Log successful updates for debugging
-          console.log(`Successfully updated ${data?.length || 0} students in chunk ${i / chunkSize + 1}`);
+          console.log(
+            `Successfully updated ${data?.length || 0} students in chunk ${
+              i / chunkSize + 1
+            }`
+          );
           success.push(...chunk);
           processedCount += chunk.length;
         } catch (error) {
@@ -1876,7 +1898,7 @@ export class StudentService {
           });
           processedCount += chunk.length;
         }
-        
+
         // Call progress callback
         if (onProgress) {
           const progress = (processedCount / studentIds.length) * 100;

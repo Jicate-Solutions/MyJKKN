@@ -10,12 +10,403 @@ import type {
   AttendanceRosterData,
   AttendanceRosterStudent,
   AttendancePeriodOption,
-  AttendanceStudent
+  AttendanceStudent,
+  ConsolidatedStudentAttendance,
+  ConsolidatedAttendanceData,
+  ConsolidatedAttendanceStudent,
+  CreateConsolidatedAttendanceDto,
+  UpdateConsolidatedAttendanceDto,
+  UpsertConsolidatedAttendanceDto
 } from '@/types/attendance';
 import type { TimetableSlot, DayOfWeek } from '@/types/academics';
 
 export class AttendanceService {
   private static supabase = createClientSupabaseClient();
+
+  // =====================
+  // NEW CONSOLIDATED ATTENDANCE METHODS
+  // =====================
+
+  // Get consolidated attendance record for a specific timetable, section, and date
+  static async getConsolidatedAttendance(
+    timetable_id: string,
+    section_id: string,
+    attendance_date: string
+  ): Promise<ConsolidatedStudentAttendance | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('student_attendance')
+        .select(
+          `
+          id,
+          timetable_id,
+          section_id,
+          attendance_date,
+          attendance_data,
+          marked_by,
+          institution_id,
+          is_consolidated,
+          created_at,
+          updated_at,
+          marked_by_profile:profiles!marked_by(
+            id,
+            email,
+            full_name
+          )
+        `
+        )
+        .eq('timetable_id', timetable_id)
+        .eq('section_id', section_id)
+        .eq('attendance_date', attendance_date)
+        .is('student_id', null) // Only consolidated records
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No record found
+          return null;
+        }
+        throw error;
+      }
+
+      return {
+        ...data,
+        marked_by_profile: Array.isArray(data.marked_by_profile)
+          ? data.marked_by_profile[0]
+          : data.marked_by_profile
+      } as unknown as ConsolidatedStudentAttendance;
+    } catch (error) {
+      console.error('Error fetching consolidated attendance:', error);
+      throw error;
+    }
+  }
+
+  // Upsert consolidated attendance record
+  static async upsertConsolidatedAttendance(
+    data: UpsertConsolidatedAttendanceDto
+  ): Promise<ConsolidatedStudentAttendance> {
+    try {
+      const { data: result, error } = await this.supabase
+        .from('student_attendance')
+        .upsert(
+          {
+            timetable_id: data.timetable_id,
+            section_id: data.section_id,
+            attendance_date: data.attendance_date,
+            attendance_data: data.attendance_data,
+            marked_by: data.marked_by,
+            institution_id: data.institution_id,
+            student_id: null, // Consolidated record
+            timetable_slot_id: null, // Not used in consolidated structure
+            status: null, // Not used in consolidated structure
+            is_consolidated: true,
+            updated_at: new Date().toISOString()
+          },
+          {
+            onConflict: 'timetable_id,section_id,attendance_date,student_id',
+            ignoreDuplicates: false
+          }
+        )
+        .select(
+          `
+          id,
+          timetable_id,
+          section_id,
+          attendance_date,
+          attendance_data,
+          marked_by,
+          institution_id,
+          is_consolidated,
+          created_at,
+          updated_at
+        `
+        )
+        .single();
+
+      if (error) throw error;
+
+      return result as ConsolidatedStudentAttendance;
+    } catch (error) {
+      console.error('Error upserting consolidated attendance:', error);
+      throw error;
+    }
+  }
+
+  // Get attendance roster data using consolidated structure
+  static async getConsolidatedAttendanceRoster(
+    timetable_id: string,
+    section_id: string,
+    attendance_date: string,
+    studentFilters: {
+      institution_id: string;
+      degree_id?: string;
+      program_id?: string;
+      department_id?: string;
+      semester_id?: string;
+    }
+  ): Promise<{
+    students: AttendanceRosterStudent[];
+    timetable: any;
+    section: any;
+    attendance_date: string;
+    consolidated_record?: ConsolidatedStudentAttendance;
+  }> {
+    try {
+      // Get timetable details
+      const { data: timetableData, error: timetableError } = await this.supabase
+        .from('timetables')
+        .select(
+          `
+          id,
+          timetable_name,
+          start_date,
+          end_date,
+          degree:degree_id(
+            id,
+            degree_name
+          ),
+          program:program_id(
+            id,
+            program_name
+          ),
+          department:department_id(
+            id,
+            department_name
+          )
+        `
+        )
+        .eq('id', timetable_id)
+        .single();
+
+      if (timetableError) throw timetableError;
+
+      // Get section details
+      const { data: sectionData, error: sectionError } = await this.supabase
+        .from('sections')
+        .select('id, section_name')
+        .eq('id', section_id)
+        .single();
+
+      if (sectionError) throw sectionError;
+
+      // Get students for this section
+      let studentsQuery = this.supabase
+        .from('students')
+        .select(
+          `
+          id,
+          first_name,
+          last_name,
+          roll_number,
+          student_photo_url,
+          institution_id,
+          degree_id,
+          program_id,
+          department_id,
+          semester_id,
+          section_id,
+          status
+        `
+        )
+        .eq('status', 'active')
+        .eq('institution_id', studentFilters.institution_id)
+        .eq('section_id', section_id);
+
+      // Apply other filters if provided
+      if (studentFilters.degree_id) {
+        studentsQuery = studentsQuery.eq('degree_id', studentFilters.degree_id);
+      }
+
+      if (studentFilters.program_id) {
+        studentsQuery = studentsQuery.eq(
+          'program_id',
+          studentFilters.program_id
+        );
+      }
+
+      if (studentFilters.department_id) {
+        studentsQuery = studentsQuery.eq(
+          'department_id',
+          studentFilters.department_id
+        );
+      }
+
+      if (studentFilters.semester_id) {
+        studentsQuery = studentsQuery.eq(
+          'semester_id',
+          studentFilters.semester_id
+        );
+      }
+
+      studentsQuery = studentsQuery.order('roll_number', { ascending: true });
+
+      const { data: students, error: studentsError } = await studentsQuery;
+
+      if (studentsError) throw studentsError;
+
+      // Get existing consolidated attendance record
+      const consolidatedRecord = await this.getConsolidatedAttendance(
+        timetable_id,
+        section_id,
+        attendance_date
+      );
+
+      // Build roster students with attendance status from consolidated record
+      const rosterStudents: AttendanceRosterStudent[] = (students || []).map(
+        (student) => {
+          let status: 'Present' | 'Absent' = 'Present'; // Default to Present
+          let attendance_id: string | undefined = undefined;
+
+          // Check if student has attendance in any period of the consolidated record
+          if (consolidatedRecord?.attendance_data) {
+            const attendanceData =
+              consolidatedRecord.attendance_data as ConsolidatedAttendanceData;
+
+            // Look through all periods to find this student
+            for (const [slotId, periodData] of Object.entries(attendanceData)) {
+              const studentRecord = periodData.students.find(
+                (s: ConsolidatedAttendanceStudent) =>
+                  s.student_id === student.id
+              );
+
+              if (studentRecord) {
+                status = studentRecord.status;
+                attendance_id = consolidatedRecord.id;
+                break; // Found the student, use their status
+              }
+            }
+          }
+
+          return {
+            id: student.id,
+            first_name: student.first_name || 'Unknown',
+            last_name: student.last_name || '',
+            roll_number: student.roll_number,
+            student_photo_url: student.student_photo_url,
+            status,
+            attendance_id
+          };
+        }
+      );
+
+      return {
+        students: rosterStudents,
+        timetable: timetableData,
+        section: sectionData,
+        attendance_date,
+        consolidated_record: consolidatedRecord || undefined
+      };
+    } catch (error) {
+      console.error('Error fetching consolidated attendance roster:', error);
+      throw error;
+    }
+  }
+
+  // Batch update consolidated attendance
+  static async batchUpdateConsolidatedAttendance(
+    timetable_id: string,
+    section_id: string,
+    attendance_date: string,
+    attendance_data: ConsolidatedAttendanceData,
+    marked_by: string,
+    institution_id: string
+  ): Promise<void> {
+    try {
+      await this.upsertConsolidatedAttendance({
+        timetable_id,
+        section_id,
+        attendance_date,
+        attendance_data,
+        marked_by,
+        institution_id
+      });
+
+      toast.success('Attendance saved successfully');
+    } catch (error) {
+      console.error('Error batch updating consolidated attendance:', error);
+      toast.error('Failed to save attendance');
+      throw error;
+    }
+  }
+
+  // Get attendance summary for a date range
+  static async getAttendanceSummary(filters: {
+    institution_id: string;
+    timetable_id?: string;
+    section_id?: string;
+    start_date: string;
+    end_date: string;
+  }): Promise<{
+    total_days: number;
+    total_students: number;
+    total_present: number;
+    total_absent: number;
+    attendance_percentage: number;
+  }> {
+    try {
+      let query = this.supabase
+        .from('student_attendance')
+        .select('attendance_data, attendance_date')
+        .eq('institution_id', filters.institution_id)
+        .is('student_id', null) // Only consolidated records
+        .gte('attendance_date', filters.start_date)
+        .lte('attendance_date', filters.end_date);
+
+      if (filters.timetable_id) {
+        query = query.eq('timetable_id', filters.timetable_id);
+      }
+
+      if (filters.section_id) {
+        query = query.eq('section_id', filters.section_id);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      let totalPresent = 0;
+      let totalAbsent = 0;
+      let totalStudents = 0;
+      const uniqueDates = new Set<string>();
+
+      (data || []).forEach((record) => {
+        uniqueDates.add(record.attendance_date);
+        const attendanceData =
+          record.attendance_data as ConsolidatedAttendanceData;
+
+        for (const [slotId, periodData] of Object.entries(attendanceData)) {
+          periodData.students.forEach(
+            (student: ConsolidatedAttendanceStudent) => {
+              totalStudents++;
+              if (student.status === 'Present') {
+                totalPresent++;
+              } else {
+                totalAbsent++;
+              }
+            }
+          );
+        }
+      });
+
+      const attendancePercentage =
+        totalStudents > 0 ? (totalPresent / totalStudents) * 100 : 0;
+
+      return {
+        total_days: uniqueDates.size,
+        total_students: totalStudents,
+        total_present: totalPresent,
+        total_absent: totalAbsent,
+        attendance_percentage: Math.round(attendancePercentage * 100) / 100
+      };
+    } catch (error) {
+      console.error('Error fetching attendance summary:', error);
+      throw error;
+    }
+  }
+
+  // =====================
+  // LEGACY METHODS (for backward compatibility)
+  // =====================
 
   // Get students for attendance based on filters
   static async getStudentsForAttendance(filters: {
@@ -168,7 +559,7 @@ export class AttendanceService {
 
       if (!timetables || timetables.length === 0) {
         console.log('No active timetable found for date:', date);
-        
+
         // Debug: Check all timetables for this configuration
         const { data: allTimetables, error: allError } = await this.supabase
           .from('timetables')
@@ -179,11 +570,11 @@ export class AttendanceService {
           .eq('program_id', filters.program_id)
           .eq('department_id', filters.department_id)
           .eq('semester', semesterFilter);
-        
+
         if (!allError && allTimetables) {
           console.log('All timetables for this configuration:', allTimetables);
         }
-        
+
         return [];
       }
 
@@ -556,7 +947,7 @@ export class AttendanceService {
     }
   }
 
-  // Get available periods for a specific date and context
+  // Get available periods for a specific date and context with staff-based filtering
   static async getAvailablePeriodsForDate(
     filters: {
       institution_id: string;
@@ -567,12 +958,62 @@ export class AttendanceService {
       semester: string | number;
       section?: string;
     },
-    date: string
+    date: string,
+    options: {
+      filterByStaffAssignment?: boolean;
+      isSuperAdmin?: boolean;
+    } = {}
   ): Promise<AttendancePeriodOption[]> {
     try {
       const slots = await this.getTimetableSlotsForDate(filters, date);
 
-      return slots.map((slot: any) => ({
+      // If super admin or filtering is disabled, return all periods
+      if (options.isSuperAdmin || !options.filterByStaffAssignment) {
+        return slots.map((slot: any) => ({
+          id: slot.period?.id || '',
+          period_name: slot.period?.period_name || '',
+          start_time: slot.period?.start_time || '',
+          end_time: slot.period?.end_time || '',
+          timetable_slot_id: slot.id,
+          course: slot.course,
+          staff: slot.staff, // Pass legacy staff object
+          staff_members: (slot as any).staff_members, // Pass new staff_members array
+          // Add section information
+          sections:
+            slot.timetable_slot_sections?.map((tss: any) => ({
+              id: tss.section_id,
+              name: tss.section?.section_name || ''
+            })) || []
+        }));
+      }
+
+      // Filter periods based on staff assignments for non-admin users
+      const staffId = await this.getCurrentUserStaffId();
+
+      if (!staffId) {
+        console.log('User is not a staff member, returning empty periods list');
+        return [];
+      }
+
+      // Check each slot for staff assignment
+      const filteredSlots = [];
+
+      for (const slot of slots) {
+        const isAssigned = await this.isStaffAssignedToSlot(staffId, slot.id);
+        const hasFacultyPermission =
+          await this.checkFacultyAttendancePermission();
+
+        // Include slot if staff is assigned OR has faculty role permissions
+        if (isAssigned || hasFacultyPermission) {
+          filteredSlots.push(slot);
+        }
+      }
+
+      console.log(
+        `Filtered ${filteredSlots.length} periods out of ${slots.length} for staff ${staffId}`
+      );
+
+      return filteredSlots.map((slot: any) => ({
         id: slot.period?.id || '',
         period_name: slot.period?.period_name || '',
         start_time: slot.period?.start_time || '',

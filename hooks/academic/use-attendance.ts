@@ -7,7 +7,10 @@ import type {
   AttendanceSearchContext,
   AttendanceRosterData,
   AttendancePeriodOption,
-  BatchUpdateAttendanceDto
+  BatchUpdateAttendanceDto,
+  ConsolidatedStudentAttendance,
+  ConsolidatedAttendanceData,
+  ConsolidatedAttendanceStudent
 } from '@/types/attendance';
 import type { Student } from '@/types/student';
 
@@ -105,8 +108,19 @@ export function useAttendanceRoster() {
   });
 
   const fetchAvailablePeriods = useCallback(
-    async (context: AttendanceSearchContext) => {
-      console.log('fetchAvailablePeriods called with context:', context);
+    async (
+      context: AttendanceSearchContext,
+      options: {
+        filterByStaffAssignment?: boolean;
+        isSuperAdmin?: boolean;
+      } = {}
+    ) => {
+      console.log(
+        'fetchAvailablePeriods called with context:',
+        context,
+        'options:',
+        options
+      );
 
       if (
         !context.institution_id ||
@@ -154,7 +168,8 @@ export function useAttendanceRoster() {
             semester: context.semester_id,
             section: context.section_id || undefined
           },
-          context.attendance_date
+          context.attendance_date,
+          options
         );
 
         console.log('Fetched periods:', periods);
@@ -197,7 +212,10 @@ export function useAttendanceRoster() {
       searchContext.semester_id &&
       searchContext.attendance_date
     ) {
-      fetchAvailablePeriods(searchContext);
+      fetchAvailablePeriods(searchContext, {
+        filterByStaffAssignment: true,
+        isSuperAdmin: false // This will be overridden by the explicit call from the page
+      });
     }
   }, [fetchAvailablePeriods, searchContext]);
 
@@ -280,7 +298,10 @@ export function useAttendanceRoster() {
         ) {
           // Use setTimeout to avoid calling fetchAvailablePeriods during render
           setTimeout(() => {
-            fetchAvailablePeriods(updatedContext);
+            fetchAvailablePeriods(updatedContext, {
+              filterByStaffAssignment: true,
+              isSuperAdmin: false // This will be overridden by the explicit call from the page
+            });
           }, 0);
         } else if (isResetOperation) {
           // Clear available periods during reset
@@ -304,5 +325,282 @@ export function useAttendanceRoster() {
     fetchAvailablePeriods,
     fetchAttendanceRoster,
     saveAttendance
+  };
+}
+
+// =====================
+// NEW CONSOLIDATED ATTENDANCE HOOKS
+// =====================
+
+export function useConsolidatedAttendance() {
+  const [consolidatedRecord, setConsolidatedRecord] =
+    useState<ConsolidatedStudentAttendance | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchConsolidatedAttendance = useCallback(
+    async (
+      timetable_id: string,
+      section_id: string,
+      attendance_date: string
+    ) => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const result = await AttendanceService.getConsolidatedAttendance(
+          timetable_id,
+          section_id,
+          attendance_date
+        );
+
+        setConsolidatedRecord(result);
+      } catch (err) {
+        console.error('Error fetching consolidated attendance:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  const saveConsolidatedAttendance = useCallback(
+    async (
+      timetable_id: string,
+      section_id: string,
+      attendance_date: string,
+      attendance_data: ConsolidatedAttendanceData,
+      marked_by: string,
+      institution_id: string
+    ) => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        await AttendanceService.batchUpdateConsolidatedAttendance(
+          timetable_id,
+          section_id,
+          attendance_date,
+          attendance_data,
+          marked_by,
+          institution_id
+        );
+
+        // Refresh the consolidated record after save
+        await fetchConsolidatedAttendance(
+          timetable_id,
+          section_id,
+          attendance_date
+        );
+
+        return true;
+      } catch (err) {
+        console.error('Error saving consolidated attendance:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchConsolidatedAttendance]
+  );
+
+  return {
+    consolidatedRecord,
+    loading,
+    error,
+    fetchConsolidatedAttendance,
+    saveConsolidatedAttendance
+  };
+}
+
+export function useConsolidatedAttendanceRoster() {
+  const [rosterData, setRosterData] = useState<{
+    students: any[];
+    timetable: any;
+    section: any;
+    attendance_date: string;
+    consolidated_record?: ConsolidatedStudentAttendance;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchConsolidatedRoster = useCallback(
+    async (
+      timetable_id: string,
+      section_id: string,
+      attendance_date: string,
+      studentFilters: {
+        institution_id: string;
+        degree_id?: string;
+        program_id?: string;
+        department_id?: string;
+        semester_id?: string;
+      }
+    ) => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const result = await AttendanceService.getConsolidatedAttendanceRoster(
+          timetable_id,
+          section_id,
+          attendance_date,
+          studentFilters
+        );
+
+        setRosterData(result);
+      } catch (err) {
+        console.error('Error fetching consolidated attendance roster:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  const updateStudentAttendance = useCallback(
+    (studentId: string, status: 'Present' | 'Absent') => {
+      if (!rosterData) return;
+
+      setRosterData((prev) => {
+        if (!prev) return prev;
+
+        return {
+          ...prev,
+          students: prev.students.map((student) =>
+            student.id === studentId ? { ...student, status } : student
+          )
+        };
+      });
+    },
+    [rosterData]
+  );
+
+  const saveConsolidatedAttendance = useCallback(
+    async (
+      timetable_id: string,
+      section_id: string,
+      attendance_date: string,
+      slot_id: string,
+      period_info: {
+        period_name: string;
+        start_time: string;
+        end_time: string;
+        course?: any;
+        staff?: any;
+      },
+      marked_by: string,
+      institution_id: string
+    ) => {
+      if (!rosterData) return false;
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Build the consolidated attendance data structure
+        const attendanceData: ConsolidatedAttendanceData = {
+          [slot_id]: {
+            period_id: slot_id,
+            period_name: period_info.period_name,
+            start_time: period_info.start_time,
+            end_time: period_info.end_time,
+            course_id: period_info.course?.id || '',
+            course_name: period_info.course?.course_name || '',
+            students: rosterData.students.map((student) => ({
+              student_id: student.id,
+              status: student.status,
+              marked_at: new Date().toISOString()
+            }))
+          }
+        };
+
+        await AttendanceService.batchUpdateConsolidatedAttendance(
+          timetable_id,
+          section_id,
+          attendance_date,
+          attendanceData,
+          marked_by,
+          institution_id
+        );
+
+        // Refresh the roster data after save
+        await fetchConsolidatedRoster(
+          timetable_id,
+          section_id,
+          attendance_date,
+          {
+            institution_id,
+            degree_id: rosterData.timetable?.degree?.id,
+            program_id: rosterData.timetable?.program?.id,
+            department_id: rosterData.timetable?.department?.id
+          }
+        );
+
+        return true;
+      } catch (err) {
+        console.error('Error saving consolidated attendance:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [rosterData, fetchConsolidatedRoster]
+  );
+
+  return {
+    rosterData,
+    loading,
+    error,
+    fetchConsolidatedRoster,
+    updateStudentAttendance,
+    saveConsolidatedAttendance
+  };
+}
+
+export function useAttendanceSummary() {
+  const [summary, setSummary] = useState<{
+    total_days: number;
+    total_students: number;
+    total_present: number;
+    total_absent: number;
+    attendance_percentage: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchAttendanceSummary = useCallback(
+    async (filters: {
+      institution_id: string;
+      timetable_id?: string;
+      section_id?: string;
+      start_date: string;
+      end_date: string;
+    }) => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const result = await AttendanceService.getAttendanceSummary(filters);
+        setSummary(result);
+      } catch (err) {
+        console.error('Error fetching attendance summary:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  return {
+    summary,
+    loading,
+    error,
+    fetchAttendanceSummary
   };
 }
