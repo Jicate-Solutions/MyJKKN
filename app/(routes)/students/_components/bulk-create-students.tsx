@@ -2543,12 +2543,13 @@ export function BulkCreateStudents() {
                   <Button
                     variant='outline'
                     onClick={() => {
-                      setShowUploadReport(false);
-                      setUploadResult(null);
+                      // Close the modal completely instead of going back to upload
+                      resetState();
+                      setIsOpen(false);
                     }}
                     className='w-full sm:w-auto'
                   >
-                    Close Report
+                    Close
                   </Button>
                   {uploadResult.failed && uploadResult.failed > 0 && (
                     <Button
