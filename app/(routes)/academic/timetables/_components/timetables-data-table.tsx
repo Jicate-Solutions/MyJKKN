@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { TimetablesSearchParams } from './data-table-schema';
@@ -10,6 +11,17 @@ import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { Timetable } from '@/types/academics';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
+import toast from 'react-hot-toast';
 
 interface TimetablesDataTableProps {
   search: TimetablesSearchParams;
@@ -23,6 +35,12 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
     userProfile,
     isLoading: permissionsLoading
   } = usePermissions();
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [timetablesToDelete, setTimetablesToDelete] = useState<Timetable[]>([]);
+  const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(
+    null
+  );
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Wait for permissions and profile to be loaded before rendering the table
   const isReady = !permissionsLoading && !!userProfile;
@@ -93,33 +111,68 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
     }
   };
 
-  const handleBulkDelete = async (
+  const handleBulkDelete = (
     selectedRows: Timetable[],
     resetSelection: () => void
   ) => {
     if (selectedRows.length === 0) return;
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedRows.length} timetable${
-        selectedRows.length > 1 ? 's' : ''
-      }? This action cannot be undone.`
-    );
+    setTimetablesToDelete(selectedRows);
+    setResetSelectionFn(() => resetSelection);
+    setShowBulkDeleteDialog(true);
+  };
 
-    if (!confirmed) return;
-
+  const confirmBulkDelete = async () => {
     try {
-      // Delete all selected timetables
-      await Promise.all(
-        selectedRows.map((timetable: Timetable) =>
-          TimetableService.deleteTimetable(timetable.id)
-        )
+      setIsDeleting(true);
+
+      // Use the bulk delete method from TimetableService
+      const result = await TimetableService.bulkDeleteTimetables(
+        timetablesToDelete.map((timetable) => timetable.id)
       );
 
-      // Reset selection and refresh data
-      resetSelection();
+      const { success, failed } = result;
+
+      // Reset selection after deletion
+      if (resetSelectionFn) {
+        resetSelectionFn();
+      }
+
+      // Show appropriate toast messages
+      if (success.length > 0 && failed.length === 0) {
+        toast.success(
+          `${success.length} timetable${
+            success.length > 1 ? 's' : ''
+          } deleted successfully`
+        );
+      } else if (success.length > 0 && failed.length > 0) {
+        toast.success(
+          `${success.length} timetable${
+            success.length > 1 ? 's' : ''
+          } deleted successfully`
+        );
+        toast.error(
+          `Failed to delete ${failed.length} timetable${
+            failed.length > 1 ? 's' : ''
+          }`
+        );
+      } else if (failed.length > 0) {
+        toast.error(
+          `Failed to delete ${failed.length} timetable${
+            failed.length > 1 ? 's' : ''
+          }`
+        );
+      }
+
       // The DataTable will automatically refetch data after this
     } catch (error) {
       console.error('Error deleting timetables:', error);
+      toast.error('Failed to delete timetables');
+    } finally {
+      setIsDeleting(false);
+      setShowBulkDeleteDialog(false);
+      setTimetablesToDelete([]);
+      setResetSelectionFn(null);
     }
   };
 
@@ -178,28 +231,59 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
   }
 
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      exportConfig={{
-        entityName: 'timetables',
-        columnMapping: {},
-        columnWidths: [],
-        headers: []
-      }}
-      idField='id'
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: false,
-        enableRowSelection: true,
-        enableSearch: true,
-        enableColumnFilters: false,
-        enableColumnVisibility: true,
-        enableColumnResizing: true,
-        columnResizingTableId: 'timetables-table'
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <>
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        exportConfig={{
+          entityName: 'timetables',
+          columnMapping: {},
+          columnWidths: [],
+          headers: []
+        }}
+        idField='id'
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: false,
+          enableRowSelection: true,
+          enableSearch: true,
+          enableColumnFilters: false,
+          enableColumnVisibility: true,
+          enableColumnResizing: true,
+          columnResizingTableId: 'timetables-table'
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+
+      <AlertDialog
+        open={showBulkDeleteDialog}
+        onOpenChange={setShowBulkDeleteDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {timetablesToDelete.length} timetable
+              {timetablesToDelete.length > 1 ? 's' : ''}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the
+              selected timetable{timetablesToDelete.length > 1 ? 's' : ''} and
+              all associated data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmBulkDelete}
+              disabled={isDeleting}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

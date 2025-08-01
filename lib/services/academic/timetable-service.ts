@@ -327,110 +327,165 @@ export class TimetableService {
 
       if (slotsError) throw slotsError;
 
-      // Get related data for each slot (staff, sections, sub-slots)
+      // Optimized batch fetching of related data
       if (slots && slots.length > 0) {
-        for (const slot of slots) {
-          if (slot.is_combined) {
-            // For combined slots, get sub-slots with their staff and sections
-            const { data: subSlots, error: subSlotsError } = await this.supabase
-              .from('timetable_sub_slots')
-              .select(
-                `
-                *,
-                course:course_id(id, course_name, course_code)
+        const slotIds = slots.map(slot => slot.id);
+        const combinedSlotIds = slots.filter(slot => slot.is_combined).map(slot => slot.id);
+        
+        // Batch fetch all sub-slots for combined slots
+        let subSlotsMap = new Map();
+        if (combinedSlotIds.length > 0) {
+          const { data: allSubSlots, error: subSlotsError } = await this.supabase
+            .from('timetable_sub_slots')
+            .select(
               `
-              )
-              .eq('parent_slot_id', slot.id)
-              .order('sub_slot_order');
+              *,
+              course:course_id(id, course_name, course_code)
+            `
+            )
+            .in('parent_slot_id', combinedSlotIds)
+            .order('sub_slot_order');
 
-            if (subSlotsError) {
-              console.error('Error fetching sub-slots:', subSlotsError);
-            } else if (subSlots) {
-              // Get staff and sections for each sub-slot
-              for (const subSlot of subSlots) {
-                // Get staff for this sub-slot
-                const { data: subSlotStaff, error: staffError } =
-                  await this.supabase
-                    .from('timetable_sub_slot_staff')
-                    .select(
-                      `
-                    staff_id,
-                    staff:staff_id(id, first_name, last_name)
+          if (!subSlotsError && allSubSlots) {
+            // Group sub-slots by parent slot ID
+            for (const subSlot of allSubSlots) {
+              if (!subSlotsMap.has(subSlot.parent_slot_id)) {
+                subSlotsMap.set(subSlot.parent_slot_id, []);
+              }
+              subSlotsMap.get(subSlot.parent_slot_id).push(subSlot);
+            }
+
+            // Batch fetch all sub-slot staff and sections
+            const subSlotIds = allSubSlots.map(ss => ss.id);
+            
+            if (subSlotIds.length > 0) {
+              // Fetch all sub-slot staff in one query
+              const { data: allSubSlotStaff } = await this.supabase
+                .from('timetable_sub_slot_staff')
+                .select(
                   `
-                    )
-                    .eq('sub_slot_id', subSlot.id);
+                  sub_slot_id,
+                  staff_id,
+                  staff:staff_id(id, first_name, last_name)
+                `
+                )
+                .in('sub_slot_id', subSlotIds);
 
-                if (staffError) {
-                  console.error('Error fetching sub-slot staff:', staffError);
-                } else {
-                  subSlot.staff_members =
-                    subSlotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
+              // Fetch all sub-slot sections in one query
+              const { data: allSubSlotSections } = await this.supabase
+                .from('timetable_sub_slot_sections')
+                .select(
+                  `
+                  sub_slot_id,
+                  section_id,
+                  sections:section_id(id, section_name)
+                `
+                )
+                .in('sub_slot_id', subSlotIds);
+
+              // Map staff and sections to sub-slots
+              if (allSubSlotStaff) {
+                const staffBySubSlot = new Map();
+                for (const staff of allSubSlotStaff) {
+                  if (!staffBySubSlot.has(staff.sub_slot_id)) {
+                    staffBySubSlot.set(staff.sub_slot_id, []);
+                  }
+                  if (staff.staff) {
+                    staffBySubSlot.get(staff.sub_slot_id).push(staff.staff);
+                  }
                 }
 
-                // Get sections for this sub-slot
-                const { data: subSlotSections, error: sectionsError } =
-                  await this.supabase
-                    .from('timetable_sub_slot_sections')
-                    .select(
-                      `
-                    section_id,
-                    sections:section_id(id, section_name)
-                  `
-                    )
-                    .eq('sub_slot_id', subSlot.id);
-
-                if (sectionsError) {
-                  console.error(
-                    'Error fetching sub-slot sections:',
-                    sectionsError
-                  );
-                } else {
-                  subSlot.sections =
-                    subSlotSections?.map((ss) => ss.sections).filter(Boolean) ||
-                    [];
+                // Assign staff to sub-slots
+                for (const [parentSlotId, subSlots] of subSlotsMap.entries()) {
+                  for (const subSlot of subSlots) {
+                    subSlot.staff_members = staffBySubSlot.get(subSlot.id) || [];
+                  }
                 }
               }
 
-              slot.sub_slots = subSlots;
+              if (allSubSlotSections) {
+                const sectionsBySubSlot = new Map();
+                for (const section of allSubSlotSections) {
+                  if (!sectionsBySubSlot.has(section.sub_slot_id)) {
+                    sectionsBySubSlot.set(section.sub_slot_id, []);
+                  }
+                  if (section.sections) {
+                    sectionsBySubSlot.get(section.sub_slot_id).push(section.sections);
+                  }
+                }
+
+                // Assign sections to sub-slots
+                for (const [parentSlotId, subSlots] of subSlotsMap.entries()) {
+                  for (const subSlot of subSlots) {
+                    subSlot.sections = sectionsBySubSlot.get(subSlot.id) || [];
+                  }
+                }
+              }
             }
-          } else {
-            // For regular slots, get staff and sections
+          }
+        }
 
-            // Get staff members from the junction table
-            const { data: slotStaff, error: staffError } = await this.supabase
-              .from('timetable_slot_staff')
-              .select(
-                `
-                staff_id,
-                staff:staff_id(id, first_name, last_name)
+        // Batch fetch all regular slot staff and sections
+        const regularSlotIds = slots.filter(slot => !slot.is_combined).map(slot => slot.id);
+        
+        if (regularSlotIds.length > 0) {
+          // Fetch all slot staff in one query
+          const { data: allSlotStaff } = await this.supabase
+            .from('timetable_slot_staff')
+            .select(
               `
-              )
-              .eq('timetable_slot_id', slot.id);
+              timetable_slot_id,
+              staff_id,
+              staff:staff_id(id, first_name, last_name)
+            `
+            )
+            .in('timetable_slot_id', regularSlotIds);
 
-            if (staffError) {
-              console.error('Error fetching slot staff:', staffError);
-            } else {
-              slot.staff_members =
-                slotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
+          // Fetch all slot sections in one query
+          const { data: allSlotSections } = await this.supabase
+            .from('timetable_slot_sections')
+            .select(
+              `
+              timetable_slot_id,
+              section_id,
+              sections:section_id(id, section_name)
+            `
+            )
+            .in('timetable_slot_id', regularSlotIds);
+
+          // Map staff and sections to slots
+          const staffBySlot = new Map();
+          const sectionsBySlot = new Map();
+
+          if (allSlotStaff) {
+            for (const staff of allSlotStaff) {
+              if (!staffBySlot.has(staff.timetable_slot_id)) {
+                staffBySlot.set(staff.timetable_slot_id, []);
+              }
+              if (staff.staff) {
+                staffBySlot.get(staff.timetable_slot_id).push(staff.staff);
+              }
             }
+          }
 
-            // Get sections from the junction table
-            const { data: slotSections, error: sectionsError } =
-              await this.supabase
-                .from('timetable_slot_sections')
-                .select(
-                  `
-                section_id,
-                sections:section_id(id, section_name)
-              `
-                )
-                .eq('timetable_slot_id', slot.id);
+          if (allSlotSections) {
+            for (const section of allSlotSections) {
+              if (!sectionsBySlot.has(section.timetable_slot_id)) {
+                sectionsBySlot.set(section.timetable_slot_id, []);
+              }
+              if (section.sections) {
+                sectionsBySlot.get(section.timetable_slot_id).push(section.sections);
+              }
+            }
+          }
 
-            if (sectionsError) {
-              console.error('Error fetching slot sections:', sectionsError);
+          // Assign data to slots
+          for (const slot of slots) {
+            if (slot.is_combined) {
+              slot.sub_slots = subSlotsMap.get(slot.id) || [];
             } else {
-              slot.sections =
-                slotSections?.map((ss) => ss.sections).filter(Boolean) || [];
+              slot.staff_members = staffBySlot.get(slot.id) || [];
+              slot.sections = sectionsBySlot.get(slot.id) || [];
             }
           }
         }

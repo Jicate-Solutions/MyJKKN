@@ -288,90 +288,88 @@ export default function TimetableDetailPage({
         return;
       }
 
-      const staffPlanFilters = {
-        institution_id: timetable.institution_id,
-        degree_id: timetable.degree_id,
-        program_id: timetable.program_id,
-        department_id: timetable.department_id,
-        academic_year_id: timetable.academic_year_id,
-        semester_id: semesterIdForStaffPlan, // REQUIRED: Only show courses from this exact semester
-        isActive: true,
-        limit: 1000 // Get all active staff plans for this hierarchy
-      };
+      // Use the optimized consolidated staff plan method
+      try {
+        const consolidatedPlan = await StaffPlanService.getConsolidatedStaffPlan(
+          timetable.institution_id,
+          timetable.program_id,
+          semesterIdForStaffPlan,
+          timetable.academic_year_id
+        );
 
-      console.log('Fetching staff plans with filters:', staffPlanFilters);
+        console.log('Found consolidated staff plan with courses:', consolidatedPlan.all_courses.length);
 
-      // Fetch staff plans that match the timetable hierarchy
-      const staffPlansResult = await StaffPlanService.getStaffPlans(
-        staffPlanFilters
-      );
+        // Extract unique courses and staff from the consolidated plan
+        const coursesSet = new Set<string>();
+        const staffSet = new Set<string>();
+        const courseDetailsMap = new Map<string, any>();
+        const staffDetailsMap = new Map<string, any>();
 
-      console.log('Found staff plans:', staffPlansResult.data.length);
+        for (const assignment of consolidatedPlan.all_courses) {
+          if (assignment.course && assignment.staff) {
+            coursesSet.add(assignment.course.id);
+            staffSet.add(assignment.staff.id);
 
-      if (staffPlansResult.data.length === 0) {
-        console.warn('No staff plans found for this timetable hierarchy');
+            // Store course details
+            courseDetailsMap.set(assignment.course.id, assignment.course);
+
+            // Store staff details
+            staffDetailsMap.set(assignment.staff.id, assignment.staff);
+          }
+        }
+
+        // Convert sets to arrays with details
+        const coursesFromStaffPlanning = Array.from(coursesSet)
+          .map((courseId) => courseDetailsMap.get(courseId))
+          .filter(Boolean);
+
+        const staffFromStaffPlanning = Array.from(staffSet)
+          .map((staffId) => staffDetailsMap.get(staffId))
+          .filter(Boolean);
+
+        console.log(
+          'Extracted courses from staff planning:',
+          coursesFromStaffPlanning.length
+        );
+        console.log(
+          'Extracted staff from staff planning:',
+          staffFromStaffPlanning.length
+        );
+
+        setStaffPlanningCourses(coursesFromStaffPlanning);
+        setStaffPlanningStaff(staffFromStaffPlanning);
+      } catch (error) {
+        // Fallback to the original method if consolidated fetch fails
+        console.warn('Consolidated staff plan fetch failed, falling back to individual queries:', error);
+        
+        const staffPlanFilters = {
+          institution_id: timetable.institution_id,
+          degree_id: timetable.degree_id,
+          program_id: timetable.program_id,
+          department_id: timetable.department_id,
+          academic_year_id: timetable.academic_year_id,
+          semester_id: semesterIdForStaffPlan,
+          isActive: true,
+          limit: 10 // Limit to reduce load
+        };
+
+        // Just get the staff plans without fetching individual courses
+        const staffPlansResult = await StaffPlanService.getStaffPlans(
+          staffPlanFilters
+        );
+
+        if (staffPlansResult.data.length === 0) {
+          console.warn('No staff plans found for this timetable hierarchy');
+          setStaffPlanningCourses([]);
+          setStaffPlanningStaff([]);
+          return;
+        }
+
+        // For now, just indicate that staff planning data exists but couldn't be fully loaded
+        console.log('Staff plans exist but detailed course data not loaded for performance');
         setStaffPlanningCourses([]);
         setStaffPlanningStaff([]);
-        return;
       }
-
-      // Extract unique courses and staff from staff plans
-      const coursesSet = new Set<string>();
-      const staffSet = new Set<string>();
-      const courseDetailsMap = new Map<string, any>();
-      const staffDetailsMap = new Map<string, any>();
-
-      // Fetch course assignments for each staff plan
-      for (const staffPlan of staffPlansResult.data) {
-        try {
-          const courseAssignments = await StaffPlanService.getStaffPlanCourses(
-            staffPlan.id
-          );
-
-          console.log(
-            `Staff plan ${staffPlan.id} has ${courseAssignments.length} course assignments`
-          );
-
-          for (const assignment of courseAssignments) {
-            if (assignment.course && assignment.staff) {
-              coursesSet.add(assignment.course.id);
-              staffSet.add(assignment.staff.id);
-
-              // Store course details
-              courseDetailsMap.set(assignment.course.id, assignment.course);
-
-              // Store staff details
-              staffDetailsMap.set(assignment.staff.id, assignment.staff);
-            }
-          }
-        } catch (error) {
-          console.error(
-            `Error fetching courses for staff plan ${staffPlan.id}:`,
-            error
-          );
-        }
-      }
-
-      // Convert sets to arrays with details
-      const coursesFromStaffPlanning = Array.from(coursesSet)
-        .map((courseId) => courseDetailsMap.get(courseId))
-        .filter(Boolean);
-
-      const staffFromStaffPlanning = Array.from(staffSet)
-        .map((staffId) => staffDetailsMap.get(staffId))
-        .filter(Boolean);
-
-      console.log(
-        'Extracted courses from staff planning:',
-        coursesFromStaffPlanning.length
-      );
-      console.log(
-        'Extracted staff from staff planning:',
-        staffFromStaffPlanning.length
-      );
-
-      setStaffPlanningCourses(coursesFromStaffPlanning);
-      setStaffPlanningStaff(staffFromStaffPlanning);
     } catch (error) {
       console.error('Error fetching staff planning data:', error);
       setStaffPlanningCourses([]);
@@ -610,7 +608,13 @@ export default function TimetableDetailPage({
     try {
       setLoading(true);
       setError(null);
-      const timetableData = await TimetableService.getTimetable(timetableId);
+      
+      // Fetch all data in parallel for better performance
+      const [timetableData, periodsResult] = await Promise.all([
+        TimetableService.getTimetable(timetableId),
+        PeriodService.getPeriods({ limit: 50 })
+      ]);
+      
       setTimetable(timetableData);
 
       // Set slots from timetable data
@@ -620,12 +624,11 @@ export default function TimetableDetailPage({
         setSlots([]);
       }
 
-      // Fetch periods filtered by institution
-      const periodsResult = await PeriodService.getPeriods({
-        limit: 50,
-        institution_id: timetableData.institution_id
-      });
-      setPeriods(periodsResult.data);
+      // Filter periods by institution after fetching
+      const institutionPeriods = periodsResult.data.filter(
+        period => period.institution_id === timetableData.institution_id
+      );
+      setPeriods(institutionPeriods);
 
       // Load selected periods from timetable_periods table
       const timetablePeriods = await TimetableService.getTimetablePeriods(
@@ -649,16 +652,14 @@ export default function TimetableDetailPage({
         setSelectedDays(ALL_DAYS_OF_WEEK);
       }
 
-      // Load related courses - fetch from course mappings for this program and semester
-      if (timetableData.institution_id) {
-        fetchCourses();
-      }
-
-      // Load staff
-      fetchStaff();
-
-      // Load sections
-      fetchSections();
+      // Trigger parallel fetches for related data
+      Promise.all([
+        timetableData.institution_id ? fetchCourses() : Promise.resolve(),
+        fetchStaff(),
+        fetchSections()
+      ]).catch(err => {
+        console.error('Error fetching related data:', err);
+      });
     } catch (err) {
       console.error('Error fetching timetable data:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -1771,6 +1772,7 @@ export default function TimetableDetailPage({
                     : typeof timetable.semester === 'string'
                     ? timetable.semester
                     : 'Semester'}
+                  {timetable.section && ` - Section ${timetable.section}`}
                 </p>
               </div>
               <div className='flex items-center gap-2'>

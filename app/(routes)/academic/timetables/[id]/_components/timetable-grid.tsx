@@ -54,7 +54,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
           <div className='text-xs'>
             {slot.sections.slice(0, 2).map((section, idx) => (
               <Badge
-                key={idx}
+                key={`${section.id || section.section_name}-${idx}`}
                 variant='outline'
                 className='text-xs bg-blue-50 text-blue-700 border-blue-200 mr-0.5 mb-0.5 px-1 py-0 h-4'
               >
@@ -79,7 +79,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
           <div className='flex-1 flex flex-col space-y-1'>
             {slot.sub_slots.map((subSlot, idx) => (
               <div
-                key={idx}
+                key={`subSlot-${subSlot.id || idx}`}
                 className='flex-1 border-gray-300 last:border-b-0 border-b border-dashed pb-0.5'
               >
                 {subSlot.is_break_slot ? (

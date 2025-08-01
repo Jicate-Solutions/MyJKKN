@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Calendar,
@@ -70,6 +70,7 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { StaffMember } from '@/types/attendance';
 
 export default function AttendancePage() {
   const {
@@ -184,6 +185,29 @@ export default function AttendancePage() {
     isSuperAdmin || canAccess('academic.attendance', 'view');
   const canMarkAttendance =
     isSuperAdmin || canAccess('academic.attendance', 'mark');
+
+  // Check if all required fields are filled - memoized for performance
+  const isSearchFormValid = useMemo(() => {
+    return !!(
+      searchContext.institution_id &&
+      searchContext.academic_year_id &&
+      searchContext.degree_id &&
+      searchContext.department_id &&
+      searchContext.program_id &&
+      searchContext.semester_id &&
+      searchContext.section_id &&
+      searchContext.attendance_date
+    );
+  }, [
+    searchContext.institution_id,
+    searchContext.academic_year_id,
+    searchContext.degree_id,
+    searchContext.department_id,
+    searchContext.program_id,
+    searchContext.semester_id,
+    searchContext.section_id,
+    searchContext.attendance_date
+  ]);
 
   // Check staff permission for the selected period
   const checkStaffPermissionForPeriod = async (
@@ -391,12 +415,8 @@ export default function AttendancePage() {
 
   // Handle search form submission - Focus on loading periods first
   const handleSearch = async () => {
-    if (
-      !searchContext.institution_id ||
-      !searchContext.semester_id ||
-      !searchContext.section_id ||
-      !searchContext.attendance_date
-    ) {
+    // Validate all required fields
+    if (!isSearchFormValid) {
       toast.error('Please fill in all required fields');
       return;
     }
@@ -425,8 +445,9 @@ export default function AttendancePage() {
       ) {
         try {
           // Use the hook's fetchAvailablePeriods method with staff filtering
+          // For non-admin users, only show periods they are assigned to
           await fetchAvailablePeriods(searchContext, {
-            filterByStaffAssignment: true,
+            filterByStaffAssignment: !isSuperAdmin, // Only filter for non-admin users
             isSuperAdmin: isSuperAdmin
           });
         } catch (periodError) {
@@ -459,9 +480,32 @@ export default function AttendancePage() {
       setAttendanceCompleted({ isCompleted: false, details: null });
       setExistingAttendance([]);
       setLoadingPeriodData(false);
+      setLoadingPeriods(false);
 
-      // Reset search context
-      const resetContext = {
+      // Get today's date
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const today = `${year}-${month}-${day}`;
+
+      // Reset search context - for non-super admin, keep institution if set
+      let resetContext;
+      if (!isSuperAdmin && userProfile?.institution_id) {
+        // For faculty users, keep their institution
+        resetContext = {
+          institution_id: userProfile.institution_id,
+          academic_year_id: null,
+          degree_id: null,
+          program_id: null,
+          department_id: null,
+          semester_id: null,
+          section_id: null,
+          attendance_date: today
+        };
+      } else {
+        // For super admin, clear everything
+        resetContext = {
         institution_id: null,
         academic_year_id: null,
         degree_id: null,
@@ -469,20 +513,31 @@ export default function AttendancePage() {
         department_id: null,
         semester_id: null,
         section_id: null,
-        attendance_date: (() => {
-          const now = new Date();
-          const year = now.getFullYear();
-          const month = String(now.getMonth() + 1).padStart(2, '0');
-          const day = String(now.getDate()).padStart(2, '0');
-          return `${year}-${month}-${day}`;
-        })()
-      };
+          attendance_date: today
+        };
+      }
 
-      // Update context
+      // Update context with reset values
       await updateSearchContext(resetContext);
 
-      // Force refetch of institutions to ensure fresh data
+      // Clear available periods
+      if (typeof fetchAvailablePeriods === 'function') {
+        // Clear the periods by fetching with the reset context
+        await fetchAvailablePeriods(resetContext, {
+          filterByStaffAssignment: false
+        });
+      }
+
+      // Force refetch of base data
       await fetchInstitutions();
+
+      // If institution is set, refetch academic years
+      if (resetContext.institution_id) {
+        await refetchWithCurrentFilters({
+          institution_id: resetContext.institution_id,
+          isActive: true
+        });
+      }
 
       toast.success('Form reset successfully');
     } catch (error) {
@@ -620,7 +675,7 @@ export default function AttendancePage() {
               attendancePercentage,
               // Add staff and section details with proper names
               staffName: (() => {
-                const periodInfo = selectedPeriodInfo as any;
+                const periodInfo = selectedPeriodInfo;
                 if (
                   periodInfo?.staff?.first_name &&
                   periodInfo?.staff?.last_name
@@ -632,8 +687,10 @@ export default function AttendancePage() {
                   periodInfo.staff_members.length > 0
                 ) {
                   return periodInfo.staff_members
-                    .map((staff: any) =>
-                      `${staff.first_name} ${staff.last_name}`.trim()
+                    .map((staff: StaffMember) =>
+                      `${staff.first_name || ''} ${
+                        staff.last_name || ''
+                      }`.trim()
                     )
                     .join(', ');
                 }
@@ -777,7 +834,7 @@ export default function AttendancePage() {
             attendancePercentage,
             // Add staff and section details with proper names
             staffName: (() => {
-              const periodInfo = selectedPeriodInfo as any;
+              const periodInfo = selectedPeriodInfo;
               if (
                 periodInfo?.staff?.first_name &&
                 periodInfo?.staff?.last_name
@@ -789,8 +846,8 @@ export default function AttendancePage() {
                 periodInfo.staff_members.length > 0
               ) {
                 return periodInfo.staff_members
-                  .map((staff: any) =>
-                    `${staff.first_name} ${staff.last_name}`.trim()
+                  .map((staff: StaffMember) =>
+                    `${staff.first_name || ''} ${staff.last_name || ''}`.trim()
                   )
                   .join(', ');
               }
@@ -869,11 +926,11 @@ export default function AttendancePage() {
 
       <div className='space-y-6 mt-4'>
         {/* Header with status indicator */}
-        <div className='flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg'>
+        <div className='flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg dark:bg-green-950 dark:border-green-800/50'>
           <div className='flex-shrink-0'>
-            <Check className='h-5 w-5 text-green-600' />
+            <Check className='h-5 w-5 text-green-600 dark:text-green-500' />
           </div>
-          <span className='text-green-800 font-medium'>
+          <span className='text-green-800 dark:text-green-300 font-medium'>
             Select the class to record attendance
           </span>
         </div>
@@ -890,7 +947,7 @@ export default function AttendancePage() {
                   Institution <span className='text-red-500'>*</span>
                 </Label>
                 <Select
-                  value={searchContext.institution_id || undefined}
+                  value={searchContext.institution_id || ''}
                   onValueChange={async (value) => {
                     await updateSearchContext({
                       institution_id: value,
@@ -940,7 +997,7 @@ export default function AttendancePage() {
                   Academic Year <span className='text-red-500'>*</span>
                 </Label>
                 <Select
-                  value={searchContext.academic_year_id || undefined}
+                  value={searchContext.academic_year_id || ''}
                   onValueChange={async (value) => {
                     await updateSearchContext({
                       academic_year_id: value,
@@ -983,7 +1040,7 @@ export default function AttendancePage() {
                   Degree <span className='text-red-500'>*</span>
                 </Label>
                 <Select
-                  value={searchContext.degree_id || undefined}
+                  value={searchContext.degree_id || ''}
                   onValueChange={async (value) => {
                     await updateSearchContext({
                       degree_id: value,
@@ -1030,7 +1087,7 @@ export default function AttendancePage() {
                   Department <span className='text-red-500'>*</span>
                 </Label>
                 <Select
-                  value={searchContext.department_id || undefined}
+                  value={searchContext.department_id || ''}
                   onValueChange={async (value) => {
                     await updateSearchContext({
                       department_id: value,
@@ -1071,7 +1128,7 @@ export default function AttendancePage() {
                   Program <span className='text-red-500'>*</span>
                 </Label>
                 <Select
-                  value={searchContext.program_id || undefined}
+                  value={searchContext.program_id || ''}
                   onValueChange={async (value) => {
                     await updateSearchContext({
                       program_id: value,
@@ -1111,7 +1168,7 @@ export default function AttendancePage() {
                   Semester <span className='text-red-500'>*</span>
                 </Label>
                 <Select
-                  value={searchContext.semester_id || undefined}
+                  value={searchContext.semester_id || ''}
                   onValueChange={async (value) => {
                     await updateSearchContext({
                       semester_id: value,
@@ -1150,7 +1207,7 @@ export default function AttendancePage() {
                   Section <span className='text-red-500'>*</span>
                 </Label>
                 <Select
-                  value={searchContext.section_id || undefined}
+                  value={searchContext.section_id || ''}
                   onValueChange={async (value) =>
                     await updateSearchContext({ section_id: value })
                   }
@@ -1224,11 +1281,24 @@ export default function AttendancePage() {
               </div>
             </div>
 
+            {/* Helper Text */}
+            {!isSearchFormValid && (
+              <div className='text-sm text-muted-foreground mb-2 dark:text-gray-400'>
+                <AlertTriangle className='inline-block h-4 w-4 mr-1 text-orange-500' />
+                Please fill in all required fields to enable search
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className='flex gap-3'>
               <Button
                 onClick={handleSearch}
-                disabled={loading || loadingStudents || isResetting}
+                disabled={
+                  loading ||
+                  loadingStudents ||
+                  isResetting ||
+                  !isSearchFormValid
+                }
                 className='flex items-center gap-2'
               >
                 <Search className='h-4 w-4' />
@@ -1243,7 +1313,17 @@ export default function AttendancePage() {
                 <RotateCcw className='h-4 w-4' />
                 {isResetting ? 'Resetting...' : 'Reset'}
               </Button>
-              <Button variant='ghost' className='flex items-center gap-2'>
+              <Button
+                variant='ghost'
+                className='flex items-center gap-2'
+                onClick={() => {
+                  setShowResults(false);
+                  setShowStudents(false);
+                  setSelectedPeriod(null);
+                  setStudentsForSection([]);
+                  setAttendanceCompleted({ isCompleted: false, details: null });
+                }}
+              >
                 <X className='h-4 w-4' />
                 Cancel
               </Button>
@@ -1259,7 +1339,7 @@ export default function AttendancePage() {
               <Card>
                 <CardContent className='p-6'>
                   <div className='flex items-center gap-3 mb-4'>
-                    <Calendar className='h-5 w-5 text-blue-600' />
+                    <Calendar className='h-5 w-5 text-blue-600 dark:text-blue-500' />
                     <h3 className='text-lg font-medium'>Available Periods</h3>
                     <Badge variant='secondary' className='ml-auto'>
                       {searchContext.attendance_date
@@ -1281,7 +1361,7 @@ export default function AttendancePage() {
                     <div className='max-w-md'>
                       <Label
                         htmlFor='period-select'
-                        className='text-sm font-medium text-gray-700 mb-2 block'
+                        className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block'
                       >
                         Select Period to View/Mark Attendance
                       </Label>
@@ -1304,7 +1384,7 @@ export default function AttendancePage() {
                                 <SelectItem value='no-periods' disabled>
                                   <div className='flex items-center gap-2'>
                                     <AlertTriangle className='h-4 w-4 text-orange-500' />
-                                    <span className='text-gray-500'>
+                                    <span className='text-gray-500 dark:text-gray-400'>
                                       No periods available
                                     </span>
                                   </div>
@@ -1322,7 +1402,7 @@ export default function AttendancePage() {
                                     <span className='font-medium'>
                                       {period.period_name}
                                     </span>
-                                    <span className='text-xs text-gray-500'>
+                                    <span className='text-xs text-gray-500 dark:text-gray-400'>
                                       {period.start_time} - {period.end_time}
                                       {period.course &&
                                         ` • ${period.course.course_name}`}
@@ -1342,10 +1422,10 @@ export default function AttendancePage() {
                             period.timetable_slot_id
                           ) === true
                       ).length === 0 && (
-                        <div className='mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg'>
+                        <div className='mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg dark:bg-orange-950 dark:border-orange-800/50'>
                           <div className='flex items-center gap-2'>
-                            <AlertTriangle className='h-4 w-4 text-orange-600' />
-                            <p className='text-sm text-orange-800'>
+                            <AlertTriangle className='h-4 w-4 text-orange-600 dark:text-orange-500' />
+                            <p className='text-sm text-orange-800 dark:text-orange-300'>
                               No periods available - You are not assigned to
                               teach any periods for this class on the selected
                               date.
@@ -1355,7 +1435,7 @@ export default function AttendancePage() {
                       )}
                     </div>
                   ) : (
-                    <div className='text-center py-8 text-muted-foreground'>
+                    <div className='text-center py-8 text-muted-foreground dark:text-gray-500'>
                       <Calendar className='h-12 w-12 mx-auto mb-4 opacity-50' />
                       <p className='font-medium'>No periods available</p>
                       <p className='text-sm'>
@@ -1393,7 +1473,7 @@ export default function AttendancePage() {
                     Back to Periods
                   </Button>
                   {selectedPeriod && (
-                    <div className='flex items-center gap-2 text-sm text-gray-600'>
+                    <div className='flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400'>
                       <Calendar className='h-4 w-4' />
                       <span>
                         {
@@ -1425,12 +1505,12 @@ export default function AttendancePage() {
                     <CardContent className='p-8'>
                       <div className='flex flex-col items-center justify-center space-y-4'>
                         <div className='flex items-center space-x-2'>
-                          <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600'></div>
-                          <span className='text-gray-600'>
+                          <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 dark:border-blue-500'></div>
+                          <span className='text-gray-600 dark:text-gray-400'>
                             Checking attendance status...
                           </span>
                         </div>
-                        <p className='text-sm text-gray-500 text-center'>
+                        <p className='text-sm text-gray-500 dark:text-gray-500 text-center'>
                           Please wait while we load the attendance data for this
                           period.
                         </p>
@@ -1447,7 +1527,7 @@ export default function AttendancePage() {
                       attendanceCompleted.details && (
                         <div className='space-y-6'>
                           {/* Header Section */}
-                          <Card className='border-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white'>
+                          <Card className='border-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white dark:from-green-700 dark:to-emerald-700'>
                             <CardContent className='p-6'>
                               <div className='flex items-center justify-between mb-4'>
                                 <div className='flex items-center gap-3'>
@@ -1458,7 +1538,7 @@ export default function AttendancePage() {
                                     <h2 className='text-xl font-bold text-white'>
                                       Attendance Completed!
                                     </h2>
-                                    <p className='text-green-100 text-sm'>
+                                    <p className='text-green-100 dark:text-green-200 text-sm'>
                                       {attendanceCompleted.details.periodName} •{' '}
                                       {attendanceCompleted.details.timeSlot}
                                     </p>
@@ -1487,7 +1567,7 @@ export default function AttendancePage() {
                                   <div className='text-2xl font-bold text-white'>
                                     {attendanceCompleted.details.totalStudents}
                                   </div>
-                                  <div className='text-green-100 text-sm'>
+                                  <div className='text-green-100 dark:text-green-200 text-sm'>
                                     Total
                                   </div>
                                 </div>
@@ -1495,7 +1575,7 @@ export default function AttendancePage() {
                                   <div className='text-2xl font-bold text-white'>
                                     {attendanceCompleted.details.presentCount}
                                   </div>
-                                  <div className='text-green-100 text-sm'>
+                                  <div className='text-green-100 dark:text-green-200 text-sm'>
                                     Present
                                   </div>
                                 </div>
@@ -1503,7 +1583,7 @@ export default function AttendancePage() {
                                   <div className='text-2xl font-bold text-white'>
                                     {attendanceCompleted.details.absentCount}
                                   </div>
-                                  <div className='text-green-100 text-sm'>
+                                  <div className='text-green-100 dark:text-green-200 text-sm'>
                                     Absent
                                   </div>
                                 </div>
@@ -1515,7 +1595,7 @@ export default function AttendancePage() {
                                     }
                                     %
                                   </div>
-                                  <div className='text-green-100 text-sm'>
+                                  <div className='text-green-100 dark:text-green-200 text-sm'>
                                     Rate
                                   </div>
                                 </div>
@@ -1526,38 +1606,38 @@ export default function AttendancePage() {
                           {/* Information Cards */}
                           <div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-6'>
                             {/* Academic Information */}
-                            <Card className='border-blue-200 bg-blue-50 shadow-sm hover:shadow-md transition-shadow'>
+                            <Card className='border-blue-200 bg-blue-50 shadow-sm hover:shadow-md transition-shadow dark:bg-blue-950 dark:border-blue-800/50'>
                               <CardContent className='p-4 lg:p-6'>
                                 <div className='flex items-center gap-3 mb-4'>
-                                  <div className='p-2 bg-blue-100 rounded-lg'>
-                                    <BookOpen className='h-5 w-5 text-blue-600' />
+                                  <div className='p-2 bg-blue-100 dark:bg-blue-900 rounded-lg'>
+                                    <BookOpen className='h-5 w-5 text-blue-600 dark:text-blue-500' />
                                   </div>
-                                  <h3 className='font-semibold text-blue-900 text-sm lg:text-base'>
+                                  <h3 className='font-semibold text-blue-900 dark:text-blue-300 text-sm lg:text-base'>
                                     Academic Info
                                   </h3>
                                 </div>
                                 <div className='space-y-3'>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Course
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {attendanceCompleted.details.courseName}
                                     </span>
                                   </div>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Section
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {attendanceCompleted.details.sectionName}
                                     </span>
                                   </div>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Department
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {
                                         attendanceCompleted.details
                                           .departmentName
@@ -1565,10 +1645,10 @@ export default function AttendancePage() {
                                     </span>
                                   </div>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Program
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {attendanceCompleted.details.programName}
                                     </span>
                                   </div>
@@ -1577,39 +1657,39 @@ export default function AttendancePage() {
                             </Card>
 
                             {/* Staff Information */}
-                            <Card className='border-purple-200 bg-purple-50 shadow-sm hover:shadow-md transition-shadow'>
+                            <Card className='border-purple-200 bg-purple-50 shadow-sm hover:shadow-md transition-shadow dark:bg-purple-950 dark:border-purple-800/50'>
                               <CardContent className='p-4 lg:p-6'>
                                 <div className='flex items-center gap-3 mb-4'>
-                                  <div className='p-2 bg-purple-100 rounded-lg'>
-                                    <User className='h-5 w-5 text-purple-600' />
+                                  <div className='p-2 bg-purple-100 dark:bg-purple-900 rounded-lg'>
+                                    <User className='h-5 w-5 text-purple-600 dark:text-purple-500' />
                                   </div>
-                                  <h3 className='font-semibold text-purple-900 text-sm lg:text-base'>
+                                  <h3 className='font-semibold text-purple-900 dark:text-purple-300 text-sm lg:text-base'>
                                     Staff Details
                                   </h3>
                                 </div>
                                 <div className='space-y-3'>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Assigned Faculty
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {attendanceCompleted.details.staffName}
                                     </span>
                                   </div>
 
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Marked by
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {attendanceCompleted.details.markedBy}
                                     </span>
                                   </div>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Marked at
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {attendanceCompleted.details.markedAt}
                                     </span>
                                   </div>
@@ -1618,38 +1698,38 @@ export default function AttendancePage() {
                             </Card>
 
                             {/* Session Information */}
-                            <Card className='border-amber-200 bg-amber-50 shadow-sm hover:shadow-md transition-shadow lg:col-span-2 xl:col-span-1'>
+                            <Card className='border-amber-200 bg-amber-50 shadow-sm hover:shadow-md transition-shadow lg:col-span-2 xl:col-span-1 dark:bg-amber-950 dark:border-amber-800/50'>
                               <CardContent className='p-4 lg:p-6'>
                                 <div className='flex items-center gap-3 mb-4'>
-                                  <div className='p-2 bg-amber-100 rounded-lg'>
-                                    <Calendar className='h-5 w-5 text-amber-600' />
+                                  <div className='p-2 bg-amber-100 dark:bg-amber-900 rounded-lg'>
+                                    <Calendar className='h-5 w-5 text-amber-600 dark:text-amber-500' />
                                   </div>
-                                  <h3 className='font-semibold text-amber-900 text-sm lg:text-base'>
+                                  <h3 className='font-semibold text-amber-900 dark:text-amber-300 text-sm lg:text-base'>
                                     Session Details
                                   </h3>
                                 </div>
                                 <div className='space-y-3'>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Date
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {attendanceCompleted.details.date}
                                     </span>
                                   </div>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Time
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {attendanceCompleted.details.timeSlot}
                                     </span>
                                   </div>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Institution
                                     </span>
-                                    <span className='text-xs lg:text-sm font-medium text-gray-900 break-words text-right'>
+                                    <span className='text-xs lg:text-sm font-medium text-gray-900 dark:text-gray-200 break-words text-right'>
                                       {
                                         attendanceCompleted.details
                                           .institutionName
@@ -1657,10 +1737,10 @@ export default function AttendancePage() {
                                     </span>
                                   </div>
                                   <div className='flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2'>
-                                    <span className='text-xs lg:text-sm text-gray-600 font-medium min-w-fit'>
+                                    <span className='text-xs lg:text-sm text-gray-600 dark:text-gray-400 font-medium min-w-fit'>
                                       Status
                                     </span>
-                                    <Badge className='bg-green-100 text-green-700 border-green-200 text-xs'>
+                                    <Badge className='bg-green-100 text-green-700 border-green-200 text-xs dark:bg-green-900/50 dark:text-green-300 dark:border-green-800/50'>
                                       <Check className='h-3 w-3 mr-1' />
                                       Completed
                                     </Badge>
@@ -1674,12 +1754,12 @@ export default function AttendancePage() {
 
                     {/* Attendance Warning - Only show if attendance not completed */}
                     {!attendanceCompleted.isCompleted && (
-                      <div className='flex items-center gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg'>
-                        <AlertTriangle className='h-5 w-5 text-orange-600' />
-                        <span className='text-orange-800'>
+                      <div className='flex items-center gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg dark:bg-orange-950 dark:border-orange-800/50'>
+                        <AlertTriangle className='h-5 w-5 text-orange-600 dark:text-orange-500' />
+                        <span className='text-orange-800 dark:text-orange-300'>
                           Attendance not yet recorded
                         </span>
-                        <div className='ml-auto text-orange-600 text-sm'>
+                        <div className='ml-auto text-orange-600 dark:text-orange-400 text-sm'>
                           {(() => {
                             const total = studentsForSection.length;
                             const present = studentsForSection.filter(
@@ -1706,10 +1786,10 @@ export default function AttendancePage() {
                     {/* Period Selection and Controls - Only show if attendance not completed */}
                     {availablePeriods.length > 0 &&
                       !attendanceCompleted.isCompleted && (
-                        <div className='space-y-4 p-4 bg-blue-50 rounded-lg'>
+                        <div className='space-y-4 p-4 bg-blue-50 dark:bg-blue-950/50 rounded-lg'>
                           <div className='flex flex-wrap items-center gap-4'>
                             <div className='flex items-center gap-2'>
-                              <Label>Period:</Label>
+                              <Label className='dark:text-gray-300'>Period:</Label>
                               <Select
                                 value={selectedPeriod || undefined}
                                 onValueChange={handlePeriodSelection}
@@ -1750,7 +1830,7 @@ export default function AttendancePage() {
                                     p.timetable_slot_id
                                   ) === true
                               ).length === 0 && (
-                                <div className='text-sm text-orange-600 bg-orange-50 p-2 rounded border border-orange-200'>
+                                <div className='text-sm text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950 p-2 rounded border border-orange-200 dark:border-orange-800/50'>
                                   <AlertTriangle className='h-4 w-4 inline mr-1' />
                                   No periods available - You are not assigned to
                                   teach any periods for this class on this date.
@@ -1758,7 +1838,7 @@ export default function AttendancePage() {
                               )}
 
                             <div className='flex items-center gap-2 flex-1 min-w-[200px]'>
-                              <Label>Search:</Label>
+                              <Label className='dark:text-gray-300'>Search:</Label>
                               <div className='relative flex-1'>
                                 <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
                                 <Input
@@ -1785,7 +1865,7 @@ export default function AttendancePage() {
 
                           <div className='flex flex-wrap items-center gap-4'>
                             <div className='flex items-center gap-2'>
-                              <Label>Sort by Roll No.</Label>
+                              <Label className='dark:text-gray-300'>Sort by Roll No.</Label>
                               <Button
                                 variant='outline'
                                 size='sm'
@@ -1803,7 +1883,7 @@ export default function AttendancePage() {
                               </Button>
                             </div>
                             <div className='flex items-center gap-2'>
-                              <Label>Name A-Z</Label>
+                              <Label className='dark:text-gray-300'>Name A-Z</Label>
                               <Button
                                 variant='outline'
                                 size='sm'
@@ -1821,7 +1901,7 @@ export default function AttendancePage() {
                               </Button>
                             </div>
                             <div className='flex items-center gap-2'>
-                              <Label>All absent</Label>
+                              <Label className='dark:text-gray-300'>All absent</Label>
                               <Button
                                 variant='outline'
                                 size='sm'
@@ -1853,7 +1933,7 @@ export default function AttendancePage() {
                                 {allAbsent ? 'YES' : 'NO'}
                               </Button>
                             </div>
-                            <div className='ml-auto text-blue-800 text-sm'>
+                            <div className='ml-auto text-blue-800 dark:text-blue-300 text-sm'>
                               {filteredStudents.length} of{' '}
                               {studentsForSection.length} student(s)
                             </div>
@@ -1863,14 +1943,14 @@ export default function AttendancePage() {
 
                     {/* Period Selection for Completed Attendance */}
                     {attendanceCompleted.isCompleted && selectedPeriod && (
-                      <div className='space-y-4 p-4 bg-green-50 rounded-lg border border-green-200'>
+                      <div className='space-y-4 p-4 bg-green-50 dark:bg-green-950/50 rounded-lg border border-green-200 dark:border-green-800/50'>
                         <div className='flex items-center gap-4'>
                           <div className='flex items-center gap-2'>
-                            <Check className='h-4 w-4 text-green-600' />
-                            <Label className='text-green-800 font-medium'>
+                            <Check className='h-4 w-4 text-green-600 dark:text-green-500' />
+                            <Label className='text-green-800 dark:text-green-300 font-medium'>
                               Selected Period:
                             </Label>
-                            <span className='text-green-700'>
+                            <span className='text-green-700 dark:text-green-400'>
                               {
                                 availablePeriods.find(
                                   (p) => p.timetable_slot_id === selectedPeriod
@@ -1908,19 +1988,282 @@ export default function AttendancePage() {
                     {!loadingStudents &&
                       studentsForSection.length > 0 &&
                       availablePeriods.length === 0 && (
-                        <div className='flex items-center gap-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg'>
-                          <AlertTriangle className='h-5 w-5 text-yellow-600' />
+                        <div className='flex items-center gap-3 p-4 bg-yellow-50 dark:bg-yellow-950/50 border border-yellow-200 dark:border-yellow-800/50 rounded-lg'>
+                          <AlertTriangle className='h-5 w-5 text-yellow-600 dark:text-yellow-500' />
                           <div>
-                            <p className='text-yellow-800 font-medium'>
+                            <p className='text-yellow-800 dark:text-yellow-300 font-medium'>
                               No periods available for the selected date
                             </p>
-                            <p className='text-yellow-700 text-sm'>
+                            <p className='text-yellow-700 dark:text-yellow-400 text-sm'>
                               {isSuperAdmin
                                 ? 'No timetable periods are configured for this class on the selected date.'
                                 : 'You are not assigned to teach any periods for this class on the selected date, or no periods are configured.'}
                             </p>
                           </div>
                         </div>
+                      )}
+
+                    {/* Loading State */}
+                    {loadingStudents && (
+                      <div className='flex items-center justify-center py-8'>
+                        <Loader2 className='h-5 w-5 text-primary animate-spin' />
+                      </div>
+                    )}
+
+                    {/* Attendance Already Completed Message */}
+                    {attendanceCompleted.isCompleted &&
+                      studentsForSection.length > 0 && (
+                        <div className='flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800/50 rounded-lg'>
+                          <Check className='h-5 w-5 text-blue-600 dark:text-blue-500' />
+                          <div>
+                            <p className='text-blue-800 dark:text-blue-300 font-medium'>
+                              Attendance has been recorded for this period
+                            </p>
+                            <p className='text-blue-700 dark:text-blue-400 text-sm'>
+                              The attendance records below show the current
+                              status. To modify attendance, contact your system
+                              administrator.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                    {/* Context Information Card */}
+                    {!loadingStudents && studentsForSection.length > 0 && (
+                      <Card className='mb-6'>
+                        <CardContent className='p-4'>
+                          <h3 className='text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4 flex items-center gap-2'>
+                            <Users className='h-5 w-5 text-blue-600 dark:text-blue-500' />
+                            Class Details
+                          </h3>
+                          <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm'>
+                            <div className='flex flex-col items-start gap-2'>
+                              <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                Institution:
+                              </span>
+                              <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                {institutions.find(
+                                  (i) => i.id === searchContext.institution_id
+                                )?.name || 'N/A'}
+                              </span>
+                            </div>
+                            <div className='flex flex-col items-start gap-2'>
+                              <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                Academic Year:
+                              </span>
+                              <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                {academicYears.find(
+                                  (ay) =>
+                                    ay.id === searchContext.academic_year_id
+                                )?.academic_year_name || 'N/A'}
+                              </span>
+                            </div>
+                            <div className='flex flex-col items-start gap-2'>
+                              <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                Degree:
+                              </span>
+                              <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                {degrees.find(
+                                  (d) => d.id === searchContext.degree_id
+                                )?.degree_name || 'N/A'}
+                              </span>
+                            </div>
+                            <div className='flex flex-col items-start gap-2'>
+                              <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                Department:
+                              </span>
+                              <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                {departments.find(
+                                  (d) => d.id === searchContext.department_id
+                                )?.department_name || 'N/A'}
+                              </span>
+                            </div>
+                            <div className='flex flex-col items-start gap-2'>
+                              <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                Program:
+                              </span>
+                              <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                {programs.find(
+                                  (p) => p.id === searchContext.program_id
+                                )?.program_name || 'N/A'}
+                              </span>
+                            </div>
+                            <div className='flex flex-col items-start gap-2'>
+                              <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                Semester:
+                              </span>
+                              <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                {semesters.find(
+                                  (s) => s.id === searchContext.semester_id
+                                )?.semester_name || 'N/A'}
+                              </span>
+                            </div>
+                            <div className='flex flex-col items-start gap-2'>
+                              <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                Section:
+                              </span>
+                              <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                {sections.find(
+                                  (s) => s.id === searchContext.section_id
+                                )?.section_name || 'N/A'}
+                              </span>
+                            </div>
+                            <div className='flex flex-col items-start gap-2'>
+                              <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                Date:
+                              </span>
+                              <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                {searchContext.attendance_date
+                                  ? format(
+                                      new Date(
+                                        searchContext.attendance_date +
+                                          'T00:00:00'
+                                      ),
+                                      'dd-MMM-yyyy'
+                                    )
+                                  : 'N/A'}
+                              </span>
+                            </div>
+                            <div className='flex flex-col items-start gap-2'>
+                              <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                Total Students:
+                              </span>
+                              <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                {studentsForSection.length}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Selected Period Information */}
+                          {selectedPeriod && (
+                            <div className='mt-4 pt-4 border-t border-gray-200'>
+                              <h4 className='text-md font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2'>
+                                <Calendar className='h-4 w-4 text-green-600 dark:text-green-500' />
+                                Selected Period Details
+                              </h4>
+                              <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm'>
+                                {(() => {
+                                  const periodInfo = availablePeriods.find(
+                                    (p) =>
+                                      p.timetable_slot_id === selectedPeriod
+                                  );
+                                  return (
+                                    <>
+                                      <div className='flex flex-col items-start gap-2'>
+                                        <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                          Period:
+                                        </span>
+                                        <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                          {periodInfo?.period_name || 'N/A'}
+                                        </span>
+                                      </div>
+                                      <div className='flex flex-col items-start gap-2'>
+                                        <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                          Time:
+                                        </span>
+                                        <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                          {periodInfo?.start_time &&
+                                          periodInfo?.end_time
+                                            ? `${periodInfo.start_time} - ${periodInfo.end_time}`
+                                            : 'N/A'}
+                                        </span>
+                                      </div>
+                                      <div className='flex flex-col items-start gap-2'>
+                                        <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                          Course:
+                                        </span>
+                                        <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                          {periodInfo?.course?.course_name ||
+                                            'N/A'}
+                                        </span>
+                                      </div>
+                                      <div className='flex flex-col items-start gap-2'>
+                                        <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                                          Course Code:
+                                        </span>
+                                        <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                                          {periodInfo?.course?.course_code ||
+                                            'N/A'}
+                                        </span>
+                                      </div>
+                                      <div className='flex flex-col items-start gap-2'>
+                                        <span className='text-gray-600 font-medium'>
+                                          Faculty:
+                                        </span>
+                                        <span className='text-gray-900 font-semibold'>
+                                          {(() => {
+                                            if (
+                                              periodInfo?.staff?.first_name &&
+                                              periodInfo?.staff?.last_name
+                                            ) {
+                                              return `${periodInfo.staff.first_name} ${periodInfo.staff.last_name}`.trim();
+                                            }
+                                            if (
+                                              periodInfo?.staff_members &&
+                                              periodInfo.staff_members.length >
+                                                0
+                                            ) {
+                                              return periodInfo.staff_members
+                                                .map((staff: StaffMember) =>
+                                                  `${staff.first_name || ''} ${
+                                                    staff.last_name || ''
+                                                  }`.trim()
+                                                )
+                                                .join(', ');
+                                            }
+                                            return 'Not assigned';
+                                          })()}
+                                        </span>
+                                      </div>
+                                      <div className='flex flex-col items-start gap-2'>
+                                        <span className='text-gray-600 font-medium'>
+                                          Present:
+                                        </span>
+                                        <span className='text-green-600 font-semibold'>
+                                          {
+                                            studentsForSection.filter(
+                                              (s) => s.status === 'Present'
+                                            ).length
+                                          }
+                                        </span>
+                                      </div>
+                                      <div className='flex flex-col items-start gap-2'>
+                                        <span className='text-gray-600 font-medium'>
+                                          Absent:
+                                        </span>
+                                        <span className='text-red-600 font-semibold'>
+                                          {
+                                            studentsForSection.filter(
+                                              (s) => s.status === 'Absent'
+                                            ).length
+                                          }
+                                        </span>
+                                      </div>
+                                      <div className='flex flex-col items-start gap-2'>
+                                        <span className='text-gray-600 font-medium'>
+                                          Attendance Rate:
+                                        </span>
+                                        <span className='text-blue-600 font-semibold'>
+                                          {studentsForSection.length > 0
+                                            ? Math.round(
+                                                (studentsForSection.filter(
+                                                  (s) => s.status === 'Present'
+                                                ).length /
+                                                  studentsForSection.length) *
+                                                  100
+                                              )
+                                            : 0}
+                                          %
+                                        </span>
+                                      </div>
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
                       )}
 
                     {/* Save Attendance Button - Only show if attendance not completed */}
@@ -2155,31 +2498,6 @@ export default function AttendancePage() {
                               </DialogFooter>
                             </DialogContent>
                           </Dialog>
-                        </div>
-                      )}
-
-                    {/* Loading State */}
-                    {loadingStudents && (
-                      <div className='flex items-center justify-center py-8'>
-                        <Loader2 className='h-5 w-5 text-primary animate-spin' />
-                      </div>
-                    )}
-
-                    {/* Attendance Already Completed Message */}
-                    {attendanceCompleted.isCompleted &&
-                      studentsForSection.length > 0 && (
-                        <div className='flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg'>
-                          <Check className='h-5 w-5 text-blue-600' />
-                          <div>
-                            <p className='text-blue-800 font-medium'>
-                              Attendance has been recorded for this period
-                            </p>
-                            <p className='text-blue-700 text-sm'>
-                              The attendance records below show the current
-                              status. To modify attendance, contact your system
-                              administrator.
-                            </p>
-                          </div>
                         </div>
                       )}
 

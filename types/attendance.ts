@@ -226,6 +226,12 @@ export interface AttendanceSearchContext {
 }
 
 // For period selection in attendance roster
+export interface StaffMember {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+}
+
 export interface AttendancePeriodOption {
   id: string;
   period_name: string;
@@ -241,4 +247,6 @@ export interface AttendancePeriodOption {
     id: string;
     name: string;
   }[];
+  staff?: StaffMember; // Legacy single staff member
+  staff_members?: StaffMember[]; // Array of assigned staff members
 }
