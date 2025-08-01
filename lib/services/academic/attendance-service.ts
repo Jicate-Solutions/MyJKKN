@@ -1000,11 +1000,9 @@ export class AttendanceService {
 
       for (const slot of slots) {
         const isAssigned = await this.isStaffAssignedToSlot(staffId, slot.id);
-        const hasFacultyPermission =
-          await this.checkFacultyAttendancePermission();
 
-        // Include slot if staff is assigned OR has faculty role permissions
-        if (isAssigned || hasFacultyPermission) {
+        // Only include slot if staff is specifically assigned to it
+        if (isAssigned) {
           filteredSlots.push(slot);
         }
       }

@@ -16,11 +16,20 @@ export function TimetableHeader({ timetable, onBack }: TimetableHeaderProps) {
       <div className='p-6'>
         <div className='flex items-center justify-between mb-4'>
           <div>
-            <h1 className='text-2xl font-bold text-gray-900'>
-              {timetable.timetable_name}
-            </h1>
+            <div className='flex items-center gap-3'>
+              <h1 className='text-2xl font-bold text-gray-900'>
+                {timetable.timetable_name}
+              </h1>
+              {timetable.section && (
+                <Badge variant='secondary' className='text-sm'>
+                  Section {timetable.section}
+                </Badge>
+              )}
+            </div>
             <p className='text-sm text-gray-500 mt-1'>
-              Manage and view the timetable details
+              {timetable.section 
+                ? `Manage and view the timetable details for Section ${timetable.section}`
+                : 'Manage and view the timetable details'}
             </p>
           </div>
           <div className='flex items-center gap-2'>
@@ -113,6 +122,12 @@ export function TimetableHeader({ timetable, onBack }: TimetableHeaderProps) {
                     : typeof timetable.semester === 'string'
                     ? timetable.semester
                     : 'Semester'}
+                </p>
+              </div>
+              <div>
+                <span className='text-gray-500'>Section</span>
+                <p className='font-medium'>
+                  {timetable.section || 'N/A'}
                 </p>
               </div>
             </div>

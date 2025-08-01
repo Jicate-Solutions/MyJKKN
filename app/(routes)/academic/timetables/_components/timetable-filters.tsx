@@ -17,6 +17,7 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
+import { SectionService } from '@/lib/services/organization/section-service';
 import { TimetablesSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -45,6 +46,9 @@ export function TimetableFilters({
   >([]);
   const [semesters, setSemesters] = useState<
     Array<{ id: string; semester_name: string }>
+  >([]);
+  const [sections, setSections] = useState<
+    Array<{ id: string; section_name: string }>
   >([]);
   const [academicYears, setAcademicYears] = useState<
     Array<{ id: string; academic_year_name: string }>
@@ -158,6 +162,45 @@ export function TimetableFilters({
   }, [searchParams.program_id]);
 
   useEffect(() => {
+    async function loadSections() {
+      if (searchParams.semester && searchParams.program_id) {
+        try {
+          // Find the semester ID from the semester name
+          const selectedSemester = semesters.find(
+            (s) => s.semester_name === searchParams.semester
+          );
+          
+          if (selectedSemester) {
+            const filters = {
+              institution_id: searchParams.institution_id,
+              degree_id: searchParams.degree_id,
+              department_id: searchParams.department_id,
+              program_id: searchParams.program_id,
+              semester_id: selectedSemester.id,
+              isActive: true
+            };
+            
+            const response = await SectionService.getSections(filters);
+            setSections(response.data);
+          }
+        } catch (error) {
+          console.error('Error loading sections:', error);
+        }
+      } else {
+        setSections([]);
+      }
+    }
+    loadSections();
+  }, [
+    searchParams.semester,
+    searchParams.program_id,
+    searchParams.institution_id,
+    searchParams.degree_id,
+    searchParams.department_id,
+    semesters
+  ]);
+
+  useEffect(() => {
     async function loadAcademicYears() {
       if (searchParams.institution_id) {
         try {
@@ -217,6 +260,7 @@ export function TimetableFilters({
                   onFilterChange('department_id', undefined);
                   onFilterChange('program_id', undefined);
                   onFilterChange('semester', undefined);
+                  onFilterChange('section', undefined);
                   onFilterChange('academic_year_id', undefined);
                 }
               }}
@@ -245,6 +289,7 @@ export function TimetableFilters({
                 onFilterChange('department_id', undefined);
                 onFilterChange('program_id', undefined);
                 onFilterChange('semester', undefined);
+                onFilterChange('section', undefined);
               }
             }}
             disabled={!searchParams.institution_id}
@@ -271,6 +316,7 @@ export function TimetableFilters({
               if (!newValue) {
                 onFilterChange('program_id', undefined);
                 onFilterChange('semester', undefined);
+                onFilterChange('section', undefined);
               }
             }}
             disabled={!searchParams.degree_id}
@@ -296,6 +342,7 @@ export function TimetableFilters({
               // Clear dependent filters
               if (!newValue) {
                 onFilterChange('semester', undefined);
+                onFilterChange('section', undefined);
               }
             }}
             disabled={!searchParams.department_id}
@@ -329,7 +376,12 @@ export function TimetableFilters({
         <Select
           value={searchParams.semester || 'all'}
           onValueChange={(value) => {
-            onFilterChange('semester', value === 'all' ? undefined : value);
+            const newValue = value === 'all' ? undefined : value;
+            onFilterChange('semester', newValue);
+            // Clear section filter when semester changes
+            if (!newValue) {
+              onFilterChange('section', undefined);
+            }
           }}
           disabled={!searchParams.program_id}
         >
@@ -369,15 +421,30 @@ export function TimetableFilters({
           </SelectContent>
         </Select>
 
-        <Input
-          placeholder='Section (optional)'
-          value={searchParams.section || ''}
-          onChange={(e) =>
-            onFilterChange('section', e.target.value || undefined)
-          }
-          className='w-full sm:w-[180px]'
+        <Select
+          value={searchParams.section || 'all'}
+          onValueChange={(value) => {
+            onFilterChange('section', value === 'all' ? undefined : value);
+          }}
           disabled={!searchParams.semester}
-        />
+        >
+          <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectValue placeholder='Select section' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Sections</SelectItem>
+            {/* Deduplicate sections by name for display */}
+            {sections
+              .filter((section, index, self) =>
+                index === self.findIndex((s) => s.section_name === section.section_name)
+              )
+              .map((section) => (
+                <SelectItem key={section.id} value={section.section_name}>
+                  {section.section_name}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
 
         <Select
           value={searchParams.is_active || 'all'}

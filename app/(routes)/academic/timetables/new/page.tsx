@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { Save, ArrowLeft, CalendarIcon } from 'lucide-react';
+import { Save, ArrowLeft, CalendarIcon, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useTimetables } from '@/hooks/academic/use-timetables';
 import { useAcademicYears } from '@/hooks/academic/use-academic-years';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -54,6 +55,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
+import { TimetableService } from '@/lib/services/academic/timetable-service';
 
 // Define the schema for timetable creation
 const timetableFormSchema = z
@@ -108,6 +110,35 @@ export default function NewTimetablePage() {
   const { createTimetable } = useTimetables();
   const { isSuperAdmin, userProfile } = usePermissions();
 
+  // Initialize the form first to use its state in hooks
+  const form = useForm<TimetableFormValues>({
+    resolver: zodResolver(timetableFormSchema),
+    defaultValues: {
+      timetable_name: '',
+      institution_id: '',
+      academic_year_id: '',
+      degree_id: '',
+      program_id: '',
+      department_id: '',
+      semester: '',
+      section: '',
+      is_active: true,
+      is_template: false,
+      template_name: '',
+      start_date: undefined,
+      end_date: undefined
+    }
+  });
+
+  // Watch form values for cascading dropdowns
+  const watchIsTemplate = form.watch('is_template');
+  const watchInstitutionId = form.watch('institution_id');
+  const watchDegreeId = form.watch('degree_id');
+  const watchProgramId = form.watch('program_id');
+  const watchDepartmentId = form.watch('department_id');
+  const watchSemesterId = form.watch('semester');
+  const watchSectionId = form.watch('section');
+
   // Organization hooks for real data
   const {
     academicYears,
@@ -123,24 +154,20 @@ export default function NewTimetablePage() {
   } = useInstitutionsWithAccess({});
 
   const degreesQuery = useDegrees({
-    bypassInstitutionFilter: isSuperAdmin,
-    userId: userProfile?.id,
-    limit: 1000 // Fetch all degrees
+    institution_id: watchInstitutionId,
+    isActive: true
   });
   const programsQuery = usePrograms({
-    bypassInstitutionFilter: isSuperAdmin,
-    userId: userProfile?.id,
-    limit: 1000 // Fetch all programs
+    department_id: watchDepartmentId,
+    isActive: true
   });
   const departmentsQuery = useDepartments({
-    bypassInstitutionFilter: isSuperAdmin,
-    userId: userProfile?.id,
-    limit: 1000 // Fetch all departments
+    degree_id: watchDegreeId,
+    isActive: true
   });
   const semestersQuery = useSemesters({
-    bypassInstitutionFilter: isSuperAdmin,
-    userId: userProfile?.id,
-    limit: 1000 // Fetch all semesters
+    program_id: watchProgramId,
+    isActive: true
   });
 
   // Extract data and loading states
@@ -167,6 +194,11 @@ export default function NewTimetablePage() {
       loading: loadingInstitutions,
       dataLength: institutions.length
     },
+    AcademicYears: {
+      loading: loadingYears,
+      dataLength: academicYears.length,
+      selectedInstitution: watchInstitutionId
+    },
     Degrees: {
       loading: loadingDegrees,
       error: degreesQuery.error,
@@ -189,48 +221,40 @@ export default function NewTimetablePage() {
     }
   });
 
-  // Placeholder for filtered data - will be computed after state variables are available
-  let degrees = allDegrees;
-  let programs = allPrograms;
-  let departments = allDepartments;
-  let filteredSemesters = allSemesters;
-
-  // State for form submission and selected values
   const [loading, setLoading] = useState(false);
-  const [selectedInstitutionId, setSelectedInstitutionId] =
-    useState<string>('');
-  const [selectedDegreeId, setSelectedDegreeId] = useState<string>('');
-  const [selectedProgramId, setSelectedProgramId] = useState<string>('');
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
-
-  // Initialize the form
-  const form = useForm<TimetableFormValues>({
-    resolver: zodResolver(timetableFormSchema),
-    defaultValues: {
-      timetable_name: '',
-      institution_id: '',
-      academic_year_id: '',
-      degree_id: '',
-      program_id: '',
-      department_id: '',
-      semester: '',
-      // section field removed - timetables are now semester-wise
-      is_active: true,
-      is_template: false,
-      template_name: '',
-      start_date: undefined,
-      end_date: undefined
-    }
+  const [existingTimetableCheck, setExistingTimetableCheck] = useState<{
+    checking: boolean;
+    exists: boolean;
+    message?: string;
+  }>({
+    checking: false,
+    exists: false
   });
 
-  // Watch form values for cascading dropdowns
-  const watchIsTemplate = form.watch('is_template');
-  const watchInstitutionId = form.watch('institution_id');
-  const watchDegreeId = form.watch('degree_id');
-  const watchProgramId = form.watch('program_id');
-  const watchDepartmentId = form.watch('department_id');
-  const watchSemesterId = form.watch('semester');
-  const watchSectionId = form.watch('section');
+  // Debug semester data
+  console.log('📚 Semester Data Debug:', {
+    totalSemesters: allSemesters.length,
+    semesterNames: allSemesters.map((s) => s.semester_name),
+    semesterIds: allSemesters.map((s) => s.id),
+    duplicateNames: allSemesters
+      .filter(
+        (s, i, arr) =>
+          arr.findIndex((item) => item.semester_name === s.semester_name) !== i
+      )
+      .map((s) => ({ id: s.id, name: s.semester_name }))
+  });
+
+  // Find the actual semester ID for the selected semester name
+  const selectedSemesterId = watchSemesterId
+    ? allSemesters.find((s) => s.semester_name === watchSemesterId)?.id
+    : undefined;
+
+  // Deduplicate semesters by name for display (keep the first one)
+  const uniqueSemesters = allSemesters.filter(
+    (semester, index, self) =>
+      index ===
+      self.findIndex((s) => s.semester_name === semester.semester_name)
+  );
 
   // Sections hook
   const {
@@ -242,214 +266,91 @@ export default function NewTimetablePage() {
     degree_id: watchDegreeId || undefined,
     department_id: watchDepartmentId || undefined,
     program_id: watchProgramId || undefined,
-    semester_id: watchSemesterId || undefined,
+    semester_id: selectedSemesterId || undefined,
     isActive: true
   });
+
   const sections = sectionsData?.data ?? [];
 
-  // Initial data loading - fetch all required data
+  // Deduplicate sections by name to prevent duplicate keys in the dropdown
+  const uniqueSections = sections.filter(
+    (section, index, self) =>
+      index === self.findIndex((s) => s.section_name === section.section_name)
+  );
+
+  // Fetch academic years when institution is selected
   useEffect(() => {
-    fetchInstitutions();
+    if (watchInstitutionId) {
+      updateFilters({ institution_id: watchInstitutionId, isActive: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchInstitutionId]);
+
+  // Initial fetch of academic years
+  useEffect(() => {
     fetchAcademicYears({ isActive: true });
-    fetchDegrees();
-    fetchPrograms();
-    fetchDepartments();
-    fetchSemesters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Apply hierarchical filtering based on current selections
-  // NEW HIERARCHY: institution → academic year → degree → department → program → semester
-  // Use form watch values for immediate updates
-  degrees = allDegrees.filter(
-    (degree) =>
-      !watchInstitutionId || degree.institution_id === watchInstitutionId
-  );
-
-  departments = allDepartments.filter(
-    (department) => !watchDegreeId || department.degree_id === watchDegreeId
-  );
-
-  programs = allPrograms.filter(
-    (program) =>
-      !watchDepartmentId || program.department_id === watchDepartmentId
-  );
-
-  filteredSemesters = allSemesters.filter(
-    (semester) => !watchProgramId || semester.program_id === watchProgramId
-  );
-
-  // Deduplicate semesters by semester_name to avoid duplicate keys
-  // THIS MUST HAPPEN AFTER FILTERING TO ENSURE ONLY PROGRAM-RELATED SEMESTERS ARE SHOWN
-  const uniqueSemesters = filteredSemesters.filter(
-    (semester, index, self) =>
-      index ===
-      self.findIndex((s) => s.semester_name === semester.semester_name)
-  );
-
-  // Debug log to track duplicate removal
-  if (filteredSemesters.length !== uniqueSemesters.length) {
-    console.log(
-      `Removed ${
-        filteredSemesters.length - uniqueSemesters.length
-      } duplicate semesters`
-    );
-    console.log(
-      'Original filtered semesters:',
-      filteredSemesters.map((s) => s.semester_name)
-    );
-    console.log(
-      'Unique filtered semesters:',
-      uniqueSemesters.map((s) => s.semester_name)
-    );
-  }
-
-  // Debug log for hierarchy
-  console.log('🔍 Hierarchy Debug:', {
-    'Form Values': {
-      institution: watchInstitutionId,
-      degree: watchDegreeId,
-      department: watchDepartmentId,
-      program: watchProgramId
-    },
-    'Available Data': {
-      degrees: degrees.length,
-      departments: departments.length,
-      programs: programs.length,
-      semesters: filteredSemesters.length,
-      uniqueSemesters: uniqueSemesters.length
-    },
-    'All Data': {
-      allDegrees: allDegrees.length,
-      allDepartments: allDepartments.length,
-      allPrograms: allPrograms.length,
-      allSemesters: allSemesters.length
+  // Check for existing timetable when section changes
+  const checkExistingTimetable = useCallback(async () => {
+    const values = form.getValues();
+    
+    // Only check if all required fields are filled
+    if (
+      !values.institution_id ||
+      !values.academic_year_id ||
+      !values.degree_id ||
+      !values.program_id ||
+      !values.department_id ||
+      !values.semester ||
+      !values.section
+    ) {
+      return;
     }
-  });
 
-  // Specific department debugging when degree is selected
-  if (watchDegreeId) {
-    console.log('🏢 Department Debug for Degree:', watchDegreeId, {
-      'Total Departments': allDepartments.length,
-      'Filtered Departments': departments.length,
-      'Department Sample': allDepartments.slice(0, 5).map((d) => ({
-        id: d.id,
-        name: d.department_name,
-        degree_id: d.degree_id,
-        institution_id: d.institution_id
-      })),
-      'All Department degree_ids': [
-        ...new Set(allDepartments.map((d) => d.degree_id))
-      ],
-      'Selected Degree ID': watchDegreeId,
-      'Matching Departments': allDepartments
-        .filter((d) => d.degree_id === watchDegreeId)
-        .map((d) => ({
-          id: d.id,
-          name: d.department_name,
-          degree_id: d.degree_id,
-          institution_id: d.institution_id
-        }))
-    });
-  }
+    setExistingTimetableCheck({ checking: true, exists: false });
 
-  // Additional debugging for all data structures
-  console.log('📊 All Data Structures:', {
-    'Degrees Sample': allDegrees.slice(0, 3).map((d) => ({
-      id: d.id,
-      name: d.degree_name,
-      institution_id: d.institution_id
-    })),
-    'Departments Sample': allDepartments.slice(0, 3).map((d) => ({
-      id: d.id,
-      name: d.department_name,
-      degree_id: d.degree_id,
-      institution_id: d.institution_id
-    })),
-    'Programs Sample': allPrograms.slice(0, 3).map((p) => ({
-      id: p.id,
-      name: p.program_name,
-      department_id: p.department_id
-    })),
-    'Semesters Sample': allSemesters.slice(0, 3).map((s) => ({
-      id: s.id,
-      name: s.semester_name,
-      program_id: s.program_id
-    }))
-  });
+    try {
+      const result = await TimetableService.checkExistingTimetable({
+        institution_id: values.institution_id,
+        academic_year_id: values.academic_year_id,
+        degree_id: values.degree_id,
+        program_id: values.program_id,
+        department_id: values.department_id,
+        semester: values.semester,
+        section: values.section
+      });
 
-  // Update state and fetch dependent data when institution changes
-  useEffect(() => {
-    if (watchInstitutionId !== selectedInstitutionId) {
-      setSelectedInstitutionId(watchInstitutionId || '');
+      setExistingTimetableCheck({
+        checking: false,
+        exists: result.exists,
+        message: result.message
+      });
 
-      if (watchInstitutionId) {
-        // Filter academic years by selected institution
-        updateFilters({ institution_id: watchInstitutionId, isActive: true });
-
-        // Refetch data with institution filter to ensure we get the right data
-        fetchDegrees();
-        fetchDepartments();
-        fetchPrograms();
-        fetchSemesters();
+      // Set form error if timetable exists
+      if (result.exists) {
+        form.setError('section', {
+          type: 'manual',
+          message: 'A timetable already exists for this section'
+        });
+      } else {
+        // Clear section error if no conflict
+        form.clearErrors('section');
       }
-
-      // Reset ALL dependent fields when institution changes
-      setSelectedDegreeId('');
-      setSelectedDepartmentId('');
-      setSelectedProgramId('');
-      form.setValue('academic_year_id', '');
-      form.setValue('degree_id', '');
-      form.setValue('department_id', '');
-      form.setValue('program_id', '');
-      form.setValue('semester', '');
+    } catch (error) {
+      console.error('Error checking existing timetable:', error);
+      setExistingTimetableCheck({ checking: false, exists: false });
     }
-  }, [
-    watchInstitutionId,
-    selectedInstitutionId,
-    updateFilters,
-    form,
-    fetchDegrees,
-    fetchDepartments,
-    fetchPrograms,
-    fetchSemesters
-  ]);
+  }, [form]);
 
-  // Update state and fetch dependent data when degree changes
+  // Check for existing timetable when relevant fields change
   useEffect(() => {
-    if (watchDegreeId !== selectedDegreeId) {
-      setSelectedDegreeId(watchDegreeId || '');
-
-      // Reset ALL dependent fields when degree changes
-      setSelectedDepartmentId('');
-      setSelectedProgramId('');
-      form.setValue('department_id', '');
-      form.setValue('program_id', '');
-      form.setValue('semester', '');
+    if (watchSectionId) {
+      checkExistingTimetable();
     }
-  }, [watchDegreeId, selectedDegreeId, form]);
-
-  // Update state and fetch dependent data when department changes
-  useEffect(() => {
-    if (watchDepartmentId !== selectedDepartmentId) {
-      setSelectedDepartmentId(watchDepartmentId || '');
-
-      // Reset dependent fields when department changes
-      setSelectedProgramId('');
-      form.setValue('program_id', '');
-      form.setValue('semester', '');
-    }
-  }, [watchDepartmentId, selectedDepartmentId, form]);
-
-  // Update state when program changes
-  useEffect(() => {
-    if (watchProgramId !== selectedProgramId) {
-      setSelectedProgramId(watchProgramId || '');
-
-      // Reset semester when program changes
-      form.setValue('semester', '');
-    }
-  }, [watchProgramId, selectedProgramId, form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchSectionId, watchSemesterId]);
 
   // Form submission handler
   const onSubmit = async (values: TimetableFormValues) => {
@@ -565,6 +466,25 @@ export default function NewTimetablePage() {
           </Button>
         </div>
 
+        {/* Global error message display */}
+        {form.formState.errors.root && (
+          <div className='rounded-md bg-destructive/15 p-4 border border-destructive'>
+            <p className='text-sm font-medium text-destructive'>
+              {form.formState.errors.root.message}
+            </p>
+          </div>
+        )}
+
+        {/* Existing timetable warning */}
+        {existingTimetableCheck.exists && existingTimetableCheck.message && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {existingTimetableCheck.message}
+            </AlertDescription>
+          </Alert>
+        )}
+
         <Card>
           <CardContent className='p-6'>
             <Form {...form}>
@@ -672,7 +592,7 @@ export default function NewTimetablePage() {
                           disabled={
                             loadingDegrees ||
                             !watchInstitutionId ||
-                            degrees.length === 0
+                            (degreesQuery.data?.data.length ?? 0) === 0
                           }
                         >
                           <FormControl>
@@ -681,7 +601,7 @@ export default function NewTimetablePage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
-                            {degrees.map((degree) => (
+                            {degreesQuery.data?.data.map((degree) => (
                               <SelectItem key={degree.id} value={degree.id}>
                                 {degree.degree_name}
                               </SelectItem>
@@ -706,7 +626,7 @@ export default function NewTimetablePage() {
                           disabled={
                             loadingDepartments ||
                             !watchDegreeId ||
-                            departments.length === 0
+                            (departmentsQuery.data?.data.length ?? 0) === 0
                           }
                         >
                           <FormControl>
@@ -715,7 +635,7 @@ export default function NewTimetablePage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
-                            {departments.map((department) => (
+                            {departmentsQuery.data?.data.map((department) => (
                               <SelectItem
                                 key={department.id}
                                 value={department.id}
@@ -745,7 +665,7 @@ export default function NewTimetablePage() {
                           disabled={
                             loadingPrograms ||
                             !watchDepartmentId ||
-                            programs.length === 0
+                            (programsQuery.data?.data.length ?? 0) === 0
                           }
                         >
                           <FormControl>
@@ -754,7 +674,7 @@ export default function NewTimetablePage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
-                            {programs.map((program) => (
+                            {programsQuery.data?.data.map((program) => (
                               <SelectItem key={program.id} value={program.id}>
                                 {program.program_name}
                               </SelectItem>
@@ -788,14 +708,20 @@ export default function NewTimetablePage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
-                            {uniqueSemesters.map((semester) => (
-                              <SelectItem
-                                key={semester.id}
-                                value={semester.semester_name}
-                              >
-                                {semester.semester_name}
-                              </SelectItem>
-                            ))}
+                            {uniqueSemesters.length > 0 ? (
+                              uniqueSemesters.map((semester) => (
+                                <SelectItem
+                                  key={semester.id}
+                                  value={semester.semester_name}
+                                >
+                                  {semester.semester_name}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <div className='py-2 px-3 text-sm text-muted-foreground'>
+                                No semesters available
+                              </div>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormDescription>
@@ -817,8 +743,8 @@ export default function NewTimetablePage() {
                           value={field.value}
                           disabled={
                             loadingSections ||
-                            !watchSemesterId ||
-                            sections.length === 0
+                            !selectedSemesterId ||
+                            (sectionsData?.data.length ?? 0) === 0
                           }
                         >
                           <FormControl>
@@ -827,9 +753,9 @@ export default function NewTimetablePage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className='max-h-60 overflow-y-auto'>
-                            {sections.map((section) => (
+                            {uniqueSections.map((section, index) => (
                               <SelectItem
-                                key={section.id}
+                                key={`section-${section.id}-${index}`}
                                 value={section.section_name}
                               >
                                 {section.section_name}
@@ -838,7 +764,7 @@ export default function NewTimetablePage() {
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          The section for this timetable (e.g., A, B, C)
+                          The section for this timetable (e.g., A, B, C). Only one active timetable can exist per section.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -1017,9 +943,14 @@ export default function NewTimetablePage() {
                   >
                     Cancel
                   </Button>
-                  <Button type='submit' disabled={loading}>
+                  <Button 
+                    type='submit' 
+                    disabled={loading || existingTimetableCheck.exists}
+                  >
                     {loading ? (
                       <>Processing...</>
+                    ) : existingTimetableCheck.exists ? (
+                      <>Timetable Already Exists</>
                     ) : (
                       <>
                         <Save className='mr-2 h-4 w-4' />
