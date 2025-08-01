@@ -98,6 +98,10 @@ export const columns: ColumnDef<Student>[] = [
   },
   {
     id: 'actions',
-    cell: ({ row }) => <DataTableRowActions row={row} />
+    header: 'Actions',
+    cell: ({ row }) => <DataTableRowActions row={row} />,
+    enableSorting: false,
+    enableHiding: false,
+    size: 100
   }
 ];
