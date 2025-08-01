@@ -506,13 +506,13 @@ export default function AttendancePage() {
       } else {
         // For super admin, clear everything
         resetContext = {
-        institution_id: null,
-        academic_year_id: null,
-        degree_id: null,
-        program_id: null,
-        department_id: null,
-        semester_id: null,
-        section_id: null,
+          institution_id: null,
+          academic_year_id: null,
+          degree_id: null,
+          program_id: null,
+          department_id: null,
+          semester_id: null,
+          section_id: null,
           attendance_date: today
         };
       }
@@ -1789,7 +1789,9 @@ export default function AttendancePage() {
                         <div className='space-y-4 p-4 bg-blue-50 dark:bg-blue-950/50 rounded-lg'>
                           <div className='flex flex-wrap items-center gap-4'>
                             <div className='flex items-center gap-2'>
-                              <Label className='dark:text-gray-300'>Period:</Label>
+                              <Label className='dark:text-gray-300'>
+                                Period:
+                              </Label>
                               <Select
                                 value={selectedPeriod || undefined}
                                 onValueChange={handlePeriodSelection}
@@ -1838,7 +1840,9 @@ export default function AttendancePage() {
                               )}
 
                             <div className='flex items-center gap-2 flex-1 min-w-[200px]'>
-                              <Label className='dark:text-gray-300'>Search:</Label>
+                              <Label className='dark:text-gray-300'>
+                                Search:
+                              </Label>
                               <div className='relative flex-1'>
                                 <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground' />
                                 <Input
@@ -1865,7 +1869,9 @@ export default function AttendancePage() {
 
                           <div className='flex flex-wrap items-center gap-4'>
                             <div className='flex items-center gap-2'>
-                              <Label className='dark:text-gray-300'>Sort by Roll No.</Label>
+                              <Label className='dark:text-gray-300'>
+                                Sort by Roll No.
+                              </Label>
                               <Button
                                 variant='outline'
                                 size='sm'
@@ -1883,7 +1889,9 @@ export default function AttendancePage() {
                               </Button>
                             </div>
                             <div className='flex items-center gap-2'>
-                              <Label className='dark:text-gray-300'>Name A-Z</Label>
+                              <Label className='dark:text-gray-300'>
+                                Name A-Z
+                              </Label>
                               <Button
                                 variant='outline'
                                 size='sm'
@@ -1901,7 +1909,9 @@ export default function AttendancePage() {
                               </Button>
                             </div>
                             <div className='flex items-center gap-2'>
-                              <Label className='dark:text-gray-300'>All absent</Label>
+                              <Label className='dark:text-gray-300'>
+                                All absent
+                              </Label>
                               <Button
                                 variant='outline'
                                 size='sm'
@@ -2136,7 +2146,7 @@ export default function AttendancePage() {
 
                           {/* Selected Period Information */}
                           {selectedPeriod && (
-                            <div className='mt-4 pt-4 border-t border-gray-200'>
+                            <div className='mt-4 pt-4 border-t border-gray-200 dark:border-gray-700'>
                               <h4 className='text-md font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2'>
                                 <Calendar className='h-4 w-4 text-green-600 dark:text-green-500' />
                                 Selected Period Details
@@ -2187,10 +2197,10 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex flex-col items-start gap-2'>
-                                        <span className='text-gray-600 font-medium'>
+                                        <span className='text-gray-600 dark:text-gray-400 font-medium'>
                                           Faculty:
                                         </span>
-                                        <span className='text-gray-900 font-semibold'>
+                                        <span className='text-gray-900 dark:text-gray-200 font-semibold'>
                                           {(() => {
                                             if (
                                               periodInfo?.staff?.first_name &&
@@ -2216,10 +2226,10 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex flex-col items-start gap-2'>
-                                        <span className='text-gray-600 font-medium'>
+                                        <span className='text-gray-600 dark:text-gray-400 font-medium'>
                                           Present:
                                         </span>
-                                        <span className='text-green-600 font-semibold'>
+                                        <span className='text-green-600 dark:text-green-500 font-semibold'>
                                           {
                                             studentsForSection.filter(
                                               (s) => s.status === 'Present'
@@ -2228,10 +2238,10 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex flex-col items-start gap-2'>
-                                        <span className='text-gray-600 font-medium'>
+                                        <span className='text-gray-600 dark:text-gray-400 font-medium'>
                                           Absent:
                                         </span>
-                                        <span className='text-red-600 font-semibold'>
+                                        <span className='text-red-600 dark:text-red-500 font-semibold'>
                                           {
                                             studentsForSection.filter(
                                               (s) => s.status === 'Absent'
@@ -2240,10 +2250,10 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex flex-col items-start gap-2'>
-                                        <span className='text-gray-600 font-medium'>
+                                        <span className='text-gray-600 dark:text-gray-400 font-medium'>
                                           Attendance Rate:
                                         </span>
-                                        <span className='text-blue-600 font-semibold'>
+                                        <span className='text-blue-600 dark:text-blue-500 font-semibold'>
                                           {studentsForSection.length > 0
                                             ? Math.round(
                                                 (studentsForSection.filter(
@@ -2264,13 +2274,13 @@ export default function AttendancePage() {
                           )}
                         </CardContent>
                       </Card>
-                      )}
+                    )}
 
                     {/* Save Attendance Button - Only show if attendance not completed */}
                     {!loadingStudents &&
                       studentsForSection.length > 0 &&
                       !attendanceCompleted.isCompleted && (
-                        <div className='flex justify-end gap-3'>
+                        <div className='flex justify-end gap-3 my-4'>
                           <Button
                             variant='outline'
                             onClick={() => {
@@ -2338,13 +2348,13 @@ export default function AttendancePage() {
                                 <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                                   {/* Left Column - Period Details */}
                                   <div className='space-y-3'>
-                                    <h4 className='font-semibold text-gray-800 flex items-center gap-2'>
+                                    <h4 className='font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2'>
                                       <Calendar className='h-4 w-4' />
                                       Period Information
                                     </h4>
                                     <div className='space-y-2 text-sm'>
                                       <div className='flex justify-between'>
-                                        <span className='text-gray-600'>
+                                        <span className='text-gray-600 dark:text-gray-400'>
                                           Period:
                                         </span>
                                         <span className='font-medium'>
@@ -2356,7 +2366,7 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex justify-between'>
-                                        <span className='text-gray-600'>
+                                        <span className='text-gray-600 dark:text-gray-400'>
                                           Time:
                                         </span>
                                         <span className='font-medium'>
@@ -2372,7 +2382,7 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex justify-between'>
-                                        <span className='text-gray-600'>
+                                        <span className='text-gray-600 dark:text-gray-400'>
                                           Course:
                                         </span>
                                         <span className='font-medium'>
@@ -2384,7 +2394,7 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex justify-between'>
-                                        <span className='text-gray-600'>
+                                        <span className='text-gray-600 dark:text-gray-400'>
                                           Date:
                                         </span>
                                         <span className='font-medium'>
@@ -2404,16 +2414,16 @@ export default function AttendancePage() {
 
                                   {/* Right Column - Attendance Summary */}
                                   <div className='space-y-3'>
-                                    <h4 className='font-semibold text-gray-800 flex items-center gap-2'>
+                                    <h4 className='font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2'>
                                       <BarChart3 className='h-4 w-4' />
                                       Attendance Summary
                                     </h4>
                                     <div className='space-y-2 text-sm'>
                                       <div className='flex justify-between'>
-                                        <span className='text-gray-600'>
+                                        <span className='text-gray-600 dark:text-gray-400'>
                                           Present:
                                         </span>
-                                        <span className='font-medium text-green-600'>
+                                        <span className='font-medium text-green-600 dark:text-green-500'>
                                           {
                                             studentsForSection.filter(
                                               (s) => s.status === 'Present'
@@ -2423,10 +2433,10 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex justify-between'>
-                                        <span className='text-gray-600'>
+                                        <span className='text-gray-600 dark:text-gray-400'>
                                           Absent:
                                         </span>
-                                        <span className='font-medium text-red-600'>
+                                        <span className='font-medium text-red-600 dark:text-red-500'>
                                           {
                                             studentsForSection.filter(
                                               (s) => s.status === 'Absent'
@@ -2436,7 +2446,7 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex justify-between'>
-                                        <span className='text-gray-600'>
+                                        <span className='text-gray-600 dark:text-gray-400'>
                                           Total:
                                         </span>
                                         <span className='font-medium'>
@@ -2444,10 +2454,10 @@ export default function AttendancePage() {
                                         </span>
                                       </div>
                                       <div className='flex justify-between'>
-                                        <span className='text-gray-600'>
+                                        <span className='text-gray-600 dark:text-gray-400'>
                                           Attendance Rate:
                                         </span>
-                                        <span className='font-medium text-blue-600'>
+                                        <span className='font-medium text-blue-600 dark:text-blue-500'>
                                           {Math.round(
                                             (studentsForSection.filter(
                                               (s) => s.status === 'Present'
@@ -2463,8 +2473,8 @@ export default function AttendancePage() {
                                 </div>
 
                                 {/* Warning Message */}
-                                <div className='mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg'>
-                                  <p className='text-yellow-800 text-sm flex items-start gap-2'>
+                                <div className='mt-4 p-3 bg-yellow-50 dark:bg-yellow-950/50 border border-yellow-200 dark:border-yellow-800/50 rounded-lg'>
+                                  <p className='text-yellow-800 dark:text-yellow-300 text-sm flex items-start gap-2'>
                                     <AlertTriangle className='h-4 w-4 mt-0.5 flex-shrink-0' />
                                     <span>
                                       <strong>Important:</strong> Once
