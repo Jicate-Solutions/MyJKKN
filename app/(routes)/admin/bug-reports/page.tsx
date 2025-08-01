@@ -5,7 +5,8 @@ import {
   useBugReports,
   useUpdateBugReportStatus,
   useDeleteBugReport,
-  useBulkDeleteBugReports
+  useBulkDeleteBugReports,
+  useBulkUpdateBugReportsStatus
 } from '@/hooks/bug-reports/use-bug-reports';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
@@ -169,6 +170,8 @@ export default function AdminBugReportsPage() {
   const [reportToDelete, setReportToDelete] = useState<string | null>(null);
   const [selectedReports, setSelectedReports] = useState<string[]>([]);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const [bulkStatusUpdateOpen, setBulkStatusUpdateOpen] = useState(false);
+  const [bulkStatusValue, setBulkStatusValue] = useState<BugReportStatus>('seen');
   const { toast } = useToast();
   const { isSuperAdmin } = usePermissions();
 
@@ -176,6 +179,7 @@ export default function AdminBugReportsPage() {
   const updateStatusMutation = useUpdateBugReportStatus();
   const deleteReportMutation = useDeleteBugReport();
   const bulkDeleteMutation = useBulkDeleteBugReports();
+  const bulkUpdateStatusMutation = useBulkUpdateBugReportsStatus();
 
   // Fetch all reports for statistics
   const { data: allReportsData, refetch: refetchAll } = useBugReports({
@@ -321,6 +325,32 @@ export default function AdminBugReportsPage() {
       });
     }
   }, [selectedReports, bulkDeleteMutation, toast, refetch, refetchAll]);
+
+  const handleBulkStatusUpdate = useCallback(async () => {
+    try {
+      await bulkUpdateStatusMutation.mutateAsync({
+        reportIds: selectedReports,
+        status: bulkStatusValue
+      });
+      toast({
+        title: 'Status Updated',
+        description: `${selectedReports.length} bug report(s) status updated to ${bulkStatusValue.replace('_', ' ')}.`
+      });
+      setBulkStatusUpdateOpen(false);
+      setSelectedReports([]);
+      refetch();
+      refetchAll();
+    } catch (err) {
+      toast({
+        title: 'Bulk Status Update Failed',
+        description:
+          err instanceof Error
+            ? err.message
+            : 'Could not update the status of selected bug reports.',
+        variant: 'destructive'
+      });
+    }
+  }, [selectedReports, bulkStatusValue, bulkUpdateStatusMutation, toast, refetch, refetchAll]);
 
   const reports = data?.data ?? [];
   const metadata = data?.metadata;
@@ -538,14 +568,24 @@ export default function AdminBugReportsPage() {
               </p>
             </div>
             <div className='flex gap-2'>
-              {isSuperAdmin && selectedReports.length > 0 && (
-                <Button
-                  variant='destructive'
-                  onClick={() => setBulkDeleteConfirmOpen(true)}
-                >
-                  <Trash2 className='w-4 h-4 mr-2' />
-                  Delete Selected ({selectedReports.length})
-                </Button>
+              {selectedReports.length > 0 && (
+                <>
+                  <Button
+                    variant='outline'
+                    onClick={() => setBulkStatusUpdateOpen(true)}
+                  >
+                    Update Status ({selectedReports.length})
+                  </Button>
+                  {isSuperAdmin && (
+                    <Button
+                      variant='destructive'
+                      onClick={() => setBulkDeleteConfirmOpen(true)}
+                    >
+                      <Trash2 className='w-4 h-4 mr-2' />
+                      Delete Selected ({selectedReports.length})
+                    </Button>
+                  )}
+                </>
               )}
               <Button asChild variant='outline'>
                 <Link href='/bug-leaderboard'>
@@ -713,6 +753,53 @@ export default function AdminBugReportsPage() {
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               Delete All
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Status Update Dialog */}
+      <AlertDialog
+        open={bulkStatusUpdateOpen}
+        onOpenChange={setBulkStatusUpdateOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Update Status for {selectedReports.length} bug report
+              {selectedReports.length > 1 ? 's' : ''}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Select the new status for the selected bug reports.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className='py-4'>
+            <label className='text-sm font-medium text-muted-foreground mb-2 block'>
+              New Status
+            </label>
+            <Select
+              value={bulkStatusValue}
+              onValueChange={(value) => setBulkStatusValue(value as BugReportStatus)}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue placeholder='Select status...' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='new'>New</SelectItem>
+                <SelectItem value='seen'>Seen</SelectItem>
+                <SelectItem value='in_progress'>In Progress</SelectItem>
+                <SelectItem value='resolved'>Resolved</SelectItem>
+                <SelectItem value='wont_fix'>Won&apos;t Fix</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkStatusUpdate}
+              disabled={bulkUpdateStatusMutation.isPending}
+            >
+              {bulkUpdateStatusMutation.isPending ? 'Updating...' : 'Update Status'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

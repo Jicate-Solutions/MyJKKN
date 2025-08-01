@@ -96,6 +96,25 @@ const bulkDeleteBugReports = async (reportIds: string[]) => {
   return response.json();
 };
 
+const bulkUpdateBugReportsStatus = async ({
+  reportIds,
+  status
+}: {
+  reportIds: string[];
+  status: BugReportStatus;
+}) => {
+  const response = await fetch('/api/bug-reports/bulk-update-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reportIds, status })
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to update bug reports status');
+  }
+  return response.json();
+};
+
 // --- React Query Hooks ---
 
 export const useBugReports = (filters: {
@@ -187,6 +206,25 @@ export const useBulkDeleteBugReports = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.mine() });
 
       // Invalidate leaderboard
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.bugReports.leaderboard()
+      });
+    }
+  });
+};
+
+export const useBulkUpdateBugReportsStatus = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: bulkUpdateBugReportsStatus,
+    onSuccess: () => {
+      // Invalidate and refetch all bug reports queries
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.lists() });
+
+      // Invalidate my bug reports
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.mine() });
+
+      // Invalidate leaderboard (in case status changed to/from resolved)
       queryClient.invalidateQueries({
         queryKey: queryKeys.bugReports.leaderboard()
       });
