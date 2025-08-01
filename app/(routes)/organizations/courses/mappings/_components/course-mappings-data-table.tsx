@@ -8,13 +8,20 @@ import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
 import { CourseMapping } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface CourseMappingsDataTableProps {
   search: CourseMappingsSearchParams;
 }
 
-export function CourseMappingsDataTable({ search }: CourseMappingsDataTableProps) {
+export function CourseMappingsDataTable({
+  search
+}: CourseMappingsDataTableProps) {
   const router = useRouter();
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canCreate =
+    isSuperAdmin || canAccess('organizations.institutions', 'create');
 
   const fetchData = async (params: {
     page: number;
@@ -38,10 +45,17 @@ export function CourseMappingsDataTable({ search }: CourseMappingsDataTableProps
         department_id: search.department_id,
         program_id: search.program_id,
         semester_id: search.semester_id,
-        isActive: search.status === 'active' ? true : search.status === 'inactive' ? false : undefined
+        isActive:
+          search.status === 'active'
+            ? true
+            : search.status === 'inactive'
+            ? false
+            : undefined
       };
 
-      const { data, metadata } = await CourseMappingService.getCourseMappings(filters);
+      const { data, metadata } = await CourseMappingService.getCourseMappings(
+        filters
+      );
 
       return {
         success: true,
@@ -96,14 +110,16 @@ export function CourseMappingsDataTable({ search }: CourseMappingsDataTableProps
     resetSelection: () => void;
   }) => (
     <div className='flex items-center gap-2'>
-      <Button
-        onClick={() => router.push('/organizations/courses/mappings/new')}
-        size='sm'
-        className='h-8'
-      >
-        <Plus className='mr-2 h-4 w-4' />
-        Map Course
-      </Button>
+      {canCreate && (
+        <Button
+          onClick={() => router.push('/organizations/courses/mappings/new')}
+          size='sm'
+          className='h-8'
+        >
+          <Plus className='mr-2 h-4 w-4' />
+          Map Course
+        </Button>
+      )}
 
       {props.selectedRows.length > 0 && (
         <Button

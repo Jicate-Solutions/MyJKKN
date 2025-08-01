@@ -8,6 +8,7 @@ import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { Section } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface SectionsDataTableProps {
   search: SectionsSearchParams;
@@ -15,6 +16,10 @@ interface SectionsDataTableProps {
 
 export function SectionsDataTable({ search }: SectionsDataTableProps) {
   const router = useRouter();
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canCreate =
+    isSuperAdmin || canAccess('organizations.institutions', 'create');
 
   const fetchData = async (params: {
     page: number;
@@ -94,14 +99,16 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
     resetSelection: () => void;
   }) => (
     <div className='flex items-center gap-2'>
-      <Button
-        onClick={() => router.push('/organizations/sections/new')}
-        size='sm'
-        className='h-8'
-      >
-        <Plus className='mr-2 h-4 w-4' />
-        Add Section
-      </Button>
+      {canCreate && (
+        <Button
+          onClick={() => router.push('/organizations/sections/new')}
+          size='sm'
+          className='h-8'
+        >
+          <Plus className='mr-2 h-4 w-4' />
+          Add Section
+        </Button>
+      )}
 
       {props.selectedRows.length > 0 && (
         <Button

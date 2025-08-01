@@ -8,6 +8,7 @@ import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { Degree } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface DegreesDataTableProps {
   search: DegreesSearchParams;
@@ -15,6 +16,11 @@ interface DegreesDataTableProps {
 
 export function DegreesDataTable({ search }: DegreesDataTableProps) {
   const router = useRouter();
+
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canCreate =
+    isSuperAdmin || canAccess('organizations.institutions', 'create');
 
   const fetchData = async (params: {
     page: number;
@@ -93,14 +99,16 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
     resetSelection: () => void;
   }) => (
     <div className='flex items-center gap-2'>
-      <Button
-        onClick={() => router.push('/organizations/degrees/new')}
-        size='sm'
-        className='h-8'
-      >
-        <Plus className='mr-2 h-4 w-4' />
-        Add Degree
-      </Button>
+      {canCreate && (
+        <Button
+          onClick={() => router.push('/organizations/degrees/new')}
+          size='sm'
+          className='h-8'
+        >
+          <Plus className='mr-2 h-4 w-4' />
+          Add Degree
+        </Button>
+      )}
 
       {props.selectedRows.length > 0 && (
         <Button

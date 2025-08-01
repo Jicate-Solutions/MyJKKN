@@ -8,6 +8,7 @@ import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { Department } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface DepartmentsDataTableProps {
   search: DepartmentsSearchParams;
@@ -15,6 +16,10 @@ interface DepartmentsDataTableProps {
 
 export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   const router = useRouter();
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canCreate =
+    isSuperAdmin || canAccess('organizations.institutions', 'create');
 
   const fetchData = async (params: {
     page: number;
@@ -38,7 +43,9 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
         status: search.status
       };
 
-      const { data, metadata } = await DepartmentService.getDepartments(filters);
+      const { data, metadata } = await DepartmentService.getDepartments(
+        filters
+      );
 
       return {
         success: true,
@@ -93,14 +100,16 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
     resetSelection: () => void;
   }) => (
     <div className='flex items-center gap-2'>
-      <Button
-        onClick={() => router.push('/organizations/departments/new')}
-        size='sm'
-        className='h-8'
-      >
-        <Plus className='mr-2 h-4 w-4' />
-        Add Department
-      </Button>
+      {canCreate && (
+        <Button
+          onClick={() => router.push('/organizations/departments/new')}
+          size='sm'
+          className='h-8'
+        >
+          <Plus className='mr-2 h-4 w-4' />
+          Add Department
+        </Button>
+      )}
 
       {props.selectedRows.length > 0 && (
         <Button

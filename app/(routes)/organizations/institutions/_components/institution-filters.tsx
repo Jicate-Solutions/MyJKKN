@@ -27,11 +27,7 @@ export function InstitutionFilter({
   onFilterChange,
   onClearFilters
 }: InstitutionFiltersProps) {
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canEdit =
-    isSuperAdmin || canAccess('organizations.institutions', 'edit');
-  const canExport =
-    isSuperAdmin || canAccess('organizations.institutions', 'export');
+  const { isSuperAdmin } = usePermissions();
 
   const hasActiveFilters = !!searchParams.status;
 
@@ -71,9 +67,9 @@ export function InstitutionFilter({
         </div>
 
         <div className='flex flex-wrap items-center gap-2'>
-          {canEdit && <DownloadTemplateButton />}
-          {canExport && <ExportInstitutions />}
-          {canEdit && <BulkUploadInstitutions />}
+          {isSuperAdmin && <DownloadTemplateButton />}
+          {isSuperAdmin && <ExportInstitutions />}
+          {isSuperAdmin && <BulkUploadInstitutions />}
         </div>
       </div>
     </div>

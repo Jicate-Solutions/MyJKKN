@@ -8,6 +8,7 @@ import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { Semester } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface SemestersDataTableProps {
   search: SemestersSearchParams;
@@ -15,6 +16,10 @@ interface SemestersDataTableProps {
 
 export function SemestersDataTable({ search }: SemestersDataTableProps) {
   const router = useRouter();
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canCreate =
+    isSuperAdmin || canAccess('organizations.institutions', 'create');
 
   const fetchData = async (params: {
     page: number;
@@ -99,14 +104,16 @@ export function SemestersDataTable({ search }: SemestersDataTableProps) {
     resetSelection: () => void;
   }) => (
     <div className='flex items-center gap-2'>
-      <Button
-        onClick={() => router.push('/organizations/semesters/new')}
-        size='sm'
-        className='h-8'
-      >
-        <Plus className='mr-2 h-4 w-4' />
-        Add Semester
-      </Button>
+      {canCreate && (
+        <Button
+          onClick={() => router.push('/organizations/semesters/new')}
+          size='sm'
+          className='h-8'
+        >
+          <Plus className='mr-2 h-4 w-4' />
+          Add Semester
+        </Button>
+      )}
 
       {props.selectedRows.length > 0 && (
         <Button

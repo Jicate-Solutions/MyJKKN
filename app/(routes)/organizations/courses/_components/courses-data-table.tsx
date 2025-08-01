@@ -8,6 +8,7 @@ import { Plus, TrashIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { Course } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface CoursesDataTableProps {
   search: CoursesSearchParams;
@@ -15,6 +16,10 @@ interface CoursesDataTableProps {
 
 export function CoursesDataTable({ search }: CoursesDataTableProps) {
   const router = useRouter();
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  const canCreate =
+    isSuperAdmin || canAccess('organizations.institutions', 'create');
 
   const fetchData = async (params: {
     page: number;
@@ -34,7 +39,12 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
         sortBy: params.sort_by || undefined,
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
         institution_id: search.institution_id,
-        isActive: search.status === 'active' ? true : search.status === 'inactive' ? false : undefined
+        isActive:
+          search.status === 'active'
+            ? true
+            : search.status === 'inactive'
+            ? false
+            : undefined
       };
 
       const { data, metadata } = await CourseService.getCourses(filters);
@@ -92,14 +102,16 @@ export function CoursesDataTable({ search }: CoursesDataTableProps) {
     resetSelection: () => void;
   }) => (
     <div className='flex items-center gap-2'>
-      <Button
-        onClick={() => router.push('/organizations/courses/new')}
-        size='sm'
-        className='h-8'
-      >
-        <Plus className='mr-2 h-4 w-4' />
-        Add Course
-      </Button>
+      {canCreate && (
+        <Button
+          onClick={() => router.push('/organizations/courses/new')}
+          size='sm'
+          className='h-8'
+        >
+          <Plus className='mr-2 h-4 w-4' />
+          Add Course
+        </Button>
+      )}
 
       {props.selectedRows.length > 0 && (
         <Button
