@@ -59,7 +59,10 @@ import {
 import Loading from '@/components/Loading/Loading';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { useAttendanceRoster } from '@/hooks/academic/use-attendance';
+import {
+  useAttendanceRoster,
+  useConsolidatedAttendance
+} from '@/hooks/academic/use-attendance';
 import { useAcademicYears } from '@/hooks/academic/use-academic-years';
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { usePrograms } from '@/hooks/organization/use-programs';
@@ -70,7 +73,7 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { StaffMember } from '@/types/attendance';
+import { StaffMember, ConsolidatedAttendanceData } from '@/types/attendance';
 
 export default function AttendancePage() {
   const {
@@ -81,9 +84,11 @@ export default function AttendancePage() {
     searchContext,
     updateSearchContext,
     fetchAvailablePeriods,
-    fetchAttendanceRoster,
-    saveAttendance
+    fetchAttendanceRoster
   } = useAttendanceRoster();
+
+  const { saveConsolidatedAttendance, loading: savingConsolidatedAttendance } =
+    useConsolidatedAttendance();
 
   const { canAccess, isSuperAdmin, userProfile } = usePermissions();
   const { profile } = useAuth();
@@ -782,20 +787,44 @@ export default function AttendancePage() {
         }
       }
 
-      // Prepare attendance records
-      const attendanceRecords = studentsForSection.map((student) => ({
-        student_id: student.id,
-        timetable_slot_id: selectedPeriod,
+      // Get selected period info for consolidated data
+      const selectedPeriodInfo = availablePeriods.find(
+        (p) => p.timetable_slot_id === selectedPeriod
+      );
+
+      if (!selectedPeriodInfo) {
+        toast.error('Period information not found');
+        return;
+      }
+
+      // Prepare consolidated attendance data
+      const attendance_data: ConsolidatedAttendanceData = {
+        [selectedPeriod]: {
+          period_id: selectedPeriodInfo.id,
+          period_name: selectedPeriodInfo.period_name,
+          start_time: selectedPeriodInfo.start_time,
+          end_time: selectedPeriodInfo.end_time,
+          course_id: selectedPeriodInfo.course?.id || '',
+          course_name: selectedPeriodInfo.course?.course_name || '',
+          students: studentsForSection.map((student) => ({
+            student_id: student.id,
+            status: student.status as 'Present' | 'Absent',
+            marked_at: new Date().toISOString()
+          }))
+        }
+      };
+
+      // Save using the consolidated attendance service
+      const result = await saveConsolidatedAttendance({
+        timetable_id: selectedPeriodInfo.timetable_id, // Use the correct timetable_id
+        section_id: searchContext.section_id!,
         attendance_date: searchContext.attendance_date!,
-        status: student.status as 'Present' | 'Absent',
+        attendance_data: attendance_data,
         marked_by: user.id,
         institution_id: searchContext.institution_id!
-      }));
-
-      // Save using the attendance service
-      const success = await saveAttendance({
-        records: attendanceRecords
       });
+
+      const success = !!result;
 
       if (success) {
         // Get attendance statistics
@@ -808,10 +837,7 @@ export default function AttendancePage() {
         const total = studentsForSection.length;
         const attendancePercentage = Math.round((presentCount / total) * 100);
 
-        // Get selected period info
-        const selectedPeriodInfo = availablePeriods.find(
-          (p) => p.timetable_slot_id === selectedPeriod
-        );
+        // selectedPeriodInfo already defined above
 
         // Get current date and time
         const currentDate = new Date();

@@ -89,7 +89,6 @@ export interface ConsolidatedStudentAttendance {
   attendance_data: ConsolidatedAttendanceData;
   marked_by: string;
   institution_id: string;
-  is_consolidated: boolean;
   created_at: string;
   updated_at: string;
 
@@ -238,6 +237,7 @@ export interface AttendancePeriodOption {
   start_time: string;
   end_time: string;
   timetable_slot_id: string;
+  timetable_id: string; // Add timetable_id
   course?: {
     id: string;
     course_name: string;
