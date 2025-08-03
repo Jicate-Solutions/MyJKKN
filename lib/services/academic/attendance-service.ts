@@ -45,7 +45,6 @@ export class AttendanceService {
           attendance_data,
           marked_by,
           institution_id,
-          is_consolidated,
           created_at,
           updated_at,
           marked_by_profile:profiles!marked_by(
@@ -58,7 +57,6 @@ export class AttendanceService {
         .eq('timetable_id', timetable_id)
         .eq('section_id', section_id)
         .eq('attendance_date', attendance_date)
-        .is('student_id', null) // Only consolidated records
         .single();
 
       if (error) {
@@ -86,44 +84,76 @@ export class AttendanceService {
     data: UpsertConsolidatedAttendanceDto
   ): Promise<ConsolidatedStudentAttendance> {
     try {
-      const { data: result, error } = await this.supabase
+      // First, try to find existing consolidated record
+      const { data: existingRecord } = await this.supabase
         .from('student_attendance')
-        .upsert(
-          {
+        .select('id')
+        .eq('institution_id', data.institution_id)
+        .eq('timetable_id', data.timetable_id)
+        .eq('section_id', data.section_id)
+        .eq('attendance_date', data.attendance_date)
+        .eq('is_consolidated', true)
+        .single();
+
+      let result;
+      if (existingRecord) {
+        // Update existing record
+        const { data: updateResult, error: updateError } = await this.supabase
+          .from('student_attendance')
+          .update({
+            attendance_data: data.attendance_data,
+            marked_by: data.marked_by,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingRecord.id)
+          .select(
+            `
+            id,
+            timetable_id,
+            section_id,
+            attendance_date,
+            attendance_data,
+            marked_by,
+            institution_id,
+            created_at,
+            updated_at
+          `
+          )
+          .single();
+
+        if (updateError) throw updateError;
+        result = updateResult;
+      } else {
+        // Create new record
+        const { data: insertResult, error: insertError } = await this.supabase
+          .from('student_attendance')
+          .insert({
             timetable_id: data.timetable_id,
             section_id: data.section_id,
             attendance_date: data.attendance_date,
             attendance_data: data.attendance_data,
             marked_by: data.marked_by,
             institution_id: data.institution_id,
-            student_id: null, // Consolidated record
-            timetable_slot_id: null, // Not used in consolidated structure
-            status: null, // Not used in consolidated structure
-            is_consolidated: true,
             updated_at: new Date().toISOString()
-          },
-          {
-            onConflict: 'timetable_id,section_id,attendance_date,student_id',
-            ignoreDuplicates: false
-          }
-        )
-        .select(
+          })
+          .select(
+            `
+            id,
+            timetable_id,
+            section_id,
+            attendance_date,
+            attendance_data,
+            marked_by,
+            institution_id,
+            created_at,
+            updated_at
           `
-          id,
-          timetable_id,
-          section_id,
-          attendance_date,
-          attendance_data,
-          marked_by,
-          institution_id,
-          is_consolidated,
-          created_at,
-          updated_at
-        `
-        )
-        .single();
+          )
+          .single();
 
-      if (error) throw error;
+        if (insertError) throw insertError;
+        result = insertResult;
+      }
 
       return result as ConsolidatedStudentAttendance;
     } catch (error) {
@@ -590,6 +620,7 @@ export class AttendanceService {
         .select(
           `
           id,
+          timetable_id,
           day_of_week,
           period_id,
           course_id,
@@ -704,43 +735,18 @@ export class AttendanceService {
   }
 
   // Get attendance records for a specific slot and date
+  // NOTE: This method is deprecated and returns empty array since we moved to consolidated approach
   static async getAttendanceRecords(
     timetable_slot_id: string,
     attendance_date: string
   ): Promise<StudentAttendance[]> {
     try {
-      const { data, error } = await this.supabase
-        .from('student_attendance')
-        .select(
-          `
-          id,
-          student_id,
-          timetable_slot_id,
-          attendance_date,
-          status,
-          marked_by,
-          institution_id,
-          created_at,
-          updated_at,
-          student:student_id(
-            id,
-            first_name,
-            last_name,
-            roll_number
-          ),
-          marked_by_user:marked_by(
-            id,
-            email,
-            full_name
-          )
-        `
-        )
-        .eq('timetable_slot_id', timetable_slot_id)
-        .eq('attendance_date', attendance_date);
-
-      if (error) throw error;
-
-      return (data || []) as unknown as StudentAttendance[];
+      // Since we moved to consolidated attendance, individual records no longer exist
+      // Return empty array to indicate no existing attendance in old format
+      console.log(
+        'getAttendanceRecords called - returning empty array (consolidated approach active)'
+      );
+      return [];
     } catch (error) {
       console.error('Error fetching attendance records:', error);
       throw error;
@@ -975,6 +981,7 @@ export class AttendanceService {
           start_time: slot.period?.start_time || '',
           end_time: slot.period?.end_time || '',
           timetable_slot_id: slot.id,
+          timetable_id: slot.timetable_id, // Add the timetable_id
           course: slot.course,
           staff: slot.staff, // Pass legacy staff object
           staff_members: (slot as any).staff_members, // Pass new staff_members array
@@ -1017,6 +1024,7 @@ export class AttendanceService {
         start_time: slot.period?.start_time || '',
         end_time: slot.period?.end_time || '',
         timetable_slot_id: slot.id,
+        timetable_id: slot.timetable_id, // Add the timetable_id
         course: slot.course,
         staff: slot.staff, // Pass legacy staff object
         staff_members: (slot as any).staff_members, // Pass new staff_members array
@@ -1323,85 +1331,22 @@ export class AttendanceService {
   }
 
   // Get attendance records with filters
+  // NOTE: This method is deprecated since we moved to consolidated approach
   static async getAttendance(
     filters: AttendanceFilters = {}
   ): Promise<AttendanceListResponse> {
     try {
-      let query = this.supabase.from('student_attendance').select(
-        `
-          *,
-          student:student_id(
-            id,
-            first_name,
-            last_name,
-            roll_number
-          ),
-          timetable_slot:timetable_slot_id(
-            id,
-            day_of_week,
-            period:period_id(
-              id,
-              period_name,
-              start_time,
-              end_time
-            ),
-            course:course_id(
-              id,
-              course_name,
-              course_code
-            )
-          ),
-          marked_by_user:marked_by(
-            id,
-            email,
-            full_name
-          ),
-          institution:institution_id(
-            id,
-            name
-          )
-        `,
-        { count: 'exact' }
+      // Since we moved to consolidated attendance, return empty result
+      console.log(
+        'getAttendance called - returning empty result (consolidated approach active)'
       );
-
-      // Apply filters
-      if (filters.institution_id) {
-        query = query.eq('institution_id', filters.institution_id);
-      }
-
-      if (filters.attendance_date) {
-        query = query.eq('attendance_date', filters.attendance_date);
-      }
-
-      if (filters.timetable_slot_id) {
-        query = query.eq('timetable_slot_id', filters.timetable_slot_id);
-      }
-
-      if (filters.status) {
-        query = query.eq('status', filters.status);
-      }
-
-      // Apply pagination
-      const page = filters.page || 1;
-      const limit = filters.limit || 50;
-      const start = (page - 1) * limit;
-
-      query = query.range(start, start + limit - 1);
-
-      // Default order by attendance_date and student name
-      query = query.order('attendance_date', { ascending: false });
-
-      const { data, error, count } = await query;
-
-      if (error) throw error;
-
       return {
-        data: data || [],
+        data: [],
         metadata: {
-          total: count || 0,
-          page,
-          limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
+          total: 0,
+          page: filters.page || 1,
+          limit: filters.limit || 50,
+          totalPages: 0
         }
       };
     } catch (error) {

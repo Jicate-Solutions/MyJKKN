@@ -10,7 +10,8 @@ import type {
   BatchUpdateAttendanceDto,
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
-  ConsolidatedAttendanceStudent
+  ConsolidatedAttendanceStudent,
+  UpsertConsolidatedAttendanceDto
 } from '@/types/attendance';
 import type { Student } from '@/types/student';
 
@@ -229,6 +230,8 @@ export function useAttendanceRoster() {
         setLoading(true);
         setError(null);
 
+        // For now, we'll still use the old method but we need to update this
+        // to use consolidated approach in the future
         const roster = await AttendanceService.getAttendanceRoster(
           timetableSlotId,
           attendanceDate,
@@ -366,39 +369,27 @@ export function useConsolidatedAttendance() {
   );
 
   const saveConsolidatedAttendance = useCallback(
-    async (
-      timetable_id: string,
-      section_id: string,
-      attendance_date: string,
-      attendance_data: ConsolidatedAttendanceData,
-      marked_by: string,
-      institution_id: string
-    ) => {
+    async (data: UpsertConsolidatedAttendanceDto) => {
       try {
         setLoading(true);
         setError(null);
 
-        await AttendanceService.batchUpdateConsolidatedAttendance(
-          timetable_id,
-          section_id,
-          attendance_date,
-          attendance_data,
-          marked_by,
-          institution_id
+        const result = await AttendanceService.upsertConsolidatedAttendance(
+          data
         );
 
         // Refresh the consolidated record after save
         await fetchConsolidatedAttendance(
-          timetable_id,
-          section_id,
-          attendance_date
+          data.timetable_id,
+          data.section_id,
+          data.attendance_date
         );
 
-        return true;
+        return result;
       } catch (err) {
         console.error('Error saving consolidated attendance:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
-        return false;
+        return null;
       } finally {
         setLoading(false);
       }
