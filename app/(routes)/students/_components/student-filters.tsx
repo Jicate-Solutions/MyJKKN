@@ -10,7 +10,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
+import { RotateCcw, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { StudentsSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ExportStudents } from './export-students';
@@ -41,9 +41,33 @@ export function StudentFilters({
   onClearFilters
 }: StudentFiltersProps) {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
   const router = useRouter();
   const currentSearchParams = useSearchParams();
+
+  // Local state for managing filter values
+  const [localFilters, setLocalFilters] = useState<{
+    institution_id?: string;
+    degree_id?: string;
+    department_id?: string;
+    program_id?: string;
+    semester_id?: string;
+    section_id?: string;
+    academic_year_id?: string;
+    status?: string;
+    is_profile_complete?: string;
+  }>({
+    institution_id: searchParams.institution_id || undefined,
+    degree_id: searchParams.degree_id || undefined,
+    department_id: searchParams.department_id || undefined,
+    program_id: searchParams.program_id || undefined,
+    semester_id: searchParams.semester_id || undefined,
+    section_id: searchParams.section_id || undefined,
+    academic_year_id: searchParams.academic_year_id || undefined,
+    status: searchParams.status || undefined,
+    is_profile_complete: searchParams.is_profile_complete?.toString() || undefined
+  });
 
   // State for dropdown options
   const [institutions, setInstitutions] = useState<any[]>([]);
@@ -62,27 +86,81 @@ export function StudentFilters({
   const [loadingSections, setLoadingSections] = useState(false);
   const [loadingAcademicYears, setLoadingAcademicYears] = useState(false);
 
-  // Helper function to handle multiple filter changes
-  const handleMultipleFilterChanges = (
-    changes: Record<string, string | undefined>
-  ) => {
-    const params = new URLSearchParams(currentSearchParams);
+  // Handle search button click
+  const handleSearch = async () => {
+    setIsSearching(true);
 
-    // Apply all changes
-    Object.entries(changes).forEach(([key, value]) => {
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
+    try {
+      // Build new params from localFilters
+      const params = new URLSearchParams();
+      
+      // Add all local filters to params
+      Object.entries(localFilters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.set(key, value.toString());
+        }
+      });
+
+      // Preserve page size if it exists
+      const currentPageSize = currentSearchParams.get('pageSize');
+      if (currentPageSize) {
+        params.set('pageSize', currentPageSize);
       }
-    });
 
-    // Reset to page 1
-    params.set('page', '1');
-
-    // Navigate with client-side routing
-    router.push(`/students?${params.toString()}`);
+      // Reset to page 1
+      params.set('page', '1');
+      
+      // Navigate with new params
+      router.push(`/students?${params.toString()}`);
+    } finally {
+      // Reset searching state after a delay
+      setTimeout(() => setIsSearching(false), 1000);
+    }
   };
+
+  // Handle clear filters
+  const handleClear = () => {
+    // Clear local state
+    setLocalFilters({
+      institution_id: undefined,
+      degree_id: undefined,
+      department_id: undefined,
+      program_id: undefined,
+      semester_id: undefined,
+      section_id: undefined,
+      academic_year_id: undefined,
+      status: undefined,
+      is_profile_complete: undefined
+    });
+    
+    // Navigate to clean URL
+    const params = new URLSearchParams();
+    params.set('page', '1');
+    
+    // Preserve page size if it exists
+    const currentPageSize = currentSearchParams.get('pageSize');
+    if (currentPageSize) {
+      params.set('pageSize', currentPageSize);
+    }
+    
+    router.push(`/students?${params.toString()}`);
+    setIsSearching(false);
+  };
+
+  // Sync localFilters with searchParams when URL changes
+  useEffect(() => {
+    setLocalFilters({
+      institution_id: searchParams.institution_id || undefined,
+      degree_id: searchParams.degree_id || undefined,
+      department_id: searchParams.department_id || undefined,
+      program_id: searchParams.program_id || undefined,
+      semester_id: searchParams.semester_id || undefined,
+      section_id: searchParams.section_id || undefined,
+      academic_year_id: searchParams.academic_year_id || undefined,
+      status: searchParams.status || undefined,
+      is_profile_complete: searchParams.is_profile_complete?.toString() || undefined
+    });
+  }, [searchParams]);
 
   // Fetch institutions on component mount
   useEffect(() => {
@@ -106,7 +184,7 @@ export function StudentFilters({
   // Fetch degrees when institution changes
   useEffect(() => {
     const fetchDegrees = async () => {
-      if (!searchParams.institution_id) {
+      if (!localFilters.institution_id) {
         setDegrees([]);
         return;
       }
@@ -114,7 +192,7 @@ export function StudentFilters({
       try {
         setLoadingDegrees(true);
         const response = await DegreeService.getDegrees({
-          institution_id: searchParams.institution_id,
+          institution_id: localFilters.institution_id,
           page: 1,
           limit: 1000,
           isActive: true
@@ -129,12 +207,12 @@ export function StudentFilters({
     };
 
     fetchDegrees();
-  }, [searchParams.institution_id]);
+  }, [localFilters.institution_id]);
 
-  // Fetch departments when institution changes
+  // Fetch departments when degree changes
   useEffect(() => {
     const fetchDepartments = async () => {
-      if (!searchParams.institution_id) {
+      if (!localFilters.degree_id || !localFilters.institution_id) {
         setDepartments([]);
         return;
       }
@@ -142,7 +220,7 @@ export function StudentFilters({
       try {
         setLoadingDepartments(true);
         const response = await DepartmentService.getDepartments({
-          institution_id: searchParams.institution_id,
+          institution_id: localFilters.institution_id,
           page: 1,
           limit: 1000,
           isActive: true
@@ -157,12 +235,12 @@ export function StudentFilters({
     };
 
     fetchDepartments();
-  }, [searchParams.institution_id]);
+  }, [localFilters.degree_id, localFilters.institution_id]);
 
   // Fetch programs when degree or department changes
   useEffect(() => {
     const fetchPrograms = async () => {
-      if (!searchParams.degree_id && !searchParams.department_id) {
+      if (!localFilters.degree_id || !localFilters.department_id) {
         setPrograms([]);
         return;
       }
@@ -174,11 +252,11 @@ export function StudentFilters({
           limit: 1000
         };
 
-        if (searchParams.degree_id) {
-          filters.degree_id = searchParams.degree_id;
+        if (localFilters.degree_id) {
+          filters.degree_id = localFilters.degree_id;
         }
-        if (searchParams.department_id) {
-          filters.department_id = searchParams.department_id;
+        if (localFilters.department_id) {
+          filters.department_id = localFilters.department_id;
         }
 
         const response = await ProgramService.getPrograms({
@@ -195,12 +273,12 @@ export function StudentFilters({
     };
 
     fetchPrograms();
-  }, [searchParams.degree_id, searchParams.department_id]);
+  }, [localFilters.degree_id, localFilters.department_id]);
 
   // Fetch semesters when program changes
   useEffect(() => {
     const fetchSemesters = async () => {
-      if (!searchParams.program_id) {
+      if (!localFilters.program_id) {
         setSemesters([]);
         return;
       }
@@ -210,7 +288,7 @@ export function StudentFilters({
         // Fetch semesters by program following proper organizational hierarchy
         // Data inconsistencies have been fixed in migration 048_fix_semester_program_inconsistencies
         const semesterData = await SemesterService.getSemestersByProgram(
-          searchParams.program_id
+          localFilters.program_id
         );
         setSemesters(semesterData || []);
       } catch (error) {
@@ -222,12 +300,12 @@ export function StudentFilters({
     };
 
     fetchSemesters();
-  }, [searchParams.program_id]);
+  }, [localFilters.program_id]);
 
   // Fetch sections when semester changes
   useEffect(() => {
     const fetchSections = async () => {
-      if (!searchParams.semester_id) {
+      if (!localFilters.semester_id) {
         setSections([]);
         return;
       }
@@ -235,7 +313,7 @@ export function StudentFilters({
       try {
         setLoadingSections(true);
         const response = await SectionService.getSections({
-          semester_id: searchParams.semester_id,
+          semester_id: localFilters.semester_id,
           page: 1,
           limit: 1000,
           isActive: true
@@ -250,21 +328,22 @@ export function StudentFilters({
     };
 
     fetchSections();
-  }, [searchParams.semester_id]);
+  }, [localFilters.semester_id]);
 
   // Fetch academic years when institution changes
   useEffect(() => {
     const fetchAcademicYears = async () => {
-      if (!searchParams.institution_id) {
+      if (!localFilters.institution_id) {
         setAcademicYears([]);
         return;
       }
 
       try {
         setLoadingAcademicYears(true);
-        const response = await AcademicYearService.getAcademicYearsByInstitution(
-          searchParams.institution_id
-        );
+        const response =
+          await AcademicYearService.getAcademicYearsByInstitution(
+            localFilters.institution_id
+          );
         setAcademicYears(response || []);
       } catch (error) {
         console.error('Error fetching academic years:', error);
@@ -275,71 +354,78 @@ export function StudentFilters({
     };
 
     fetchAcademicYears();
-  }, [searchParams.institution_id]);
+  }, [localFilters.institution_id]);
 
   // Hierarchical filter change handlers that reset child filters
   const handleInstitutionChange = (value: string) => {
     const institutionId = value === 'all' ? undefined : value;
 
-    handleMultipleFilterChanges({
+    setLocalFilters((prev) => ({
+      ...prev,
       institution_id: institutionId,
       degree_id: undefined,
       department_id: undefined,
       program_id: undefined,
       semester_id: undefined,
-      section_id: undefined
-    });
+      section_id: undefined,
+      academic_year_id: undefined
+    }));
   };
 
   const handleDegreeChange = (value: string) => {
     const degreeId = value === 'all' ? undefined : value;
 
-    handleMultipleFilterChanges({
+    setLocalFilters((prev) => ({
+      ...prev,
       degree_id: degreeId,
+      department_id: undefined,
       program_id: undefined,
       semester_id: undefined,
       section_id: undefined
-    });
+    }));
   };
 
   const handleDepartmentChange = (value: string) => {
     const departmentId = value === 'all' ? undefined : value;
 
-    handleMultipleFilterChanges({
+    setLocalFilters((prev) => ({
+      ...prev,
       department_id: departmentId,
       program_id: undefined,
       semester_id: undefined,
       section_id: undefined
-    });
+    }));
   };
 
   const handleProgramChange = (value: string) => {
     const programId = value === 'all' ? undefined : value;
 
-    handleMultipleFilterChanges({
+    setLocalFilters((prev) => ({
+      ...prev,
       program_id: programId,
       semester_id: undefined,
       section_id: undefined
-    });
+    }));
   };
 
   const handleSemesterChange = (value: string) => {
     const semesterId = value === 'all' ? undefined : value;
 
-    handleMultipleFilterChanges({
+    setLocalFilters((prev) => ({
+      ...prev,
       semester_id: semesterId,
       section_id: undefined
-    });
+    }));
   };
 
   const handleSectionChange = (value: string) => {
     const sectionId = value === 'all' ? undefined : value;
-    onFilterChange('section_id', sectionId);
+    setLocalFilters((prev) => ({ ...prev, section_id: sectionId }));
   };
 
   const handleAcademicYearChange = (value: string) => {
     const academicYearId = value === 'all' ? undefined : value;
-    onFilterChange('academic_year_id', academicYearId);
+    setLocalFilters((prev) => ({ ...prev, academic_year_id: academicYearId }));
   };
 
   return (
@@ -365,7 +451,7 @@ export function StudentFilters({
             <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4'>
               {/* Institution Filter */}
               <Select
-                value={searchParams.institution_id || ''}
+                value={localFilters.institution_id || ''}
                 onValueChange={handleInstitutionChange}
               >
                 <SelectTrigger>
@@ -383,9 +469,9 @@ export function StudentFilters({
 
               {/* Degree Filter */}
               <Select
-                value={searchParams.degree_id || ''}
+                value={localFilters.degree_id || ''}
                 onValueChange={handleDegreeChange}
-                disabled={!searchParams.institution_id || loadingDegrees}
+                disabled={!localFilters.institution_id || loadingDegrees}
               >
                 <SelectTrigger>
                   <SelectValue
@@ -406,9 +492,9 @@ export function StudentFilters({
 
               {/* Department Filter */}
               <Select
-                value={searchParams.department_id || ''}
+                value={localFilters.department_id || ''}
                 onValueChange={handleDepartmentChange}
-                disabled={!searchParams.institution_id || loadingDepartments}
+                disabled={!localFilters.degree_id || loadingDepartments}
               >
                 <SelectTrigger>
                   <SelectValue
@@ -429,10 +515,10 @@ export function StudentFilters({
 
               {/* Program Filter */}
               <Select
-                value={searchParams.program_id || ''}
+                value={localFilters.program_id || ''}
                 onValueChange={handleProgramChange}
                 disabled={
-                  (!searchParams.degree_id && !searchParams.department_id) ||
+                  (!localFilters.degree_id || !localFilters.department_id) ||
                   loadingPrograms
                 }
               >
@@ -455,9 +541,9 @@ export function StudentFilters({
 
               {/* Semester Filter */}
               <Select
-                value={searchParams.semester_id || ''}
+                value={localFilters.semester_id || ''}
                 onValueChange={handleSemesterChange}
-                disabled={!searchParams.program_id || loadingSemesters}
+                disabled={!localFilters.program_id || loadingSemesters}
               >
                 <SelectTrigger>
                   <SelectValue
@@ -478,9 +564,9 @@ export function StudentFilters({
 
               {/* Section Filter */}
               <Select
-                value={searchParams.section_id || ''}
+                value={localFilters.section_id || ''}
                 onValueChange={handleSectionChange}
-                disabled={!searchParams.semester_id || loadingSections}
+                disabled={!localFilters.semester_id || loadingSections}
               >
                 <SelectTrigger>
                   <SelectValue
@@ -501,14 +587,16 @@ export function StudentFilters({
 
               {/* Academic Year Filter */}
               <Select
-                value={searchParams.academic_year_id || ''}
+                value={localFilters.academic_year_id || ''}
                 onValueChange={handleAcademicYearChange}
-                disabled={!searchParams.institution_id || loadingAcademicYears}
+                disabled={!localFilters.institution_id || loadingAcademicYears}
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      loadingAcademicYears ? 'Loading...' : 'Select Academic Year'
+                      loadingAcademicYears
+                        ? 'Loading...'
+                        : 'Select Academic Year'
                     }
                   />
                 </SelectTrigger>
@@ -524,9 +612,12 @@ export function StudentFilters({
 
               {/* Status Filter */}
               <Select
-                value={searchParams.status || ''}
+                value={localFilters.status || ''}
                 onValueChange={(value) =>
-                  onFilterChange('status', value === 'all' ? undefined : value)
+                  setLocalFilters((prev) => ({
+                    ...prev,
+                    status: value === 'all' ? undefined : value
+                  }))
                 }
               >
                 <SelectTrigger>
@@ -544,16 +635,12 @@ export function StudentFilters({
 
               {/* Profile Status Filter */}
               <Select
-                value={
-                  searchParams.is_profile_complete === undefined
-                    ? ''
-                    : searchParams.is_profile_complete.toString()
-                }
+                value={localFilters.is_profile_complete || ''}
                 onValueChange={(value) =>
-                  onFilterChange(
-                    'is_profile_complete',
-                    value === 'all' ? undefined : value
-                  )
+                  setLocalFilters((prev) => ({
+                    ...prev,
+                    is_profile_complete: value === 'all' ? undefined : value
+                  }))
                 }
               >
                 <SelectTrigger>
@@ -567,11 +654,28 @@ export function StudentFilters({
               </Select>
             </div>
 
-            {/* Clear Filters Button inside Advanced Filters */}
-            <div className='flex justify-start pt-2'>
-              <Button variant='outline' onClick={onClearFilters}>
+            {/* Search and Clear Filters Buttons inside Advanced Filters */}
+            <div className='flex justify-between pt-2'>
+              <Button variant='outline' onClick={handleClear}>
                 <RotateCcw className='mr-2 h-4 w-4' />
                 Clear All Filters
+              </Button>
+              <Button
+                onClick={handleSearch}
+                disabled={isSearching}
+                className='ml-auto'
+              >
+                {isSearching ? (
+                  <>
+                    <div className='mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
+                    Searching...
+                  </>
+                ) : (
+                  <>
+                    <Search className='mr-2 h-4 w-4' />
+                    Search Students
+                  </>
+                )}
               </Button>
             </div>
           </CollapsibleContent>

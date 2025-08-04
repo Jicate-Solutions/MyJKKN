@@ -62,7 +62,31 @@ export function StudentsDataTable({ search }: StudentsDataTableProps) {
         academic_year: search.academic_year_id
       };
 
-      const { data, metadata } = await StudentService.getStudents(filters);
+      // Use full query with better error handling
+      let result;
+      
+      try {
+        result = await StudentService.getStudents(filters);
+      } catch (error: any) {
+        console.error('Error fetching students:', error);
+        
+        // Handle specific error codes
+        if (error.code === '57014') {
+          // Statement timeout
+          throw new Error('The search is taking too long. Please try with fewer filters or a smaller page size.');
+        } else if (error.code === 'PGRST116') {
+          // Invalid foreign key reference
+          throw new Error('Invalid filter selection. Please check your filters and try again.');
+        } else if (error.message?.includes('500')) {
+          // Internal server error - might be due to complex joins
+          throw new Error('Server error while fetching students. Please try again with simpler filters.');
+        }
+        
+        // Re-throw other errors
+        throw error;
+      }
+
+      const { data, metadata } = result;
 
       return {
         success: true,
