@@ -1759,6 +1759,7 @@ export class StudentService {
     semesterId: string,
     sectionId: string,
     departmentId?: string,
+    academicYearId?: string,
     onProgress?: (
       progress: number,
       success: string[],
@@ -1848,6 +1849,25 @@ export class StudentService {
         finalDepartmentId = departmentId;
       }
 
+      // Validate academic year if provided
+      if (academicYearId) {
+        const { data: academicYear, error: academicYearError } = await this.supabase
+          .from('academic_years')
+          .select('id, institution_id')
+          .eq('id', academicYearId)
+          .single();
+
+        if (academicYearError || !academicYear) {
+          throw new Error(`Invalid academic year ID: ${academicYearId}`);
+        }
+
+        if (academicYear.institution_id !== semester.institution_id) {
+          throw new Error(
+            `Academic year ${academicYearId} does not belong to the same institution as semester ${semesterId}`
+          );
+        }
+      }
+
       // Build update payload with hierarchy-consistent values
       const updatePayload: any = {
         semester_id: semesterId,
@@ -1858,6 +1878,11 @@ export class StudentService {
         updated_at: new Date().toISOString(),
         updated_by: (await this.supabase.auth.getUser()).data.user?.id
       };
+
+      // Add academic year if provided
+      if (academicYearId) {
+        updatePayload.academic_year_id = academicYearId;
+      }
 
       // Process in chunks to avoid overwhelming the server
       const chunkSize = 50;

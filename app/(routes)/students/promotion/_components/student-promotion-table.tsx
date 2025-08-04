@@ -60,6 +60,7 @@ import { toast } from 'react-hot-toast';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
+import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { Progress } from '@/components/ui/progress';
 
@@ -79,6 +80,7 @@ interface StudentPromotionTableProps {
     semesterId: string,
     sectionId: string,
     departmentId?: string,
+    academicYearId?: string,
     onProgress?: (progress: number, success: string[], failed: { id: string; error: string }[]) => void
   ) => Promise<boolean>;
 }
@@ -86,7 +88,8 @@ interface StudentPromotionTableProps {
 const promotionSchema = z.object({
   department_id: z.string().optional(),
   semester_id: z.string().min(1, 'Semester is required'),
-  section_id: z.string().min(1, 'Section is required')
+  section_id: z.string().min(1, 'Section is required'),
+  academic_year_id: z.string().optional()
 });
 
 type PromotionFormValues = z.infer<typeof promotionSchema>;
@@ -113,9 +116,11 @@ export function StudentPromotionTable({
     department_id?: string;
     semester_id: string;
     section_id: string;
+    academic_year_id?: string;
     departmentName?: string;
     semesterName: string;
     sectionName: string;
+    academicYearName?: string;
   } | null>(null);
   
   // Progress tracking states
@@ -131,7 +136,7 @@ export function StudentPromotionTable({
     total: 0
   });
 
-  // State for departments, semesters and sections
+  // State for departments, semesters, sections and academic years
   const [departments, setDepartments] = useState<
     Array<{ id: string; department_name: string }>
   >([]);
@@ -141,6 +146,9 @@ export function StudentPromotionTable({
   const [sections, setSections] = useState<
     Array<{ id: string; section_name: string }>
   >([]);
+  const [academicYears, setAcademicYears] = useState<
+    Array<{ id: string; academic_year_name: string }>
+  >([]);
 
   // Set up the form
   const form = useForm<PromotionFormValues>({
@@ -148,7 +156,8 @@ export function StudentPromotionTable({
     defaultValues: {
       department_id: undefined,
       semester_id: '',
-      section_id: ''
+      section_id: '',
+      academic_year_id: undefined
     }
   });
 
@@ -165,7 +174,8 @@ export function StudentPromotionTable({
       form.reset({
         department_id: undefined,
         semester_id: '',
-        section_id: ''
+        section_id: '',
+        academic_year_id: undefined
       });
 
       if (studentId) {
@@ -235,6 +245,17 @@ export function StudentPromotionTable({
       );
       setSemesters(semestersData);
 
+      // Load academic years for the institution
+      try {
+        const academicYearsData = await AcademicYearService.getAcademicYearsByInstitution(
+          uniqueInstitutionIds[0]
+        );
+        setAcademicYears(academicYearsData);
+      } catch (error) {
+        console.error('Error loading academic years:', error);
+        setAcademicYears([]);
+      }
+
       // Show the dialog
       setShowPromotionDialog(true);
     } catch (error) {
@@ -295,6 +316,9 @@ export function StudentPromotionTable({
       const selectedDepartment = data.department_id
         ? departments.find((d) => d.id === data.department_id)
         : null;
+      const selectedAcademicYear = data.academic_year_id
+        ? academicYears.find((a) => a.id === data.academic_year_id)
+        : null;
 
       if (!selectedSemester || !selectedSection) {
         toast.error('Invalid semester or section selection');
@@ -306,9 +330,11 @@ export function StudentPromotionTable({
         department_id: data.department_id,
         semester_id: data.semester_id,
         section_id: data.section_id,
+        academic_year_id: data.academic_year_id,
         departmentName: selectedDepartment?.department_name,
         semesterName: selectedSemester.semester_name,
-        sectionName: selectedSection.section_name
+        sectionName: selectedSection.section_name,
+        academicYearName: selectedAcademicYear?.academic_year_name
       });
 
       // Hide the form dialog and show confirmation dialog
@@ -347,12 +373,13 @@ export function StudentPromotionTable({
       setShowConfirmationDialog(false);
       setShowProgressDialog(true);
 
-      // Call the bulk promote function with optional department and progress callback
+      // Call the bulk promote function with optional department, academic year and progress callback
       const success = await onBulkPromote(
         studentsToPromote,
         pendingPromotionData.semester_id,
         pendingPromotionData.section_id,
         pendingPromotionData.department_id,
+        pendingPromotionData.academic_year_id,
         (progress, successList, failedList) => {
           setPromotionProgress(progress);
           setPromotionResults({
@@ -417,7 +444,7 @@ export function StudentPromotionTable({
 
     if (studentsToCheck.length === 0) return null;
 
-    // Get unique current departments, semesters and sections
+    // Get unique current departments, semesters, sections and academic years
     const currentDepartments = [
       ...new Set(
         studentsToCheck
@@ -435,11 +462,17 @@ export function StudentPromotionTable({
         studentsToCheck.map((s) => s.section?.section_name).filter(Boolean)
       )
     ];
+    const currentAcademicYears = [
+      ...new Set(
+        studentsToCheck.map((s) => s.academic_year?.academic_year_name).filter(Boolean)
+      )
+    ];
 
     return {
       currentDepartments,
       currentSemesters,
       currentSections,
+      currentAcademicYears,
       studentCount: studentsToCheck.length
     };
   };
@@ -577,7 +610,7 @@ export function StudentPromotionTable({
           }
         }}
       >
-        <DialogContent className='max-w-md'>
+        <DialogContent className='max-w-md max-h-[90vh] overflow-hidden flex flex-col'>
           <DialogHeader>
             <DialogTitle>
               Promote{' '}
@@ -591,11 +624,12 @@ export function StudentPromotionTable({
             </DialogDescription>
           </DialogHeader>
 
-          <Form {...form}>
-            <form
-              onSubmit={form.handleSubmit(handlePromote)}
-              className='space-y-6'
-            >
+          <div className='overflow-y-auto flex-1 pr-2'>
+            <Form {...form}>
+              <form
+                onSubmit={form.handleSubmit(handlePromote)}
+                className='space-y-6'
+              >
               {/* Optional Department Field */}
               {departments.length > 0 && (
                 <FormField
@@ -701,18 +735,59 @@ export function StudentPromotionTable({
                 )}
               />
 
-              <DialogFooter>
-                <Button
-                  type='button'
-                  variant='outline'
-                  onClick={() => setShowPromotionDialog(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type='submit'>Continue</Button>
-              </DialogFooter>
-            </form>
-          </Form>
+              {/* Optional Academic Year Field */}
+              <FormField
+                control={form.control}
+                name='academic_year_id'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Academic Year (Optional)</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Keep current academic year' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {academicYears.map((academicYear) => (
+                          <SelectItem
+                            key={academicYear.id}
+                            value={academicYear.id}
+                          >
+                            {academicYear.academic_year_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Only change if students are being promoted to a different academic year. Leave empty to keep current academic year.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              </form>
+            </Form>
+          </div>
+
+          <DialogFooter className='mt-6'>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setShowPromotionDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button 
+              type='submit'
+              onClick={form.handleSubmit(handlePromote)}
+            >
+              Continue
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -736,8 +811,15 @@ export function StudentPromotionTable({
                     {(promotionInfo?.studentCount || 0) > 1 ? 's' : ''}
                   </strong>{' '}
                   to a new semester and section
-                  {pendingPromotionData?.departmentName
-                    ? ' and department'
+                  {pendingPromotionData?.departmentName || pendingPromotionData?.academicYearName
+                    ? ', and optionally '
+                    : ''}
+                  {pendingPromotionData?.departmentName && pendingPromotionData?.academicYearName
+                    ? 'department and academic year'
+                    : pendingPromotionData?.departmentName
+                    ? 'department'
+                    : pendingPromotionData?.academicYearName
+                    ? 'academic year'
                     : ''}
                   .
                 </p>
@@ -770,6 +852,12 @@ export function StudentPromotionTable({
                               ? `Multiple (${promotionInfo.currentSections.length})`
                               : promotionInfo.currentSections[0] || 'N/A'}
                           </div>
+                          <div>
+                            <span className='font-medium'>Academic Year:</span>{' '}
+                            {promotionInfo.currentAcademicYears.length > 1
+                              ? `Multiple (${promotionInfo.currentAcademicYears.length})`
+                              : promotionInfo.currentAcademicYears[0] || 'N/A'}
+                          </div>
                         </div>
                       </div>
 
@@ -798,6 +886,14 @@ export function StudentPromotionTable({
                               {pendingPromotionData.sectionName}
                             </span>
                           </div>
+                          {pendingPromotionData.academicYearName && (
+                            <div>
+                              <span className='font-medium'>Academic Year:</span>{' '}
+                              <span className='text-green-600 font-medium'>
+                                {pendingPromotionData.academicYearName}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

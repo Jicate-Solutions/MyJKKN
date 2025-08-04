@@ -71,10 +71,12 @@ export default function StudentPromotionPage() {
       limit: 10,
       search: undefined,
       institution: undefined,
+      degree: undefined,
       department: undefined,
       program: undefined,
       semester: undefined,
-      section: undefined
+      section: undefined,
+      academic_year: undefined
     });
   };
 
@@ -95,6 +97,7 @@ export default function StudentPromotionPage() {
     semesterId: string,
     sectionId: string,
     departmentId?: string,
+    academicYearId?: string,
     onProgress?: (progress: number, success: string[], failed: { id: string; error: string }[]) => void
   ): Promise<boolean> => {
     try {
@@ -103,6 +106,7 @@ export default function StudentPromotionPage() {
         semesterId,
         sectionId,
         departmentId,
+        academicYearId,
         onProgress
       );
 

@@ -83,6 +83,15 @@ export const columns: ColumnDef<Student>[] = [
     }
   },
   {
+    accessorKey: 'academic_year.academic_year_name',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Academic Year' />
+    ),
+    cell: ({ row }) => {
+      return row.original.academic_year?.academic_year_name || 'N/A';
+    }
+  },
+  {
     accessorKey: 'status',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Status' />
