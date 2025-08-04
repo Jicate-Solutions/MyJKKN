@@ -58,7 +58,8 @@ export function StudentsDataTable({ search }: StudentsDataTableProps) {
         department: search.department_id,
         program: search.program_id,
         semester: search.semester_id,
-        section: search.section_id
+        section: search.section_id,
+        academic_year: search.academic_year_id
       };
 
       const { data, metadata } = await StudentService.getStudents(filters);

@@ -22,6 +22,7 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
+import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import {
   Collapsible,
   CollapsibleContent,
@@ -51,6 +52,7 @@ export function StudentFilters({
   const [programs, setPrograms] = useState<any[]>([]);
   const [semesters, setSemesters] = useState<any[]>([]);
   const [sections, setSections] = useState<any[]>([]);
+  const [academicYears, setAcademicYears] = useState<any[]>([]);
 
   // Loading states
   const [loadingDegrees, setLoadingDegrees] = useState(false);
@@ -58,6 +60,7 @@ export function StudentFilters({
   const [loadingPrograms, setLoadingPrograms] = useState(false);
   const [loadingSemesters, setLoadingSemesters] = useState(false);
   const [loadingSections, setLoadingSections] = useState(false);
+  const [loadingAcademicYears, setLoadingAcademicYears] = useState(false);
 
   // Helper function to handle multiple filter changes
   const handleMultipleFilterChanges = (
@@ -249,6 +252,31 @@ export function StudentFilters({
     fetchSections();
   }, [searchParams.semester_id]);
 
+  // Fetch academic years when institution changes
+  useEffect(() => {
+    const fetchAcademicYears = async () => {
+      if (!searchParams.institution_id) {
+        setAcademicYears([]);
+        return;
+      }
+
+      try {
+        setLoadingAcademicYears(true);
+        const response = await AcademicYearService.getAcademicYearsByInstitution(
+          searchParams.institution_id
+        );
+        setAcademicYears(response || []);
+      } catch (error) {
+        console.error('Error fetching academic years:', error);
+        setAcademicYears([]);
+      } finally {
+        setLoadingAcademicYears(false);
+      }
+    };
+
+    fetchAcademicYears();
+  }, [searchParams.institution_id]);
+
   // Hierarchical filter change handlers that reset child filters
   const handleInstitutionChange = (value: string) => {
     const institutionId = value === 'all' ? undefined : value;
@@ -307,6 +335,11 @@ export function StudentFilters({
   const handleSectionChange = (value: string) => {
     const sectionId = value === 'all' ? undefined : value;
     onFilterChange('section_id', sectionId);
+  };
+
+  const handleAcademicYearChange = (value: string) => {
+    const academicYearId = value === 'all' ? undefined : value;
+    onFilterChange('academic_year_id', academicYearId);
   };
 
   return (
@@ -461,6 +494,29 @@ export function StudentFilters({
                   {sections.map((section) => (
                     <SelectItem key={section.id} value={section.id}>
                       {section.section_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Academic Year Filter */}
+              <Select
+                value={searchParams.academic_year_id || ''}
+                onValueChange={handleAcademicYearChange}
+                disabled={!searchParams.institution_id || loadingAcademicYears}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      loadingAcademicYears ? 'Loading...' : 'Select Academic Year'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>All Academic Years</SelectItem>
+                  {academicYears.map((academicYear) => (
+                    <SelectItem key={academicYear.id} value={academicYear.id}>
+                      {academicYear.academic_year_name}
                     </SelectItem>
                   ))}
                 </SelectContent>

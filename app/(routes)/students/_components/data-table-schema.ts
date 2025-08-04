@@ -19,7 +19,8 @@ export const studentsSearchParamsSchema = z.object({
   department_id: z.string().optional(),
   program_id: z.string().optional(),
   semester_id: z.string().optional(),
-  section_id: z.string().optional()
+  section_id: z.string().optional(),
+  academic_year_id: z.string().optional()
 });
 
 export type StudentsSearchParams = z.infer<typeof studentsSearchParamsSchema>;

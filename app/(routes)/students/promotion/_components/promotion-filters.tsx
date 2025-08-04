@@ -20,7 +20,9 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { StudentFilters } from '@/types/student';
 
 interface PromotionFiltersProps {
@@ -42,6 +44,9 @@ export function PromotionFilters({
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
+  const [degrees, setDegrees] = useState<
+    Array<{ id: string; degree_name: string }>
+  >([]);
   const [departments, setDepartments] = useState<
     Array<{ id: string; department_name: string }>
   >([]);
@@ -54,8 +59,19 @@ export function PromotionFilters({
   const [sections, setSections] = useState<
     Array<{ id: string; section_name: string }>
   >([]);
+  const [academicYears, setAcademicYears] = useState<
+    Array<{ id: string; academic_year_name: string }>
+  >([]);
 
   const [searchInput, setSearchInput] = useState(filters.search || '');
+
+  // Loading states
+  const [loadingDegrees, setLoadingDegrees] = useState(false);
+  const [loadingDepartments, setLoadingDepartments] = useState(false);
+  const [loadingPrograms, setLoadingPrograms] = useState(false);
+  const [loadingSemesters, setLoadingSemesters] = useState(false);
+  const [loadingSections, setLoadingSections] = useState(false);
+  const [loadingAcademicYears, setLoadingAcademicYears] = useState(false);
 
   // Load institutions on mount
   useEffect(() => {
@@ -70,11 +86,35 @@ export function PromotionFilters({
     loadInstitutions();
   }, []);
 
+  // Load degrees when institution changes
+  useEffect(() => {
+    if (filters.institution) {
+      async function loadDegrees() {
+        try {
+          setLoadingDegrees(true);
+          const { data } = await DegreeService.getDegrees({
+            institution_id: filters.institution,
+            isActive: true
+          });
+          setDegrees(data);
+        } catch (error) {
+          console.error('Error loading degrees:', error);
+        } finally {
+          setLoadingDegrees(false);
+        }
+      }
+      loadDegrees();
+    } else {
+      setDegrees([]);
+    }
+  }, [filters.institution]);
+
   // Load departments when institution changes
   useEffect(() => {
     if (filters.institution) {
       async function loadDepartments() {
         try {
+          setLoadingDepartments(true);
           const { data } = await DepartmentService.getDepartments({
             institution_id: filters.institution,
             isActive: true
@@ -82,6 +122,8 @@ export function PromotionFilters({
           setDepartments(data);
         } catch (error) {
           console.error('Error loading departments:', error);
+        } finally {
+          setLoadingDepartments(false);
         }
       }
       loadDepartments();
@@ -90,37 +132,51 @@ export function PromotionFilters({
     }
   }, [filters.institution]);
 
-  // Load programs when department changes
+  // Load programs when degree or department changes
   useEffect(() => {
-    if (filters.department) {
+    if (filters.degree || filters.department) {
       async function loadPrograms() {
         try {
-          const { data } = await ProgramService.getPrograms({
-            department_id: filters.department,
+          setLoadingPrograms(true);
+          const queryParams: any = {
             isActive: true
-          });
+          };
+          
+          if (filters.degree) {
+            queryParams.degree_id = filters.degree;
+          }
+          if (filters.department) {
+            queryParams.department_id = filters.department;
+          }
+          
+          const { data } = await ProgramService.getPrograms(queryParams);
           setPrograms(data);
         } catch (error) {
           console.error('Error loading programs:', error);
+        } finally {
+          setLoadingPrograms(false);
         }
       }
       loadPrograms();
     } else {
       setPrograms([]);
     }
-  }, [filters.department]);
+  }, [filters.degree, filters.department]);
 
   // Load semesters when program changes
   useEffect(() => {
     if (filters.program) {
       async function loadSemesters() {
         try {
+          setLoadingSemesters(true);
           const data = await SemesterService.getSemestersByProgram(
             filters.program!
           );
           setSemesters(data);
         } catch (error) {
           console.error('Error loading semesters:', error);
+        } finally {
+          setLoadingSemesters(false);
         }
       }
       loadSemesters();
@@ -134,6 +190,7 @@ export function PromotionFilters({
     if (filters.semester && filters.institution) {
       async function loadSections() {
         try {
+          setLoadingSections(true);
           const data = await SectionService.getSectionsBySemesterAndInstitution(
             filters.semester!,
             filters.institution!
@@ -141,6 +198,8 @@ export function PromotionFilters({
           setSections(data);
         } catch (error) {
           console.error('Error loading sections:', error);
+        } finally {
+          setLoadingSections(false);
         }
       }
       loadSections();
@@ -148,6 +207,28 @@ export function PromotionFilters({
       setSections([]);
     }
   }, [filters.semester, filters.institution]);
+
+  // Load academic years when institution changes
+  useEffect(() => {
+    if (filters.institution) {
+      async function loadAcademicYears() {
+        try {
+          setLoadingAcademicYears(true);
+          const data = await AcademicYearService.getAcademicYearsByInstitution(
+            filters.institution!
+          );
+          setAcademicYears(data);
+        } catch (error) {
+          console.error('Error loading academic years:', error);
+        } finally {
+          setLoadingAcademicYears(false);
+        }
+      }
+      loadAcademicYears();
+    } else {
+      setAcademicYears([]);
+    }
+  }, [filters.institution]);
 
   // Update search input when filters change externally (for reset)
   useEffect(() => {
@@ -221,16 +302,18 @@ export function PromotionFilters({
 
       <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
         <CollapsibleContent>
-          <div className='grid grid-cols-1 md:grid-cols-3 gap-4 mt-4'>
+          <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4'>
             <Select
               value={filters.institution || 'all'}
               onValueChange={(value) =>
                 onFilterChange({
                   institution: value === 'all' ? undefined : value,
+                  degree: undefined,
                   department: undefined,
                   program: undefined,
                   semester: undefined,
                   section: undefined,
+                  academic_year: undefined,
                   page: 1
                 })
               }
@@ -249,6 +332,32 @@ export function PromotionFilters({
             </Select>
 
             <Select
+              value={filters.degree || 'all'}
+              onValueChange={(value) =>
+                onFilterChange({
+                  degree: value === 'all' ? undefined : value,
+                  program: undefined,
+                  semester: undefined,
+                  section: undefined,
+                  page: 1
+                })
+              }
+              disabled={!filters.institution || loadingDegrees}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={loadingDegrees ? 'Loading...' : 'All Degrees'} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Degrees</SelectItem>
+                {degrees.map((degree) => (
+                  <SelectItem key={degree.id} value={degree.id}>
+                    {degree.degree_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
               value={filters.department || 'all'}
               onValueChange={(value) =>
                 onFilterChange({
@@ -259,10 +368,10 @@ export function PromotionFilters({
                   page: 1
                 })
               }
-              disabled={!filters.institution}
+              disabled={!filters.institution || loadingDepartments}
             >
               <SelectTrigger>
-                <SelectValue placeholder='All Departments' />
+                <SelectValue placeholder={loadingDepartments ? 'Loading...' : 'All Departments'} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='all'>All Departments</SelectItem>
@@ -284,10 +393,10 @@ export function PromotionFilters({
                   page: 1
                 })
               }
-              disabled={!filters.department}
+              disabled={(!filters.degree && !filters.department) || loadingPrograms}
             >
               <SelectTrigger>
-                <SelectValue placeholder='All Programs' />
+                <SelectValue placeholder={loadingPrograms ? 'Loading...' : 'All Programs'} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='all'>All Programs</SelectItem>
@@ -308,10 +417,10 @@ export function PromotionFilters({
                   page: 1
                 })
               }
-              disabled={!filters.program}
+              disabled={!filters.program || loadingSemesters}
             >
               <SelectTrigger>
-                <SelectValue placeholder='All Semesters' />
+                <SelectValue placeholder={loadingSemesters ? 'Loading...' : 'All Semesters'} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='all'>All Semesters</SelectItem>
@@ -331,16 +440,39 @@ export function PromotionFilters({
                   page: 1
                 })
               }
-              disabled={!filters.semester || !filters.institution}
+              disabled={!filters.semester || !filters.institution || loadingSections}
             >
               <SelectTrigger>
-                <SelectValue placeholder='All Sections' />
+                <SelectValue placeholder={loadingSections ? 'Loading...' : 'All Sections'} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='all'>All Sections</SelectItem>
                 {sections.map((section) => (
                   <SelectItem key={section.id} value={section.id}>
                     {section.section_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={filters.academic_year || 'all'}
+              onValueChange={(value) =>
+                onFilterChange({
+                  academic_year: value === 'all' ? undefined : value,
+                  page: 1
+                })
+              }
+              disabled={!filters.institution || loadingAcademicYears}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={loadingAcademicYears ? 'Loading...' : 'All Academic Years'} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Academic Years</SelectItem>
+                {academicYears.map((academicYear) => (
+                  <SelectItem key={academicYear.id} value={academicYear.id}>
+                    {academicYear.academic_year_name}
                   </SelectItem>
                 ))}
               </SelectContent>
