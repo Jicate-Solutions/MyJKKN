@@ -145,6 +145,105 @@ export class StudentService {
     }
   }
 
+  // Lightweight method for initial student list loading
+  static async getStudentsLightweight(
+    filters: StudentFilters = {}
+  ): Promise<StudentListResponse> {
+    try {
+      // First, get the student data without joins
+      let query = this.supabase.from('students').select(
+        `
+          id,
+          first_name,
+          last_name,
+          roll_number,
+          status,
+          is_profile_complete,
+          created_at,
+          program_id,
+          semester_id,
+          section_id,
+          academic_year_id
+        `,
+        { count: 'exact' }
+      );
+
+      // Apply only essential filters
+      if (filters.search) {
+        query = query.or(
+          `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,roll_number.ilike.%${filters.search}%`
+        );
+      }
+
+      // Apply ID-based filters which are indexed
+      if (filters.institution) {
+        query = query.eq('institution_id', filters.institution);
+      }
+      if (filters.program) {
+        query = query.eq('program_id', filters.program);
+      }
+      if (filters.department) {
+        query = query.eq('department_id', filters.department);
+      }
+      if (filters.semester) {
+        query = query.eq('semester_id', filters.semester);
+      }
+      if (filters.section) {
+        query = query.eq('section_id', filters.section);
+      }
+      if (filters.degree) {
+        query = query.eq('degree_id', filters.degree);
+      }
+      if (filters.academic_year) {
+        query = query.eq('academic_year_id', filters.academic_year);
+      }
+      if (filters.status) {
+        query = query.eq('status', filters.status);
+      }
+      if (filters.is_profile_complete !== undefined) {
+        query = query.eq('is_profile_complete', filters.is_profile_complete);
+      }
+
+      // Apply pagination
+      const page = filters.page || 1;
+      const limit = filters.limit || 10;
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+
+      query = query
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      const { data: students, error, count } = await query;
+
+      if (error) throw error;
+
+      // For lightweight query, we'll return minimal data
+      // The UI will need to handle missing relation data gracefully
+      const transformedStudents = (students || []).map((student: any) => ({
+        ...student,
+        // Add placeholder objects for relations
+        program: student.program_id ? { id: student.program_id, program_name: 'Loading...' } : null,
+        semester: student.semester_id ? { id: student.semester_id, semester_name: 'Loading...' } : null,
+        section: student.section_id ? { id: student.section_id, section_name: 'Loading...' } : null,
+        academic_year: student.academic_year_id ? { id: student.academic_year_id, academic_year_name: 'Loading...' } : null
+      }));
+
+      return {
+        data: transformedStudents,
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: Math.ceil((count || 0) / limit)
+        }
+      };
+    } catch (error) {
+      console.error('Error fetching students (lightweight):', error);
+      throw error;
+    }
+  }
+
   static async createStudent(
     studentData: CreateStudentDto
   ): Promise<Student | null> {
@@ -452,16 +551,59 @@ export class StudentService {
     filters: StudentFilters = {}
   ): Promise<StudentListResponse> {
     try {
+      // Use a simpler query structure to avoid 500 errors
       let query = this.supabase.from('students').select(
         `
-          *,
-          institution:institutions!institution_id(id, name),
-          degree:degrees!degree_id(id, degree_name),
-          department:departments!department_id(id, department_name),
-          program:programs!program_id(id, program_name),
-          semester:semesters!semester_id(id, semester_name, semester_code),
-          section:sections!section_id(id, section_name),
-          academic_year:academic_years!academic_year_id(id, academic_year_name, start_date, end_date, is_active)
+          id,
+          admission_id,
+          application_id,
+          first_name,
+          last_name,
+          roll_number,
+          student_email,
+          student_mobile,
+          status,
+          is_profile_complete,
+          created_at,
+          institution_id,
+          degree_id,
+          department_id,
+          program_id,
+          semester_id,
+          section_id,
+          academic_year_id,
+          institutions!institution_id (
+            id,
+            name
+          ),
+          degrees!degree_id (
+            id,
+            degree_name
+          ),
+          departments!department_id (
+            id,
+            department_name
+          ),
+          programs!program_id (
+            id,
+            program_name
+          ),
+          semesters!semester_id (
+            id,
+            semester_name,
+            semester_code
+          ),
+          sections!section_id (
+            id,
+            section_name
+          ),
+          academic_years!academic_year_id (
+            id,
+            academic_year_name,
+            start_date,
+            end_date,
+            is_active
+          )
         `,
         { count: 'exact' }
       );
@@ -544,14 +686,44 @@ export class StudentService {
       const from = (page - 1) * limit;
       const to = from + limit - 1;
 
-      query = query.range(from, to).order('created_at', { ascending: false });
+      // Apply sorting
+      if (filters.sortBy) {
+        query = query.order(filters.sortBy, { 
+          ascending: filters.sortOrder === 'asc' 
+        });
+      } else {
+        query = query.order('created_at', { ascending: false });
+      }
+
+      // Apply pagination after sorting
+      query = query.range(from, to);
 
       const { data: students, error, count } = await query;
 
       if (error) throw error;
 
+      // Transform the data to match the expected format
+      const transformedStudents = (students || []).map((student: any) => ({
+        ...student,
+        institution: student.institutions || null,
+        degree: student.degrees || null,
+        department: student.departments || null,
+        program: student.programs || null,
+        semester: student.semesters || null,
+        section: student.sections || null,
+        academic_year: student.academic_years || null,
+        // Remove the plural properties
+        institutions: undefined,
+        degrees: undefined,
+        departments: undefined,
+        programs: undefined,
+        semesters: undefined,
+        sections: undefined,
+        academic_years: undefined
+      }));
+
       return {
-        data: students || [],
+        data: transformedStudents,
         metadata: {
           total: count || 0,
           page,
