@@ -12,6 +12,7 @@ import Link from 'next/link';
 export const columns: ColumnDef<Timetable>[] = [
   {
     id: 'select',
+    enableResizing: false,
     header: ({ table }) => (
       <Checkbox
         checked={table.getIsAllPageRowsSelected()}
