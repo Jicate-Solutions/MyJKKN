@@ -149,7 +149,7 @@ export class TimetableService {
     }
   }
 
-  static async deleteTimetable(id: string): Promise<void> {
+  static async deleteTimetable(id: string, showToast = true): Promise<void> {
     try {
       // First delete all timetable periods
       const { error: periodsError } = await this.supabase
@@ -175,7 +175,9 @@ export class TimetableService {
 
       if (error) throw error;
 
-      toast.success('Timetable deleted successfully');
+      if (showToast) {
+        toast.success('Timetable deleted successfully');
+      }
     } catch (error) {
       console.error('Error deleting timetable:', error);
       throw error;
@@ -192,7 +194,7 @@ export class TimetableService {
     // Process deletions sequentially
     for (const id of ids) {
       try {
-        await this.deleteTimetable(id);
+        await this.deleteTimetable(id, false); // Pass false to suppress individual toasts
         success.push(id);
       } catch (error) {
         console.error(`Error deleting timetable ${id}:`, error);
@@ -201,6 +203,17 @@ export class TimetableService {
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
+    }
+
+    // Show a single consolidated toast message
+    if (success.length > 0) {
+      toast.success(`${success.length} timetable(s) deleted successfully.`);
+    }
+
+    if (failed.length > 0) {
+      toast.error(
+        `Failed to delete ${failed.length} timetable(s). See console for details.`
+      );
     }
 
     return { success, failed };
@@ -1262,27 +1275,61 @@ export class TimetableService {
     periodIds: string[]
   ): Promise<void> {
     try {
-      // First, delete existing timetable periods
-      const { error: deleteError } = await this.supabase
+      // Get the current list of periods for the timetable
+      const { data: existingPeriods, error: fetchError } = await this.supabase
         .from('timetable_periods')
-        .delete()
+        .select('period_id')
         .eq('timetable_id', timetableId);
 
-      if (deleteError) throw deleteError;
+      if (fetchError) throw fetchError;
 
-      // Then insert new periods with sort order
-      if (periodIds.length > 0) {
-        const timetablePeriods = periodIds.map((periodId, index) => ({
+      const existingPeriodIds = new Set(
+        existingPeriods.map((p) => p.period_id)
+      );
+      const newPeriodIds = new Set(periodIds);
+
+      // Determine which periods to add and which to remove
+      const periodsToAdd = periodIds
+        .filter((id) => !existingPeriodIds.has(id))
+        .map((periodId, index) => ({
           timetable_id: timetableId,
           period_id: periodId,
-          sort_order: index
+          sort_order: periodIds.indexOf(periodId)
         }));
 
+      const periodsToRemove = Array.from(existingPeriodIds).filter(
+        (id) => !newPeriodIds.has(id)
+      );
+
+      // Perform insertions and deletions
+      if (periodsToAdd.length > 0) {
         const { error: insertError } = await this.supabase
           .from('timetable_periods')
-          .insert(timetablePeriods);
-
+          .insert(periodsToAdd);
         if (insertError) throw insertError;
+      }
+
+      if (periodsToRemove.length > 0) {
+        const { error: deleteError } = await this.supabase
+          .from('timetable_periods')
+          .delete()
+          .eq('timetable_id', timetableId)
+          .in('period_id', periodsToRemove);
+        if (deleteError) throw deleteError;
+      }
+
+      // Update the sort order for all periods
+      const sortOrderUpdates = periodIds.map((periodId, index) => ({
+        timetable_id: timetableId,
+        period_id: periodId,
+        sort_order: index
+      }));
+
+      if (sortOrderUpdates.length > 0) {
+        const { error: updateError } = await this.supabase
+          .from('timetable_periods')
+          .upsert(sortOrderUpdates, { onConflict: 'timetable_id, period_id' });
+        if (updateError) throw updateError;
       }
     } catch (error) {
       console.error('Error saving timetable periods:', error);
