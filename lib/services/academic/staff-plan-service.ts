@@ -622,7 +622,31 @@ export class StaffPlanService {
       if (plansError) throw plansError;
 
       if (!staffPlans || staffPlans.length === 0) {
-        throw new Error('No staff plans found for this semester');
+        // Return a default empty structure instead of throwing an error
+        return {
+          id: '',
+          institution_id: institutionId,
+          program_id: programId,
+          semester_id: semesterId,
+          academic_year_id: academicYearId,
+          plan_name: 'No staff plans available',
+          is_active: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          institution: null,
+          degree: null,
+          program: null,
+          department: null,
+          semester: null,
+          academic_year: null,
+          total_courses: 0,
+          total_staff: 0,
+          all_courses: []
+        } as StaffPlan & {
+          total_courses: number;
+          total_staff: number;
+          all_courses: StaffPlanCourse[];
+        };
       }
 
       // Use the earliest created plan as the primary plan
