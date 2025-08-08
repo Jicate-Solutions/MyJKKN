@@ -290,14 +290,18 @@ export default function TimetableDetailPage({
 
       // Use the optimized consolidated staff plan method
       try {
-        const consolidatedPlan = await StaffPlanService.getConsolidatedStaffPlan(
-          timetable.institution_id,
-          timetable.program_id,
-          semesterIdForStaffPlan,
-          timetable.academic_year_id
-        );
+        const consolidatedPlan =
+          await StaffPlanService.getConsolidatedStaffPlan(
+            timetable.institution_id,
+            timetable.program_id,
+            semesterIdForStaffPlan,
+            timetable.academic_year_id
+          );
 
-        console.log('Found consolidated staff plan with courses:', consolidatedPlan.all_courses.length);
+        console.log(
+          'Found consolidated staff plan with courses:',
+          consolidatedPlan.all_courses.length
+        );
 
         // Extract unique courses and staff from the consolidated plan
         const coursesSet = new Set<string>();
@@ -340,8 +344,11 @@ export default function TimetableDetailPage({
         setStaffPlanningStaff(staffFromStaffPlanning);
       } catch (error) {
         // Fallback to the original method if consolidated fetch fails
-        console.warn('Consolidated staff plan fetch failed, falling back to individual queries:', error);
-        
+        console.warn(
+          'Consolidated staff plan fetch failed, falling back to individual queries:',
+          error
+        );
+
         const staffPlanFilters = {
           institution_id: timetable.institution_id,
           degree_id: timetable.degree_id,
@@ -366,7 +373,9 @@ export default function TimetableDetailPage({
         }
 
         // For now, just indicate that staff planning data exists but couldn't be fully loaded
-        console.log('Staff plans exist but detailed course data not loaded for performance');
+        console.log(
+          'Staff plans exist but detailed course data not loaded for performance'
+        );
         setStaffPlanningCourses([]);
         setStaffPlanningStaff([]);
       }
@@ -608,14 +617,21 @@ export default function TimetableDetailPage({
     try {
       setLoading(true);
       setError(null);
-      
+
       // Fetch all data in parallel for better performance
-      const [timetableData, periodsResult] = await Promise.all([
-        TimetableService.getTimetable(timetableId),
-        PeriodService.getPeriods({ limit: 50 })
+      const [timetableData] = await Promise.all([
+        TimetableService.getTimetable(timetableId)
       ]);
-      
+
       setTimetable(timetableData);
+
+      // Fetch periods for the specific institution
+      const periodsResult = await PeriodService.getPeriods({
+        institution_id: timetableData.institution_id,
+        limit: 1000 // A large number to get all periods for the institution
+      });
+      const institutionPeriods = periodsResult.data;
+      setPeriods(institutionPeriods);
 
       // Set slots from timetable data
       if (timetableData.slots) {
@@ -623,12 +639,6 @@ export default function TimetableDetailPage({
       } else {
         setSlots([]);
       }
-
-      // Filter periods by institution after fetching
-      const institutionPeriods = periodsResult.data.filter(
-        period => period.institution_id === timetableData.institution_id
-      );
-      setPeriods(institutionPeriods);
 
       // Load selected periods from timetable_periods table
       const timetablePeriods = await TimetableService.getTimetablePeriods(
@@ -657,7 +667,7 @@ export default function TimetableDetailPage({
         timetableData.institution_id ? fetchCourses() : Promise.resolve(),
         fetchStaff(),
         fetchSections()
-      ]).catch(err => {
+      ]).catch((err) => {
         console.error('Error fetching related data:', err);
       });
     } catch (err) {
@@ -1267,32 +1277,15 @@ export default function TimetableDetailPage({
   };
 
   // Add a period to the timetable
-  const addPeriod = async (period: Period) => {
+  const addPeriod = (period: Period) => {
     if (!selectedPeriods.some((p) => p.id === period.id)) {
-      // Add the period at the end of the existing list (don't sort)
       const newSelectedPeriods = [...selectedPeriods, period];
       setSelectedPeriods(newSelectedPeriods);
-
-      // Immediately save to database to prevent loss on refresh
-      try {
-        const currentPeriodIds = newSelectedPeriods.map((p) => p.id);
-        await TimetableService.saveTimetablePeriods(
-          timetableId,
-          currentPeriodIds
-        );
-
-        toast({
-          title: 'Period Added',
-          description: `${period.period_name} has been added to the bottom of your timetable.`
-        });
-      } catch (err) {
-        console.error('Error saving period selection:', err);
-        toast({
-          title: 'Error',
-          description: 'Failed to save period selection. Please try again.',
-          variant: 'destructive'
-        });
-      }
+      setHasUnsavedChanges(true);
+      toast({
+        title: 'Period Added',
+        description: `${period.period_name} has been added. Click 'Save Changes' to confirm.`
+      });
     }
   };
 

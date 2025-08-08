@@ -61,7 +61,7 @@ export function PeriodConfiguration({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className='sm:max-w-4xl max-h-[85vh] overflow-hidden border-0 shadow-xl'>
+      <DialogContent className='w-full max-w-5xl h-[90vh] flex flex-col'>
         <DialogHeader className='bg-gradient-to-r from-slate-50 to-blue-50 p-4 rounded-t-lg border-b border-slate-200'>
           <DialogTitle className='text-slate-800 text-lg'>
             Configure Timetable Periods
@@ -72,7 +72,7 @@ export function PeriodConfiguration({
               reorder periods to customize your schedule.
             </span>
           </DialogDescription>
-          <div className='mt-2 text-xs bg-white/60 px-2.5 py-1 rounded-md border border-slate-200 inline-flex gap-1.5 items-center'>
+          <div className='mt-2 text-xs bg-white/60 px-2.5 py-1 rounded-md border border-slate-200 inline-flex gap-1.5 items-center flex-wrap'>
             <Badge
               variant='outline'
               className='bg-blue-600 text-white border-0 h-4'
@@ -93,12 +93,12 @@ export function PeriodConfiguration({
           </div>
         </DialogHeader>
 
-        <div className='flex flex-col lg:flex-row gap-4 p-4 max-h-[calc(85vh-140px)] overflow-hidden'>
+        <div className='flex-grow flex flex-col lg:flex-row gap-4 p-4 overflow-hidden'>
           {/* Selected Periods Section */}
-          <div className='flex-1 min-h-0'>
-            <div className='flex items-center justify-between mb-3'>
+          <div className='flex-1 flex flex-col min-h-0'>
+            <div className='flex items-center justify-between mb-3 flex-wrap gap-2'>
               <h3 className='text-sm font-medium flex items-center gap-1.5 text-slate-700'>
-                <span className='bg-blue-100 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-blue-700 font-bold'>
+                <span className='bg-blue-100 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-blue-700 font-bold flex-shrink-0'>
                   1
                 </span>
                 Selected Periods ({selectedPeriods.length})
@@ -123,7 +123,7 @@ export function PeriodConfiguration({
               </div>
             </div>
 
-            <div className='h-full overflow-y-auto space-y-1.5 pr-1'>
+            <div className='flex-grow overflow-y-auto space-y-1.5 pr-1'>
               <DndContext
                 collisionDetection={closestCenter}
                 onDragEnd={onDragEnd}
@@ -146,7 +146,7 @@ export function PeriodConfiguration({
               </DndContext>
 
               {selectedPeriods.length === 0 && (
-                <div className='flex flex-col items-center justify-center p-8 border border-dashed rounded-md bg-slate-50 text-center'>
+                <div className='flex flex-col items-center justify-center h-full p-8 border border-dashed rounded-md bg-slate-50 text-center'>
                   <p className='text-sm text-slate-500 mb-2'>
                     No periods selected
                   </p>
@@ -159,17 +159,17 @@ export function PeriodConfiguration({
           </div>
 
           {/* Available Periods Section */}
-          <div className='flex-1 min-h-0'>
+          <div className='flex-1 flex flex-col min-h-0'>
             <div className='flex items-center justify-between mb-3'>
               <h3 className='text-sm font-medium flex items-center gap-1.5 text-slate-700'>
-                <span className='bg-green-100 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-green-700 font-bold'>
+                <span className='bg-green-100 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-green-700 font-bold flex-shrink-0'>
                   2
                 </span>
                 Available Periods ({getAvailablePeriods().length})
               </h3>
             </div>
 
-            <div className='h-full overflow-y-auto pr-1'>
+            <div className='flex-grow overflow-y-auto pr-1'>
               <div className='grid grid-cols-1 gap-1.5'>
                 {getAvailablePeriods().map((period) => (
                   <div
@@ -213,7 +213,7 @@ export function PeriodConfiguration({
                 ))}
 
                 {getAvailablePeriods().length === 0 && (
-                  <div className='flex flex-col items-center justify-center p-4 border border-dashed rounded-md bg-slate-50 text-center'>
+                  <div className='flex flex-col items-center justify-center h-full p-4 border border-dashed rounded-md bg-slate-50 text-center'>
                     <p className='text-xs text-slate-500'>
                       All periods are already selected
                     </p>
@@ -224,7 +224,7 @@ export function PeriodConfiguration({
           </div>
         </div>
 
-        <DialogFooter className='p-3 border-t border-slate-200 bg-slate-50 gap-2'>
+        <DialogFooter className='p-3 border-t border-slate-200 bg-slate-50 gap-2 mt-auto'>
           <Button
             variant='outline'
             onClick={onClose}
