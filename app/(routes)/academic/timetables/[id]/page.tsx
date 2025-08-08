@@ -303,6 +303,11 @@ export default function TimetableDetailPage({
           consolidatedPlan.all_courses.length
         );
 
+        // Check if this is an empty staff plan (no plans found for this semester)
+        if (consolidatedPlan.total_courses === 0 && consolidatedPlan.all_courses.length === 0) {
+          console.info('No staff plans available for this semester configuration');
+        }
+
         // Extract unique courses and staff from the consolidated plan
         const coursesSet = new Set<string>();
         const staffSet = new Set<string>();

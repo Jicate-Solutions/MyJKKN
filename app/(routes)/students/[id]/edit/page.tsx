@@ -6,14 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import React from 'react';
-import {
-  Loader2,
-  Save,
-  ArrowLeft,
-  UserCheck,
-  Upload,
-  User
-} from 'lucide-react';
+import { Loader2, Save, ArrowLeft, UserCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -39,7 +32,7 @@ import { Separator } from '@/components/ui/separator';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 
-import { studentSchema, UpdateStudentDto } from '@/types/student';
+import { UpdateStudentDto } from '@/types/student';
 import { PhotoUpload } from '../../_components/photo-upload';
 import toast from 'react-hot-toast';
 import { SemesterService } from '@/lib/services/organization/semester-service';
@@ -266,7 +259,10 @@ const useStudentSemesterAndSection = (student: any, form: any) => {
     sections,
     isLoadingSemesters,
     isLoadingSections,
-    loadSections // Expose loadSections to be called on semester change in form
+    loadSections, // Expose loadSections to be called on semester change in form
+    setSemesters,
+    setSections,
+    setIsLoadingSemesters
   };
 };
 
@@ -415,7 +411,10 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
     sections,
     isLoadingSemesters,
     isLoadingSections,
-    loadSections // We need loadSections for the semester_id field watcher
+    loadSections, // We need loadSections for the semester_id field watcher
+    setSemesters,
+    setSections,
+    setIsLoadingSemesters
   } = useStudentSemesterAndSection(student, form);
 
   // Watch for gender changes
@@ -702,122 +701,145 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
     }
   }, [student]);
 
-  // Add an effect to filter degrees when institution changes
-  useEffect(() => {
-    const institutionId = form.getValues('institution_id');
-    // Skip if there's no institutionId or we're still in initial loading
-    if (!institutionId || isLoadingStudent) {
-      return;
-    }
+  // Custom change handlers for hierarchical dropdowns
+  const handleInstitutionChange = async (value: string) => {
+    // Update form field
+    form.setValue('institution_id', value);
 
-    async function filterDegreesByInstitution() {
+    // Clear all dependent fields
+    form.setValue('degree_id', '');
+    form.setValue('department_id', '');
+    form.setValue('program_id', '');
+    form.setValue('semester_id', '');
+    form.setValue('section_id', '');
+    form.setValue('academic_year_id', '');
+
+    // Clear data arrays
+    setDegrees([]);
+    setDepartments([]);
+    setPrograms([]);
+    setSemesters([]);
+    setSections([]);
+
+    // Load degrees for the new institution
+    if (value) {
       try {
         setIsLoadingDegrees(true);
-        // Non-null assertion is safe here because we checked institutionId above
-        const degreesData = await DegreeService.getDegreesByInstitution(
-          institutionId!
-        );
+        const degreesData = await DegreeService.getDegreesByInstitution(value);
         setDegrees(degreesData);
-
-        // Clear dependent fields if the institution changes
-        if (student?.institution_id !== institutionId) {
-          form.setValue('degree_id', '');
-          form.setValue('department_id', '');
-          form.setValue('program_id', '');
-        }
       } catch (error) {
-        console.error('Error filtering degrees by institution:', error);
+        console.error('Error loading degrees:', error);
       } finally {
         setIsLoadingDegrees(false);
       }
     }
+  };
 
-    // Watch for institution_id changes
-    const subscription = form.watch((value, { name, type }) => {
-      if (name === 'institution_id' && type === 'change') {
-        filterDegreesByInstitution();
-      }
-    });
+  const handleDegreeChange = async (value: string) => {
+    // Update form field
+    form.setValue('degree_id', value);
 
-    return () => subscription.unsubscribe();
-  }, [form, student?.institution_id, isLoadingStudent]);
+    // Clear dependent fields
+    form.setValue('department_id', '');
+    form.setValue('program_id', '');
+    form.setValue('semester_id', '');
+    form.setValue('section_id', '');
 
-  // Add an effect to filter departments when degree changes
-  useEffect(() => {
-    const degreeId = form.getValues('degree_id');
-    // Skip if there's no degreeId or we're still in initial loading
-    if (!degreeId || isLoadingStudent) {
-      return;
-    }
+    // Clear data arrays
+    setDepartments([]);
+    setPrograms([]);
+    setSemesters([]);
+    setSections([]);
 
-    async function filterDepartmentsByDegree() {
+    // Load departments for the new degree
+    if (value) {
       try {
         setIsLoadingDepartments(true);
-        // Non-null assertion is safe here because we checked degreeId above
         const departmentsData = await DepartmentService.getDepartmentsByDegree(
-          degreeId!
+          value
         );
         setDepartments(departmentsData);
-
-        // Clear dependent fields if the degree changes
-        if (student?.degree_id !== degreeId) {
-          form.setValue('department_id', '');
-          form.setValue('program_id', '');
-        }
       } catch (error) {
-        console.error('Error filtering departments by degree:', error);
+        console.error('Error loading departments:', error);
       } finally {
         setIsLoadingDepartments(false);
       }
     }
+  };
 
-    // Watch for degree_id changes
-    const subscription = form.watch((value, { name, type }) => {
-      if (name === 'degree_id' && type === 'change') {
-        filterDepartmentsByDegree();
-      }
-    });
+  const handleDepartmentChange = async (value: string) => {
+    // Update form field
+    form.setValue('department_id', value);
 
-    return () => subscription.unsubscribe();
-  }, [form, student?.degree_id, isLoadingStudent]);
+    // Clear dependent fields
+    form.setValue('program_id', '');
+    form.setValue('semester_id', '');
+    form.setValue('section_id', '');
 
-  // Add an effect to filter programs when department changes
-  useEffect(() => {
-    const departmentId = form.getValues('department_id');
-    // Skip if there's no departmentId or we're still in initial loading
-    if (!departmentId || isLoadingStudent) {
-      return;
-    }
+    // Clear data arrays
+    setPrograms([]);
+    setSemesters([]);
+    setSections([]);
 
-    async function filterProgramsByDepartment() {
+    // Load programs for the new department
+    if (value) {
       try {
         setIsLoadingPrograms(true);
-        // Non-null assertion is safe here because we checked departmentId above
         const programsData = await ProgramService.getProgramsByDepartment(
-          departmentId!
+          value
         );
         setPrograms(programsData);
-
-        // Clear dependent field if the department changes
-        if (student?.department_id !== departmentId) {
-          form.setValue('program_id', '');
-        }
       } catch (error) {
-        console.error('Error filtering programs by department:', error);
+        console.error('Error loading programs:', error);
       } finally {
         setIsLoadingPrograms(false);
       }
     }
+  };
 
-    // Watch for department_id changes
-    const subscription = form.watch((value, { name, type }) => {
-      if (name === 'department_id' && type === 'change') {
-        filterProgramsByDepartment();
+  const handleProgramChange = async (value: string) => {
+    // Update form field
+    form.setValue('program_id', value);
+
+    // Clear dependent fields
+    form.setValue('semester_id', '');
+    form.setValue('section_id', '');
+
+    // Clear data arrays
+    setSemesters([]);
+    setSections([]);
+
+    // Load semesters for the new program
+    if (value) {
+      try {
+        setIsLoadingSemesters(true);
+        const semestersData = await SemesterService.getSemestersByProgram(
+          value
+        );
+        setSemesters(semestersData || []);
+      } catch (error) {
+        console.error('Error loading semesters:', error);
+      } finally {
+        setIsLoadingSemesters(false);
       }
-    });
+    }
+  };
 
-    return () => subscription.unsubscribe();
-  }, [form, student?.department_id, isLoadingStudent]);
+  const handleSemesterChange = async (value: string) => {
+    // Update form field
+    form.setValue('semester_id', value);
+
+    // Clear dependent fields
+    form.setValue('section_id', '');
+
+    // Clear data arrays
+    setSections([]);
+
+    // Load sections for the new semester - using the loadSections from the hook
+    if (value) {
+      await loadSections(value);
+    }
+  };
 
   // Handle form submission
   const onSubmit = async (data: EditStudentFormValues) => {
@@ -875,8 +897,6 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
 
       // Invalidate all student queries to force data refresh across the app
       queryClient.invalidateQueries({ queryKey: ['students'] });
-
-      toast.success('Student record updated');
 
       router.push(`/students/${id}`);
     } catch (error) {
@@ -1402,7 +1422,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                             <FormItem>
                               <FormLabel>Institution</FormLabel>
                               <Select
-                                onValueChange={field.onChange}
+                                onValueChange={handleInstitutionChange}
                                 value={field.value || ''}
                                 disabled={isLoadingInstitutions}
                               >
@@ -1448,9 +1468,12 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                             <FormItem>
                               <FormLabel>Degree</FormLabel>
                               <Select
-                                onValueChange={field.onChange}
+                                onValueChange={handleDegreeChange}
                                 value={field.value || ''}
-                                disabled={isLoadingDegrees}
+                                disabled={
+                                  isLoadingDegrees ||
+                                  !form.watch('institution_id')
+                                }
                               >
                                 <FormControl>
                                   <SelectTrigger>
@@ -1458,7 +1481,11 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {isLoadingDegrees ? (
+                                  {!form.watch('institution_id') ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      Select an institution first
+                                    </div>
+                                  ) : isLoadingDegrees ? (
                                     <div className='flex items-center justify-center p-2'>
                                       <Loader2 className='h-4 w-4 animate-spin mr-2' />
                                       Loading...
@@ -1496,9 +1523,12 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                             <FormItem>
                               <FormLabel>Department</FormLabel>
                               <Select
-                                onValueChange={field.onChange}
+                                onValueChange={handleDepartmentChange}
                                 value={field.value || ''}
-                                disabled={isLoadingDepartments}
+                                disabled={
+                                  isLoadingDepartments ||
+                                  !form.watch('degree_id')
+                                }
                               >
                                 <FormControl>
                                   <SelectTrigger>
@@ -1506,7 +1536,11 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {isLoadingDepartments ? (
+                                  {!form.watch('degree_id') ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      Select a degree first
+                                    </div>
+                                  ) : isLoadingDepartments ? (
                                     <div className='flex items-center justify-center p-2'>
                                       <Loader2 className='h-4 w-4 animate-spin mr-2' />
                                       Loading...
@@ -1542,9 +1576,12 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                             <FormItem>
                               <FormLabel>Program</FormLabel>
                               <Select
-                                onValueChange={field.onChange}
+                                onValueChange={handleProgramChange}
                                 value={field.value || ''}
-                                disabled={isLoadingPrograms}
+                                disabled={
+                                  isLoadingPrograms ||
+                                  !form.watch('department_id')
+                                }
                               >
                                 <FormControl>
                                   <SelectTrigger>
@@ -1552,7 +1589,11 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {isLoadingPrograms ? (
+                                  {!form.watch('department_id') ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      Select a department first
+                                    </div>
+                                  ) : isLoadingPrograms ? (
                                     <div className='flex items-center justify-center p-2'>
                                       <Loader2 className='h-4 w-4 animate-spin mr-2' />
                                       Loading...
@@ -1592,7 +1633,10 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                               <Select
                                 onValueChange={field.onChange}
                                 value={field.value || ''}
-                                disabled={isLoadingAcademicYears}
+                                disabled={
+                                  isLoadingAcademicYears ||
+                                  !form.watch('institution_id')
+                                }
                               >
                                 <FormControl>
                                   <SelectTrigger>
@@ -1600,7 +1644,11 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {isLoadingAcademicYears ? (
+                                  {!form.watch('institution_id') ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      Select an institution first
+                                    </div>
+                                  ) : isLoadingAcademicYears ? (
                                     <div className='flex items-center justify-center p-2'>
                                       <Loader2 className='h-4 w-4 animate-spin mr-2' />
                                       Loading...
@@ -1701,9 +1749,12 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                             <FormItem>
                               <FormLabel>Semester*</FormLabel>
                               <Select
-                                onValueChange={field.onChange}
-                                defaultValue={student?.semester_id || ''}
-                                disabled={isLoadingSemesters}
+                                onValueChange={handleSemesterChange}
+                                value={field.value || ''}
+                                disabled={
+                                  isLoadingSemesters ||
+                                  !form.watch('program_id')
+                                }
                               >
                                 <FormControl>
                                   <SelectTrigger>
@@ -1711,7 +1762,11 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {isLoadingSemesters ? (
+                                  {!form.watch('program_id') ? (
+                                    <div className='p-2 text-center text-sm text-muted-foreground'>
+                                      Select a program first
+                                    </div>
+                                  ) : isLoadingSemesters ? (
                                     <div className='flex items-center justify-center p-2'>
                                       <Loader2 className='h-4 w-4 animate-spin mr-2' />
                                       Loading...
@@ -1749,7 +1804,7 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
                               <FormLabel>Section*</FormLabel>
                               <Select
                                 onValueChange={field.onChange}
-                                defaultValue={student?.section_id || ''}
+                                value={field.value || ''}
                                 disabled={
                                   !form.watch('semester_id') ||
                                   isLoadingSections

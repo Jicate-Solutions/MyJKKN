@@ -6,7 +6,7 @@ import { StudentsDataTable } from './_components/students-data-table';
 import { StudentFilters } from './_components/student-filters';
 import { studentsSearchParamsSchema } from './_components/data-table-schema';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { BarChart3, UserCheck } from 'lucide-react';
@@ -19,6 +19,15 @@ export default function StudentsPage() {
   const search = studentsSearchParamsSchema.parse(
     Object.fromEntries(searchParams.entries())
   );
+
+  // Redirect to include default is_profile_complete filter if not present
+  useEffect(() => {
+    if (!searchParams.has('is_profile_complete')) {
+      const params = new URLSearchParams(searchParams);
+      params.set('is_profile_complete', 'true');
+      router.replace(`/students?${params.toString()}`);
+    }
+  }, [searchParams, router]);
 
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {

@@ -11,7 +11,7 @@ export const studentsSearchParamsSchema = z.object({
   status: z
     .enum(['active', 'inactive', 'pending', 'exited', 'graduated'])
     .optional(),
-  is_profile_complete: z.coerce.boolean().optional(),
+  is_profile_complete: z.coerce.boolean().default(true),
 
   // Advanced filters
   institution_id: z.string().optional(),
