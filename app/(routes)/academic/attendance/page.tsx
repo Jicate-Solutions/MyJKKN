@@ -233,7 +233,7 @@ export default function AttendancePage() {
     }
   };
 
-  // Check if attendance already exists for the selected criteria
+  // Check if attendance already exists for the selected criteria (using consolidated approach)
   const checkExistingAttendance = async (
     timetableSlotId: string,
     attendanceDate: string
@@ -242,10 +242,58 @@ export default function AttendancePage() {
       const { AttendanceService } = await import(
         '@/lib/services/academic/attendance-service'
       );
-      const records = await AttendanceService.getAttendanceRecords(
-        timetableSlotId,
-        attendanceDate
+
+      // Get the period info to extract timetable_id
+      const selectedPeriodInfo = availablePeriods.find(
+        (p) => p.timetable_slot_id === timetableSlotId
       );
+
+      if (!selectedPeriodInfo || !searchContext.section_id) {
+        return [];
+      }
+
+      // Check for consolidated attendance record
+      const consolidatedRecord =
+        await AttendanceService.getConsolidatedAttendance(
+          selectedPeriodInfo.timetable_id,
+          searchContext.section_id,
+          attendanceDate
+        );
+
+      if (!consolidatedRecord || !consolidatedRecord.attendance_data) {
+        return [];
+      }
+
+      // Extract student attendance records from consolidated data
+      const attendanceData = consolidatedRecord.attendance_data as any;
+      const records: any[] = [];
+
+      // Find the specific slot data in the consolidated record
+      for (const [slotId, periodData] of Object.entries(attendanceData)) {
+        if (
+          slotId === timetableSlotId &&
+          periodData &&
+          typeof periodData === 'object'
+        ) {
+          const periodInfo = periodData as any;
+          if (periodInfo.students && Array.isArray(periodInfo.students)) {
+            periodInfo.students.forEach((student: any) => {
+              records.push({
+                id: `${consolidatedRecord.id}_${student.student_id}`,
+                student_id: student.student_id,
+                timetable_slot_id: timetableSlotId,
+                attendance_date: attendanceDate,
+                status: student.status,
+                marked_by: consolidatedRecord.marked_by,
+                created_at: student.marked_at || consolidatedRecord.created_at,
+                updated_at: consolidatedRecord.updated_at
+              });
+            });
+          }
+          break;
+        }
+      }
+
       return records;
     } catch (error) {
       console.error('Error checking existing attendance:', error);

@@ -85,15 +85,19 @@ export class AttendanceService {
   ): Promise<ConsolidatedStudentAttendance> {
     try {
       // First, try to find existing consolidated record
-      const { data: existingRecord } = await this.supabase
+      const { data: existingRecord, error: findError } = await this.supabase
         .from('student_attendance')
         .select('id')
         .eq('institution_id', data.institution_id)
         .eq('timetable_id', data.timetable_id)
         .eq('section_id', data.section_id)
         .eq('attendance_date', data.attendance_date)
-        .eq('is_consolidated', true)
-        .single();
+        .maybeSingle();
+
+      if (findError) {
+        console.error('Error finding existing attendance record:', findError);
+        throw findError;
+      }
 
       let result;
       if (existingRecord) {
