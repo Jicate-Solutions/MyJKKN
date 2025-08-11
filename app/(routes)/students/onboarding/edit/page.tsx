@@ -200,7 +200,7 @@ export default function EditonboardingPage() {
       // If all required fields are filled, also set status to active
       const updatePayload = {
         ...data,
-        status: isComplete ? ('active' as const) : undefined,
+        status: isComplete ? ('active' as const) : student?.status,
         is_profile_complete: isComplete
       };
 

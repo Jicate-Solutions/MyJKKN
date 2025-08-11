@@ -210,9 +210,7 @@ export class StudentService {
       const from = (page - 1) * limit;
       const to = from + limit - 1;
 
-      query = query
-        .order('created_at', { ascending: false })
-        .range(from, to);
+      query = query.order('created_at', { ascending: false }).range(from, to);
 
       const { data: students, error, count } = await query;
 
@@ -223,10 +221,18 @@ export class StudentService {
       const transformedStudents = (students || []).map((student: any) => ({
         ...student,
         // Add placeholder objects for relations
-        program: student.program_id ? { id: student.program_id, program_name: 'Loading...' } : null,
-        semester: student.semester_id ? { id: student.semester_id, semester_name: 'Loading...' } : null,
-        section: student.section_id ? { id: student.section_id, section_name: 'Loading...' } : null,
-        academic_year: student.academic_year_id ? { id: student.academic_year_id, academic_year_name: 'Loading...' } : null
+        program: student.program_id
+          ? { id: student.program_id, program_name: 'Loading...' }
+          : null,
+        semester: student.semester_id
+          ? { id: student.semester_id, semester_name: 'Loading...' }
+          : null,
+        section: student.section_id
+          ? { id: student.section_id, section_name: 'Loading...' }
+          : null,
+        academic_year: student.academic_year_id
+          ? { id: student.academic_year_id, academic_year_name: 'Loading...' }
+          : null
       }));
 
       return {
@@ -255,10 +261,17 @@ export class StudentService {
         studentData as Partial<Student>
       );
 
+      // Uppercase first_name and last_name
+      const processedStudentData = {
+        ...studentData,
+        first_name: studentData.first_name?.toUpperCase(),
+        last_name: studentData.last_name?.toUpperCase()
+      };
+
       const { data: student, error } = await this.supabase
         .from('students')
         .insert({
-          ...studentData,
+          ...processedStudentData,
           application_id: studentData.application_id, // Ensure application_id is passed
           is_profile_complete,
           created_at: now,
@@ -344,8 +357,19 @@ export class StudentService {
 
       if (fetchError) throw fetchError;
 
+      // Uppercase first_name and last_name if they exist in the update data
+      const processedUpdateData = { ...updateData };
+      if (processedUpdateData.first_name) {
+        processedUpdateData.first_name =
+          processedUpdateData.first_name.toUpperCase();
+      }
+      if (processedUpdateData.last_name) {
+        processedUpdateData.last_name =
+          processedUpdateData.last_name.toUpperCase();
+      }
+
       // Merge current data with updates for profile completeness check
-      const mergedData = { ...currentStudent, ...updateData };
+      const mergedData = { ...currentStudent, ...processedUpdateData };
 
       // Calculate if profile is complete
       const is_profile_complete = this.calculateProfileCompleteness(mergedData);
@@ -381,7 +405,7 @@ export class StudentService {
       const { data: student, error } = await this.supabase
         .from('students')
         .update({
-          ...updateData,
+          ...processedUpdateData,
           is_profile_complete,
           updated_at: new Date().toISOString(),
           updated_by: (await this.supabase.auth.getUser()).data.user?.id
@@ -688,8 +712,8 @@ export class StudentService {
 
       // Apply sorting
       if (filters.sortBy) {
-        query = query.order(filters.sortBy, { 
-          ascending: filters.sortOrder === 'asc' 
+        query = query.order(filters.sortBy, {
+          ascending: filters.sortOrder === 'asc'
         });
       } else {
         query = query.order('created_at', { ascending: false });
@@ -2023,11 +2047,12 @@ export class StudentService {
 
       // Validate academic year if provided
       if (academicYearId) {
-        const { data: academicYear, error: academicYearError } = await this.supabase
-          .from('academic_years')
-          .select('id, institution_id')
-          .eq('id', academicYearId)
-          .single();
+        const { data: academicYear, error: academicYearError } =
+          await this.supabase
+            .from('academic_years')
+            .select('id, institution_id')
+            .eq('id', academicYearId)
+            .single();
 
         if (academicYearError || !academicYear) {
           throw new Error(`Invalid academic year ID: ${academicYearId}`);

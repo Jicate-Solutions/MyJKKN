@@ -213,6 +213,8 @@ export interface StudentFilters {
   is_profile_complete?: boolean;
   page?: number;
   limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface StudentListResponse {
