@@ -106,6 +106,11 @@ export class StaffPlanService {
     filters: StaffPlanFilters = {}
   ): Promise<StaffPlanListResponse> {
     try {
+      // Check if consolidation is disabled or if RPC doesn't exist, use original method
+      if (filters.disableConsolidation) {
+        return this.getStaffPlansOriginal(filters);
+      }
+
       // Get consolidated staff plans by grouping duplicates
       const { data: rawPlans, error } = await this.supabase.rpc(
         'get_consolidated_staff_plans',
@@ -241,13 +246,73 @@ export class StaffPlanService {
 
       if (error) throw error;
 
-      // Group duplicate plans and aggregate their course data
-      const consolidatedPlans = await this.consolidateDuplicatePlans(
-        plans || []
-      );
+      // Add course and staff counts to each plan efficiently
+      let finalPlans = plans || [];
+
+      if (finalPlans.length > 0) {
+        // Get all plan IDs for efficient batch query
+        const planIds = finalPlans.map((plan) => plan.id);
+
+        try {
+          // Fetch all course assignments for all plans in one query
+          const { data: allCourseCounts, error: countError } =
+            await this.supabase
+              .from('staff_plan_courses')
+              .select('staff_plan_id, course_id, staff_id')
+              .in('staff_plan_id', planIds);
+
+          if (countError) {
+            console.warn('Error fetching course counts:', countError);
+            // Set default counts for all plans
+            finalPlans.forEach((plan) => {
+              plan.course_count = 0;
+              plan.total_staff = 0;
+            });
+          } else {
+            // Group by staff_plan_id and calculate counts
+            const countsMap = new Map();
+
+            (allCourseCounts || []).forEach((item) => {
+              if (!countsMap.has(item.staff_plan_id)) {
+                countsMap.set(item.staff_plan_id, {
+                  courses: new Set(),
+                  staff: new Set()
+                });
+              }
+              const counts = countsMap.get(item.staff_plan_id);
+              counts.courses.add(item.course_id);
+              counts.staff.add(item.staff_id);
+            });
+
+            // Apply counts to each plan
+            finalPlans.forEach((plan) => {
+              const counts = countsMap.get(plan.id);
+              if (counts) {
+                plan.course_count = counts.courses.size;
+                plan.total_staff = counts.staff.size;
+              } else {
+                plan.course_count = 0;
+                plan.total_staff = 0;
+              }
+            });
+          }
+        } catch (error) {
+          console.warn('Error calculating counts:', error);
+          // Set default counts for all plans
+          finalPlans.forEach((plan) => {
+            plan.course_count = 0;
+            plan.total_staff = 0;
+          });
+        }
+      }
+
+      // Only consolidate if explicitly requested (after adding counts)
+      if (filters.enableConsolidation) {
+        finalPlans = await this.consolidateDuplicatePlans(finalPlans);
+      }
 
       return {
-        data: consolidatedPlans,
+        data: finalPlans,
         metadata: {
           total: count || 0,
           page,
@@ -626,19 +691,23 @@ export class StaffPlanService {
         return {
           id: '',
           institution_id: institutionId,
+          degree_id: '',
+          department_id: '',
           program_id: programId,
           semester_id: semesterId,
           academic_year_id: academicYearId,
+          start_date: new Date().toISOString(),
+          end_date: new Date().toISOString(),
           plan_name: 'No staff plans available',
           is_active: false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          institution: null,
-          degree: null,
-          program: null,
-          department: null,
-          semester: null,
-          academic_year: null,
+          institution: undefined,
+          degree: undefined,
+          program: undefined,
+          department: undefined,
+          semester: undefined,
+          academic_year: undefined,
           total_courses: 0,
           total_staff: 0,
           all_courses: []

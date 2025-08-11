@@ -137,6 +137,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/timetables': 'academic.timetables.view',
   '/academic/periods': 'academic.periods.view',
   '/academic/attendance': 'academic.attendance.view',
+  '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
 
   // Notification Management
   '/admin/notifications': 'notifications.view',
@@ -474,9 +475,20 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/academic/attendance',
           label: 'Attendance',
-          active: pathname === '/academic/attendance',
+          active: pathname.startsWith('/academic/attendance'),
           icon: ClipboardCheck,
-          submenus: []
+          submenus: [
+            {
+              href: '/academic/attendance',
+              label: 'Mark Attendance',
+              active: pathname === '/academic/attendance'
+            },
+            {
+              href: '/academic/attendance/dashboard',
+              label: 'Analytics Dashboard',
+              active: pathname === '/academic/attendance/dashboard'
+            }
+          ]
         }
       ]
     },

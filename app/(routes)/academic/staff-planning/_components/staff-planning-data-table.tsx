@@ -12,6 +12,18 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from '@/components/ui/alert-dialog';
+import { useState } from 'react';
 
 interface StaffPlanningDataTableProps {
   search: StaffPlanningSearchParams;
@@ -22,6 +34,14 @@ export function StaffPlanningDataTable({
 }: StaffPlanningDataTableProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [selectedRowsForDelete, setSelectedRowsForDelete] = useState<
+    StaffPlan[]
+  >([]);
+  const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(
+    null
+  );
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
   const {
     canAccess,
     isSuperAdmin,
@@ -48,10 +68,19 @@ export function StaffPlanningDataTable({
         `Successfully deleted ${result.success.length} staff plans`
       );
       queryClient.invalidateQueries({ queryKey: ['staff-plans'] });
+      // Reset dialog state
+      setShowDeleteDialog(false);
+      setSelectedRowsForDelete([]);
+      if (resetSelectionFn) {
+        resetSelectionFn();
+      }
+      setResetSelectionFn(null);
     },
     onError: (error: any) => {
       console.error('Error bulk deleting staff plans:', error);
       toast.error(error?.message || 'Failed to delete staff plans');
+      // Close dialog even on error
+      setShowDeleteDialog(false);
     }
   });
 
@@ -86,7 +115,8 @@ export function StaffPlanningDataTable({
             ? true
             : search.isActive === 'false'
             ? false
-            : undefined
+            : undefined,
+        disableConsolidation: true // Show individual staff plans by default
       };
 
       const response = await StaffPlanService.getStaffPlans(filters);
@@ -107,15 +137,22 @@ export function StaffPlanningDataTable({
     }
   };
 
-  const handleBulkDelete = async (
+  const handleBulkDelete = (
     selectedRows: StaffPlan[],
     resetSelection: () => void
   ) => {
     if (selectedRows.length === 0) return;
 
-    const ids = selectedRows.map((row) => row.id);
+    setSelectedRowsForDelete(selectedRows);
+    setResetSelectionFn(() => resetSelection);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmBulkDelete = () => {
+    if (selectedRowsForDelete.length === 0) return;
+
+    const ids = selectedRowsForDelete.map((row) => row.id);
     bulkDeleteMutation.mutate(ids);
-    resetSelection();
   };
 
   const renderCustomToolbar = (props: {
@@ -172,28 +209,76 @@ export function StaffPlanningDataTable({
   }
 
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      exportConfig={{
-        entityName: 'staff-plans',
-        columnMapping: {},
-        columnWidths: [],
-        headers: []
-      }}
-      idField='id'
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: false,
-        enableRowSelection: true,
-        enableSearch: true,
-        enableColumnFilters: false,
-        enableColumnVisibility: true,
-        enableColumnResizing: true,
-        columnResizingTableId: 'staff-planning-table'
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <>
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        exportConfig={{
+          entityName: 'staff-plans',
+          columnMapping: {},
+          columnWidths: [],
+          headers: []
+        }}
+        idField='id'
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: false,
+          enableRowSelection: true,
+          enableSearch: true,
+          enableColumnFilters: false,
+          enableColumnVisibility: true,
+          enableColumnResizing: true,
+          columnResizingTableId: 'staff-planning-table'
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Bulk Delete</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedRowsForDelete.length}{' '}
+              staff plan{selectedRowsForDelete.length !== 1 ? 's' : ''}? This
+              action cannot be undone.
+              {selectedRowsForDelete.length > 0 && (
+                <div className='mt-3 p-3 bg-muted rounded-md'>
+                  <div className='text-sm font-medium mb-2'>
+                    Staff plans to be deleted:
+                  </div>
+                  <ul className='text-sm space-y-1 max-h-40 overflow-y-auto'>
+                    {selectedRowsForDelete.map((plan) => (
+                      <li key={plan.id} className='truncate'>
+                        • {plan.institution?.name} -{' '}
+                        {plan.program?.program_name} -{' '}
+                        {plan.semester?.semester_name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmBulkDelete}
+              disabled={bulkDeleteMutation.isPending}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            >
+              {bulkDeleteMutation.isPending
+                ? 'Deleting...'
+                : `Delete ${selectedRowsForDelete.length} Staff Plan${
+                    selectedRowsForDelete.length !== 1 ? 's' : ''
+                  }`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

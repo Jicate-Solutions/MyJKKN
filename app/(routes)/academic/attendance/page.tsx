@@ -485,6 +485,9 @@ export default function AttendancePage() {
       setStudentsForSection([]);
       setLoadingPeriodData(false);
 
+      // Show loading toast
+      const loadingToast = toast.loading('Searching for available periods...');
+
       const { AttendanceService } = await import(
         '@/lib/services/academic/attendance-service'
       );
@@ -503,8 +506,25 @@ export default function AttendancePage() {
             filterByStaffAssignment: !isSuperAdmin, // Only filter for non-admin users
             isSuperAdmin: isSuperAdmin
           });
+          
+          // Dismiss loading toast and show success
+          toast.dismiss(loadingToast);
+          toast.success('Periods loaded successfully');
+          
+          // Auto-scroll to periods section after a short delay
+          setTimeout(() => {
+            const periodsSection = document.getElementById('periods-section');
+            if (periodsSection) {
+              periodsSection.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'start' 
+              });
+            }
+          }, 300);
         } catch (periodError) {
           console.warn('Could not fetch periods:', periodError);
+          toast.dismiss(loadingToast);
+          toast.error('No periods found for the selected criteria');
         }
       }
     } catch (error) {
@@ -1362,6 +1382,13 @@ export default function AttendancePage() {
                 Please fill in all required fields to enable search
               </div>
             )}
+            
+            {isSearchFormValid && !showResults && (
+              <div className='text-sm text-green-600 dark:text-green-400 mb-2 flex items-center gap-2'>
+                <Check className='h-4 w-4' />
+                All fields filled! Click Search to find available periods.
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div className='flex gap-3'>
@@ -1370,13 +1397,26 @@ export default function AttendancePage() {
                 disabled={
                   loading ||
                   loadingStudents ||
+                  loadingPeriods ||
                   isResetting ||
                   !isSearchFormValid
                 }
-                className='flex items-center gap-2'
+                className={cn(
+                  'flex items-center gap-2',
+                  isSearchFormValid && !showResults && !loadingPeriods && 'animate-pulse'
+                )}
               >
-                <Search className='h-4 w-4' />
-                Search
+                {loadingPeriods ? (
+                  <>
+                    <Loader2 className='h-4 w-4 animate-spin' />
+                    Searching...
+                  </>
+                ) : (
+                  <>
+                    <Search className='h-4 w-4' />
+                    Search
+                  </>
+                )}
               </Button>
               <Button
                 variant='outline'
@@ -1410,7 +1450,7 @@ export default function AttendancePage() {
           <>
             {/* Available Periods Section */}
             {!showStudents && (
-              <Card>
+              <Card id='periods-section'>
                 <CardContent className='p-6'>
                   <div className='flex items-center gap-3 mb-4'>
                     <Calendar className='h-5 w-5 text-blue-600 dark:text-blue-500' />
@@ -1428,8 +1468,9 @@ export default function AttendancePage() {
                   </div>
 
                   {loadingPeriods ? (
-                    <div className='flex items-center justify-center py-8'>
-                      <Loader2 className='h-5 w-5 text-primary animate-spin' />
+                    <div className='flex flex-col items-center justify-center py-12 space-y-4'>
+                      <Loader2 className='h-8 w-8 text-primary animate-spin' />
+                      <p className='text-sm text-muted-foreground'>Loading available periods...</p>
                     </div>
                   ) : availablePeriods.length > 0 ? (
                     <div className='max-w-md'>

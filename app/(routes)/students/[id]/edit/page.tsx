@@ -885,11 +885,12 @@ export default function EditStudentPage({ params }: EditStudentPageProps) {
           : undefined
       };
 
-      // If all required fields are filled, also set status to active
+      // Preserve the user's selected status, but auto-set to active if profile is complete and no status was explicitly set
       const updatePayload = {
         ...transformedData,
         is_profile_complete: isComplete,
-        status: isComplete ? ('active' as const) : undefined
+        status:
+          data.status || (isComplete ? ('active' as const) : student?.status)
       };
 
       // Submit the data payload

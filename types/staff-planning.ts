@@ -37,6 +37,10 @@ export interface StaffPlan extends StaffPlanBaseData {
   created_at: string;
   updated_at: string;
   courses?: StaffPlanCourse[];
+  // Count fields for display
+  course_count?: number;
+  total_staff?: number;
+  duplicate_count?: number; // For consolidation display
   // Related data
   institution?: {
     id: string;
@@ -102,6 +106,8 @@ export interface StaffPlanFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
+  disableConsolidation?: boolean; // Option to show individual plans instead of consolidated ones
+  enableConsolidation?: boolean; // Option to enable consolidation in the original method
 }
 
 export interface StaffPlanListResponse {
