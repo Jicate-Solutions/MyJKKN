@@ -129,6 +129,248 @@ export class AttendanceService {
     }
   }
 
+  // Check if a slot has version history
+  static async getSlotVersionInfo(slot_id: string): Promise<{
+    hasVersions: boolean;
+    currentVersion: number;
+    totalVersions: number;
+    changeHistory: any[];
+  }> {
+    try {
+      // First check if the slot has continuity tracking
+      const { data: continuityCheck, error: checkError } = await this.supabase
+        .from('timetable_slot_continuity')
+        .select('continuity_group_id')
+        .eq('slot_id', slot_id)
+        .single();
+
+      if (checkError || !continuityCheck?.continuity_group_id) {
+        // No continuity tracking for this slot
+        return {
+          hasVersions: false,
+          currentVersion: 1,
+          totalVersions: 1,
+          changeHistory: []
+        };
+      }
+
+      // Get all versions in the continuity group
+      const { data: continuityData, error } = await this.supabase
+        .from('timetable_slot_continuity')
+        .select(`
+          *,
+          changed_by_user:profiles!changed_by(
+            full_name,
+            email
+          )
+        `)
+        .eq('continuity_group_id', continuityCheck.continuity_group_id)
+        .order('version_number', { ascending: false });
+
+      if (error || !continuityData || continuityData.length === 0) {
+        return {
+          hasVersions: false,
+          currentVersion: 1,
+          totalVersions: 1,
+          changeHistory: []
+        };
+      }
+
+      const currentSlot = continuityData.find(c => c.timetable_slot_id === slot_id);
+      const currentVersion = currentSlot?.version_number || 1;
+
+      return {
+        hasVersions: true,
+        currentVersion,
+        totalVersions: continuityData.length,
+        changeHistory: continuityData.map(c => ({
+          version: c.version_number,
+          validFrom: c.valid_from,
+          validUntil: c.valid_until,
+          changeReason: c.change_reason,
+          changedBy: c.changed_by_user,
+          isCurrent: c.is_current
+        }))
+      };
+    } catch (error) {
+      console.error('Error getting slot version info:', error);
+      return {
+        hasVersions: false,
+        currentVersion: 1,
+        totalVersions: 1,
+        changeHistory: []
+      };
+    }
+  }
+
+  // Get attendance for a slot including all its historical versions
+  static async getSlotAttendanceWithHistory(
+    slot_id: string,
+    section_id: string,
+    start_date?: string,
+    end_date?: string
+  ): Promise<any[]> {
+    try {
+      // Try to get related slots from the continuity table
+      const { data: continuityData, error: continuityError } = await this.supabase
+        .from('timetable_slot_continuity')
+        .select('continuity_group_id')
+        .eq('slot_id', slot_id)
+        .single();
+
+      let relatedSlotIds = [slot_id];
+
+      if (!continuityError && continuityData?.continuity_group_id) {
+        // Get all slots in the same continuity group
+        const { data: relatedSlots, error: relatedError } = await this.supabase
+          .from('timetable_slot_continuity')
+          .select('slot_id')
+          .eq('continuity_group_id', continuityData.continuity_group_id)
+          .order('version_number', { ascending: true });
+
+        if (!relatedError && relatedSlots) {
+          relatedSlotIds = relatedSlots.map((r: any) => r.slot_id);
+          console.log('Found related slot versions:', relatedSlotIds);
+        }
+      }
+
+      // For consolidated attendance, we need to check the JSONB data
+      // The attendance_data column contains slot IDs as keys
+      let query = this.supabase
+        .from('student_attendance')
+        .select('*')
+        .eq('section_id', section_id);
+
+      if (start_date && end_date) {
+        query = query.gte('attendance_date', start_date).lte('attendance_date', end_date);
+      } else if (start_date) {
+        query = query.eq('attendance_date', start_date);
+      }
+
+      const { data: attendanceRecords, error: attendanceError } = await query
+        .order('attendance_date', { ascending: false });
+
+      if (attendanceError) {
+        console.error('Error fetching attendance with versions:', attendanceError);
+        // Fallback to direct method
+        return this.getSlotAttendanceDirectly(slot_id, section_id, start_date, end_date);
+      }
+
+      // Process the attendance records to extract data for related slots
+      const attendanceData: any[] = [];
+      
+      if (attendanceRecords && attendanceRecords.length > 0) {
+        for (const record of attendanceRecords) {
+          if (record.attendance_data && typeof record.attendance_data === 'object') {
+            // Check each slot in the attendance data
+            for (const [slotId, slotData] of Object.entries(record.attendance_data)) {
+              // Check if this slot ID is in our related slots
+              if (relatedSlotIds.includes(slotId)) {
+                // Extract student attendance from this slot
+                if (slotData && typeof slotData === 'object' && 'students' in slotData) {
+                  const slotAttendance = slotData as any;
+                  if (Array.isArray(slotAttendance.students)) {
+                    for (const student of slotAttendance.students) {
+                      attendanceData.push({
+                        id: `${record.id}_${slotId}_${student.student_id}`,
+                        student_id: student.student_id,
+                        timetable_slot_id: slotId,
+                        attendance_date: record.attendance_date,
+                        status: student.status,
+                        marked_by: record.marked_by,
+                        marked_at: student.marked_at || record.updated_at,
+                        section_id: record.section_id,
+                        timetable_id: record.timetable_id
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      return attendanceData;
+    } catch (error) {
+      console.error('Error fetching slot attendance with history:', error);
+      return [];
+    }
+  }
+
+  // Direct method for getting slot attendance (fallback)
+  private static async getSlotAttendanceDirectly(
+    slot_id: string,
+    section_id: string,
+    start_date?: string,
+    end_date?: string
+  ): Promise<any[]> {
+    try {
+      let query = this.supabase
+        .from('student_attendance')
+        .select(
+          `
+          id,
+          attendance_date,
+          attendance_data,
+          marked_by,
+          created_at,
+          updated_at,
+          marked_by_profile:profiles!marked_by(
+            id,
+            email,
+            full_name
+          )
+        `
+        )
+        .eq('section_id', section_id);
+
+      if (start_date) {
+        query = query.gte('attendance_date', start_date);
+      }
+      if (end_date) {
+        query = query.lte('attendance_date', end_date);
+      }
+
+      const { data, error } = await query;
+
+      if (error || !data) {
+        return [];
+      }
+
+      const attendanceRecords: any[] = [];
+
+      data.forEach(record => {
+        const attendanceData = record.attendance_data as any;
+        
+        // Check if this slot exists in the attendance data
+        if (attendanceData[slot_id]) {
+          const period = attendanceData[slot_id];
+          attendanceRecords.push({
+            attendance_id: record.id,
+            attendance_date: record.attendance_date,
+            slot_id,
+            period_name: period.period_name,
+            course_name: period.course_name,
+            start_time: period.start_time,
+            end_time: period.end_time,
+            student_count: period.students ? period.students.length : 0,
+            marked_by: record.marked_by_profile,
+            marked_at: record.created_at,
+            students: period.students || []
+          });
+        }
+      });
+
+      return attendanceRecords.sort((a, b) => 
+        new Date(b.attendance_date).getTime() - new Date(a.attendance_date).getTime()
+      );
+    } catch (error) {
+      console.error('Error in direct slot attendance fetch:', error);
+      return [];
+    }
+  }
+
   // Upsert consolidated attendance record
   static async upsertConsolidatedAttendance(
     data: UpsertConsolidatedAttendanceDto
@@ -361,6 +603,7 @@ export class AttendanceService {
               consolidatedRecord.attendance_data as ConsolidatedAttendanceData;
 
             // Look through all periods to find this student
+            // Since we may have different slot IDs for the same period, check all periods
             for (const [slotId, periodData] of Object.entries(attendanceData)) {
               const studentRecord = periodData.students.find(
                 (s: ConsolidatedAttendanceStudent) =>
@@ -372,6 +615,14 @@ export class AttendanceService {
                 attendance_id = consolidatedRecord.id;
                 break; // Found the student, use their status
               }
+            }
+            
+            // If no student record found but attendance exists, default to Present
+            // This handles edge cases where student list might have changed
+            if (!attendance_id && Object.keys(attendanceData).length > 0) {
+              // Attendance was marked but this student wasn't in the list
+              // This could happen if student was added to section after attendance was marked
+              status = 'Present'; // Default for safety
             }
           }
 
@@ -1266,9 +1517,23 @@ export class AttendanceService {
         if (slots && slots.length > 0) {
           console.log('Found slots:', slots.length);
           
+          // Debug: Log the first slot structure to understand staff assignments
+          if (slots.length > 0) {
+            console.log('Sample slot structure:', {
+              slot_id: slots[0].id,
+              has_staff_members: !!slots[0].staff_members,
+              staff_members_count: slots[0].staff_members?.length || 0,
+              staff_ids: slots[0].staff_members?.map((sm: any) => sm.staff?.id) || [],
+              has_sub_slots: !!slots[0].sub_slots,
+              sub_slots_count: slots[0].sub_slots?.length || 0
+            });
+          }
+          
           // Filter slots by staff assignment if needed
           let filteredSlots = slots;
           if (staffIdForFiltering) {
+            console.log(`Filtering slots for staff ID: ${staffIdForFiltering}`);
+            
             filteredSlots = slots.filter((slot: any) => {
               // Check if staff is assigned to the main slot
               if (slot.staff_members && Array.isArray(slot.staff_members)) {
@@ -1318,44 +1583,56 @@ export class AttendanceService {
 
       console.log('Total slots collected from all timetables:', allSlots.length);
 
-      // Map all collected slots to AttendancePeriodOption
-      const availablePeriods = allSlots.map((slot: any) => ({
-        timetable_slot_id: slot.id,
-        timetable_id: slot.timetable_id,
-        id: slot.period.id,
-        period_name: slot.period.period_name,
-        start_time: slot.period.start_time,
-        end_time: slot.period.end_time,
-        is_break: slot.period.is_break,
-        course: slot.course
-          ? {
-              id: slot.course.id,
-              course_name: slot.course.course_name,
-              course_code: slot.course.course_code
-            }
-          : undefined,
-        // Note: staff field is deprecated, use staff_members instead
-        staff: undefined,
-        staff_members: slot.staff_members?.map((sm: any) => sm.staff) || [],
-        sub_slots:
-          slot.sub_slots?.map((ss: any) => ({
-            ...ss,
-            staff_members: ss.staff_members?.map((sm: any) => sm.staff) || [],
-            sections: ss.sections?.map((s: any) => s.sections) || []
-          })) || [],
-        sections: slot.sections?.map((s: any) => s.sections) || []
-      }));
+      // Map all collected slots to AttendancePeriodOption with validation
+      const availablePeriods = allSlots
+        .filter((slot: any) => {
+          // Ensure slot has required fields
+          if (!slot || !slot.id || !slot.period) {
+            console.warn('Invalid slot found, skipping:', slot);
+            return false;
+          }
+          return true;
+        })
+        .map((slot: any) => ({
+          timetable_slot_id: slot.id,
+          timetable_id: slot.timetable_id,
+          id: slot.period.id,
+          period_name: slot.period.period_name || 'Unknown Period',
+          start_time: slot.period.start_time || '',
+          end_time: slot.period.end_time || '',
+          is_break: slot.period.is_break || false,
+          course: slot.course
+            ? {
+                id: slot.course.id,
+                course_name: slot.course.course_name || '',
+                course_code: slot.course.course_code || ''
+              }
+            : undefined,
+          // Note: staff field is deprecated, use staff_members instead
+          staff: undefined,
+          staff_members: slot.staff_members?.map((sm: any) => sm.staff) || [],
+          sub_slots:
+            slot.sub_slots?.map((ss: any) => ({
+              ...ss,
+              staff_members: ss.staff_members?.map((sm: any) => sm.staff) || [],
+              sections: ss.sections?.map((s: any) => s.sections) || []
+            })) || [],
+          sections: slot.sections?.map((s: any) => s.sections) || []
+        }));
 
       // Remove duplicates based on period id and sort
       const uniquePeriods = availablePeriods.filter((period, index, self) =>
         index === self.findIndex((p) => p.id === period.id)
       );
 
-      return uniquePeriods.sort((a, b) => {
+      const sortedPeriods = uniquePeriods.sort((a, b) => {
         if (a.start_time < b.start_time) return -1;
         if (a.start_time > b.start_time) return 1;
         return 0;
       });
+      
+      // Final validation to ensure we always return an array
+      return Array.isArray(sortedPeriods) ? sortedPeriods : [];
     } catch (error) {
       console.error('Error in getAvailablePeriodsForDate:', error);
       return [];
