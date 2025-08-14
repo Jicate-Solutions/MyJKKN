@@ -252,13 +252,28 @@ export default function AttendancePage() {
         return [];
       }
 
-      // Check for consolidated attendance record
-      const consolidatedRecord =
+      // For previous dates, we need to fetch the actual timetable that was active on that date
+      // First, try to get attendance with the current timetable_id
+      let consolidatedRecord =
         await AttendanceService.getConsolidatedAttendance(
           selectedPeriodInfo.timetable_id,
           searchContext.section_id,
           attendanceDate
         );
+
+      // If no record found with current timetable_id, search for any attendance 
+      // record for this section on this date (handles timetable changes)
+      if (!consolidatedRecord || !consolidatedRecord.attendance_data) {
+        // Get all attendance records for this section and date
+        const allRecords = await AttendanceService.getConsolidatedAttendanceByDateAndSection(
+          searchContext.section_id,
+          attendanceDate
+        );
+        
+        if (allRecords && allRecords.length > 0) {
+          consolidatedRecord = allRecords[0]; // Use the first matching record
+        }
+      }
 
       if (!consolidatedRecord || !consolidatedRecord.attendance_data) {
         return [];

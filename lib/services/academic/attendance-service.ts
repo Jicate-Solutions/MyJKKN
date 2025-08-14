@@ -79,6 +79,56 @@ export class AttendanceService {
     }
   }
 
+  // Get consolidated attendance records by section and date (regardless of timetable_id)
+  static async getConsolidatedAttendanceByDateAndSection(
+    section_id: string,
+    attendance_date: string
+  ): Promise<ConsolidatedStudentAttendance[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('student_attendance')
+        .select(
+          `
+          id,
+          timetable_id,
+          section_id,
+          attendance_date,
+          attendance_data,
+          marked_by,
+          institution_id,
+          created_at,
+          updated_at,
+          marked_by_profile:profiles!marked_by(
+            id,
+            email,
+            full_name
+          )
+        `
+        )
+        .eq('section_id', section_id)
+        .eq('attendance_date', attendance_date);
+
+      if (error) {
+        console.error('Error fetching attendance by date and section:', error);
+        return [];
+      }
+
+      if (!data || data.length === 0) {
+        return [];
+      }
+
+      return data.map(record => ({
+        ...record,
+        marked_by_profile: Array.isArray(record.marked_by_profile)
+          ? record.marked_by_profile[0]
+          : record.marked_by_profile
+      })) as unknown as ConsolidatedStudentAttendance[];
+    } catch (error) {
+      console.error('Error fetching consolidated attendance by date and section:', error);
+      return [];
+    }
+  }
+
   // Upsert consolidated attendance record
   static async upsertConsolidatedAttendance(
     data: UpsertConsolidatedAttendanceDto
@@ -279,11 +329,25 @@ export class AttendanceService {
       if (studentsError) throw studentsError;
 
       // Get existing consolidated attendance record
-      const consolidatedRecord = await this.getConsolidatedAttendance(
+      // First try with the provided timetable_id
+      let consolidatedRecord = await this.getConsolidatedAttendance(
         timetable_id,
         section_id,
         attendance_date
       );
+      
+      // If no record found, try to find any attendance for this section and date
+      // This handles cases where timetable might have changed
+      if (!consolidatedRecord) {
+        const allRecords = await this.getConsolidatedAttendanceByDateAndSection(
+          section_id,
+          attendance_date
+        );
+        
+        if (allRecords && allRecords.length > 0) {
+          consolidatedRecord = allRecords[0];
+        }
+      }
 
       // Build roster students with attendance status from consolidated record
       const rosterStudents: AttendanceRosterStudent[] = (students || []).map(
