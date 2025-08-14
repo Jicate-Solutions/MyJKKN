@@ -6,7 +6,13 @@
       "mcp__supabase__execute_sql",
       "mcp__ide__getDiagnostics",
       "Bash(npm run build:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npx eslint:*)",
+      "mcp__supabase__list_projects",
+      "mcp__supabase__apply_migration",
+      "Bash(wc:*)",
+      "Bash(npm run lint)"
     ],
     "deny": []
   }

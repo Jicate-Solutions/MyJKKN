@@ -165,6 +165,40 @@ export async function POST(request: Request) {
           attempts + 1
         );
 
+        // Get user's institution and department information
+        let institutionId = null;
+        let departmentId = null;
+
+        try {
+          // First try to get from staff record (more specific)
+          const { data: staffRecord } = await supabase
+            .from('staff')
+            .select('institution_id, department_id')
+            .eq('email', user.email)
+            .single();
+
+          if (staffRecord) {
+            institutionId = staffRecord.institution_id;
+            departmentId = staffRecord.department_id;
+          } else {
+            // Fallback to profile institution
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('institution_id')
+              .eq('id', user.id)
+              .single();
+
+            if (profile) {
+              institutionId = profile.institution_id;
+            }
+          }
+        } catch (error) {
+          console.warn(
+            '[BUG_REPORTS_API] Could not fetch user institution/department:',
+            error
+          );
+        }
+
         // Create the bug report
         const initialReport = {
           reporter_user_id: user.id,
@@ -172,7 +206,9 @@ export async function POST(request: Request) {
           page_url: validatedData.page_url,
           description: validatedData.description,
           console_logs: validatedData.console_logs,
-          metadata: validatedData.metadata
+          metadata: validatedData.metadata,
+          institution_id: institutionId,
+          department_id: departmentId
         };
 
         console.log('[BUG_REPORTS_API] Inserting bug report');
@@ -399,23 +435,25 @@ export async function GET(request: Request) {
     const supabase = await createServerSupabaseClient();
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status') as any;
+    const institution_id = searchParams.get('institution_id');
+    const department_id = searchParams.get('department_id');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
 
-    let query = supabase.from('bug_reports').select(
-      `
-        *,
-        reporter:profiles!reporter_user_id (
-          id,
-          full_name,
-          email
-        )
-      `,
-      { count: 'exact' }
-    );
+    let query = supabase
+      .from('bug_reports_with_details')
+      .select('*', { count: 'exact' });
 
     if (status) {
       query = query.eq('status', status);
+    }
+
+    if (institution_id) {
+      query = query.eq('institution_id', institution_id);
+    }
+
+    if (department_id) {
+      query = query.eq('department_id', department_id);
     }
 
     query = query.range((page - 1) * limit, page * limit - 1);
@@ -424,8 +462,20 @@ export async function GET(request: Request) {
     const { data, error, count } = await query;
     if (error) throw error;
 
+    // Transform the data to match the expected BugReport interface
+    const transformedData = data?.map((report) => ({
+      ...report,
+      reporter: report.reporter_name
+        ? {
+            id: report.reporter_user_id,
+            full_name: report.reporter_name,
+            email: report.reporter_email
+          }
+        : null
+    }));
+
     return NextResponse.json({
-      data: data || [],
+      data: transformedData || [],
       metadata: {
         total: count || 0,
         page,

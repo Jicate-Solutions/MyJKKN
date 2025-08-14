@@ -71,55 +71,85 @@ export class TimetableService {
 
   static async createTimetable(data: CreateTimetableDto): Promise<Timetable> {
     try {
-      // Check for existing timetable first
-      const validationResult = await this.checkExistingTimetable({
-        institution_id: data.institution_id,
-        academic_year_id: data.academic_year_id,
-        degree_id: data.degree_id,
-        program_id: data.program_id,
-        department_id: data.department_id,
-        semester: String(data.semester),
-        section: data.section
-      });
+      // Check for existing active timetable for the same context
+      const { data: existing, error: checkError } = await this.supabase
+        .from('timetables')
+        .select('id, timetable_name')
+        .eq('institution_id', data.institution_id)
+        .eq('academic_year_id', data.academic_year_id)
+        .eq('program_id', data.program_id)
+        .eq('semester', data.semester)
+        .eq('section', data.section || '')
+        .eq('is_active', true)
+        .single();
 
-      if (validationResult.exists) {
+      if (checkError && checkError.code !== 'PGRST116') {
+        // Ignore 'PGRST116' (No rows found)
+        console.error('Error checking for existing timetable:', checkError);
+        toast.error('Failed to validate timetable. Please try again.', {
+          duration: 4000,
+          position: 'top-center'
+        });
+        throw new Error('Failed to check for existing timetable.');
+      }
+
+      if (existing) {
+        // Show detailed error toast
+        const sectionText = data.section ? ` and Section ${data.section}` : '';
+        toast.error(
+          `⚠️ Duplicate Timetable Detected!\n\nA timetable "${existing.timetable_name}" already exists for Semester ${data.semester}${sectionText}.\n\nOnly one active timetable is allowed per semester.`,
+          {
+            duration: 6000,
+            position: 'top-center',
+            style: {
+              background: '#FEF2F2',
+              color: '#991B1B',
+              border: '1px solid #FCA5A5'
+            }
+          }
+        );
         throw new Error(
-          validationResult.message ||
-            'A timetable already exists for this semester and section'
+          `An active timetable named "${existing.timetable_name}" already exists for this semester and section.`
         );
       }
 
+      // Proceed with creating the new timetable
       const { data: timetable, error } = await this.supabase
         .from('timetables')
         .insert([
           {
             ...data,
-            version: 1, // Initial version is always 1
-            is_active: data.is_active !== undefined ? data.is_active : true,
-            is_template:
-              data.is_template !== undefined ? data.is_template : false
+            created_by: (await this.supabase.auth.getUser()).data.user?.id
           }
         ])
-        .select()
+        .select('*')
         .single();
 
       if (error) {
-        // Handle database constraint violation
-        if (
-          error.code === '23505' &&
-          error.message.includes('unique_active_timetable_per_semester_section')
-        ) {
-          throw new Error(
-            'A timetable already exists for this semester and section. Please use a different section or deactivate the existing timetable first.'
+        console.error('Error creating timetable:', error);
+        if (error.code === '23505') {
+          toast.error(
+            '⚠️ This timetable configuration already exists. Please check your semester and section selection.',
+            {
+              duration: 5000,
+              position: 'top-center'
+            }
           );
+        } else {
+          toast.error('Failed to create timetable. Please try again.', {
+            duration: 4000,
+            position: 'top-center'
+          });
         }
-        throw error;
+        throw new Error('Failed to create timetable.');
       }
 
-      toast.success('Timetable created successfully');
+      // Show success toast
+      const sectionText = data.section ? ` - Section ${data.section}` : '';
+
       return timetable;
     } catch (error) {
-      console.error('Error creating timetable:', error);
+      console.error('Error in createTimetable service:', error);
       throw error;
     }
   }
@@ -129,19 +159,67 @@ export class TimetableService {
     data: UpdateTimetableDto
   ): Promise<Timetable> {
     try {
+      // Filter out undefined values and constraint-related fields
+      const updateData: any = {
+        updated_at: new Date().toISOString()
+      };
+
+      // Only include fields that are explicitly provided and not part of the unique constraint
+      const allowedFields = [
+        'timetable_format',
+        'start_date',
+        'end_date',
+        'selected_dates',
+        'timetable_name',
+        'selected_days'
+      ];
+
+      for (const field of allowedFields) {
+        if (data[field as keyof UpdateTimetableDto] !== undefined) {
+          updateData[field] = data[field as keyof UpdateTimetableDto];
+        }
+      }
+
       const { data: timetable, error } = await this.supabase
         .from('timetables')
-        .update({
-          ...data,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', id)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '23505') {
+          toast.error(
+            '⚠️ Cannot update: This configuration would create a duplicate timetable.\n\nOnly one active timetable is allowed per semester.',
+            {
+              duration: 5000,
+              position: 'top-center',
+              style: {
+                background: '#FEF2F2',
+                color: '#991B1B'
+              }
+            }
+          );
+        } else {
+          toast.error(
+            'Failed to update timetable configuration. Please try again.',
+            {
+              duration: 4000,
+              position: 'top-center'
+            }
+          );
+        }
+        throw error;
+      }
 
-      toast.success('Timetable updated successfully');
+      toast.success('✅ Timetable configuration saved successfully!', {
+        duration: 3000,
+        position: 'top-center',
+        style: {
+          background: '#F0FDF4',
+          color: '#166534'
+        }
+      });
       return timetable;
     } catch (error) {
       console.error('Error updating timetable:', error);
@@ -151,6 +229,39 @@ export class TimetableService {
 
   static async deleteTimetable(id: string, showToast = true): Promise<void> {
     try {
+      // First check if this timetable has any attendance records
+      const { data: attendanceRecords, error: attendanceCheckError } = await this.supabase
+        .from('student_attendance')
+        .select('id')
+        .eq('timetable_id', id)
+        .limit(1);
+
+      if (attendanceCheckError) {
+        console.error('Error checking attendance records:', attendanceCheckError);
+        throw attendanceCheckError;
+      }
+
+      // If attendance records exist, prevent deletion
+      if (attendanceRecords && attendanceRecords.length > 0) {
+        const errorMessage = 'Cannot delete this timetable because it has associated attendance records. The timetable is being used to track student attendance and must be preserved for record-keeping purposes. You can still edit the timetable if needed.';
+        
+        if (showToast) {
+          toast.error(errorMessage, {
+            duration: 6000,
+            position: 'top-center',
+            style: {
+              background: '#FEF2F2',
+              color: '#991B1B',
+              border: '1px solid #FCA5A5',
+              maxWidth: '500px'
+            }
+          });
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      // If no attendance records, proceed with deletion
       // First delete all timetable periods
       const { error: periodsError } = await this.supabase
         .from('timetable_periods')
@@ -190,6 +301,7 @@ export class TimetableService {
   }> {
     const success: string[] = [];
     const failed: { id: string; error: string }[] = [];
+    const hasAttendanceRecords: string[] = [];
 
     // Process deletions sequentially
     for (const id of ids) {
@@ -198,19 +310,40 @@ export class TimetableService {
         success.push(id);
       } catch (error) {
         console.error(`Error deleting timetable ${id}:`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        
+        // Check if it's an attendance-related error
+        if (errorMessage.includes('attendance records')) {
+          hasAttendanceRecords.push(id);
+        }
+        
         failed.push({
           id,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: errorMessage
         });
       }
     }
 
-    // Show a single consolidated toast message
+    // Show consolidated toast messages
     if (success.length > 0) {
       toast.success(`${success.length} timetable(s) deleted successfully.`);
     }
 
-    if (failed.length > 0) {
+    if (hasAttendanceRecords.length > 0) {
+      toast.error(
+        `Cannot delete ${hasAttendanceRecords.length} timetable(s) because they have associated attendance records. These timetables are being used to track student attendance and must be preserved. You can still edit them if needed.`,
+        {
+          duration: 6000,
+          position: 'top-center',
+          style: {
+            background: '#FEF2F2',
+            color: '#991B1B',
+            border: '1px solid #FCA5A5',
+            maxWidth: '500px'
+          }
+        }
+      );
+    } else if (failed.length > 0) {
       toast.error(
         `Failed to delete ${failed.length} timetable(s). See console for details.`
       );
@@ -331,8 +464,7 @@ export class TimetableService {
           `
           *,
           period:period_id(*),
-          course:course_id(id, course_name, course_code),
-          staff:staff_id(id, first_name, last_name)
+          course:course_id(id, course_name, course_code)
         `
         )
         .eq('timetable_id', id)
@@ -382,7 +514,7 @@ export class TimetableService {
                   `
                   sub_slot_id,
                   staff_id,
-                  staff:staff_id(id, first_name, last_name)
+                  staff:staff(id, first_name, last_name)
                 `
                 )
                 .in('sub_slot_id', subSlotIds);
@@ -451,16 +583,21 @@ export class TimetableService {
 
         if (regularSlotIds.length > 0) {
           // Fetch all slot staff in one query
-          const { data: allSlotStaff } = await this.supabase
+          const { data: allSlotStaff, error: staffFetchError } = await this.supabase
             .from('timetable_slot_staff')
             .select(
               `
               timetable_slot_id,
               staff_id,
-              staff:staff_id(id, first_name, last_name)
+              staff:staff(id, first_name, last_name)
             `
             )
             .in('timetable_slot_id', regularSlotIds);
+
+          if (staffFetchError) {
+            console.error('Error fetching timetable slot staff:', staffFetchError);
+            throw staffFetchError;
+          }
 
           // Fetch all slot sections in one query
           const { data: allSlotSections } = await this.supabase
@@ -517,11 +654,28 @@ export class TimetableService {
       // Sort slots by period start time after fetching
       const sortedSlots = slots
         ? [...slots].sort((a, b) => {
-            if (a.day_of_week !== b.day_of_week) {
-              return a.day_of_week.localeCompare(b.day_of_week);
+            // Handle batch timetable slots (with slot_date) vs regular slots (with day_of_week)
+            if (a.slot_date && b.slot_date) {
+              // Both are batch slots - sort by date first
+              const dateComparison = a.slot_date.localeCompare(b.slot_date);
+              if (dateComparison !== 0) {
+                return dateComparison;
+              }
+            } else if (a.day_of_week && b.day_of_week) {
+              // Both are regular slots - sort by day_of_week first
+              const dayComparison = a.day_of_week.localeCompare(b.day_of_week);
+              if (dayComparison !== 0) {
+                return dayComparison;
+              }
+            } else if (a.slot_date && b.day_of_week) {
+              // Mixed: batch slot vs regular slot - batch slots come first
+              return -1;
+            } else if (a.day_of_week && b.slot_date) {
+              // Mixed: regular slot vs batch slot - batch slots come first
+              return 1;
             }
 
-            // Then sort by period start time if days are the same
+            // Then sort by period start time if primary sort criteria are the same
             const aStartTime = a.period?.start_time || '';
             const bStartTime = b.period?.start_time || '';
             return aStartTime.localeCompare(bStartTime);
@@ -593,7 +747,6 @@ export class TimetableService {
           day_of_week: slot.day_of_week,
           period_id: slot.period_id,
           course_id: slot.course_id,
-          staff_id: slot.staff_id,
           is_break_slot: slot.is_break_slot,
           break_description: slot.break_description
         }));
@@ -664,7 +817,6 @@ export class TimetableService {
           day_of_week: slot.day_of_week,
           period_id: slot.period_id,
           course_id: slot.course_id,
-          staff_id: slot.staff_id,
           is_break_slot: slot.is_break_slot,
           break_description: slot.break_description
         }));
@@ -684,11 +836,94 @@ export class TimetableService {
     }
   }
 
+  // Batch create multiple timetable slots for improved performance
+  static async createTimetableSlotsBatch(
+    slots: CreateTimetableSlotDto[]
+  ): Promise<TimetableSlot[]> {
+    try {
+      if (!slots.length) return [];
+
+      // Prepare all slot data for batch insertion
+      const slotsData = slots.map((data) => ({
+        timetable_id: data.timetable_id,
+        day_of_week: data.day_of_week,
+        slot_date: data.slot_date,
+        period_id: data.period_id,
+        course_id: data.is_combined ? null : data.course_id,
+        is_break_slot: data.is_break_slot || false,
+        break_description: data.break_description,
+        is_combined: data.is_combined || false
+      }));
+
+      // Batch insert all slots at once
+      const { data: insertedSlots, error: insertError } = await this.supabase
+        .from('timetable_slots')
+        .insert(slotsData)
+        .select('*');
+
+      if (insertError) throw insertError;
+      if (!insertedSlots) throw new Error('Failed to create slots');
+
+      // Process staff, sections, and sub-slots for each created slot
+      const promises = [];
+
+      for (let i = 0; i < insertedSlots.length; i++) {
+        const slot = insertedSlots[i];
+        const originalData = slots[i];
+
+        // Handle combined slots with sub-slots
+        if (originalData.is_combined && originalData.sub_slots) {
+          promises.push(this.createSubSlots(slot.id, originalData.sub_slots));
+        }
+
+        // Handle staff assignments (for non-combined slots)
+        if (!originalData.is_combined && originalData.staff_ids?.length) {
+          const staffData = originalData.staff_ids.map((staffId) => ({
+            timetable_slot_id: slot.id,
+            staff_id: staffId
+          }));
+          promises.push(
+            this.supabase.from('timetable_slot_staff').insert(staffData)
+          );
+        }
+
+        // Handle section assignments (for non-combined slots)
+        if (!originalData.is_combined && originalData.section_ids?.length) {
+          const sectionData = originalData.section_ids.map((sectionId) => ({
+            timetable_slot_id: slot.id,
+            section_id: sectionId
+          }));
+          promises.push(
+            this.supabase.from('timetable_slot_sections').insert(sectionData)
+          );
+        }
+      }
+
+      // Execute all relationship inserts in parallel
+      await Promise.all(promises);
+
+      return insertedSlots;
+    } catch (error) {
+      console.error('Error creating batch timetable slots:', error);
+      throw error;
+    }
+  }
+
   // Timetable Slots Methods
   static async createTimetableSlot(
     data: CreateTimetableSlotDto
   ): Promise<TimetableSlot> {
     try {
+      // Validate that either day_of_week or slot_date is provided, but not both
+      if (!data.day_of_week && !data.slot_date) {
+        throw new Error('Either day_of_week or slot_date must be provided.');
+      }
+      if (data.day_of_week && data.slot_date) {
+        throw new Error(
+          'Both day_of_week and slot_date cannot be provided at the same time.'
+        );
+      }
+
       // Check for existing slot at the same day and period
       const { data: existing, error: checkError } = await this.supabase
         .from('timetable_slots')
@@ -704,8 +939,7 @@ export class TimetableService {
         // Update the existing slot
         return this.updateTimetableSlot(existing.id, {
           course_id: data.course_id,
-          staff_id: data.staff_id,
-          staff_ids: data.staff_ids,
+            staff_ids: data.staff_ids,
           section_ids: data.section_ids,
           is_break_slot: data.is_break_slot,
           break_description: data.break_description,
@@ -718,9 +952,9 @@ export class TimetableService {
       const slotData = {
         timetable_id: data.timetable_id,
         day_of_week: data.day_of_week,
+        slot_date: data.slot_date,
         period_id: data.period_id,
         course_id: data.is_combined ? null : data.course_id, // No main course for combined slots
-        staff_id: data.staff_id, // Keep for backward compatibility
         is_break_slot: data.is_break_slot || false,
         break_description: data.break_description,
         is_combined: data.is_combined || false
@@ -734,8 +968,7 @@ export class TimetableService {
           `
           *,
           period:period_id(*),
-          course:course_id(id, course_name, course_code),
-          staff:staff_id(id, first_name, last_name)
+          course:course_id(id, course_name, course_code)
         `
         )
         .single();
@@ -787,6 +1020,74 @@ export class TimetableService {
       return this.getSlotWithStaff(slot.id);
     } catch (error) {
       console.error('Error creating timetable slot:', error);
+      throw error;
+    }
+  }
+
+  // Create multiple sub-slots for combined classes (batch operation)
+  static async createSubSlots(
+    parentSlotId: string,
+    subSlotsData: any[]
+  ): Promise<void> {
+    try {
+      if (!subSlotsData || subSlotsData.length === 0) return;
+
+      // Prepare all sub-slots for batch insertion
+      const subSlotsToInsert = subSlotsData.map((subSlotData, index) => ({
+        parent_slot_id: parentSlotId,
+        sub_slot_order: subSlotData.sub_slot_order || index,
+        course_id: subSlotData.course_id,
+        is_break_slot: subSlotData.is_break_slot || false,
+        break_description: subSlotData.break_description
+      }));
+
+      // Batch insert all sub-slots
+      const { data: insertedSubSlots, error } = await this.supabase
+        .from('timetable_sub_slots')
+        .insert(subSlotsToInsert)
+        .select();
+
+      if (error) throw error;
+      if (!insertedSubSlots) throw new Error('Failed to create sub-slots');
+
+      // Process staff and section assignments for all sub-slots
+      const promises = [];
+
+      for (let i = 0; i < insertedSubSlots.length; i++) {
+        const subSlot = insertedSubSlots[i];
+        const originalData = subSlotsData[i];
+
+        // Handle staff assignments for this sub-slot
+        if (originalData.staff_ids && originalData.staff_ids.length > 0) {
+          const staffAssignments = originalData.staff_ids.map(
+            (staffId: string) => ({
+              sub_slot_id: subSlot.id,
+              staff_id: staffId
+            })
+          );
+          promises.push(
+            this.supabase.from('timetable_sub_slot_staff').insert(staffAssignments)
+          );
+        }
+
+        // Handle section assignments for this sub-slot
+        if (originalData.section_ids && originalData.section_ids.length > 0) {
+          const sectionAssignments = originalData.section_ids.map(
+            (sectionId: string) => ({
+              sub_slot_id: subSlot.id,
+              section_id: sectionId
+            })
+          );
+          promises.push(
+            this.supabase.from('timetable_sub_slot_sections').insert(sectionAssignments)
+          );
+        }
+      }
+
+      // Execute all assignments in parallel
+      await Promise.all(promises);
+    } catch (error) {
+      console.error('Error creating sub-slots:', error);
       throw error;
     }
   }
@@ -864,8 +1165,7 @@ export class TimetableService {
           `
           *,
           period:period_id(*),
-          course:course_id(id, course_name, course_code),
-          staff:staff_id(id, first_name, last_name)
+          course:course_id(id, course_name, course_code)
         `
         )
         .eq('id', slotId)
@@ -897,9 +1197,9 @@ export class TimetableService {
                 .from('timetable_sub_slot_staff')
                 .select(
                   `
-                staff_id,
-                staff:staff_id(id, first_name, last_name)
-              `
+                  staff_id,
+                  staff:staff(id, first_name, last_name)
+                `
                 )
                 .eq('sub_slot_id', subSlot.id);
 
@@ -941,7 +1241,7 @@ export class TimetableService {
           .select(
             `
             staff_id,
-            staff:staff_id(id, first_name, last_name)
+            staff:staff(id, first_name, last_name)
           `
           )
           .eq('timetable_slot_id', slotId);
@@ -984,10 +1284,33 @@ export class TimetableService {
     data: UpdateTimetableSlotDto
   ): Promise<TimetableSlot> {
     try {
+      // Validate that either day_of_week or slot_date is not being set to null if the other is also null
+      if (data.day_of_week === null && data.slot_date === undefined) {
+        const { data: currentSlot, error } = await this.supabase
+          .from('timetable_slots')
+          .select('slot_date')
+          .eq('id', id)
+          .single();
+        if (currentSlot && currentSlot.slot_date === null) {
+          throw new Error('Either day_of_week or slot_date must be provided.');
+        }
+      }
+
+      if (data.slot_date === null && data.day_of_week === undefined) {
+        const { data: currentSlot, error } = await this.supabase
+          .from('timetable_slots')
+          .select('day_of_week')
+          .eq('id', id)
+          .single();
+        if (currentSlot && currentSlot.day_of_week === null) {
+          throw new Error('Either day_of_week or slot_date must be provided.');
+        }
+      }
+
       // Prepare update data (exclude complex fields from main table update)
       const { staff_ids, section_ids, sub_slots, ...slotUpdateData } = data;
 
-      const { data: slot, error } = await this.supabase
+      const { data: updatedSlot, error } = await this.supabase
         .from('timetable_slots')
         .update({
           ...slotUpdateData,
@@ -998,8 +1321,7 @@ export class TimetableService {
           `
           *,
           period:period_id(*),
-          course:course_id(id, course_name, course_code),
-          staff:staff_id(id, first_name, last_name)
+          course:course_id(id, course_name, course_code)
         `
         )
         .single();
@@ -1163,8 +1485,7 @@ export class TimetableService {
           `
           *,
           period:period_id(*),
-          course:course_id(id, course_name, course_code),
-          staff:staff_id(id, first_name, last_name)
+          course:course_id(id, course_name, course_code)
         `
         )
         .eq('timetable_id', timetableId)
@@ -1188,24 +1509,8 @@ export class TimetableService {
     timetableId?: string
   ): Promise<boolean> {
     try {
-      // Check conflicts in the legacy staff_id field (backward compatibility)
-      let legacyQuery = this.supabase
-        .from('timetable_slots')
-        .select('id')
-        .eq('staff_id', staffId)
-        .eq('day_of_week', dayOfWeek)
-        .eq('period_id', periodId);
 
-      // Exclude current timetable if provided
-      if (timetableId) {
-        legacyQuery = legacyQuery.neq('timetable_id', timetableId);
-      }
-
-      const { data: legacyConflicts, error: legacyError } = await legacyQuery;
-
-      if (legacyError) throw legacyError;
-
-      // Check conflicts in the new many-to-many staff assignments
+      // Check conflicts in staff assignments
       let staffAssignmentQuery = this.supabase
         .from('timetable_slot_staff')
         .select(
@@ -1236,11 +1541,10 @@ export class TimetableService {
 
       if (staffError) throw staffError;
 
-      // Return true if conflicts exist in either check
-      const hasLegacyConflicts = legacyConflicts && legacyConflicts.length > 0;
+      // Return true if conflicts exist
       const hasStaffConflicts = staffConflicts && staffConflicts.length > 0;
 
-      return hasLegacyConflicts || hasStaffConflicts;
+      return hasStaffConflicts;
     } catch (error) {
       console.error('Error checking staff conflicts:', error);
       throw error;

@@ -59,8 +59,11 @@ import {
   Eye,
   Loader2,
   Download,
-  Trash2
+  Trash2,
+  Building,
+  GraduationCap
 } from 'lucide-react';
+import { BugReportChat } from '../_components/bug-report-chat';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const configs = {
@@ -322,9 +325,9 @@ export default function BugReportDetailsPage() {
           </div>
 
           {/* Main Content Grid */}
-          <div className='grid grid-cols-1 xl:grid-cols-4 gap-6'>
+          <div className='grid grid-cols-1 xl:grid-cols-3 gap-6'>
             {/* Report Content - Takes up more space on larger screens */}
-            <div className='xl:col-span-3 space-y-6'>
+            <div className='xl:col-span-2 space-y-6'>
               {/* Description Card */}
               <Card>
                 <CardHeader>
@@ -548,6 +551,24 @@ export default function BugReportDetailsPage() {
                       {report.reporter?.email || 'Unknown'}
                     </p>
                   </div>
+                  <div>
+                    <label className='text-sm font-medium text-muted-foreground flex items-center gap-2'>
+                      <Building className='w-4 h-4' />
+                      Institution
+                    </label>
+                    <p className='text-sm mt-1'>
+                      {report.institution_name || 'Not specified'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className='text-sm font-medium text-muted-foreground flex items-center gap-2'>
+                      <GraduationCap className='w-4 h-4' />
+                      Department
+                    </label>
+                    <p className='text-sm mt-1'>
+                      {report.department_name || 'Not specified'}
+                    </p>
+                  </div>
                   <Separator />
                   <div>
                     <label className='text-sm font-medium text-muted-foreground'>
@@ -638,6 +659,11 @@ export default function BugReportDetailsPage() {
                 </Card>
               )}
             </div>
+          </div>
+
+          {/* Chat Section */}
+          <div className='mt-8'>
+            <BugReportChat reportId={id} reportStatus={report.status} />
           </div>
         </div>
 

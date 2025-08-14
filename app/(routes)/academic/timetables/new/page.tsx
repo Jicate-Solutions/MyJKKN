@@ -53,6 +53,7 @@ import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
+import { toast } from 'react-hot-toast';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
@@ -88,7 +89,8 @@ const timetableFormSchema = z
     end_date: z.date().optional(),
     is_active: z.boolean().default(true),
     is_template: z.boolean().default(false),
-    template_name: z.string().optional()
+    template_name: z.string().optional(),
+    timetable_format: z.enum(['regular', 'batch']).default('regular')
   })
   .refine(
     (data) => {
@@ -295,7 +297,7 @@ export default function NewTimetablePage() {
   // Check for existing timetable when section changes
   const checkExistingTimetable = useCallback(async () => {
     const values = form.getValues();
-    
+
     // Only check if all required fields are filled
     if (
       !values.institution_id ||
@@ -330,6 +332,7 @@ export default function NewTimetablePage() {
 
       // Set form error if timetable exists
       if (result.exists) {
+        toast.error(result.message || 'A timetable already exists for this section');
         form.setError('section', {
           type: 'manual',
           message: 'A timetable already exists for this section'
@@ -373,10 +376,11 @@ export default function NewTimetablePage() {
 
       const createdTimetable = await createTimetable(formattedValues);
       if (createdTimetable) {
+        toast.success('Timetable created successfully!');
         // Redirect to the newly created timetable's details page
         router.push(`/academic/timetables/${createdTimetable.id}`);
       } else {
-        console.error('Failed to create timetable');
+        toast.error('Failed to create timetable. Please try again.');
       }
     } catch (error) {
       console.error('Error creating timetable:', error);
@@ -389,17 +393,19 @@ export default function NewTimetablePage() {
           ) ||
           error.message.includes('already exists for')
         ) {
-          // Set form error for semester field to show the validation message
+          // Show toast for duplicate error
+          toast.error(error.message);
+          // Also set form error for visual feedback
           form.setError('semester', {
             type: 'manual',
             message: error.message
           });
         } else {
           // Generic error handling
+          toast.error(error.message || 'Failed to create timetable. Please try again.');
           form.setError('root', {
             type: 'manual',
-            message:
-              error.message || 'Failed to create timetable. Please try again.'
+            message: error.message || 'Failed to create timetable. Please try again.'
           });
         }
       }
@@ -475,15 +481,6 @@ export default function NewTimetablePage() {
           </div>
         )}
 
-        {/* Existing timetable warning */}
-        {existingTimetableCheck.exists && existingTimetableCheck.message && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              {existingTimetableCheck.message}
-            </AlertDescription>
-          </Alert>
-        )}
 
         <Card>
           <CardContent className='p-6'>
@@ -764,7 +761,43 @@ export default function NewTimetablePage() {
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          The section for this timetable (e.g., A, B, C). Only one active timetable can exist per section.
+                          The section for this timetable (e.g., A, B, C). Only
+                          one active timetable can exist per section.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Timetable Format Field */}
+                  <FormField
+                    control={form.control}
+                    name='timetable_format'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Timetable Format</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select timetable format' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='regular'>
+                              Regular (Day-wise)
+                            </SelectItem>
+                            <SelectItem value='batch'>
+                              Batch (Date-wise)
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Regular: Create a weekly schedule with fixed days.
+                          Batch: Create a date-specific schedule for specific
+                          date ranges.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -943,8 +976,8 @@ export default function NewTimetablePage() {
                   >
                     Cancel
                   </Button>
-                  <Button 
-                    type='submit' 
+                  <Button
+                    type='submit'
                     disabled={loading || existingTimetableCheck.exists}
                   >
                     {loading ? (

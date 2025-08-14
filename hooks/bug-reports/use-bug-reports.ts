@@ -6,18 +6,21 @@ import {
   BugReport,
   BugReportLeaderboardEntry,
   BugReportStatus,
-  DetailedBugReport
+  DetailedBugReport,
+  BugReportMessage,
+  BugReportParticipant,
+  BugReportFilters
 } from '@/types/bugs';
 
 // --- API Fetching Functions ---
 
-const fetchBugReports = async (filters: {
-  status?: BugReportStatus;
-  page?: number;
-  limit?: number;
-}) => {
+const fetchBugReports = async (filters: BugReportFilters) => {
   const params = new URLSearchParams();
   if (filters.status) params.append('status', filters.status);
+  if (filters.institution_id)
+    params.append('institution_id', filters.institution_id);
+  if (filters.department_id)
+    params.append('department_id', filters.department_id);
   if (filters.page) params.append('page', filters.page.toString());
   if (filters.limit) params.append('limit', filters.limit.toString());
 
@@ -115,13 +118,67 @@ const bulkUpdateBugReportsStatus = async ({
   return response.json();
 };
 
+const fetchBugReportMessages = async (reportId: string) => {
+  const response = await fetch(`/api/bug-reports/${reportId}/messages`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch bug report messages');
+  }
+  return response.json();
+};
+
+const sendBugReportMessage = async ({
+  reportId,
+  message_text,
+  is_internal,
+  reply_to_message_id
+}: {
+  reportId: string;
+  message_text: string;
+  is_internal?: boolean;
+  reply_to_message_id?: string;
+}) => {
+  const response = await fetch(`/api/bug-reports/${reportId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message_text, is_internal, reply_to_message_id })
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to send message');
+  }
+  return response.json();
+};
+
+const fetchBugReportParticipants = async (reportId: string) => {
+  const response = await fetch(`/api/bug-reports/${reportId}/participants`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch bug report participants');
+  }
+  return response.json();
+};
+
+const fetchInstitutions = async () => {
+  const response = await fetch('/api/institutions');
+  if (!response.ok) {
+    throw new Error('Failed to fetch institutions');
+  }
+  return response.json();
+};
+
+const fetchDepartments = async (institutionId?: string) => {
+  const params = new URLSearchParams();
+  if (institutionId) params.append('institution_id', institutionId);
+
+  const response = await fetch(`/api/departments?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch departments');
+  }
+  return response.json();
+};
+
 // --- React Query Hooks ---
 
-export const useBugReports = (filters: {
-  status?: BugReportStatus;
-  page?: number;
-  limit?: number;
-}) => {
+export const useBugReports = (filters: BugReportFilters) => {
   return useQuery<{ data: BugReport[]; metadata: any }>({
     queryKey: queryKeys.bugReports.list(filters),
     queryFn: () => fetchBugReports(filters),
@@ -241,5 +298,75 @@ export const useBugLeaderboard = (
     refetchInterval: 60000, // Refetch every minute
     refetchOnWindowFocus: true,
     staleTime: 5 * 60 * 1000 // 5 minutes
+  });
+};
+
+// Chat hooks
+export const useBugReportMessages = (reportId: string) => {
+  return useQuery<BugReportMessage[]>({
+    queryKey: [...queryKeys.bugReports.detail(reportId), 'messages'],
+    queryFn: () => fetchBugReportMessages(reportId),
+    enabled: !!reportId,
+    refetchInterval: 5000, // Refetch every 5 seconds for real-time chat
+    refetchOnWindowFocus: true,
+    staleTime: 30 * 1000 // 30 seconds
+  });
+};
+
+export const useSendBugReportMessage = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: sendBugReportMessage,
+    onSuccess: (data, variables) => {
+      // Invalidate messages for this bug report
+      queryClient.invalidateQueries({
+        queryKey: [
+          ...queryKeys.bugReports.detail(variables.reportId),
+          'messages'
+        ]
+      });
+
+      // Invalidate participants (in case new participant was added)
+      queryClient.invalidateQueries({
+        queryKey: [
+          ...queryKeys.bugReports.detail(variables.reportId),
+          'participants'
+        ]
+      });
+    }
+  });
+};
+
+export const useBugReportParticipants = (reportId: string) => {
+  return useQuery<BugReportParticipant[]>({
+    queryKey: [...queryKeys.bugReports.detail(reportId), 'participants'],
+    queryFn: () => fetchBugReportParticipants(reportId),
+    enabled: !!reportId,
+    staleTime: 5 * 60 * 1000 // 5 minutes
+  });
+};
+
+// Filter data hooks
+export const useInstitutions = () => {
+  return useQuery<{ id: string; name: string }[]>({
+    queryKey: ['institutions'],
+    queryFn: fetchInstitutions,
+    staleTime: 10 * 60 * 1000 // 10 minutes
+  });
+};
+
+export const useDepartments = (institutionId?: string) => {
+  return useQuery<{ id: string; name: string }[]>({
+    queryKey: ['departments', institutionId],
+    queryFn: () => fetchDepartments(institutionId),
+    enabled: !!institutionId,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    select: (data) => {
+      if (!data) return [];
+      return data.map((d: any) => ({ 
+        id: d.id,
+        name: d.department_name
+      }));
+    }
   });
 };

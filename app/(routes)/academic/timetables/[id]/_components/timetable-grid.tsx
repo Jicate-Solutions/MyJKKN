@@ -131,21 +131,24 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
       </div>
     );
 
-    if (selectedPeriods.length === 0 || selectedDays.length === 0) {
+    if (selectedPeriods.length === 0) {
       return (
         <div ref={ref} className='border rounded-lg p-8 text-center'>
           <div className='text-gray-500'>
             <Calendar className='h-12 w-12 mx-auto mb-4 text-gray-300' />
             <h3 className='text-lg font-medium mb-2'>
-              No Timetable Configuration
+              No Periods Configured
             </h3>
             <p className='text-sm'>
-              Please configure periods and days to view the timetable grid.
+              Please configure periods to view the timetable grid.
             </p>
           </div>
         </div>
       );
     }
+
+    // If no days selected, show the grid with empty message in day columns
+    const daysToShow = selectedDays.length > 0 ? selectedDays : [];
 
     return (
       <div ref={ref} className='border rounded-lg overflow-hidden shadow-sm'>
@@ -158,14 +161,20 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                   <span>Period</span>
                 </div>
               </th>
-              {selectedDays.map((day) => (
-                <th
-                  key={day}
-                  className='border border-blue-500 p-2 text-center font-semibold text-xs'
-                >
-                  {day.substring(0, 3)}
+              {daysToShow.length > 0 ? (
+                daysToShow.map((day) => (
+                  <th
+                    key={day}
+                    className='border border-blue-500 p-2 text-center font-semibold text-xs'
+                  >
+                    {day.substring(0, 3)}
+                  </th>
+                ))
+              ) : (
+                <th className='border border-blue-500 p-2 text-center font-semibold text-xs'>
+                  <span className='text-yellow-200'>No Days Selected - Please Configure Days</span>
                 </th>
-              ))}
+              )}
             </tr>
           </thead>
           <tbody>
@@ -221,7 +230,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                 {period.is_break ? (
                   // For break periods, show a single merged cell spanning all days
                   <td
-                    colSpan={selectedDays.length}
+                    colSpan={daysToShow.length || 1}
                     className='border border-gray-200 p-1.5 text-center align-middle'
                   >
                     <div
@@ -262,9 +271,9 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                       </div>
                     </div>
                   </td>
-                ) : (
+                ) : daysToShow.length > 0 ? (
                   // For regular periods, show individual cells for each day
-                  selectedDays.map((day) => {
+                  daysToShow.map((day) => {
                     const slot = getSlotForDayAndPeriod(day, period.id);
 
                     return (
@@ -309,6 +318,14 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                       </td>
                     );
                   })
+                ) : (
+                  // When no days are selected, show a placeholder cell
+                  <td className='border border-gray-200 p-4 text-center align-middle'>
+                    <div className='text-gray-400 text-sm'>
+                      <Calendar className='h-8 w-8 mx-auto mb-2 text-gray-300' />
+                      <p>Configure days to add slots</p>
+                    </div>
+                  </td>
                 )}
               </tr>
             ))}
