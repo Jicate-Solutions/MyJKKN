@@ -628,7 +628,6 @@ export class AttendanceService {
           day_of_week,
           period_id,
           course_id,
-          staff_id,
           is_break_slot,
           break_description,
           period:period_id(
@@ -642,10 +641,13 @@ export class AttendanceService {
             course_name,
             course_code
           ),
-          staff:staff_id(
-            id,
-            first_name,
-            last_name
+          timetable_slot_staff(
+            staff_id,
+            staff:staff(
+              id,
+              first_name,
+              last_name
+            )
           ),
           timetable_slot_sections(
             section_id,
@@ -694,7 +696,7 @@ export class AttendanceService {
               .select(
                 `
               staff_id,
-              staff:staff_id(
+              staff:staff(
                 id,
                 first_name,
                 last_name
@@ -778,7 +780,6 @@ export class AttendanceService {
           `
           id,
           day_of_week,
-          staff_id,
           period:period_id(
             id,
             period_name,
@@ -790,10 +791,13 @@ export class AttendanceService {
             course_name,
             course_code
           ),
-          staff:staff_id(
-            id,
-            first_name,
-            last_name
+          timetable_slot_staff(
+            staff_id,
+            staff:staff(
+              id,
+              first_name,
+              last_name
+            )
           ),
           timetable_slot_sections(
             section_id,
@@ -817,7 +821,7 @@ export class AttendanceService {
             .select(
               `
             staff_id,
-            staff:staff_id(
+            staff:staff(
               id,
               first_name,
               last_name
@@ -1148,7 +1152,6 @@ export class AttendanceService {
             timetable_id,
             period:periods!inner(id, period_name, start_time, end_time, is_break),
             course:courses(id, course_name, course_code),
-            staff:staff(id, first_name, last_name),
             staff_members:timetable_slot_staff(staff:staff(id, first_name, last_name)),
             sub_slots:timetable_sub_slots(
               *,
@@ -1167,14 +1170,11 @@ export class AttendanceService {
           slotsQuery = slotsQuery.eq('day_of_week', dayOfWeek);
         }
 
-        // Apply staff assignment filter if needed
+        // Store staffId for later filtering if needed
+        let staffIdForFiltering: string | null = null;
         if (options.filterByStaffAssignment && !options.isSuperAdmin) {
-          const staffId = await this.getCurrentUserStaffId();
-          if (staffId) {
-            slotsQuery = slotsQuery.or(
-              `staff_id.eq.${staffId},staff_members.staff_id.eq.${staffId},sub_slots.staff_members.staff_id.eq.${staffId}`
-            );
-          } else {
+          staffIdForFiltering = await this.getCurrentUserStaffId();
+          if (!staffIdForFiltering) {
             // If no staff ID, return no periods for non-admins
             continue; // Skip this timetable if user has no staff access
           }
@@ -1201,8 +1201,42 @@ export class AttendanceService {
 
         if (slots && slots.length > 0) {
           console.log('Found slots:', slots.length);
+          
+          // Filter slots by staff assignment if needed
+          let filteredSlots = slots;
+          if (staffIdForFiltering) {
+            filteredSlots = slots.filter((slot: any) => {
+              // Check if staff is assigned to the main slot
+              if (slot.staff_members && Array.isArray(slot.staff_members)) {
+                const isAssignedToMain = slot.staff_members.some(
+                  (sm: any) => sm.staff?.id === staffIdForFiltering
+                );
+                if (isAssignedToMain) return true;
+              }
+              
+              // Check if staff is assigned to any sub-slot (for combined classes)
+              if (slot.sub_slots && Array.isArray(slot.sub_slots)) {
+                for (const subSlot of slot.sub_slots) {
+                  if (subSlot.staff_members && Array.isArray(subSlot.staff_members)) {
+                    const isAssignedToSubSlot = subSlot.staff_members.some(
+                      (sm: any) => sm.staff?.id === staffIdForFiltering
+                    );
+                    if (isAssignedToSubSlot) return true;
+                  }
+                }
+              }
+              
+              return false;
+            });
+            
+            console.log(`Filtered slots by staff ${staffIdForFiltering}:`, {
+              original: slots.length,
+              filtered: filteredSlots.length
+            });
+          }
+          
           // Add the timetable_id to each slot for reference
-          const slotsWithTimetableId = slots.map((slot: any) => ({
+          const slotsWithTimetableId = filteredSlots.map((slot: any) => ({
             ...slot,
             timetable_id: timetable.id
           }));
@@ -1236,13 +1270,8 @@ export class AttendanceService {
               course_code: slot.course.course_code
             }
           : undefined,
-        staff: slot.staff
-          ? {
-              id: slot.staff.id,
-              first_name: slot.staff.first_name,
-              last_name: slot.staff.last_name
-            }
-          : undefined,
+        // Note: staff field is deprecated, use staff_members instead
+        staff: undefined,
         staff_members: slot.staff_members?.map((sm: any) => sm.staff) || [],
         sub_slots:
           slot.sub_slots?.map((ss: any) => ({
