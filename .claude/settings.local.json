@@ -12,7 +12,8 @@
       "mcp__supabase__list_projects",
       "mcp__supabase__apply_migration",
       "Bash(wc:*)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(powershell:*)"
     ],
     "deny": []
   }

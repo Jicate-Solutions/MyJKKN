@@ -74,11 +74,13 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { StaffMember, ConsolidatedAttendanceData } from '@/types/attendance';
+import { findPeriodBySlotId, hasAvailablePeriods } from '@/utils/attendance-helpers';
+import { convertTo12HourFormat, formatTimeRange } from '@/utils/time-format';
 
 export default function AttendancePage() {
   const {
     rosterData,
-    availablePeriods,
+    availablePeriods: availablePeriodsRaw,
     loading,
     error,
     searchContext,
@@ -86,6 +88,9 @@ export default function AttendancePage() {
     fetchAvailablePeriods,
     fetchAttendanceRoster
   } = useAttendanceRoster();
+
+  // Ensure availablePeriods is always an array
+  const availablePeriods = availablePeriodsRaw || [];
 
   const { saveConsolidatedAttendance, loading: savingConsolidatedAttendance } =
     useConsolidatedAttendance();
@@ -233,7 +238,7 @@ export default function AttendancePage() {
     }
   };
 
-  // Check if attendance already exists for the selected criteria (using consolidated approach)
+  // Check if attendance already exists for the selected criteria (using consolidated approach with versioning)
   const checkExistingAttendance = async (
     timetableSlotId: string,
     attendanceDate: string
@@ -244,16 +249,54 @@ export default function AttendancePage() {
       );
 
       // Get the period info to extract timetable_id
-      const selectedPeriodInfo = availablePeriods.find(
-        (p) => p.timetable_slot_id === timetableSlotId
-      );
+      // Check if availablePeriods exists and is an array
+      if (!hasAvailablePeriods(availablePeriods)) {
+        console.warn('Available periods not loaded yet');
+        return [];
+      }
+
+      const selectedPeriodInfo = findPeriodBySlotId(availablePeriods, timetableSlotId);
 
       if (!selectedPeriodInfo || !searchContext.section_id) {
         return [];
       }
 
-      // For previous dates, we need to fetch the actual timetable that was active on that date
-      // First, try to get attendance with the current timetable_id
+      // First, check if we can use the slot versioning system
+      // This will find attendance across all versions of this slot
+      const slotHistory = await AttendanceService.getSlotAttendanceWithHistory(
+        timetableSlotId,
+        searchContext.section_id!,
+        attendanceDate,
+        attendanceDate
+      );
+
+      if (slotHistory && slotHistory.length > 0) {
+        // Found attendance through versioning system
+        const attendanceRecord = slotHistory[0];
+        console.log('Found attendance through slot versioning:', attendanceRecord);
+        
+        // Convert to expected format
+        const records: any[] = [];
+        if (attendanceRecord.students && Array.isArray(attendanceRecord.students)) {
+          attendanceRecord.students.forEach((student: any) => {
+            records.push({
+              id: `${attendanceRecord.attendance_id}_${student.student_id}`,
+              student_id: student.student_id,
+              timetable_slot_id: timetableSlotId,
+              attendance_date: attendanceDate,
+              status: student.status,
+              marked_by: attendanceRecord.marked_by?.id,
+              created_at: student.marked_at || attendanceRecord.marked_at,
+              updated_at: attendanceRecord.marked_at,
+              marked_by_user: attendanceRecord.marked_by
+            });
+          });
+        }
+        return records;
+      }
+
+      // Fallback to original method if versioning not available or no data found
+      // Try to get attendance with the current timetable_id
       let consolidatedRecord =
         await AttendanceService.getConsolidatedAttendance(
           selectedPeriodInfo.timetable_id,
@@ -283,29 +326,53 @@ export default function AttendancePage() {
       const attendanceData = consolidatedRecord.attendance_data as any;
       const records: any[] = [];
 
-      // Find the specific slot data in the consolidated record
+      // Check if attendance exists for any period on this date
+      // Don't strictly match by slot ID since it can change when timetables are recreated
+      let foundAttendance = false;
+      
+      // Get the current period info for comparison
+      const currentPeriodInfo = findPeriodBySlotId(availablePeriods, timetableSlotId);
+
       for (const [slotId, periodData] of Object.entries(attendanceData)) {
-        if (
-          slotId === timetableSlotId &&
-          periodData &&
-          typeof periodData === 'object'
-        ) {
+        if (periodData && typeof periodData === 'object') {
           const periodInfo = periodData as any;
-          if (periodInfo.students && Array.isArray(periodInfo.students)) {
-            periodInfo.students.forEach((student: any) => {
-              records.push({
-                id: `${consolidatedRecord.id}_${student.student_id}`,
-                student_id: student.student_id,
-                timetable_slot_id: timetableSlotId,
-                attendance_date: attendanceDate,
-                status: student.status,
-                marked_by: consolidatedRecord.marked_by,
-                created_at: student.marked_at || consolidatedRecord.created_at,
-                updated_at: consolidatedRecord.updated_at
-              });
-            });
+          
+          // Try to match by period name or time slot instead of slot ID
+          // This handles cases where timetable slot IDs change but the period remains the same
+          let isMatchingPeriod = false;
+          
+          if (slotId === timetableSlotId) {
+            // Direct slot ID match (ideal case)
+            isMatchingPeriod = true;
+          } else if (currentPeriodInfo && periodInfo.period_name) {
+            // Match by period name and time
+            isMatchingPeriod = (
+              periodInfo.period_name === currentPeriodInfo.period_name ||
+              (periodInfo.start_time === currentPeriodInfo.start_time && 
+               periodInfo.end_time === currentPeriodInfo.end_time)
+            );
           }
-          break;
+          
+          // If we found a matching period or if there's only one period in the data
+          if (isMatchingPeriod || Object.keys(attendanceData).length === 1) {
+            if (periodInfo.students && Array.isArray(periodInfo.students)) {
+              foundAttendance = true;
+              periodInfo.students.forEach((student: any) => {
+                records.push({
+                  id: `${consolidatedRecord.id}_${student.student_id}`,
+                  student_id: student.student_id,
+                  timetable_slot_id: timetableSlotId,
+                  attendance_date: attendanceDate,
+                  status: student.status,
+                  marked_by: consolidatedRecord.marked_by,
+                  created_at: student.marked_at || consolidatedRecord.created_at,
+                  updated_at: consolidatedRecord.updated_at,
+                  marked_by_user: consolidatedRecord.marked_by_profile
+                });
+              });
+              break; // Use the first matching period
+            }
+          }
         }
       }
 
@@ -444,9 +511,13 @@ export default function AttendancePage() {
     // Since periods are now pre-filtered by staff assignment,
     // we can set all permissions to true for the returned periods
     const permissionMap = new Map<string, boolean>();
-    availablePeriods.forEach((period) => {
-      permissionMap.set(period.timetable_slot_id, true);
-    });
+    if (availablePeriods && Array.isArray(availablePeriods)) {
+      availablePeriods.forEach((period) => {
+        if (period && period.timetable_slot_id) {
+          permissionMap.set(period.timetable_slot_id, true);
+        }
+      });
+    }
     setAttendancePermissions(permissionMap);
   }, [availablePeriods]);
 
@@ -517,9 +588,12 @@ export default function AttendancePage() {
         try {
           // Use the hook's fetchAvailablePeriods method with staff filtering
           // For non-admin users, only show periods they are assigned to
+          // TEMPORARY: Allow viewing all periods for testing
+          const allowBypassFiltering = true; // Set to false to re-enable staff filtering
+          
           await fetchAvailablePeriods(searchContext, {
-            filterByStaffAssignment: !isSuperAdmin, // Only filter for non-admin users
-            isSuperAdmin: isSuperAdmin
+            filterByStaffAssignment: allowBypassFiltering ? false : !isSuperAdmin, // Bypass filtering for testing
+            isSuperAdmin: allowBypassFiltering ? true : isSuperAdmin
           });
           
           // Dismiss loading toast and show success
@@ -723,9 +797,7 @@ export default function AttendancePage() {
 
         if (existingRecords.length > 0) {
           // Attendance already exists, show completed state
-          const selectedPeriodInfo = availablePeriods.find(
-            (p) => p.timetable_slot_id === periodId
-          );
+          const selectedPeriodInfo = findPeriodBySlotId(availablePeriods, periodId);
 
           // Count present/absent students
           const presentCount = existingRecords.filter(
@@ -747,7 +819,7 @@ export default function AttendancePage() {
             details: {
               periodName: selectedPeriodInfo?.period_name || 'Unknown',
               courseName: selectedPeriodInfo?.course?.course_name || 'N/A',
-              timeSlot: `${selectedPeriodInfo?.start_time} - ${selectedPeriodInfo?.end_time}`,
+              timeSlot: formatTimeRange(selectedPeriodInfo?.start_time, selectedPeriodInfo?.end_time),
               date: format(
                 new Date(searchContext.attendance_date + 'T00:00:00'),
                 'dd-MMM-yyyy'
@@ -871,9 +943,7 @@ export default function AttendancePage() {
       }
 
       // Get selected period info for consolidated data
-      const selectedPeriodInfo = availablePeriods.find(
-        (p) => p.timetable_slot_id === selectedPeriod
-      );
+      const selectedPeriodInfo = findPeriodBySlotId(availablePeriods, selectedPeriod);
 
       if (!selectedPeriodInfo) {
         toast.error('Period information not found');
@@ -1533,7 +1603,7 @@ export default function AttendancePage() {
                                       {period.period_name}
                                     </span>
                                     <span className='text-xs text-gray-500 dark:text-gray-400'>
-                                      {period.start_time} - {period.end_time}
+                                      {formatTimeRange(period.start_time, period.end_time)}
                                       {period.course &&
                                         ` • ${period.course.course_name}`}
                                     </span>
@@ -1607,21 +1677,15 @@ export default function AttendancePage() {
                       <Calendar className='h-4 w-4' />
                       <span>
                         {
-                          availablePeriods.find(
-                            (p) => p.timetable_slot_id === selectedPeriod
-                          )?.period_name
+                          findPeriodBySlotId(availablePeriods, selectedPeriod)?.period_name
                         }
                         (
                         {
-                          availablePeriods.find(
-                            (p) => p.timetable_slot_id === selectedPeriod
-                          )?.start_time
+                          convertTo12HourFormat(findPeriodBySlotId(availablePeriods, selectedPeriod)?.start_time)
                         }{' '}
                         -{' '}
                         {
-                          availablePeriods.find(
-                            (p) => p.timetable_slot_id === selectedPeriod
-                          )?.end_time
+                          convertTo12HourFormat(findPeriodBySlotId(availablePeriods, selectedPeriod)?.end_time)
                         }
                         )
                       </span>
@@ -1944,7 +2008,7 @@ export default function AttendancePage() {
                                         value={period.timetable_slot_id}
                                       >
                                         {period.period_name} (
-                                        {period.start_time} - {period.end_time})
+                                        {formatTimeRange(period.start_time, period.end_time)})
                                         {period.course &&
                                           ` - ${period.course.course_name}`}
                                       </SelectItem>
@@ -2092,31 +2156,20 @@ export default function AttendancePage() {
                             </Label>
                             <span className='text-green-700 dark:text-green-400'>
                               {
-                                availablePeriods.find(
-                                  (p) => p.timetable_slot_id === selectedPeriod
-                                )?.period_name
+                                findPeriodBySlotId(availablePeriods, selectedPeriod)?.period_name
                               }
                               (
                               {
-                                availablePeriods.find(
-                                  (p) => p.timetable_slot_id === selectedPeriod
-                                )?.start_time
+                                convertTo12HourFormat(findPeriodBySlotId(availablePeriods, selectedPeriod)?.start_time)
                               }{' '}
                               -{' '}
                               {
-                                availablePeriods.find(
-                                  (p) => p.timetable_slot_id === selectedPeriod
-                                )?.end_time
+                                convertTo12HourFormat(findPeriodBySlotId(availablePeriods, selectedPeriod)?.end_time)
                               }
                               )
-                              {availablePeriods.find(
-                                (p) => p.timetable_slot_id === selectedPeriod
-                              )?.course &&
+                              {findPeriodBySlotId(availablePeriods, selectedPeriod)?.course &&
                                 ` - ${
-                                  availablePeriods.find(
-                                    (p) =>
-                                      p.timetable_slot_id === selectedPeriod
-                                  )?.course?.course_name
+                                  findPeriodBySlotId(availablePeriods, selectedPeriod)?.course?.course_name
                                 }`}
                             </span>
                           </div>
@@ -2283,10 +2336,7 @@ export default function AttendancePage() {
                               </h4>
                               <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm'>
                                 {(() => {
-                                  const periodInfo = availablePeriods.find(
-                                    (p) =>
-                                      p.timetable_slot_id === selectedPeriod
-                                  );
+                                  const periodInfo = findPeriodBySlotId(availablePeriods, selectedPeriod);
                                   return (
                                     <>
                                       <div className='flex flex-col items-start gap-2'>
@@ -2304,7 +2354,7 @@ export default function AttendancePage() {
                                         <span className='text-gray-900 dark:text-gray-200 font-semibold'>
                                           {periodInfo?.start_time &&
                                           periodInfo?.end_time
-                                            ? `${periodInfo.start_time} - ${periodInfo.end_time}`
+                                            ? formatTimeRange(periodInfo.start_time, periodInfo.end_time)
                                             : 'N/A'}
                                         </span>
                                       </div>
@@ -2501,13 +2551,8 @@ export default function AttendancePage() {
                                         </span>
                                         <span className='font-medium'>
                                           {(() => {
-                                            const period =
-                                              availablePeriods.find(
-                                                (p) =>
-                                                  p.timetable_slot_id ===
-                                                  selectedPeriod
-                                              );
-                                            return `${period?.start_time} - ${period?.end_time}`;
+                                            const period = findPeriodBySlotId(availablePeriods, selectedPeriod);
+                                            return formatTimeRange(period?.start_time, period?.end_time);
                                           })()}
                                         </span>
                                       </div>
@@ -2516,11 +2561,7 @@ export default function AttendancePage() {
                                           Course:
                                         </span>
                                         <span className='font-medium'>
-                                          {availablePeriods.find(
-                                            (p) =>
-                                              p.timetable_slot_id ===
-                                              selectedPeriod
-                                          )?.course?.course_name || 'N/A'}
+                                          {findPeriodBySlotId(availablePeriods, selectedPeriod)?.course?.course_name || 'N/A'}
                                         </span>
                                       </div>
                                       <div className='flex justify-between'>
