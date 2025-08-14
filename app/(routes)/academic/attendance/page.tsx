@@ -272,51 +272,36 @@ export default function AttendancePage() {
 
       if (slotHistory && slotHistory.length > 0) {
         // Found attendance through versioning system
-        const attendanceRecord = slotHistory[0];
-        console.log('Found attendance through slot versioning:', attendanceRecord);
+        console.log('Found attendance through slot versioning:', slotHistory);
         
-        // Convert to expected format
-        const records: any[] = [];
-        if (attendanceRecord.students && Array.isArray(attendanceRecord.students)) {
-          attendanceRecord.students.forEach((student: any) => {
-            records.push({
-              id: `${attendanceRecord.attendance_id}_${student.student_id}`,
-              student_id: student.student_id,
-              timetable_slot_id: timetableSlotId,
-              attendance_date: attendanceDate,
-              status: student.status,
-              marked_by: attendanceRecord.marked_by?.id,
-              created_at: student.marked_at || attendanceRecord.marked_at,
-              updated_at: attendanceRecord.marked_at,
-              marked_by_user: attendanceRecord.marked_by
-            });
-          });
-        }
+        // slotHistory is already a flat array of individual student attendance records
+        // No need to extract students from a nested structure
+        const records: any[] = slotHistory.map((record: any) => ({
+          id: record.id,
+          student_id: record.student_id,
+          timetable_slot_id: timetableSlotId,
+          attendance_date: record.attendance_date,
+          status: record.status,
+          marked_by: record.marked_by,
+          created_at: record.marked_at,
+          updated_at: record.marked_at,
+          marked_by_user: record.marked_by_profile || null // Now includes the user profile data
+        }));
+        
         return records;
       }
 
       // Fallback to original method if versioning not available or no data found
       // Try to get attendance with the current timetable_id
-      let consolidatedRecord =
+      const consolidatedRecord =
         await AttendanceService.getConsolidatedAttendance(
           selectedPeriodInfo.timetable_id,
           searchContext.section_id,
           attendanceDate
         );
 
-      // If no record found with current timetable_id, search for any attendance 
-      // record for this section on this date (handles timetable changes)
-      if (!consolidatedRecord || !consolidatedRecord.attendance_data) {
-        // Get all attendance records for this section and date
-        const allRecords = await AttendanceService.getConsolidatedAttendanceByDateAndSection(
-          searchContext.section_id,
-          attendanceDate
-        );
-        
-        if (allRecords && allRecords.length > 0) {
-          consolidatedRecord = allRecords[0]; // Use the first matching record
-        }
-      }
+      // Removed fallback logic that was causing attendance to show as marked for all periods
+      // This was the root cause of the issue where faculty attendance appeared marked for periods they didn't mark
 
       if (!consolidatedRecord || !consolidatedRecord.attendance_data) {
         return [];
@@ -353,8 +338,8 @@ export default function AttendancePage() {
             );
           }
           
-          // If we found a matching period or if there's only one period in the data
-          if (isMatchingPeriod || Object.keys(attendanceData).length === 1) {
+          // Only show attendance if this specific period matches
+          if (isMatchingPeriod) {
             if (periodInfo.students && Array.isArray(periodInfo.students)) {
               foundAttendance = true;
               periodInfo.students.forEach((student: any) => {
@@ -588,12 +573,14 @@ export default function AttendancePage() {
         try {
           // Use the hook's fetchAvailablePeriods method with staff filtering
           // For non-admin users, only show periods they are assigned to
-          // TEMPORARY: Allow viewing all periods for testing
-          const allowBypassFiltering = true; // Set to false to re-enable staff filtering
+          console.log('Fetching periods with staff filtering:', {
+            isSuperAdmin,
+            filterByStaffAssignment: !isSuperAdmin
+          });
           
           await fetchAvailablePeriods(searchContext, {
-            filterByStaffAssignment: allowBypassFiltering ? false : !isSuperAdmin, // Bypass filtering for testing
-            isSuperAdmin: allowBypassFiltering ? true : isSuperAdmin
+            filterByStaffAssignment: !isSuperAdmin, // Only filter for non-admin users
+            isSuperAdmin: isSuperAdmin
           });
           
           // Dismiss loading toast and show success

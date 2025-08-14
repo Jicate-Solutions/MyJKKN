@@ -230,15 +230,42 @@ export function useAttendanceRoster() {
         setLoading(true);
         setError(null);
 
-        // For now, we'll still use the old method but we need to update this
-        // to use consolidated approach in the future
-        const roster = await AttendanceService.getAttendanceRoster(
-          timetableSlotId,
+        // Use consolidated approach instead of the old method
+        // First, get the slot details including timetable_id, period, and course
+        const slotDetails = await AttendanceService.getSlotDetails(timetableSlotId);
+        
+        if (!slotDetails || !slotDetails.timetable_id) {
+          throw new Error('Failed to get slot details');
+        }
+
+        // Use the consolidated roster method
+        const roster = await AttendanceService.getConsolidatedAttendanceRoster(
+          slotDetails.timetable_id,
+          studentFilters.section_id,
           attendanceDate,
           studentFilters
         );
 
-        setRosterData(roster);
+        // Transform the consolidated roster to match the expected format
+        // Include all data from the roster including consolidated_record
+        setRosterData({
+          students: roster.students || [],
+          timetable_slot: {
+            id: timetableSlotId,
+            timetable_id: slotDetails.timetable_id,
+            day_of_week: slotDetails.day_of_week || 'MONDAY',
+            period: slotDetails.period || {
+              id: '',
+              period_name: '',
+              start_time: '',
+              end_time: ''
+            },
+            course: slotDetails.course
+          },
+          attendance_date: attendanceDate,
+          // Include the consolidated_record if it exists
+          ...(roster.consolidated_record && { consolidated_record: roster.consolidated_record })
+        } as AttendanceRosterData);
       } catch (err) {
         console.error('Error fetching attendance roster:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');

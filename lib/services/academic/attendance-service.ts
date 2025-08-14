@@ -34,6 +34,12 @@ export class AttendanceService {
     attendance_date: string
   ): Promise<ConsolidatedStudentAttendance | null> {
     try {
+      console.log('getConsolidatedAttendance called with:', {
+        timetable_id,
+        section_id,
+        attendance_date
+      });
+
       const { data, error } = await this.supabase
         .from('student_attendance')
         .select(
@@ -62,10 +68,20 @@ export class AttendanceService {
       if (error) {
         if (error.code === 'PGRST116') {
           // No record found
+          console.log('No attendance record found for the given criteria');
           return null;
         }
+        console.error('Error fetching consolidated attendance:', error);
         throw error;
       }
+
+      console.log('Found consolidated attendance record:', {
+        id: data.id,
+        hasAttendanceData: !!data.attendance_data,
+        attendanceDataKeys: data.attendance_data
+          ? Object.keys(data.attendance_data)
+          : []
+      });
 
       return {
         ...data,
@@ -117,14 +133,17 @@ export class AttendanceService {
         return [];
       }
 
-      return data.map(record => ({
+      return data.map((record) => ({
         ...record,
         marked_by_profile: Array.isArray(record.marked_by_profile)
           ? record.marked_by_profile[0]
           : record.marked_by_profile
       })) as unknown as ConsolidatedStudentAttendance[];
     } catch (error) {
-      console.error('Error fetching consolidated attendance by date and section:', error);
+      console.error(
+        'Error fetching consolidated attendance by date and section:',
+        error
+      );
       return [];
     }
   }
@@ -157,13 +176,15 @@ export class AttendanceService {
       // Get all versions in the continuity group
       const { data: continuityData, error } = await this.supabase
         .from('timetable_slot_continuity')
-        .select(`
+        .select(
+          `
           *,
           changed_by_user:profiles!changed_by(
             full_name,
             email
           )
-        `)
+        `
+        )
         .eq('continuity_group_id', continuityCheck.continuity_group_id)
         .order('version_number', { ascending: false });
 
@@ -176,14 +197,16 @@ export class AttendanceService {
         };
       }
 
-      const currentSlot = continuityData.find(c => c.timetable_slot_id === slot_id);
+      const currentSlot = continuityData.find(
+        (c) => c.timetable_slot_id === slot_id
+      );
       const currentVersion = currentSlot?.version_number || 1;
 
       return {
         hasVersions: true,
         currentVersion,
         totalVersions: continuityData.length,
-        changeHistory: continuityData.map(c => ({
+        changeHistory: continuityData.map((c) => ({
           version: c.version_number,
           validFrom: c.valid_from,
           validUntil: c.valid_until,
@@ -212,11 +235,12 @@ export class AttendanceService {
   ): Promise<any[]> {
     try {
       // Try to get related slots from the continuity table
-      const { data: continuityData, error: continuityError } = await this.supabase
-        .from('timetable_slot_continuity')
-        .select('continuity_group_id')
-        .eq('slot_id', slot_id)
-        .single();
+      const { data: continuityData, error: continuityError } =
+        await this.supabase
+          .from('timetable_slot_continuity')
+          .select('continuity_group_id')
+          .eq('slot_id', slot_id)
+          .single();
 
       let relatedSlotIds = [slot_id];
 
@@ -238,36 +262,64 @@ export class AttendanceService {
       // The attendance_data column contains slot IDs as keys
       let query = this.supabase
         .from('student_attendance')
-        .select('*')
+        .select(
+          `
+          *,
+          marked_by_profile:profiles!marked_by(
+            id,
+            email,
+            full_name
+          )
+        `
+        )
         .eq('section_id', section_id);
 
       if (start_date && end_date) {
-        query = query.gte('attendance_date', start_date).lte('attendance_date', end_date);
+        query = query
+          .gte('attendance_date', start_date)
+          .lte('attendance_date', end_date);
       } else if (start_date) {
         query = query.eq('attendance_date', start_date);
       }
 
-      const { data: attendanceRecords, error: attendanceError } = await query
-        .order('attendance_date', { ascending: false });
+      const { data: attendanceRecords, error: attendanceError } =
+        await query.order('attendance_date', { ascending: false });
 
       if (attendanceError) {
-        console.error('Error fetching attendance with versions:', attendanceError);
+        console.error(
+          'Error fetching attendance with versions:',
+          attendanceError
+        );
         // Fallback to direct method
-        return this.getSlotAttendanceDirectly(slot_id, section_id, start_date, end_date);
+        return this.getSlotAttendanceDirectly(
+          slot_id,
+          section_id,
+          start_date,
+          end_date
+        );
       }
 
       // Process the attendance records to extract data for related slots
       const attendanceData: any[] = [];
-      
+
       if (attendanceRecords && attendanceRecords.length > 0) {
         for (const record of attendanceRecords) {
-          if (record.attendance_data && typeof record.attendance_data === 'object') {
+          if (
+            record.attendance_data &&
+            typeof record.attendance_data === 'object'
+          ) {
             // Check each slot in the attendance data
-            for (const [slotId, slotData] of Object.entries(record.attendance_data)) {
+            for (const [slotId, slotData] of Object.entries(
+              record.attendance_data
+            )) {
               // Check if this slot ID is in our related slots
               if (relatedSlotIds.includes(slotId)) {
                 // Extract student attendance from this slot
-                if (slotData && typeof slotData === 'object' && 'students' in slotData) {
+                if (
+                  slotData &&
+                  typeof slotData === 'object' &&
+                  'students' in slotData
+                ) {
                   const slotAttendance = slotData as any;
                   if (Array.isArray(slotAttendance.students)) {
                     for (const student of slotAttendance.students) {
@@ -280,7 +332,12 @@ export class AttendanceService {
                         marked_by: record.marked_by,
                         marked_at: student.marked_at || record.updated_at,
                         section_id: record.section_id,
-                        timetable_id: record.timetable_id
+                        timetable_id: record.timetable_id,
+                        marked_by_profile: Array.isArray(
+                          record.marked_by_profile
+                        )
+                          ? record.marked_by_profile[0]
+                          : record.marked_by_profile
                       });
                     }
                   }
@@ -290,7 +347,7 @@ export class AttendanceService {
           }
         }
       }
-      
+
       return attendanceData;
     } catch (error) {
       console.error('Error fetching slot attendance with history:', error);
@@ -340,9 +397,9 @@ export class AttendanceService {
 
       const attendanceRecords: any[] = [];
 
-      data.forEach(record => {
+      data.forEach((record) => {
         const attendanceData = record.attendance_data as any;
-        
+
         // Check if this slot exists in the attendance data
         if (attendanceData[slot_id]) {
           const period = attendanceData[slot_id];
@@ -362,8 +419,10 @@ export class AttendanceService {
         }
       });
 
-      return attendanceRecords.sort((a, b) => 
-        new Date(b.attendance_date).getTime() - new Date(a.attendance_date).getTime()
+      return attendanceRecords.sort(
+        (a, b) =>
+          new Date(b.attendance_date).getTime() -
+          new Date(a.attendance_date).getTime()
       );
     } catch (error) {
       console.error('Error in direct slot attendance fetch:', error);
@@ -571,25 +630,15 @@ export class AttendanceService {
       if (studentsError) throw studentsError;
 
       // Get existing consolidated attendance record
-      // First try with the provided timetable_id
-      let consolidatedRecord = await this.getConsolidatedAttendance(
+      // Only check for the specific timetable_id to avoid showing attendance marked for other periods
+      const consolidatedRecord = await this.getConsolidatedAttendance(
         timetable_id,
         section_id,
         attendance_date
       );
-      
-      // If no record found, try to find any attendance for this section and date
-      // This handles cases where timetable might have changed
-      if (!consolidatedRecord) {
-        const allRecords = await this.getConsolidatedAttendanceByDateAndSection(
-          section_id,
-          attendance_date
-        );
-        
-        if (allRecords && allRecords.length > 0) {
-          consolidatedRecord = allRecords[0];
-        }
-      }
+
+      // Note: Removed fallback logic that was showing attendance from other periods
+      // This was causing faculty attendance to show as marked for all periods on the same date
 
       // Build roster students with attendance status from consolidated record
       const rosterStudents: AttendanceRosterStudent[] = (students || []).map(
@@ -605,7 +654,7 @@ export class AttendanceService {
             // Look through all periods to find this student
             // Since we may have different slot IDs for the same period, check all periods
             for (const [slotId, periodData] of Object.entries(attendanceData)) {
-              const studentRecord = periodData.students.find(
+              const studentRecord = (periodData as any).students?.find(
                 (s: ConsolidatedAttendanceStudent) =>
                   s.student_id === student.id
               );
@@ -616,7 +665,7 @@ export class AttendanceService {
                 break; // Found the student, use their status
               }
             }
-            
+
             // If no student record found but attendance exists, default to Present
             // This handles edge cases where student list might have changed
             if (!attendance_id && Object.keys(attendanceData).length > 0) {
@@ -724,7 +773,7 @@ export class AttendanceService {
           record.attendance_data as ConsolidatedAttendanceData;
 
         for (const [slotId, periodData] of Object.entries(attendanceData)) {
-          periodData.students.forEach(
+          (periodData as any).students?.forEach(
             (student: ConsolidatedAttendanceStudent) => {
               totalStudents++;
               if (student.status === 'Present') {
@@ -750,6 +799,67 @@ export class AttendanceService {
     } catch (error) {
       console.error('Error fetching attendance summary:', error);
       throw error;
+    }
+  }
+
+  // Helper method to get timetable ID from slot ID
+  static async getTimetableIdFromSlot(slotId: string): Promise<string | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('timetable_slots')
+        .select('timetable_id')
+        .eq('id', slotId)
+        .single();
+
+      if (error) {
+        console.error('Error getting timetable ID from slot:', error);
+        return null;
+      }
+
+      return data.timetable_id;
+    } catch (error) {
+      console.error('Error getting timetable ID from slot:', error);
+      return null;
+    }
+  }
+
+  // Helper method to get slot details including period and course
+  static async getSlotDetails(slotId: string): Promise<any> {
+    try {
+      console.log('getSlotDetails called with slotId:', slotId);
+
+      const { data, error } = await this.supabase
+        .from('timetable_slots')
+        .select(
+          `
+          id,
+          timetable_id,
+          day_of_week,
+          period:period_id(
+            id,
+            period_name,
+            start_time,
+            end_time
+          ),
+          course:course_id(
+            id,
+            course_name,
+            course_code
+          )
+        `
+        )
+        .eq('id', slotId)
+        .single();
+
+      if (error) {
+        console.error('Error getting slot details:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error getting slot details:', error);
+      return null;
     }
   }
 
@@ -1308,19 +1418,24 @@ export class AttendanceService {
 
       // First, check if the semester filter is an ID and get the actual semester name
       let semesterName = String(filters.semester);
-      
+
       // Check if it looks like a UUID (semester ID)
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(filters.semester));
-      
+      const isUUID =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          String(filters.semester)
+        );
+
       if (isUUID) {
-        console.log('Semester appears to be an ID, fetching semester details...');
+        console.log(
+          'Semester appears to be an ID, fetching semester details...'
+        );
         // Fetch the semester details to get the name
         const { data: semesterData, error: semesterError } = await this.supabase
           .from('semesters')
           .select('semester_name')
           .eq('id', filters.semester)
           .single();
-        
+
         if (semesterData && !semesterError) {
           semesterName = semesterData.semester_name;
           console.log('Found semester name:', semesterName);
@@ -1331,14 +1446,19 @@ export class AttendanceService {
 
       // Similarly check for section
       let sectionName = filters.section;
-      if (filters.section && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(filters.section))) {
+      if (
+        filters.section &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          String(filters.section)
+        )
+      ) {
         console.log('Section appears to be an ID, fetching section details...');
         const { data: sectionData, error: sectionError } = await this.supabase
           .from('sections')
           .select('section_name')
           .eq('id', filters.section)
           .single();
-        
+
         if (sectionData && !sectionError) {
           sectionName = sectionData.section_name;
           console.log('Found section name:', sectionName);
@@ -1348,7 +1468,9 @@ export class AttendanceService {
       // Fetch all active timetables for the given context (both regular and batch)
       let timetableQuery = this.supabase
         .from('timetables')
-        .select('id, timetable_format, start_date, end_date, selected_dates, section, semester')
+        .select(
+          'id, timetable_format, start_date, end_date, selected_dates, section, semester'
+        )
         .eq('institution_id', filters.institution_id)
         .eq('academic_year_id', filters.academic_year_id)
         .eq('degree_id', filters.degree_id)
@@ -1365,7 +1487,9 @@ export class AttendanceService {
         console.log('Filtering by section name:', sectionName);
         timetableQuery = timetableQuery.eq('section', sectionName);
       } else {
-        console.log('No section filter specified - getting all timetables regardless of section');
+        console.log(
+          'No section filter specified - getting all timetables regardless of section'
+        );
         // Don't filter by section - get all timetables for this context
         // This allows fetching timetables that have a section set even when no specific section is requested
       }
@@ -1387,7 +1511,7 @@ export class AttendanceService {
 
       // Collect all slots from all relevant timetables
       const allSlots: any[] = [];
-      
+
       for (const timetable of timetables) {
         console.log('Processing timetable:', {
           id: timetable.id,
@@ -1404,28 +1528,28 @@ export class AttendanceService {
             const searchDate = new Date(date);
             const startDate = new Date(timetable.start_date);
             const endDate = new Date(timetable.end_date);
-            
+
             console.log('Checking date range:', {
               searchDate: searchDate.toISOString(),
               startDate: startDate.toISOString(),
               endDate: endDate.toISOString(),
               isWithinRange: searchDate >= startDate && searchDate <= endDate
             });
-            
+
             // Skip this timetable if the date is outside its range
             if (searchDate < startDate || searchDate > endDate) {
               console.log('Date is outside timetable range, skipping');
               continue;
             }
           }
-          
+
           // Also check if the date is in the selected_dates array
           if (timetable.selected_dates) {
             let dateIsInRange = false;
             const dateStr = date;
-            
+
             console.log('Checking selected_dates for date:', dateStr);
-            
+
             // Check if date is covered by any of the date ranges
             for (const item of timetable.selected_dates) {
               if (typeof item === 'string' && item.startsWith('RANGE:')) {
@@ -1434,7 +1558,7 @@ export class AttendanceService {
                   const rangeStart = new Date(parts[1]);
                   const rangeEnd = new Date(parts[2]);
                   const checkDate = new Date(dateStr);
-                  
+
                   console.log('Checking range:', {
                     range: item,
                     rangeStart: rangeStart.toISOString(),
@@ -1442,7 +1566,7 @@ export class AttendanceService {
                     checkDate: checkDate.toISOString(),
                     isInRange: checkDate >= rangeStart && checkDate <= rangeEnd
                   });
-                  
+
                   if (checkDate >= rangeStart && checkDate <= rangeEnd) {
                     dateIsInRange = true;
                     break;
@@ -1450,7 +1574,7 @@ export class AttendanceService {
                 }
               }
             }
-            
+
             if (!dateIsInRange) {
               console.log('Date is not in any selected_dates range, skipping');
               continue;
@@ -1488,11 +1612,20 @@ export class AttendanceService {
         // Store staffId for later filtering if needed
         let staffIdForFiltering: string | null = null;
         if (options.filterByStaffAssignment && !options.isSuperAdmin) {
+          console.log('Filtering required for non-admin user');
           staffIdForFiltering = await this.getCurrentUserStaffId();
           if (!staffIdForFiltering) {
             // If no staff ID, return no periods for non-admins
+            console.log(
+              'No staff ID found for current user - skipping timetable'
+            );
             continue; // Skip this timetable if user has no staff access
           }
+          console.log('Will filter periods for staff ID:', staffIdForFiltering);
+        } else {
+          console.log(
+            'No filtering needed - user is super admin or filtering disabled'
+          );
         }
 
         console.log('Fetching slots for timetable:', {
@@ -1516,24 +1649,25 @@ export class AttendanceService {
 
         if (slots && slots.length > 0) {
           console.log('Found slots:', slots.length);
-          
+
           // Debug: Log the first slot structure to understand staff assignments
           if (slots.length > 0) {
             console.log('Sample slot structure:', {
               slot_id: slots[0].id,
               has_staff_members: !!slots[0].staff_members,
               staff_members_count: slots[0].staff_members?.length || 0,
-              staff_ids: slots[0].staff_members?.map((sm: any) => sm.staff?.id) || [],
+              staff_ids:
+                slots[0].staff_members?.map((sm: any) => sm.staff?.id) || [],
               has_sub_slots: !!slots[0].sub_slots,
               sub_slots_count: slots[0].sub_slots?.length || 0
             });
           }
-          
-          // Filter slots by staff assignment if needed
+
+          // Filter slots by staff assignment if needed (but not for super admin)
           let filteredSlots = slots;
-          if (staffIdForFiltering) {
+          if (staffIdForFiltering && !options.isSuperAdmin) {
             console.log(`Filtering slots for staff ID: ${staffIdForFiltering}`);
-            
+
             filteredSlots = slots.filter((slot: any) => {
               // Check if staff is assigned to the main slot
               if (slot.staff_members && Array.isArray(slot.staff_members)) {
@@ -1542,11 +1676,14 @@ export class AttendanceService {
                 );
                 if (isAssignedToMain) return true;
               }
-              
+
               // Check if staff is assigned to any sub-slot (for combined classes)
               if (slot.sub_slots && Array.isArray(slot.sub_slots)) {
                 for (const subSlot of slot.sub_slots) {
-                  if (subSlot.staff_members && Array.isArray(subSlot.staff_members)) {
+                  if (
+                    subSlot.staff_members &&
+                    Array.isArray(subSlot.staff_members)
+                  ) {
                     const isAssignedToSubSlot = subSlot.staff_members.some(
                       (sm: any) => sm.staff?.id === staffIdForFiltering
                     );
@@ -1554,16 +1691,16 @@ export class AttendanceService {
                   }
                 }
               }
-              
+
               return false;
             });
-            
+
             console.log(`Filtered slots by staff ${staffIdForFiltering}:`, {
               original: slots.length,
               filtered: filteredSlots.length
             });
           }
-          
+
           // Add the timetable_id to each slot for reference
           const slotsWithTimetableId = filteredSlots.map((slot: any) => ({
             ...slot,
@@ -1581,7 +1718,10 @@ export class AttendanceService {
         return [];
       }
 
-      console.log('Total slots collected from all timetables:', allSlots.length);
+      console.log(
+        'Total slots collected from all timetables:',
+        allSlots.length
+      );
 
       // Map all collected slots to AttendancePeriodOption with validation
       const availablePeriods = allSlots
@@ -1621,8 +1761,9 @@ export class AttendanceService {
         }));
 
       // Remove duplicates based on period id and sort
-      const uniquePeriods = availablePeriods.filter((period, index, self) =>
-        index === self.findIndex((p) => p.id === period.id)
+      const uniquePeriods = availablePeriods.filter(
+        (period, index, self) =>
+          index === self.findIndex((p) => p.id === period.id)
       );
 
       const sortedPeriods = uniquePeriods.sort((a, b) => {
@@ -1630,7 +1771,7 @@ export class AttendanceService {
         if (a.start_time > b.start_time) return 1;
         return 0;
       });
-      
+
       // Final validation to ensure we always return an array
       return Array.isArray(sortedPeriods) ? sortedPeriods : [];
     } catch (error) {
