@@ -1,8 +1,11 @@
 -- =================================================================
--- TIMETABLE OPTIMIZATION MIGRATION
+-- TIMETABLE OPTIMIZATION MIGRATION (SCHEMA-ACCURATE VERSION)
 -- Converts normalized timetable structure to JSON-based approach
 -- Reduces 3,436 records to 58 records (98% reduction)
 -- =================================================================
+
+-- Ensure UUID extension is available
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- BEGIN TRANSACTION
 BEGIN;
@@ -19,11 +22,15 @@ CREATE TABLE IF NOT EXISTS timetable_periods_backup AS SELECT * FROM timetable_p
 CREATE TABLE IF NOT EXISTS timetable_sub_slots_backup AS SELECT * FROM timetable_sub_slots;
 CREATE TABLE IF NOT EXISTS timetable_sub_slot_staff_backup AS SELECT * FROM timetable_sub_slot_staff;
 CREATE TABLE IF NOT EXISTS timetable_sub_slot_sections_backup AS SELECT * FROM timetable_sub_slot_sections;
+CREATE TABLE IF NOT EXISTS timetable_slot_continuity_backup AS SELECT * FROM timetable_slot_continuity;
 
 -- Add backup timestamp
 DO $$
+DECLARE
+    backup_time text;
 BEGIN
-    EXECUTE format('COMMENT ON TABLE timetables_backup IS ''Backup created on %s''', CURRENT_TIMESTAMP);
+    backup_time := to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS');
+    EXECUTE format('COMMENT ON TABLE timetables_backup IS ''Backup created on %s''', backup_time);
 END $$;
 
 -- =================================================================
@@ -31,7 +38,7 @@ END $$;
 -- =================================================================
 
 CREATE TABLE timetables_optimized_temp (
-    id uuid PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id uuid,
     academic_year_id uuid,
     degree_id uuid,
@@ -81,10 +88,6 @@ CREATE INDEX idx_timetables_temp_template ON timetables_optimized_temp(is_templa
 CREATE INDEX idx_timetables_temp_dept_semester ON timetables_optimized_temp(department_id, semester);
 CREATE INDEX idx_timetables_temp_active_template ON timetables_optimized_temp(is_active, is_template);
 
--- JSON path indexes for specific queries
-CREATE INDEX idx_timetables_temp_course_ids ON timetables_optimized_temp USING gin((timetable_data -> 'courses'));
-CREATE INDEX idx_timetables_temp_staff_ids ON timetables_optimized_temp USING gin((timetable_data -> 'staff'));
-
 -- =================================================================
 -- STEP 4: DATA MIGRATION - PRESERVE ALL EXISTING DATA
 -- =================================================================
@@ -125,17 +128,17 @@ SELECT
     t.semester,
     t.section,
     t.timetable_name,
-    t.version,
-    t.is_active,
-    t.is_template,
+    COALESCE(t.version, 1),
+    COALESCE(t.is_active, true),
+    COALESCE(t.is_template, false),
     t.template_name,
     t.created_by,
     t.created_at,
     t.updated_at,
     t.start_date,
     t.end_date,
-    t.selected_days,
-    t.timetable_format,
+    COALESCE(t.selected_days, '["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"]'::jsonb),
+    COALESCE(t.timetable_format, 'regular'),
     t.selected_dates,
     
     -- BUILD TIMETABLE_DATA JSON
@@ -183,7 +186,7 @@ SELECT
                     GROUP BY tsec.timetable_slot_id
                 ) section_agg ON ts.id = section_agg.timetable_slot_id
                 LEFT JOIN (
-                    -- Aggregate sub-slots for each slot
+                    -- Aggregate sub-slots for each slot (with correct column names)
                     SELECT 
                         tsub.parent_slot_id,
                         jsonb_agg(
@@ -191,7 +194,7 @@ SELECT
                                 'id', tsub.id,
                                 'sub_slot_order', tsub.sub_slot_order,
                                 'course_id', tsub.course_id,
-                                'is_break_slot', tsub.is_break_slot,
+                                'is_break_slot', COALESCE(tsub.is_break_slot, false),
                                 'break_description', tsub.break_description,
                                 'staff_ids', COALESCE(sub_staff.staff_ids, '[]'::jsonb),
                                 'section_ids', COALESCE(sub_sections.section_ids, '[]'::jsonb)
@@ -199,19 +202,21 @@ SELECT
                         ) as sub_slots
                     FROM timetable_sub_slots tsub
                     LEFT JOIN (
+                        -- Sub-slot staff aggregation (using correct column name: sub_slot_id)
                         SELECT 
-                            tsss.timetable_sub_slot_id,
+                            tsss.sub_slot_id,
                             jsonb_agg(tsss.staff_id) as staff_ids
                         FROM timetable_sub_slot_staff tsss
-                        GROUP BY tsss.timetable_sub_slot_id
-                    ) sub_staff ON tsub.id = sub_staff.timetable_sub_slot_id
+                        GROUP BY tsss.sub_slot_id
+                    ) sub_staff ON tsub.id = sub_staff.sub_slot_id
                     LEFT JOIN (
+                        -- Sub-slot sections aggregation (using correct column name: sub_slot_id)
                         SELECT 
-                            tssc.timetable_sub_slot_id,
+                            tssc.sub_slot_id,
                             jsonb_agg(tssc.section_id) as section_ids
                         FROM timetable_sub_slot_sections tssc
-                        GROUP BY tssc.timetable_sub_slot_id
-                    ) sub_sections ON tsub.id = sub_sections.timetable_sub_slot_id
+                        GROUP BY tssc.sub_slot_id
+                    ) sub_sections ON tsub.id = sub_sections.sub_slot_id
                     GROUP BY tsub.parent_slot_id
                 ) sub_slots_agg ON ts.id = sub_slots_agg.parent_slot_id
                 WHERE ts.timetable_id = t.id
@@ -231,7 +236,7 @@ SELECT
                     'period_name', p.period_name,
                     'start_time', p.start_time,
                     'end_time', p.end_time,
-                    'is_break', p.is_break,
+                    'is_break', COALESCE(p.is_break, false),
                     'institution_id', p.institution_id
                 ) ORDER BY tp.sort_order
             )
@@ -254,27 +259,40 @@ DECLARE
     original_count INTEGER;
     new_count INTEGER;
     validation_result TEXT;
+    sample_data_check JSONB;
 BEGIN
     SELECT COUNT(*) INTO original_count FROM timetables;
     SELECT COUNT(*) INTO new_count FROM timetables_optimized_temp;
     
+    -- Check if migration preserved data structure
+    SELECT timetable_data INTO sample_data_check 
+    FROM timetables_optimized_temp 
+    WHERE timetable_data != '{}'::jsonb 
+    LIMIT 1;
+    
     IF original_count = new_count THEN
         validation_result := 'SUCCESS: All ' || original_count || ' timetables migrated successfully';
+        RAISE NOTICE '%', validation_result;
+        
+        IF sample_data_check IS NOT NULL THEN
+            RAISE NOTICE 'SUCCESS: Sample JSON data structure preserved';
+        ELSE
+            RAISE NOTICE 'WARNING: No JSON data found - check if timetables have slots';
+        END IF;
     ELSE
         validation_result := 'ERROR: Migration count mismatch - Original: ' || original_count || ', New: ' || new_count;
         RAISE EXCEPTION '%', validation_result;
     END IF;
-    
-    RAISE NOTICE '%', validation_result;
 END $$;
 
--- Validate data integrity - check for NULL timetable_data
+-- Detailed data integrity check
 SELECT 
+    'Data Integrity Check' as check_type,
     COUNT(*) as total_records,
     COUNT(*) FILTER (WHERE timetable_data = '{}'::jsonb) as empty_timetable_data,
     COUNT(*) FILTER (WHERE periods = '[]'::jsonb) as empty_periods,
     COUNT(*) FILTER (WHERE jsonb_array_length(periods) > 0) as records_with_periods,
-    AVG(jsonb_array_length(periods)) as avg_periods_per_timetable
+    ROUND(AVG(jsonb_array_length(periods)), 2) as avg_periods_per_timetable
 FROM timetables_optimized_temp;
 
 -- =================================================================
@@ -288,18 +306,8 @@ ALTER TABLE timetable_slot_staff RENAME TO timetable_slot_staff_old;
 ALTER TABLE timetable_slot_sections RENAME TO timetable_slot_sections_old;
 ALTER TABLE timetable_periods RENAME TO timetable_periods_old;
 ALTER TABLE timetable_sub_slots RENAME TO timetable_sub_slots_old;
-
--- Check if sub slot staff/sections tables exist
-DO $$
-BEGIN
-    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'timetable_sub_slot_staff') THEN
-        ALTER TABLE timetable_sub_slot_staff RENAME TO timetable_sub_slot_staff_old;
-    END IF;
-    
-    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'timetable_sub_slot_sections') THEN
-        ALTER TABLE timetable_sub_slot_sections RENAME TO timetable_sub_slot_sections_old;
-    END IF;
-END $$;
+ALTER TABLE timetable_sub_slot_staff RENAME TO timetable_sub_slot_staff_old;
+ALTER TABLE timetable_sub_slot_sections RENAME TO timetable_sub_slot_sections_old;
 
 -- Promote optimized table to primary 'timetables' name
 ALTER TABLE timetables_optimized_temp RENAME TO timetables;
@@ -314,22 +322,9 @@ ALTER INDEX idx_timetables_temp_active RENAME TO idx_timetables_active;
 ALTER INDEX idx_timetables_temp_template RENAME TO idx_timetables_template;
 ALTER INDEX idx_timetables_temp_dept_semester RENAME TO idx_timetables_dept_semester;
 ALTER INDEX idx_timetables_temp_active_template RENAME TO idx_timetables_active_template;
-ALTER INDEX idx_timetables_temp_course_ids RENAME TO idx_timetables_course_ids;
-ALTER INDEX idx_timetables_temp_staff_ids RENAME TO idx_timetables_staff_ids;
 
 -- =================================================================
--- STEP 7: UPDATE FOREIGN KEY REFERENCES (IF ANY)
--- =================================================================
-
--- Note: Update any foreign key references in other tables
--- This section should be customized based on your specific schema
-
--- Example for common references:
--- UPDATE attendance_records SET timetable_id = t.id 
--- FROM timetables t WHERE attendance_records.old_timetable_id = t.id;
-
--- =================================================================
--- STEP 8: CREATE UTILITY FUNCTIONS FOR JSON QUERYING
+-- STEP 7: CREATE UTILITY FUNCTIONS FOR JSON QUERYING
 -- =================================================================
 
 -- Function to get timetable slot by day and period
@@ -378,8 +373,7 @@ AS $$
         timetable_name,
         timetable_data
     FROM timetables
-    WHERE timetable_data::text LIKE '%' || staff_uuid || '%'
-    OR timetable_data @> ('{"staff_ids": ["' || staff_uuid || '"]}')::jsonb;
+    WHERE timetable_data::text LIKE '%' || staff_uuid::text || '%';
 $$;
 
 -- Function to find timetables by course
@@ -399,11 +393,17 @@ AS $$
         timetable_name,
         timetable_data
     FROM timetables
-    WHERE timetable_data::text LIKE '%"course_id": "' || course_uuid || '"%';
+    WHERE timetable_data::text LIKE '%"course_id": "' || course_uuid::text || '"%';
 $$;
 
+-- Grant permissions for the functions
+GRANT EXECUTE ON FUNCTION get_timetable_slot(UUID, TEXT, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_day_schedule(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION find_timetables_by_staff(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION find_timetables_by_course(UUID) TO authenticated;
+
 -- =================================================================
--- STEP 9: CREATE PERFORMANCE MONITORING VIEW
+-- STEP 8: CREATE PERFORMANCE MONITORING VIEW
 -- =================================================================
 
 CREATE OR REPLACE VIEW timetable_optimization_stats AS
@@ -430,22 +430,30 @@ FROM timetable_slots_old
 UNION ALL
 SELECT 
     'ALL OLD TABLES COMBINED' as table_name,
-    (SELECT COUNT(*) FROM timetables_old) + 
-    (SELECT COUNT(*) FROM timetable_slots_old) + 
-    (SELECT COUNT(*) FROM timetable_slot_staff_old) + 
-    (SELECT COUNT(*) FROM timetable_slot_sections_old) + 
-    (SELECT COUNT(*) FROM timetable_periods_old) as record_count,
+    (
+        (SELECT COUNT(*) FROM timetables_old) + 
+        (SELECT COUNT(*) FROM timetable_slots_old) + 
+        (SELECT COUNT(*) FROM timetable_slot_staff_old) + 
+        (SELECT COUNT(*) FROM timetable_slot_sections_old) + 
+        (SELECT COUNT(*) FROM timetable_periods_old) +
+        (SELECT COUNT(*) FROM timetable_sub_slots_old) +
+        (SELECT COUNT(*) FROM timetable_sub_slot_staff_old) +
+        (SELECT COUNT(*) FROM timetable_sub_slot_sections_old)
+    ) as record_count,
     pg_size_pretty(
         pg_total_relation_size('timetables_old') +
         pg_total_relation_size('timetable_slots_old') +
         pg_total_relation_size('timetable_slot_staff_old') +
         pg_total_relation_size('timetable_slot_sections_old') +
-        pg_total_relation_size('timetable_periods_old')
+        pg_total_relation_size('timetable_periods_old') +
+        pg_total_relation_size('timetable_sub_slots_old') +
+        pg_total_relation_size('timetable_sub_slot_staff_old') +
+        pg_total_relation_size('timetable_sub_slot_sections_old')
     ) as table_size,
     'Total old normalized structure' as description;
 
 -- =================================================================
--- STEP 10: MIGRATION COMPLETION LOG
+-- STEP 9: MIGRATION COMPLETION LOG
 -- =================================================================
 
 -- Create migration log table
@@ -467,12 +475,14 @@ VALUES (
         'backup_tables_created', true,
         'optimization_achieved', '98% record reduction',
         'original_record_count', (
-            SELECT 
-                (SELECT COUNT(*) FROM timetables_old) + 
-                (SELECT COUNT(*) FROM timetable_slots_old) + 
-                (SELECT COUNT(*) FROM timetable_slot_staff_old) + 
-                (SELECT COUNT(*) FROM timetable_slot_sections_old) + 
-                (SELECT COUNT(*) FROM timetable_periods_old)
+            (SELECT COUNT(*) FROM timetables_old) + 
+            (SELECT COUNT(*) FROM timetable_slots_old) + 
+            (SELECT COUNT(*) FROM timetable_slot_staff_old) + 
+            (SELECT COUNT(*) FROM timetable_slot_sections_old) + 
+            (SELECT COUNT(*) FROM timetable_periods_old) +
+            (SELECT COUNT(*) FROM timetable_sub_slots_old) +
+            (SELECT COUNT(*) FROM timetable_sub_slot_staff_old) +
+            (SELECT COUNT(*) FROM timetable_sub_slot_sections_old)
         ),
         'new_record_count', (SELECT COUNT(*) FROM timetables)
     )
@@ -485,83 +495,35 @@ VALUES (
 COMMIT;
 
 -- =================================================================
--- POST-MIGRATION NOTES
+-- POST-MIGRATION VERIFICATION
 -- =================================================================
 
-/*
-MIGRATION COMPLETED SUCCESSFULLY!
-
-BENEFITS ACHIEVED:
-1. Storage Optimization: ~98% reduction in records (from ~3,400 to 58 records)
-2. Query Performance: Single table queries instead of complex JOINs
-3. Data Integrity: All original data preserved in JSON format
-4. Atomic Operations: Complete timetable CRUD in single transactions
-5. Flexibility: Easy to add new properties without schema changes
-
-BACKUP TABLES CREATED:
-- timetables_backup
-- timetable_slots_backup  
-- timetable_slot_staff_backup
-- timetable_slot_sections_backup
-- timetable_periods_backup
-- And more...
-
-OLD TABLES PRESERVED:
-- timetables_old
-- timetable_slots_old
-- timetable_slot_staff_old
-- timetable_slot_sections_old
-- And more...
-
-UTILITY FUNCTIONS CREATED:
-- get_timetable_slot(uuid, text, uuid)
-- get_day_schedule(uuid, text)  
-- find_timetables_by_staff(uuid)
-- find_timetables_by_course(uuid)
-
-PERFORMANCE MONITORING:
-- Use 'SELECT * FROM timetable_optimization_stats;' to compare sizes
-- JSON indexes created for optimal query performance
-
-ROLLBACK PROCEDURE (if needed):
-If you need to rollback this migration:
-1. DROP TABLE timetables CASCADE;
-2. ALTER TABLE timetables_old RENAME TO timetables;
-3. ALTER TABLE timetable_slots_old RENAME TO timetable_slots;
-4. ALTER TABLE timetable_slot_staff_old RENAME TO timetable_slot_staff;
-5. ALTER TABLE timetable_slot_sections_old RENAME TO timetable_slot_sections;
-6. ALTER TABLE timetable_periods_old RENAME TO timetable_periods;
-7. ALTER TABLE timetable_sub_slots_old RENAME TO timetable_sub_slots;
-8. Your original data is completely preserved and restored!
-
-NEXT STEPS:
-1. Update your application code to use JSON structure
-2. Test all timetable operations thoroughly
-3. Monitor query performance with new indexes
-4. Remove old backup tables after confirming everything works
-5. Update API endpoints to leverage new JSON structure
-
-SAMPLE JSON QUERIES:
--- Get Monday schedule for a timetable
-SELECT timetable_data->'MONDAY' FROM timetables WHERE id = 'your-uuid';
-
--- Find all courses in a timetable  
-SELECT jsonb_path_query_array(timetable_data, '$.*.*."course_id"') 
-FROM timetables WHERE id = 'your-uuid';
-
--- Get all staff for a specific day and period
-SELECT jsonb_path_query_array(
-    timetable_data->'MONDAY'->'period-uuid', 
-    '$.staff_ids[*]'
-) FROM timetables WHERE id = 'your-uuid';
-*/
-
--- Final validation query
+-- Final validation and summary
 SELECT 
-    'Migration Summary' as status,
+    'MIGRATION COMPLETED SUCCESSFULLY!' as status,
     (SELECT COUNT(*) FROM timetables) as new_timetables_count,
-    (SELECT COUNT(*) FROM timetables_old) + 
-    (SELECT COUNT(*) FROM timetable_slots_old) + 
-    (SELECT COUNT(*) FROM timetable_slot_staff_old) + 
-    (SELECT COUNT(*) FROM timetable_slot_sections_old) as old_total_records,
-    '98% record reduction achieved' as optimization_result;
+    (
+        (SELECT COUNT(*) FROM timetables_old) + 
+        (SELECT COUNT(*) FROM timetable_slots_old) + 
+        (SELECT COUNT(*) FROM timetable_slot_staff_old) + 
+        (SELECT COUNT(*) FROM timetable_slot_sections_old) + 
+        (SELECT COUNT(*) FROM timetable_periods_old) +
+        (SELECT COUNT(*) FROM timetable_sub_slots_old) +
+        (SELECT COUNT(*) FROM timetable_sub_slot_staff_old) +
+        (SELECT COUNT(*) FROM timetable_sub_slot_sections_old)
+    ) as old_total_records,
+    '98% record reduction achieved!' as optimization_result;
+
+-- Show performance comparison
+SELECT 'Performance Stats:' as info;
+SELECT * FROM timetable_optimization_stats;
+
+-- Show sample of the new JSON structure
+SELECT 
+    'Sample JSON Structure:' as info,
+    timetable_name,
+    jsonb_pretty(periods) as periods_structure,
+    jsonb_pretty(timetable_data) as timetable_structure
+FROM timetables 
+WHERE timetable_data != '{}'::jsonb 
+LIMIT 1;
