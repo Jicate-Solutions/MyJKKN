@@ -119,6 +119,7 @@ export interface Timetable {
   start_date?: string;
   end_date?: string;
   selected_days?: DayOfWeek[];
+  selected_dates?: string[] | any; // JSONB column for selected dates in batch format
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -144,6 +145,7 @@ export interface Timetable {
     department_name: string;
   };
   slots?: TimetableSlot[];
+  timetable_format: 'regular' | 'batch'; // New field for timetable format
 }
 
 // Sub-slot for combined classes
@@ -178,9 +180,9 @@ export interface TimetableSlot {
   id: string;
   timetable_id: string;
   day_of_week: DayOfWeek;
+  slot_date?: string; // New field for batch timetable
   period_id: string;
   course_id?: string;
-  staff_id?: string; // Kept for backward compatibility
   is_break_slot: boolean;
   break_description?: string;
   is_combined: boolean; // New field for combined classes
@@ -227,17 +229,19 @@ export interface CreateTimetableDto {
   template_name?: string;
   start_date?: string;
   end_date?: string;
+  selected_dates?: string[] | any; // JSONB column for selected dates in batch format
+  timetable_format?: 'regular' | 'batch'; // New field for timetable format
 }
 
 export interface UpdateTimetableDto extends Partial<CreateTimetableDto> {}
 
 export interface CreateTimetableSlotDto {
   timetable_id: string;
-  day_of_week: DayOfWeek;
+  day_of_week?: DayOfWeek;
+  slot_date?: string;
   period_id: string;
   course_id?: string;
-  staff_id?: string; // Kept for backward compatibility
-  staff_ids?: string[]; // New field for multiple staff support
+  staff_ids?: string[]; // Multiple staff support
   section_ids?: string[]; // New field for multiple section support
   is_break_slot?: boolean;
   break_description?: string;

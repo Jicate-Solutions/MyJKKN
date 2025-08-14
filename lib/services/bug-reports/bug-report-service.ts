@@ -3,7 +3,10 @@ import {
   BugReport,
   BugReportLeaderboardEntry,
   BugReportStatus,
-  DetailedBugReport
+  DetailedBugReport,
+  BugReportMessage,
+  BugReportParticipant,
+  BugReportFilters
 } from '@/types/bugs';
 import { dataURLtoFile } from '@/lib/utils/file-converters'; // Assuming this utility is created
 
@@ -176,24 +179,29 @@ export class BugReportService {
     const supabase = this.getSupabase(true); // Use admin client
     try {
       const { data, error } = await supabase
-        .from('bug_reports')
-        .select(
-          `
-          *,
-          reporter:profiles (
-            full_name,
-            email
-          )
-        `
-        )
+        .from('bug_reports_with_details')
+        .select('*')
         .eq('id', reportId)
         .single();
 
       if (error) throw error;
 
-      // The select query nests the profile data under the 'reporter' alias.
-      // The casting is to ensure the nested structure matches our DetailedBugReport type.
-      return data as DetailedBugReport | null;
+      if (data) {
+        // Transform the data to match DetailedBugReport interface
+        const transformedData: DetailedBugReport = {
+          ...data,
+          reporter: data.reporter_name
+            ? {
+                id: data.reporter_user_id,
+                full_name: data.reporter_name,
+                email: data.reporter_email
+              }
+            : null
+        };
+        return transformedData;
+      }
+
+      return null;
     } catch (error) {
       console.error(`Error fetching bug report by ID ${reportId}:`, error);
       throw error;
@@ -223,17 +231,25 @@ export class BugReportService {
   }
 
   // Admin methods would require an admin client
-  static async getBugReports(filters: {
-    status?: BugReportStatus;
-    page?: number;
-    limit?: number;
-  }): Promise<{ data: BugReport[]; count: number }> {
+  static async getBugReports(
+    filters: BugReportFilters
+  ): Promise<{ data: BugReport[]; count: number }> {
     const supabase = this.getSupabase(true); // Use admin client
     try {
-      let query = supabase.from('bug_reports').select('*', { count: 'exact' });
+      let query = supabase
+        .from('bug_reports_with_details')
+        .select('*', { count: 'exact' });
 
       if (filters.status) {
         query = query.eq('status', filters.status);
+      }
+
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+      }
+
+      if (filters.department_id) {
+        query = query.eq('department_id', filters.department_id);
       }
 
       const page = filters.page || 1;
@@ -290,6 +306,188 @@ export class BugReportService {
       return data || [];
     } catch (error) {
       console.error('Error fetching leaderboard:', error);
+      throw error;
+    }
+  }
+
+  // Chat functionality
+  static async getBugReportMessages(
+    reportId: string
+  ): Promise<BugReportMessage[]> {
+    const supabase = this.getSupabase(true);
+    try {
+      const { data, error } = await supabase
+        .from('bug_report_messages')
+        .select(
+          `
+          *,
+          sender:profiles!sender_user_id (
+            id,
+            full_name,
+            email,
+            role
+          )
+        `
+        )
+        .eq('bug_report_id', reportId)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching bug report messages:', error);
+      throw error;
+    }
+  }
+
+  static async sendBugReportMessage(payload: {
+    bug_report_id: string;
+    message_text: string;
+    is_internal?: boolean;
+    reply_to_message_id?: string;
+  }): Promise<BugReportMessage> {
+    const supabase = this.getSupabase();
+    try {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('User must be authenticated to send a message.');
+      }
+
+      const { data, error } = await supabase
+        .from('bug_report_messages')
+        .insert({
+          ...payload,
+          sender_user_id: user.id
+        })
+        .select(
+          `
+          *,
+          sender:profiles!sender_user_id (
+            id,
+            full_name,
+            email,
+            role
+          )
+        `
+        )
+        .single();
+
+      if (error) throw error;
+
+      // Add user as participant if not already
+      await this.addBugReportParticipant(payload.bug_report_id, user.id);
+
+      return data;
+    } catch (error) {
+      console.error('Error sending bug report message:', error);
+      throw error;
+    }
+  }
+
+  static async getBugReportParticipants(
+    reportId: string
+  ): Promise<BugReportParticipant[]> {
+    const supabase = this.getSupabase(true);
+    try {
+      const { data, error } = await supabase
+        .from('bug_report_participants')
+        .select(
+          `
+          *,
+          user:profiles!user_id (
+            id,
+            full_name,
+            email,
+            role
+          )
+        `
+        )
+        .eq('bug_report_id', reportId)
+        .eq('is_active', true);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching bug report participants:', error);
+      throw error;
+    }
+  }
+
+  static async addBugReportParticipant(
+    reportId: string,
+    userId: string,
+    role?: string
+  ): Promise<void> {
+    const supabase = this.getSupabase(true);
+    try {
+      // Check if participant already exists
+      const { data: existing } = await supabase
+        .from('bug_report_participants')
+        .select('id')
+        .eq('bug_report_id', reportId)
+        .eq('user_id', userId)
+        .single();
+
+      if (!existing) {
+        const { error } = await supabase
+          .from('bug_report_participants')
+          .insert({
+            bug_report_id: reportId,
+            user_id: userId,
+            role: role || 'participant',
+            can_view_internal: false,
+            is_active: true,
+            joined_at: new Date().toISOString()
+          });
+
+        if (error) throw error;
+      }
+    } catch (error) {
+      console.error('Error adding bug report participant:', error);
+      // Don't throw error as this is not critical
+    }
+  }
+
+  static async getInstitutions(): Promise<{ id: string; name: string }[]> {
+    const supabase = this.getSupabase();
+    try {
+      const { data, error } = await supabase
+        .from('institutions')
+        .select('id, name')
+        .order('name');
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching institutions:', error);
+      throw error;
+    }
+  }
+
+  static async getDepartments(
+    institutionId?: string
+  ): Promise<{ id: string; name: string }[]> {
+    const supabase = this.getSupabase();
+    try {
+      let query = supabase
+        .from('departments')
+        .select('id, department_name')
+        .order('department_name');
+
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      return data.map((d) => ({ id: d.id, name: d.department_name })) || [];
+    } catch (error) {
+      console.error('Error fetching departments:', error);
       throw error;
     }
   }

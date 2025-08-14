@@ -21,11 +21,16 @@ export interface BugReport {
     os?: string;
     [key: string]: any;
   } | null;
+  institution_id?: string | null;
+  department_id?: string | null;
   reporter?: {
     id: string;
     full_name: string | null;
     email: string | null;
   } | null;
+  institution_name?: string | null;
+  department_name?: string | null;
+  department_code?: string | null;
 }
 
 export interface BugReportLeaderboardEntry {
@@ -42,4 +47,51 @@ export interface DetailedBugReport extends BugReport {
     full_name: string | null;
     email: string | null;
   } | null;
+}
+
+export interface BugReportMessage {
+  id: string;
+  bug_report_id: string;
+  sender_user_id: string;
+  message_text: string;
+  message_type?: string;
+  attachment_url?: string | null;
+  attachment_type?: string | null;
+  is_internal?: boolean;
+  reply_to_message_id?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  edited_at?: string | null;
+  is_deleted?: boolean;
+  sender?: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    role?: string | null;
+  } | null;
+}
+
+export interface BugReportParticipant {
+  id: string;
+  bug_report_id: string;
+  user_id: string;
+  role?: string;
+  can_view_internal?: boolean;
+  joined_at?: string | null;
+  last_read_at?: string | null;
+  is_active?: boolean;
+  user?: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    role?: string | null;
+  } | null;
+}
+
+export interface BugReportFilters {
+  status?: BugReportStatus;
+  institution_id?: string;
+  department_id?: string;
+  page?: number;
+  limit?: number;
 }

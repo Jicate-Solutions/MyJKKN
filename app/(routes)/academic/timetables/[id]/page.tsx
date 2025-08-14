@@ -75,10 +75,20 @@ import {
   CreateTimetableSlotDto,
   CreateTimetableSubSlotDto
 } from '@/types/academics';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { DatePicker } from '@/components/ui/date-picker';
+import { Label } from '@/components/ui/label';
 
 // Import extracted components
 import { TimetableHeader } from './_components/timetable-header';
 import { TimetableGrid } from './_components/timetable-grid';
+import { BatchTimetableGrid } from './_components/batch-timetable-grid';
 import { SlotDialog } from './_components/slot-dialog';
 import { PeriodConfiguration } from './_components/period-configuration';
 import { SortablePeriodItem } from './_components/sortable-period-item';
@@ -128,6 +138,11 @@ export default function TimetableDetailPage({
   const [templateName, setTemplateName] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
+  const [timetableFormat, setTimetableFormat] = useState<'regular' | 'batch'>(
+    'regular'
+  );
+  const [batchStartDate, setBatchStartDate] = useState<Date | undefined>();
+  const [batchEndDate, setBatchEndDate] = useState<Date | undefined>();
   const [selectedDay, setSelectedDay] = useState<DayOfWeek | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<Period | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<TimetableSlot | null>(null);
@@ -170,6 +185,15 @@ export default function TimetableDetailPage({
   const [selectedDays, setSelectedDays] =
     useState<DayOfWeek[]>(ALL_DAYS_OF_WEEK);
   const [dayConfigOpen, setDayConfigOpen] = useState(false);
+
+  // State for batch date management
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [dateRanges, setDateRanges] = useState<
+    Array<{ start: string; end: string }>
+  >([]);
+  const [addDateRangeOpen, setAddDateRangeOpen] = useState(false);
+  const [newStartDate, setNewStartDate] = useState<Date | undefined>();
+  const [newEndDate, setNewEndDate] = useState<Date | undefined>();
 
   // Additional state for UI components
   const [slots, setSlots] = useState<TimetableSlot[]>([]);
@@ -304,8 +328,13 @@ export default function TimetableDetailPage({
         );
 
         // Check if this is an empty staff plan (no plans found for this semester)
-        if (consolidatedPlan.total_courses === 0 && consolidatedPlan.all_courses.length === 0) {
-          console.info('No staff plans available for this semester configuration');
+        if (
+          consolidatedPlan.total_courses === 0 &&
+          consolidatedPlan.all_courses.length === 0
+        ) {
+          console.info(
+            'No staff plans available for this semester configuration'
+          );
         }
 
         // Extract unique courses and staff from the consolidated plan
@@ -401,6 +430,18 @@ export default function TimetableDetailPage({
   useEffect(() => {
     setIsBreakSlot(slotType === 'break');
   }, [slotType]);
+
+  // Monitor slotDialogOpen changes
+  useEffect(() => {
+    console.log('slotDialogOpen state changed to:', slotDialogOpen);
+    if (slotDialogOpen) {
+      console.log('Dialog should be open now with:', {
+        day: selectedDay,
+        period: selectedPeriod?.period_name,
+        timetableFormat: timetableFormat
+      });
+    }
+  }, [slotDialogOpen, selectedDay, selectedPeriod, timetableFormat]);
 
   // Fetch sections filtered by semester and institution
   const fetchFilteredSections = useCallback(async () => {
@@ -629,6 +670,56 @@ export default function TimetableDetailPage({
       ]);
 
       setTimetable(timetableData);
+      setTimetableFormat(timetableData.timetable_format || 'regular');
+      if (timetableData.start_date) {
+        setBatchStartDate(new Date(timetableData.start_date));
+      }
+      if (timetableData.end_date) {
+        setBatchEndDate(new Date(timetableData.end_date));
+      }
+      // Load selected dates for batch format
+      if (timetableData.timetable_format === 'batch' && timetableData.selected_dates) {
+        try {
+          const dates = timetableData.selected_dates;
+          // Preserve existing date ranges if we already have them (after slot creation)
+          const existingRanges = dateRanges.length > 0 ? dateRanges : null;
+          const existingDates = selectedDates.length > 0 ? selectedDates : null;
+          
+          if (existingRanges && existingDates) {
+            // Keep the existing values if they're already set (preserves state after slot creation)
+            setSelectedDates(existingDates);
+            setDateRanges(existingRanges);
+          } else {
+            // Otherwise, load from the database
+            setSelectedDates(Array.isArray(dates) ? dates : []);
+
+            // Parse date ranges from the loaded dates
+            const ranges: Array<{ start: string; end: string }> = [];
+            if (Array.isArray(dates)) {
+              dates.forEach((item) => {
+                if (typeof item === 'string' && item.startsWith('RANGE:')) {
+                  const parts = item.split(':');
+                  if (parts.length === 3) {
+                    ranges.push({ start: parts[1], end: parts[2] });
+                  }
+                }
+              });
+            }
+            setDateRanges(ranges);
+          }
+        } catch (error) {
+          console.error('Error parsing selected_dates:', error);
+          // Only clear if there was an actual error, not just missing data
+          if (!dateRanges.length && !selectedDates.length) {
+            setSelectedDates([]);
+            setDateRanges([]);
+          }
+        }
+      } else if (timetableData.timetable_format === 'regular') {
+        // Only clear for regular format
+        setSelectedDates([]);
+        setDateRanges([]);
+      }
 
       // Fetch periods for the specific institution
       const periodsResult = await PeriodService.getPeriods({
@@ -638,11 +729,10 @@ export default function TimetableDetailPage({
       const institutionPeriods = periodsResult.data;
       setPeriods(institutionPeriods);
 
-      // Set slots from timetable data
+      // Set slots from timetable data - Clear first to force re-render
+      setSlots([]);
       if (timetableData.slots) {
         setSlots(timetableData.slots);
-      } else {
-        setSlots([]);
       }
 
       // Load selected periods from timetable_periods table
@@ -814,8 +904,6 @@ export default function TimetableDetailPage({
           existingSlot.staff_members.length > 0
         ) {
           setSelectedStaffIds(existingSlot.staff_members.map((s) => s.id));
-        } else if (existingSlot.staff_id) {
-          setSelectedStaffIds([existingSlot.staff_id]);
         } else {
           setSelectedStaffIds([]);
         }
@@ -936,8 +1024,42 @@ export default function TimetableDetailPage({
   };
 
   // Save a timetable slot
-  const saveSlot = async () => {
-    if (!selectedDay || !selectedPeriod) return;
+  const saveSlot = async (slotDate?: Date) => {
+    if ((!selectedDay && timetableFormat === 'regular') || !selectedPeriod)
+      return;
+
+    // For batch mode, get the selected date range
+    let targetDates: string[] = [];
+    if (timetableFormat === 'batch') {
+      const batchSelectedDate =
+        typeof window !== 'undefined'
+          ? sessionStorage.getItem('batchSelectedDate')
+          : null;
+
+      if (batchSelectedDate) {
+        // Find the range that contains this date
+        for (const range of dateRanges) {
+          const startDate = new Date(range.start);
+          const endDate = new Date(range.end);
+          const selectedDate = new Date(batchSelectedDate);
+
+          if (selectedDate >= startDate && selectedDate <= endDate) {
+            // Generate all dates in this specific range
+            targetDates = [];
+            const current = new Date(range.start);
+            const end = new Date(range.end);
+
+            while (current <= end) {
+              targetDates.push(current.toISOString().split('T')[0]);
+              current.setDate(current.getDate() + 1);
+            }
+            break;
+          }
+        }
+      }
+
+      if (targetDates.length === 0) return;
+    }
 
     // Validation for mandatory fields
     if (!isBreakSlot) {
@@ -1028,11 +1150,128 @@ export default function TimetableDetailPage({
     }
 
     try {
-      if (isCombinedClass) {
-        // Handle combined class
+      if (timetableFormat === 'batch') {
+        // For batch mode, create slots for all dates in the range
+        if (selectedSlot) {
+          // Update mode - update existing slots one by one
+          const slotPromises = targetDates.map(async (dateStr) => {
+            if (isCombinedClass) {
+              // Handle combined class for batch
+              const slotData = {
+                is_combined: true,
+                is_break_slot: false,
+                course_id: undefined,
+                staff_ids: [],
+                section_ids: [],
+                sub_slots: subSlots.filter(
+                  (subSlot) =>
+                    subSlot.is_break_slot ||
+                    (subSlot.course_id && subSlot.course_id !== 'none')
+                )
+              };
+              return await TimetableService.updateTimetableSlot(selectedSlot.id, slotData);
+            } else {
+              // Handle regular slot for batch
+              const slotData = {
+                is_combined: false,
+                is_break_slot: isBreakSlot,
+                break_description: isBreakSlot ? breakDescription : undefined,
+                course_id:
+                  !isBreakSlot &&
+                  selectedCourseId &&
+                  selectedCourseId !== 'none'
+                    ? selectedCourseId
+                    : undefined,
+                staff_ids:
+                  !isBreakSlot &&
+                  selectedCourseId &&
+                  selectedCourseId !== 'none'
+                    ? selectedStaffIds.filter((id) => id !== 'none')
+                    : undefined,
+                section_ids:
+                  !isBreakSlot &&
+                  selectedCourseId &&
+                  selectedCourseId !== 'none'
+                    ? selectedSectionIds.filter((id) => id !== 'none')
+                    : undefined,
+                sub_slots: []
+              };
+              return await TimetableService.updateTimetableSlot(selectedSlot.id, slotData);
+            }
+          });
+          await Promise.all(slotPromises);
+        } else {
+          // Create mode - use batch create for improved performance
+          const slotsToCreate: CreateTimetableSlotDto[] = targetDates.map((dateStr) => {
+            if (isCombinedClass) {
+              return {
+                timetable_id: timetableId,
+                slot_date: dateStr,
+                day_of_week: undefined,
+                period_id: selectedPeriod.id,
+                is_combined: true,
+                is_break_slot: false,
+                sub_slots: subSlots.filter(
+                  (subSlot) =>
+                    subSlot.is_break_slot ||
+                    (subSlot.course_id && subSlot.course_id !== 'none')
+                )
+              };
+            } else {
+              return {
+                timetable_id: timetableId,
+                slot_date: dateStr,
+                day_of_week: undefined,
+                period_id: selectedPeriod.id,
+                is_combined: false,
+                is_break_slot: isBreakSlot,
+                break_description: isBreakSlot ? breakDescription : undefined,
+                course_id:
+                  !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
+                    ? selectedCourseId
+                    : undefined,
+                staff_ids:
+                  !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
+                    ? selectedStaffIds.filter((id) => id !== 'none')
+                    : undefined,
+                section_ids:
+                  !isBreakSlot && selectedCourseId && selectedCourseId !== 'none'
+                    ? selectedSectionIds.filter((id) => id !== 'none')
+                    : undefined
+              };
+            }
+          });
+
+          // Use batch create for better performance
+          await TimetableService.createTimetableSlotsBatch(slotsToCreate);
+        }
+
+        // Store current date ranges and dates before refresh
+        const currentDateRanges = [...dateRanges];
+        const currentSelectedDates = [...selectedDates];
+        
+        // Refresh timetable data
+        await fetchTimetableData();
+        
+        // Restore date ranges if they were cleared during refresh
+        if (currentDateRanges.length > 0) {
+          setDateRanges(currentDateRanges);
+          setSelectedDates(currentSelectedDates);
+        }
+
+        // Show progress toast for large batches
+        toast({
+          title: 'Success',
+          description: `${selectedSlot ? 'Updated' : 'Created'} ${targetDates.length} slots successfully`
+        });
+
+        closeSlotDialog();
+      } else if (isCombinedClass) {
+        // Handle combined class for regular format
         const slotData: CreateTimetableSlotDto = {
           timetable_id: timetableId,
-          day_of_week: selectedDay,
+          day_of_week: selectedDay || undefined,
+          slot_date: undefined, // Explicitly undefined for regular mode
           period_id: selectedPeriod.id,
           is_combined: true,
           is_break_slot: false,
@@ -1063,24 +1302,26 @@ export default function TimetableDetailPage({
         for (const subSlot of subSlots) {
           if (subSlot.staff_ids && subSlot.staff_ids.length > 0) {
             for (const staffId of subSlot.staff_ids) {
-              const hasConflict = await TimetableService.checkStaffConflicts(
-                staffId,
-                selectedDay,
-                selectedPeriod.id,
-                timetableId
-              );
+              if (selectedDay) {
+                const hasConflict = await TimetableService.checkStaffConflicts(
+                  staffId,
+                  selectedDay,
+                  selectedPeriod.id,
+                  timetableId
+                );
 
-              if (hasConflict) {
-                const staffMember = staff.find((s) => s.id === staffId);
-                const staffName = staffMember
-                  ? `${staffMember.first_name} ${staffMember.last_name}`
-                  : 'Staff member';
+                if (hasConflict) {
+                  const staffMember = staff.find((s) => s.id === staffId);
+                  const staffName = staffMember
+                    ? `${staffMember.first_name} ${staffMember.last_name}`
+                    : 'Staff member';
 
-                toast({
-                  title: 'Warning',
-                  description: `${staffName} is already assigned to another class at this time.`,
-                  variant: 'destructive'
-                });
+                  toast({
+                    title: 'Warning',
+                    description: `${staffName} is already assigned to another class at this time.`,
+                    variant: 'destructive'
+                  });
+                }
               }
             }
           }
@@ -1089,7 +1330,8 @@ export default function TimetableDetailPage({
         // Handle regular slot
         const slotData: CreateTimetableSlotDto = {
           timetable_id: timetableId,
-          day_of_week: selectedDay,
+          day_of_week: selectedDay || undefined,
+          slot_date: undefined, // Explicitly undefined for regular mode
           period_id: selectedPeriod.id,
           is_combined: false,
           is_break_slot: isBreakSlot,
@@ -1113,6 +1355,8 @@ export default function TimetableDetailPage({
           // Update existing slot
           result = await TimetableService.updateTimetableSlot(selectedSlot.id, {
             is_combined: false,
+            day_of_week: selectedDay || undefined,
+            slot_date: undefined, // Explicitly undefined for regular mode
             is_break_slot: isBreakSlot,
             break_description: isBreakSlot ? breakDescription : undefined,
             course_id:
@@ -1137,38 +1381,53 @@ export default function TimetableDetailPage({
         // Check for staff conflicts for regular slots
         if (slotData.staff_ids && slotData.staff_ids.length > 0) {
           for (const staffId of slotData.staff_ids) {
-            const hasConflict = await TimetableService.checkStaffConflicts(
-              staffId,
-              slotData.day_of_week,
-              slotData.period_id,
-              timetableId
-            );
+            if (slotData.day_of_week) {
+              const hasConflict = await TimetableService.checkStaffConflicts(
+                staffId,
+                slotData.day_of_week,
+                slotData.period_id,
+                timetableId
+              );
 
-            if (hasConflict) {
-              const staffMember = staff.find((s) => s.id === staffId);
-              const staffName = staffMember
-                ? `${staffMember.first_name} ${staffMember.last_name}`
-                : 'Staff member';
+              if (hasConflict) {
+                const staffMember = staff.find((s) => s.id === staffId);
+                const staffName = staffMember
+                  ? `${staffMember.first_name} ${staffMember.last_name}`
+                  : 'Staff member';
 
-              toast({
-                title: 'Warning',
-                description: `${staffName} is already assigned to another class at this time.`,
-                variant: 'destructive'
-              });
+                toast({
+                  title: 'Warning',
+                  description: `${staffName} is already assigned to another class at this time.`,
+                  variant: 'destructive'
+                });
+              }
             }
           }
         }
       }
 
+      // Store current date ranges and dates before refresh
+      const currentDateRanges = [...dateRanges];
+      const currentSelectedDates = [...selectedDates];
+      
       // Refresh timetable data
       await fetchTimetableData();
+      
+      // Restore date ranges if they were cleared during refresh
+      if (timetableFormat === 'batch' && currentDateRanges.length > 0) {
+        setDateRanges(currentDateRanges);
+        setSelectedDates(currentSelectedDates);
+      }
 
-      toast({
-        title: 'Success',
-        description: selectedSlot
-          ? 'Slot updated successfully'
-          : 'Slot added successfully'
-      });
+      // Only show toast for non-batch mode (batch mode already shows its own toast)
+      if (timetableFormat !== 'batch') {
+        toast({
+          title: 'Success',
+          description: selectedSlot
+            ? 'Slot updated successfully'
+            : 'Slot added successfully'
+        });
+      }
 
       closeSlotDialog();
     } catch (err) {
@@ -1221,7 +1480,7 @@ export default function TimetableDetailPage({
 
   // Get slot for a day and period
   const getSlot = (day: DayOfWeek, periodId: string) => {
-    return timetable?.slots?.find(
+    return slots.find(
       (slot) => slot.day_of_week === day && slot.period_id === periodId
     );
   };
@@ -1307,12 +1566,36 @@ export default function TimetableDetailPage({
         currentPeriodIds
       );
 
-      // Save day selections to timetables table
-      await TimetableService.saveTimetableDays(timetableId, selectedDays);
+      // Save day selections to timetables table (for regular format)
+      if (timetableFormat === 'regular') {
+        await TimetableService.saveTimetableDays(timetableId, selectedDays);
+      }
+
+      // Save timetable format and dates - only update what's needed
+      const updateData: any = {
+        timetable_format: timetableFormat
+      };
+
+      if (timetableFormat === 'batch') {
+        updateData.start_date = batchStartDate?.toISOString() || null;
+        updateData.end_date = batchEndDate?.toISOString() || null;
+        updateData.selected_dates = selectedDates; // Now using the proper JSONB column
+        // Clear regular format fields
+        updateData.selected_days = null;
+      } else {
+        // For regular format, clear batch-specific fields
+        updateData.start_date = null;
+        updateData.end_date = null;
+        updateData.selected_dates = null;
+        // Keep selected_days for regular format
+        updateData.selected_days = selectedDays;
+      }
+
+      await TimetableService.updateTimetable(timetableId, updateData);
 
       // Only remove slots for periods that are no longer selected OR days that are no longer selected
       const slotsToDelete =
-        timetable.slots?.filter(
+        slots?.filter(
           (slot) =>
             (!currentPeriodIds.includes(slot.period_id) ||
               !selectedDays.includes(slot.day_of_week)) &&
@@ -1756,7 +2039,7 @@ export default function TimetableDetailPage({
         {/* Timetable Section */}
         <div className='bg-white rounded-lg shadow-sm border'>
           <div className='p-6'>
-            <div className='flex items-center justify-between mb-6'>
+            <div className='flex flex-col gap-4 mb-6'>
               <div>
                 <h2 className='text-lg font-semibold text-gray-900'>
                   Timetable
@@ -1785,17 +2068,94 @@ export default function TimetableDetailPage({
                     {selectedPeriods.length}
                   </Badge>
                 </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => setDayConfigOpen(true)}
-                >
-                  <Calendar className='h-4 w-4 mr-2' />
-                  Configure Days
-                  <Badge variant='secondary' className='ml-2'>
-                    {selectedDays.length}
-                  </Badge>
-                </Button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div>
+                        <Select
+                          value={timetableFormat}
+                          onValueChange={(value) => {
+                            const newFormat = value as 'regular' | 'batch';
+                            if (newFormat !== timetableFormat) {
+                              setTimetableFormat(newFormat);
+                              setHasUnsavedChanges(true);
+                            }
+                          }}
+                          disabled={slots.length > 0}
+                        >
+                          <SelectTrigger
+                            className={cn(
+                              'w-[180px] h-9',
+                              slots.length > 0 &&
+                                'cursor-not-allowed opacity-60'
+                            )}
+                          >
+                            <SelectValue placeholder='Timetable Format' />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value='regular'>
+                              Regular (Day-wise)
+                            </SelectItem>
+                            <SelectItem value='batch'>
+                              Batch (Date-wise)
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </TooltipTrigger>
+                    {slots.length > 0 && (
+                      <TooltipContent>
+                        <p>
+                          Cannot change format when slots exist. Delete all
+                          slots first to change format.
+                        </p>
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
+                {timetableFormat === 'batch' && (
+                  <div className='flex items-end gap-2'>
+                    <div className='grid gap-1'>
+                      <Label htmlFor='start-date' className='text-xs'>
+                        Start Date
+                      </Label>
+                      <DatePicker
+                        date={batchStartDate}
+                        setDate={(date) => {
+                          setBatchStartDate(date ?? undefined);
+                          setHasUnsavedChanges(true);
+                        }}
+                        disabled={slots.length > 0}
+                      />
+                    </div>
+                    <div className='grid gap-1'>
+                      <Label htmlFor='end-date' className='text-xs'>
+                        End Date
+                      </Label>
+                      <DatePicker
+                        date={batchEndDate}
+                        setDate={(date) => {
+                          setBatchEndDate(date ?? undefined);
+                          setHasUnsavedChanges(true);
+                        }}
+                        disabled={slots.length > 0}
+                      />
+                    </div>
+                  </div>
+                )}
+                {timetableFormat === 'regular' && (
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setDayConfigOpen(true)}
+                  >
+                    <Calendar className='h-4 w-4 mr-2' />
+                    Configure Days
+                    <Badge variant='secondary' className='ml-2'>
+                      {selectedDays.length}
+                    </Badge>
+                  </Button>
+                )}
                 <Button
                   variant='default'
                   size='sm'
@@ -1813,29 +2173,260 @@ export default function TimetableDetailPage({
               </div>
             </div>
 
-            <TimetableGrid
-              ref={timetableGridRef}
-              selectedDays={selectedDays}
-              selectedPeriods={selectedPeriods}
-              slots={slots}
-              lockedPeriods={lockedPeriods}
-              onSlotClick={openSlotDialog}
-            />
+            {timetableFormat === 'regular' ? (
+              <TimetableGrid
+                ref={timetableGridRef}
+                selectedDays={selectedDays}
+                selectedPeriods={selectedPeriods}
+                slots={slots}
+                lockedPeriods={lockedPeriods}
+                onSlotClick={openSlotDialog}
+              />
+            ) : (
+              <BatchTimetableGrid
+                ref={timetableGridRef}
+                selectedDates={selectedDates}
+                selectedPeriods={selectedPeriods}
+                slots={slots}
+                onSlotClick={(date, period, existingSlot) => {
+                  console.log('BatchTimetableGrid onSlotClick called:', {
+                    date,
+                    period: period?.period_name,
+                    existingSlot: !!existingSlot,
+                    slotDialogOpen: slotDialogOpen
+                  });
 
-            {/* Add Period Button */}
-            {getAvailablePeriods().length > 0 && (
-              <div className='mt-4'>
+                  // For batch mode, store the date range info
+                  if (typeof window !== 'undefined') {
+                    sessionStorage.setItem('batchSelectedDate', date);
+                  }
+
+                  // Prevent slot creation/editing for break periods
+                  if (period.is_break && !existingSlot) {
+                    console.log('Preventing break period slot creation');
+                    toast({
+                      title: 'Break Period',
+                      description:
+                        'Slots cannot be created during break periods. Break periods are reserved for breaks across all days.',
+                      variant: 'default'
+                    });
+                    return;
+                  }
+
+                  setSelectedDay(null); // No day for batch mode
+                  setSelectedPeriod(period);
+
+                  if (existingSlot) {
+                    setSelectedSlot(existingSlot);
+                    setEditingSlot(existingSlot);
+                    setIsCombinedClass(existingSlot.is_combined || false);
+
+                    if (existingSlot.is_combined && existingSlot.sub_slots) {
+                      // Handle combined slot with sub-slots
+                      setSlotType('regular');
+                      setIsBreakSlot(false);
+                      setBreakDescription('');
+                      setSelectedCourseId('');
+                      setSelectedStaffIds([]);
+                      setSelectedSectionIds([]);
+
+                      // Populate sub-slots
+                      const updatedSubSlots = [
+                        {
+                          sub_slot_order: 1 as const,
+                          course_id:
+                            existingSlot.sub_slots.find(
+                              (ss) => ss.sub_slot_order === 1
+                            )?.course_id || '',
+                          staff_ids:
+                            existingSlot.sub_slots
+                              .find((ss) => ss.sub_slot_order === 1)
+                              ?.staff_members?.map((s) => s.id) || [],
+                          section_ids:
+                            existingSlot.sub_slots
+                              .find((ss) => ss.sub_slot_order === 1)
+                              ?.sections?.map((s) => s.id) || [],
+                          is_break_slot:
+                            existingSlot.sub_slots.find(
+                              (ss) => ss.sub_slot_order === 1
+                            )?.is_break_slot || false,
+                          break_description:
+                            existingSlot.sub_slots.find(
+                              (ss) => ss.sub_slot_order === 1
+                            )?.break_description || ''
+                        },
+                        {
+                          sub_slot_order: 2 as const,
+                          course_id:
+                            existingSlot.sub_slots.find(
+                              (ss) => ss.sub_slot_order === 2
+                            )?.course_id || '',
+                          staff_ids:
+                            existingSlot.sub_slots
+                              .find((ss) => ss.sub_slot_order === 2)
+                              ?.staff_members?.map((s) => s.id) || [],
+                          section_ids:
+                            existingSlot.sub_slots
+                              .find((ss) => ss.sub_slot_order === 2)
+                              ?.sections?.map((s) => s.id) || [],
+                          is_break_slot:
+                            existingSlot.sub_slots.find(
+                              (ss) => ss.sub_slot_order === 2
+                            )?.is_break_slot || false,
+                          break_description:
+                            existingSlot.sub_slots.find(
+                              (ss) => ss.sub_slot_order === 2
+                            )?.break_description || ''
+                        }
+                      ];
+                      setSubSlots(updatedSubSlots);
+                    } else {
+                      // Handle regular slot
+                      setSlotType(
+                        existingSlot.is_break_slot ? 'break' : 'regular'
+                      );
+                      setIsBreakSlot(existingSlot.is_break_slot);
+                      setBreakDescription(existingSlot.break_description || '');
+                      setSelectedCourseId(existingSlot.course_id || '');
+
+                      // Handle both legacy single staff and new multiple staff
+                      if (
+                        existingSlot.staff_members &&
+                        existingSlot.staff_members.length > 0
+                      ) {
+                        setSelectedStaffIds(
+                          existingSlot.staff_members.map((s) => s.id)
+                        );
+                      } else {
+                        setSelectedStaffIds([]);
+                      }
+
+                      // Handle sections
+                      if (
+                        existingSlot.sections &&
+                        existingSlot.sections.length > 0
+                      ) {
+                        setSelectedSectionIds(
+                          existingSlot.sections.map((s) => s.id)
+                        );
+                      } else {
+                        setSelectedSectionIds([]);
+                      }
+
+                      // Reset sub-slots to default
+                      setSubSlots([
+                        {
+                          sub_slot_order: 1,
+                          course_id: '',
+                          staff_ids: [],
+                          section_ids: [],
+                          is_break_slot: false,
+                          break_description: ''
+                        },
+                        {
+                          sub_slot_order: 2,
+                          course_id: '',
+                          staff_ids: [],
+                          section_ids: [],
+                          is_break_slot: false,
+                          break_description: ''
+                        }
+                      ]);
+                    }
+                  } else {
+                    // Creating new slot - reset everything
+                    setSelectedSlot(null);
+                    setEditingSlot(null);
+                    setSlotType('regular');
+                    setIsCombinedClass(false);
+                    setIsBreakSlot(false);
+                    setBreakDescription('');
+                    setSelectedCourseId('');
+                    setSelectedStaffIds([]);
+                    setSelectedSectionIds([]);
+                    setSubSlots([
+                      {
+                        sub_slot_order: 1,
+                        course_id: '',
+                        staff_ids: [],
+                        section_ids: [],
+                        is_break_slot: false,
+                        break_description: ''
+                      },
+                      {
+                        sub_slot_order: 2,
+                        course_id: '',
+                        staff_ids: [],
+                        section_ids: [],
+                        is_break_slot: false,
+                        break_description: ''
+                      }
+                    ]);
+                  }
+
+                  console.log('Setting slotDialogOpen to true');
+                  setSlotDialogOpen(true);
+                  console.log(
+                    'slotDialogOpen set, current state:',
+                    slotDialogOpen
+                  );
+                }}
+                onRemoveDate={(rangeMarker) => {
+                  // Remove the specific range marker
+                  const newDates = selectedDates.filter(
+                    (d) => d !== rangeMarker
+                  );
+                  setSelectedDates(newDates);
+
+                  // Also update dateRanges state
+                  if (rangeMarker.startsWith('RANGE:')) {
+                    const parts = rangeMarker.split(':');
+                    if (parts.length === 3) {
+                      setDateRanges((prev) =>
+                        prev.filter(
+                          (r) => !(r.start === parts[1] && r.end === parts[2])
+                        )
+                      );
+                    }
+                  }
+
+                  setHasUnsavedChanges(true);
+                  toast({
+                    title: 'Date Range Removed',
+                    description:
+                      "Date range has been removed from the timetable. Click 'Save Configuration' to confirm."
+                  });
+                }}
+                lockedPeriods={lockedPeriods}
+              />
+            )}
+
+            {/* Add Period/Date Range Button */}
+            <div className='mt-4'>
+              {timetableFormat === 'regular' ? (
+                getAvailablePeriods().length > 0 && (
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setAddPeriodDialogOpen(true)}
+                    className='bg-green-600 text-white hover:bg-green-700 border-green-600 hover:text-white'
+                  >
+                    <Plus className='h-4 w-4 mr-2' />
+                    Add Period
+                  </Button>
+                )
+              ) : (
                 <Button
                   variant='outline'
                   size='sm'
-                  onClick={() => setAddPeriodDialogOpen(true)}
-                  className='bg-green-600 text-white hover:bg-green-700 border-green-600 hover:text-white'
+                  onClick={() => setAddDateRangeOpen(true)}
+                  className='bg-blue-600 text-white hover:bg-blue-700 border-blue-600 hover:text-white'
                 >
                   <Plus className='h-4 w-4 mr-2' />
-                  Add Period
+                  Add Date Range
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Course Reference Section */}
             {getCoursesInTimetable().length > 0 && (
@@ -1870,7 +2461,7 @@ export default function TimetableDetailPage({
         onClose={closeSlotDialog}
         day={selectedDay}
         period={selectedPeriod}
-        existingSlot={editingSlot}
+        existingSlot={editingSlot || undefined}
         slotType={slotType}
         setSlotType={setSlotType}
         isBreakSlot={isBreakSlot}
@@ -2054,6 +2645,89 @@ export default function TimetableDetailPage({
               disabled={savingPeriods}
             >
               Save Days
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Date Range Dialog */}
+      <Dialog open={addDateRangeOpen} onOpenChange={setAddDateRangeOpen}>
+        <DialogContent className='sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle>Add Date Range to Timetable</DialogTitle>
+            <DialogDescription>
+              Select a date range to add to your batch timetable.
+            </DialogDescription>
+          </DialogHeader>
+          <div className='space-y-4 py-4'>
+            <div className='grid gap-1'>
+              <Label htmlFor='new-start-date'>Start Date</Label>
+              <DatePicker
+                date={newStartDate}
+                setDate={(date) => setNewStartDate(date ?? undefined)}
+              />
+            </div>
+            <div className='grid gap-1'>
+              <Label htmlFor='new-end-date'>End Date</Label>
+              <DatePicker
+                date={newEndDate}
+                setDate={(date) => setNewEndDate(date ?? undefined)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setAddDateRangeOpen(false);
+                setNewStartDate(undefined);
+                setNewEndDate(undefined);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (newStartDate && newEndDate) {
+                  const startDateStr = newStartDate.toISOString().split('T')[0];
+                  const endDateStr = newEndDate.toISOString().split('T')[0];
+
+                  // Store the range as a JSON string in the selectedDates array
+                  // Format: "RANGE:start:end"
+                  const rangeMarker = `RANGE:${startDateStr}:${endDateStr}`;
+
+                  // Add the range marker to selectedDates
+                  const newDates = [...selectedDates, rangeMarker];
+                  setSelectedDates(newDates);
+
+                  // Also update the dateRanges state for tracking
+                  setDateRanges((prev) => [
+                    ...prev,
+                    { start: startDateStr, end: endDateStr }
+                  ]);
+
+                  setHasUnsavedChanges(true);
+                  setAddDateRangeOpen(false);
+                  setNewStartDate(undefined);
+                  setNewEndDate(undefined);
+
+                  // Calculate number of days in range
+                  const days =
+                    Math.ceil(
+                      (new Date(endDateStr).getTime() -
+                        new Date(startDateStr).getTime()) /
+                        (1000 * 3600 * 24)
+                    ) + 1;
+
+                  toast({
+                    title: 'Date Range Added',
+                    description: `Date range from ${startDateStr} to ${endDateStr} (${days} days) has been added as a separate row. Click 'Save Configuration' to confirm.`
+                  });
+                }
+              }}
+              disabled={!newStartDate || !newEndDate}
+            >
+              Add Date Range
             </Button>
           </DialogFooter>
         </DialogContent>

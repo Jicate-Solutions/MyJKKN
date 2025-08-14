@@ -6,7 +6,9 @@ import {
   useUpdateBugReportStatus,
   useDeleteBugReport,
   useBulkDeleteBugReports,
-  useBulkUpdateBugReportsStatus
+  useBulkUpdateBugReportsStatus,
+  useInstitutions,
+  useDepartments
 } from '@/hooks/bug-reports/use-bug-reports';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
@@ -40,7 +42,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { BugReport, BugReportStatus } from '@/types/bugs';
+import { BugReport, BugReportStatus, BugReportFilters } from '@/types/bugs';
 import { useToast } from '@/hooks/use-toast';
 import { MoreHorizontalIcon } from '@/components/icons';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -157,11 +159,7 @@ const StatCard = ({
 
 export default function AdminBugReportsPage() {
   const router = useRouter();
-  const [filters, setFilters] = useState<{
-    status?: BugReportStatus;
-    page: number;
-    limit: number;
-  }>({
+  const [filters, setFilters] = useState<BugReportFilters>({
     page: 1,
     limit: 10
   });
@@ -171,7 +169,8 @@ export default function AdminBugReportsPage() {
   const [selectedReports, setSelectedReports] = useState<string[]>([]);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [bulkStatusUpdateOpen, setBulkStatusUpdateOpen] = useState(false);
-  const [bulkStatusValue, setBulkStatusValue] = useState<BugReportStatus>('seen');
+  const [bulkStatusValue, setBulkStatusValue] =
+    useState<BugReportStatus>('seen');
   const { toast } = useToast();
   const { isSuperAdmin } = usePermissions();
 
@@ -180,6 +179,10 @@ export default function AdminBugReportsPage() {
   const deleteReportMutation = useDeleteBugReport();
   const bulkDeleteMutation = useBulkDeleteBugReports();
   const bulkUpdateStatusMutation = useBulkUpdateBugReportsStatus();
+
+  // Filter data
+  const { data: institutions } = useInstitutions();
+  const { data: departments } = useDepartments(filters.institution_id);
 
   // Fetch all reports for statistics
   const { data: allReportsData, refetch: refetchAll } = useBugReports({
@@ -334,7 +337,9 @@ export default function AdminBugReportsPage() {
       });
       toast({
         title: 'Status Updated',
-        description: `${selectedReports.length} bug report(s) status updated to ${bulkStatusValue.replace('_', ' ')}.`
+        description: `${
+          selectedReports.length
+        } bug report(s) status updated to ${bulkStatusValue.replace('_', ' ')}.`
       });
       setBulkStatusUpdateOpen(false);
       setSelectedReports([]);
@@ -350,7 +355,14 @@ export default function AdminBugReportsPage() {
         variant: 'destructive'
       });
     }
-  }, [selectedReports, bulkStatusValue, bulkUpdateStatusMutation, toast, refetch, refetchAll]);
+  }, [
+    selectedReports,
+    bulkStatusValue,
+    bulkUpdateStatusMutation,
+    toast,
+    refetch,
+    refetchAll
+  ]);
 
   const reports = data?.data ?? [];
   const metadata = data?.metadata;
@@ -458,6 +470,24 @@ export default function AdminBugReportsPage() {
         cell: ({ row }) => (
           <div className='max-w-[150px] sm:max-w-xs truncate text-xs sm:text-sm'>
             {row.original.description}
+          </div>
+        )
+      },
+      {
+        accessorKey: 'institution_name',
+        header: 'Institution',
+        cell: ({ row }) => (
+          <div className='text-xs sm:text-sm min-w-[100px]'>
+            {row.original.institution_name || 'N/A'}
+          </div>
+        )
+      },
+      {
+        accessorKey: 'department_name',
+        header: 'Department',
+        cell: ({ row }) => (
+          <div className='text-xs sm:text-sm min-w-[100px]'>
+            {row.original.department_name || 'N/A'}
           </div>
         )
       },
@@ -647,32 +677,86 @@ export default function AdminBugReportsPage() {
                 <Users className='w-5 h-5' />
                 Bug Reports List
               </CardTitle>
-              <div className='w-full sm:w-48'>
-                <Select
-                  value={filters.status}
-                  onValueChange={(value) =>
-                    setFilters((prev) => ({
-                      ...prev,
-                      status:
-                        value === 'all'
-                          ? undefined
-                          : (value as BugReportStatus),
-                      page: 1
-                    }))
-                  }
-                >
-                  <SelectTrigger className='w-full'>
-                    <SelectValue placeholder='Filter by status...' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>All Statuses</SelectItem>
-                    <SelectItem value='new'>New</SelectItem>
-                    <SelectItem value='seen'>Seen</SelectItem>
-                    <SelectItem value='in_progress'>In Progress</SelectItem>
-                    <SelectItem value='resolved'>Resolved</SelectItem>
-                    <SelectItem value='wont_fix'>Won&apos;t Fix</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className='flex flex-wrap items-center gap-2'>
+                <div className='w-full sm:w-auto md:w-48'>
+                  <Select
+                    value={filters.status || 'all'}
+                    onValueChange={(value) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        status:
+                          value === 'all'
+                            ? undefined
+                            : (value as BugReportStatus),
+                        page: 1
+                      }))
+                    }
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue placeholder='Filter by status...' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Statuses</SelectItem>
+                      <SelectItem value='new'>New</SelectItem>
+                      <SelectItem value='seen'>Seen</SelectItem>
+                      <SelectItem value='in_progress'>In Progress</SelectItem>
+                      <SelectItem value='resolved'>Resolved</SelectItem>
+                      <SelectItem value='wont_fix'>Won&apos;t Fix</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className='w-full sm:w-auto md:w-48'>
+                  <Select
+                    value={filters.institution_id || 'all'}
+                    onValueChange={(value) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        institution_id: value === 'all' ? undefined : value,
+                        department_id: undefined, // Reset department when institution changes
+                        page: 1
+                      }))
+                    }
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue placeholder='Filter by institution...' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Institutions</SelectItem>
+                      {institutions?.map((institution) => (
+                        <SelectItem key={institution.id} value={institution.id}>
+                          {institution.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className='w-full sm:w-auto md:w-48'>
+                  <Select
+                    value={filters.department_id || 'all'}
+                    onValueChange={(value) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        department_id: value === 'all' ? undefined : value,
+                        page: 1
+                      }))
+                    }
+                    disabled={!filters.institution_id}
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue placeholder='Filter by department...' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Departments</SelectItem>
+                      {filters.institution_id && departments?.map((department) => (
+                        <SelectItem key={department.id} value={department.id}>
+                          {department.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -779,7 +863,9 @@ export default function AdminBugReportsPage() {
             </label>
             <Select
               value={bulkStatusValue}
-              onValueChange={(value) => setBulkStatusValue(value as BugReportStatus)}
+              onValueChange={(value) =>
+                setBulkStatusValue(value as BugReportStatus)
+              }
             >
               <SelectTrigger className='w-full'>
                 <SelectValue placeholder='Select status...' />
@@ -799,7 +885,9 @@ export default function AdminBugReportsPage() {
               onClick={handleBulkStatusUpdate}
               disabled={bulkUpdateStatusMutation.isPending}
             >
-              {bulkUpdateStatusMutation.isPending ? 'Updating...' : 'Update Status'}
+              {bulkUpdateStatusMutation.isPending
+                ? 'Updating...'
+                : 'Update Status'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

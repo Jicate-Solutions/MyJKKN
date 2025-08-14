@@ -975,73 +975,297 @@ export class AttendanceService {
     } = {}
   ): Promise<AttendancePeriodOption[]> {
     try {
-      const slots = await this.getTimetableSlotsForDate(filters, date);
+      console.log('getAvailablePeriodsForDate called with:', {
+        filters,
+        date,
+        options,
+        semesterValue: filters.semester,
+        semesterType: typeof filters.semester,
+        semesterAsString: String(filters.semester)
+      });
 
-      // If super admin or filtering is disabled, return all periods
-      if (options.isSuperAdmin || !options.filterByStaffAssignment) {
-        return slots.map((slot: any) => ({
-          id: slot.period?.id || '',
-          period_name: slot.period?.period_name || '',
-          start_time: slot.period?.start_time || '',
-          end_time: slot.period?.end_time || '',
-          timetable_slot_id: slot.id,
-          timetable_id: slot.timetable_id, // Add the timetable_id
-          course: slot.course,
-          staff: slot.staff, // Pass legacy staff object
-          staff_members: (slot as any).staff_members, // Pass new staff_members array
-          // Add section information
-          sections:
-            slot.timetable_slot_sections?.map((tss: any) => ({
-              id: tss.section_id,
-              name: tss.section?.section_name || ''
-            })) || []
-        }));
-      }
+      const dayOfWeek = this.getDayOfWeekFromDate(date);
+      console.log('Day of week for date:', dayOfWeek);
 
-      // Filter periods based on staff assignments for non-admin users
-      const staffId = await this.getCurrentUserStaffId();
-
-      if (!staffId) {
-        console.log('User is not a staff member, returning empty periods list');
-        return [];
-      }
-
-      // Check each slot for staff assignment
-      const filteredSlots = [];
-
-      for (const slot of slots) {
-        const isAssigned = await this.isStaffAssignedToSlot(staffId, slot.id);
-
-        // Only include slot if staff is specifically assigned to it
-        if (isAssigned) {
-          filteredSlots.push(slot);
+      // First, check if the semester filter is an ID and get the actual semester name
+      let semesterName = String(filters.semester);
+      
+      // Check if it looks like a UUID (semester ID)
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(filters.semester));
+      
+      if (isUUID) {
+        console.log('Semester appears to be an ID, fetching semester details...');
+        // Fetch the semester details to get the name
+        const { data: semesterData, error: semesterError } = await this.supabase
+          .from('semesters')
+          .select('semester_name')
+          .eq('id', filters.semester)
+          .single();
+        
+        if (semesterData && !semesterError) {
+          semesterName = semesterData.semester_name;
+          console.log('Found semester name:', semesterName);
+        } else {
+          console.log('Could not fetch semester name, using ID as-is');
         }
       }
 
-      console.log(
-        `Filtered ${filteredSlots.length} periods out of ${slots.length} for staff ${staffId}`
+      // Similarly check for section
+      let sectionName = filters.section;
+      if (filters.section && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(filters.section))) {
+        console.log('Section appears to be an ID, fetching section details...');
+        const { data: sectionData, error: sectionError } = await this.supabase
+          .from('sections')
+          .select('section_name')
+          .eq('id', filters.section)
+          .single();
+        
+        if (sectionData && !sectionError) {
+          sectionName = sectionData.section_name;
+          console.log('Found section name:', sectionName);
+        }
+      }
+
+      // Fetch all active timetables for the given context (both regular and batch)
+      let timetableQuery = this.supabase
+        .from('timetables')
+        .select('id, timetable_format, start_date, end_date, selected_dates, section, semester')
+        .eq('institution_id', filters.institution_id)
+        .eq('academic_year_id', filters.academic_year_id)
+        .eq('degree_id', filters.degree_id)
+        .eq('program_id', filters.program_id)
+        .eq('department_id', filters.department_id)
+        .eq('is_active', true);
+
+      // Use the semester name for comparison
+      timetableQuery = timetableQuery.eq('semester', semesterName);
+      console.log('Querying with semester name:', semesterName);
+
+      // For section filtering, use the section name if we have it
+      if (sectionName) {
+        console.log('Filtering by section name:', sectionName);
+        timetableQuery = timetableQuery.eq('section', sectionName);
+      } else {
+        console.log('No section filter specified - getting all timetables regardless of section');
+        // Don't filter by section - get all timetables for this context
+        // This allows fetching timetables that have a section set even when no specific section is requested
+      }
+
+      const { data: timetables, error: timetableError } = await timetableQuery;
+
+      console.log('Timetables query result:', {
+        timetables,
+        error: timetableError
+      });
+
+      if (timetableError || !timetables || timetables.length === 0) {
+        console.warn('No active timetables found for the given criteria.', {
+          error: timetableError,
+          timetablesCount: timetables?.length || 0
+        });
+        return [];
+      }
+
+      // Collect all slots from all relevant timetables
+      const allSlots: any[] = [];
+      
+      for (const timetable of timetables) {
+        console.log('Processing timetable:', {
+          id: timetable.id,
+          format: timetable.timetable_format,
+          start_date: timetable.start_date,
+          end_date: timetable.end_date,
+          selected_dates: timetable.selected_dates
+        });
+
+        // For batch timetables, check if the date falls within the date range
+        if (timetable.timetable_format === 'batch') {
+          // Check if date is within the timetable's date range
+          if (timetable.start_date && timetable.end_date) {
+            const searchDate = new Date(date);
+            const startDate = new Date(timetable.start_date);
+            const endDate = new Date(timetable.end_date);
+            
+            console.log('Checking date range:', {
+              searchDate: searchDate.toISOString(),
+              startDate: startDate.toISOString(),
+              endDate: endDate.toISOString(),
+              isWithinRange: searchDate >= startDate && searchDate <= endDate
+            });
+            
+            // Skip this timetable if the date is outside its range
+            if (searchDate < startDate || searchDate > endDate) {
+              console.log('Date is outside timetable range, skipping');
+              continue;
+            }
+          }
+          
+          // Also check if the date is in the selected_dates array
+          if (timetable.selected_dates) {
+            let dateIsInRange = false;
+            const dateStr = date;
+            
+            console.log('Checking selected_dates for date:', dateStr);
+            
+            // Check if date is covered by any of the date ranges
+            for (const item of timetable.selected_dates) {
+              if (typeof item === 'string' && item.startsWith('RANGE:')) {
+                const parts = item.split(':');
+                if (parts.length === 3) {
+                  const rangeStart = new Date(parts[1]);
+                  const rangeEnd = new Date(parts[2]);
+                  const checkDate = new Date(dateStr);
+                  
+                  console.log('Checking range:', {
+                    range: item,
+                    rangeStart: rangeStart.toISOString(),
+                    rangeEnd: rangeEnd.toISOString(),
+                    checkDate: checkDate.toISOString(),
+                    isInRange: checkDate >= rangeStart && checkDate <= rangeEnd
+                  });
+                  
+                  if (checkDate >= rangeStart && checkDate <= rangeEnd) {
+                    dateIsInRange = true;
+                    break;
+                  }
+                }
+              }
+            }
+            
+            if (!dateIsInRange) {
+              console.log('Date is not in any selected_dates range, skipping');
+              continue;
+            }
+          }
+        }
+
+        // Fetch slots based on the timetable format
+        let slotsQuery = this.supabase
+          .from('timetable_slots')
+          .select(
+            `
+            id,
+            timetable_id,
+            period:periods!inner(id, period_name, start_time, end_time, is_break),
+            course:courses(id, course_name, course_code),
+            staff:staff(id, first_name, last_name),
+            staff_members:timetable_slot_staff(staff:staff(id, first_name, last_name)),
+            sub_slots:timetable_sub_slots(
+              *,
+              course:courses(id, course_name, course_code),
+              staff_members:timetable_sub_slot_staff(staff:staff(id, first_name, last_name)),
+              sections:timetable_sub_slot_sections(sections(id, section_name))
+            ),
+            sections:timetable_slot_sections(sections(id, section_name))
+          `
+          )
+          .eq('timetable_id', timetable.id);
+
+        if (timetable.timetable_format === 'batch') {
+          slotsQuery = slotsQuery.eq('slot_date', date);
+        } else {
+          slotsQuery = slotsQuery.eq('day_of_week', dayOfWeek);
+        }
+
+        // Apply staff assignment filter if needed
+        if (options.filterByStaffAssignment && !options.isSuperAdmin) {
+          const staffId = await this.getCurrentUserStaffId();
+          if (staffId) {
+            slotsQuery = slotsQuery.or(
+              `staff_id.eq.${staffId},staff_members.staff_id.eq.${staffId},sub_slots.staff_members.staff_id.eq.${staffId}`
+            );
+          } else {
+            // If no staff ID, return no periods for non-admins
+            continue; // Skip this timetable if user has no staff access
+          }
+        }
+
+        console.log('Fetching slots for timetable:', {
+          timetable_id: timetable.id,
+          format: timetable.timetable_format,
+          queryDate: timetable.timetable_format === 'batch' ? date : dayOfWeek
+        });
+
+        const { data: slots, error: slotsError } = await slotsQuery;
+
+        console.log('Slots query result:', {
+          timetable_id: timetable.id,
+          slotsCount: slots?.length || 0,
+          error: slotsError
+        });
+
+        if (slotsError) {
+          console.error('Error fetching timetable slots:', slotsError);
+          continue; // Continue with other timetables
+        }
+
+        if (slots && slots.length > 0) {
+          console.log('Found slots:', slots.length);
+          // Add the timetable_id to each slot for reference
+          const slotsWithTimetableId = slots.map((slot: any) => ({
+            ...slot,
+            timetable_id: timetable.id
+          }));
+          allSlots.push(...slotsWithTimetableId);
+        } else {
+          console.log('No slots found for this timetable');
+        }
+      }
+
+      // If no slots found from any timetable
+      if (allSlots.length === 0) {
+        console.log('No slots found from any timetable');
+        return [];
+      }
+
+      console.log('Total slots collected from all timetables:', allSlots.length);
+
+      // Map all collected slots to AttendancePeriodOption
+      const availablePeriods = allSlots.map((slot: any) => ({
+        timetable_slot_id: slot.id,
+        timetable_id: slot.timetable_id,
+        id: slot.period.id,
+        period_name: slot.period.period_name,
+        start_time: slot.period.start_time,
+        end_time: slot.period.end_time,
+        is_break: slot.period.is_break,
+        course: slot.course
+          ? {
+              id: slot.course.id,
+              course_name: slot.course.course_name,
+              course_code: slot.course.course_code
+            }
+          : undefined,
+        staff: slot.staff
+          ? {
+              id: slot.staff.id,
+              first_name: slot.staff.first_name,
+              last_name: slot.staff.last_name
+            }
+          : undefined,
+        staff_members: slot.staff_members?.map((sm: any) => sm.staff) || [],
+        sub_slots:
+          slot.sub_slots?.map((ss: any) => ({
+            ...ss,
+            staff_members: ss.staff_members?.map((sm: any) => sm.staff) || [],
+            sections: ss.sections?.map((s: any) => s.sections) || []
+          })) || [],
+        sections: slot.sections?.map((s: any) => s.sections) || []
+      }));
+
+      // Remove duplicates based on period id and sort
+      const uniquePeriods = availablePeriods.filter((period, index, self) =>
+        index === self.findIndex((p) => p.id === period.id)
       );
 
-      return filteredSlots.map((slot: any) => ({
-        id: slot.period?.id || '',
-        period_name: slot.period?.period_name || '',
-        start_time: slot.period?.start_time || '',
-        end_time: slot.period?.end_time || '',
-        timetable_slot_id: slot.id,
-        timetable_id: slot.timetable_id, // Add the timetable_id
-        course: slot.course,
-        staff: slot.staff, // Pass legacy staff object
-        staff_members: (slot as any).staff_members, // Pass new staff_members array
-        // Add section information
-        sections:
-          slot.timetable_slot_sections?.map((tss: any) => ({
-            id: tss.section_id,
-            name: tss.section?.section_name || ''
-          })) || []
-      }));
+      return uniquePeriods.sort((a, b) => {
+        if (a.start_time < b.start_time) return -1;
+        if (a.start_time > b.start_time) return 1;
+        return 0;
+      });
     } catch (error) {
-      console.error('Error fetching available periods:', error);
-      throw error;
+      console.error('Error in getAvailablePeriodsForDate:', error);
+      return [];
     }
   }
 

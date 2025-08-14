@@ -70,9 +70,16 @@ export function DataTableRowActions<TData>({
       window.location.reload();
     } catch (error) {
       console.error('Error deleting timetable:', error);
+      
+      // Check if it's an attendance-related error
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete timetable';
+      const isAttendanceError = errorMessage.includes('attendance records');
+      
       toast({
-        title: 'Error',
-        description: 'Failed to delete timetable. Please try again.',
+        title: isAttendanceError ? 'Cannot Delete Timetable' : 'Error',
+        description: isAttendanceError 
+          ? 'This timetable has associated attendance records and cannot be deleted. You can still edit it if needed.'
+          : 'Failed to delete timetable. Please try again.',
         variant: 'destructive'
       });
     } finally {
@@ -132,6 +139,9 @@ export function DataTableRowActions<TData>({
               This action cannot be undone. This will permanently delete the
               timetable &quot;{timetable.timetable_name}&quot; and all its
               associated data.
+              <br /><br />
+              <strong>Note:</strong> If this timetable has been used for attendance tracking, 
+              the deletion will be prevented to preserve attendance records.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

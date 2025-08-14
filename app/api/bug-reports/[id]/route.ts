@@ -15,15 +15,14 @@ export async function GET(
   try {
     const supabase = await createServerSupabaseClient();
 
-    // 1. Fetch the main bug report
+    // Fetch from the detailed view
     const { data: report, error: reportError } = await supabase
-      .from('bug_reports')
+      .from('bug_reports_with_details')
       .select('*')
       .eq('id', reportId)
       .single();
 
     if (reportError) {
-      // This error is now unexpected since we removed the failing join
       console.error(
         `[BUG_REPORTS_GET_BY_ID_API] Supabase error fetching report ${reportId}:`,
         reportError
@@ -35,25 +34,16 @@ export async function GET(
       return NextResponse.json({ error: 'Report not found.' }, { status: 404 });
     }
 
-    // 2. Fetch the reporter's profile information
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, full_name, email')
-      .eq('id', report.reporter_user_id)
-      .single();
-
-    if (profileError) {
-      // Log as a warning, as a missing profile shouldn't break the entire page
-      console.warn(
-        `[BUG_REPORTS_GET_BY_ID_API] Could not fetch profile for user ${report.reporter_user_id}:`,
-        profileError.message
-      );
-    }
-
-    // 3. Combine the data into the structure the frontend expects
+    // Transform the data to match the expected DetailedBugReport interface
     const detailedReport = {
       ...report,
-      reporter: profile || null
+      reporter: report.reporter_name
+        ? {
+            id: report.reporter_user_id,
+            full_name: report.reporter_name,
+            email: report.reporter_email
+          }
+        : null
     };
 
     return NextResponse.json(detailedReport);
