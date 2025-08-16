@@ -51,13 +51,10 @@ export function AttendanceDashboard() {
   const [isSearching, setIsSearching] = useState(false);
 
   const handleFilterChange = (newFilters: Partial<AnalyticsFilters>) => {
-    // Preserve date fields when updating other filters
-    setFilters((prev: AnalyticsFilters) => ({ 
-      ...prev, 
-      ...newFilters,
-      // Always keep the date fields
-      start_date: prev.start_date,
-      end_date: prev.end_date
+    // Update filters normally - allow date changes
+    setFilters((prev: AnalyticsFilters) => ({
+      ...prev,
+      ...newFilters
     }));
     // Reset analytics view when filters change
     setShowAnalytics(false);
@@ -82,8 +79,7 @@ export function AttendanceDashboard() {
       showAnalytics && !!filters.institution_id
     );
 
-  const canShowAnalytics =
-    showAnalytics && Boolean(filters.institution_id);
+  const canShowAnalytics = showAnalytics && Boolean(filters.institution_id);
 
   const isFormValid = Boolean(filters.institution_id);
 
@@ -97,7 +93,9 @@ export function AttendanceDashboard() {
             Analytics Filters
           </CardTitle>
           <CardDescription>
-            Filter attendance data by institution and academic hierarchy
+            Filter attendance data by date range and academic hierarchy. Date
+            range shows periods scheduled for those specific dates in
+            timetables.
           </CardDescription>
         </CardHeader>
         <CardContent className='space-y-4'>

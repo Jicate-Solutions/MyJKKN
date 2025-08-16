@@ -66,11 +66,13 @@ export function StudentAnalyticsWidget({
 
     return ranges.map((range) => ({
       name: range.name,
-      count: studentStats.filter(
-        (s) =>
-          s.attendance_percentage >= range.min &&
-          s.attendance_percentage <= range.max
-      ).length,
+      count: studentStats.filter((s) => {
+        const safePercentage =
+          isNaN(s.attendance_percentage) || s.attendance_percentage == null
+            ? 0
+            : s.attendance_percentage;
+        return safePercentage >= range.min && safePercentage <= range.max;
+      }).length,
       color: range.color
     }));
   }, [studentStats]);
@@ -80,13 +82,23 @@ export function StudentAnalyticsWidget({
     if (!studentStats) return [];
 
     return studentStats
-      .sort((a, b) => b.attendance_percentage - a.attendance_percentage)
+      .sort((a, b) => {
+        const safeA = isNaN(a.attendance_percentage)
+          ? 0
+          : a.attendance_percentage;
+        const safeB = isNaN(b.attendance_percentage)
+          ? 0
+          : b.attendance_percentage;
+        return safeB - safeA;
+      })
       .slice(0, 10)
       .map((student) => ({
         name: student.student_roll_number || student.student_name.slice(0, 15),
         fullName: student.student_name,
         rollNumber: student.student_roll_number,
-        percentage: student.attendance_percentage,
+        percentage: isNaN(student.attendance_percentage)
+          ? 0
+          : student.attendance_percentage,
         present: student.present_periods,
         total: student.total_periods
       }));
@@ -96,7 +108,15 @@ export function StudentAnalyticsWidget({
     if (!studentStats) return [];
 
     return studentStats
-      .sort((a, b) => a.attendance_percentage - b.attendance_percentage)
+      .sort((a, b) => {
+        const safeA = isNaN(a.attendance_percentage)
+          ? 0
+          : a.attendance_percentage;
+        const safeB = isNaN(b.attendance_percentage)
+          ? 0
+          : b.attendance_percentage;
+        return safeA - safeB;
+      })
       .slice(0, 10);
   }, [studentStats]);
 
@@ -110,16 +130,22 @@ export function StudentAnalyticsWidget({
 
   const averageAttendance = useMemo(() => {
     if (!studentStats || studentStats.length === 0) return 0;
-    const sum = studentStats.reduce((acc, s) => acc + s.attendance_percentage, 0);
+    const sum = studentStats.reduce(
+      (acc, s) => acc + s.attendance_percentage,
+      0
+    );
     return Math.round(sum / studentStats.length);
   }, [studentStats]);
 
   const attendanceComparison = useMemo(() => {
-    if (!studentStats || studentStats.length === 0) return { above75: 0, below75: 0 };
-    
-    const above75 = studentStats.filter(s => s.attendance_percentage >= 75).length;
+    if (!studentStats || studentStats.length === 0)
+      return { above75: 0, below75: 0 };
+
+    const above75 = studentStats.filter(
+      (s) => s.attendance_percentage >= 75
+    ).length;
     const below75 = studentStats.length - above75;
-    
+
     return { above75, below75 };
   }, [studentStats]);
 
@@ -237,9 +263,7 @@ export function StudentAnalyticsWidget({
             <div className='text-2xl font-bold text-green-600'>
               {averageAttendance}%
             </div>
-            <p className='text-xs text-muted-foreground'>
-              Across all students
-            </p>
+            <p className='text-xs text-muted-foreground'>Across all students</p>
           </CardContent>
         </Card>
 
@@ -271,9 +295,7 @@ export function StudentAnalyticsWidget({
             <div className='text-2xl font-bold text-red-600'>
               {attendanceComparison.below75}
             </div>
-            <p className='text-xs text-muted-foreground'>
-              Need attention
-            </p>
+            <p className='text-xs text-muted-foreground'>Need attention</p>
           </CardContent>
         </Card>
       </div>
@@ -286,7 +308,8 @@ export function StudentAnalyticsWidget({
             Student-wise Attendance Analytics
           </CardTitle>
           <CardDescription className='text-gray-600'>
-            Comprehensive attendance statistics and distribution for {studentStats.length} students
+            Comprehensive attendance statistics and distribution for{' '}
+            {studentStats.length} students
           </CardDescription>
         </CardHeader>
         <CardContent className='space-y-6'>
@@ -310,9 +333,12 @@ export function StudentAnalyticsWidget({
                         cy='50%'
                         outerRadius={80}
                         dataKey='count'
-                        label={({ name, count, percent }) =>
-                          `${count} (${(percent * 100).toFixed(0)}%)`
-                        }
+                        label={({ name, count, percent }) => {
+                          const safePercent = isNaN(percent) ? 0 : percent;
+                          return `${count} (${(safePercent * 100).toFixed(
+                            0
+                          )}%)`;
+                        }}
                       >
                         {distributionData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
@@ -370,14 +396,17 @@ export function StudentAnalyticsWidget({
                             return (
                               <div className='rounded-lg border bg-background p-2 shadow-sm'>
                                 <div className='grid gap-2'>
-                                  <div className='font-medium'>{data.fullName}</div>
+                                  <div className='font-medium'>
+                                    {data.fullName}
+                                  </div>
                                   <div className='text-sm text-muted-foreground'>
                                     {data.rollNumber}
                                   </div>
                                   <div className='grid gap-1 text-sm'>
                                     <div>Attendance: {data.percentage}%</div>
                                     <div>
-                                      Present: {data.present}/{data.total} periods
+                                      Present: {data.present}/{data.total}{' '}
+                                      periods
                                     </div>
                                   </div>
                                 </div>
@@ -405,16 +434,15 @@ export function StudentAnalyticsWidget({
           {/* Global Data Table */}
           <div className='space-y-4'>
             <div className='flex items-center justify-between'>
-              <h3 className='text-lg font-semibold'>Student Attendance Details</h3>
+              <h3 className='text-lg font-semibold'>
+                Student Attendance Details
+              </h3>
               <Badge variant='outline' className='text-sm'>
                 {studentStats.length} Total Students
               </Badge>
             </div>
-            
-            <StudentDataTable 
-              filters={filters} 
-              enabled={enabled} 
-            />
+
+            <StudentDataTable filters={filters} enabled={enabled} />
           </div>
         </CardContent>
       </Card>

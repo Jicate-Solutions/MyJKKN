@@ -19,11 +19,15 @@ export interface CourseAttendanceData {
 }
 
 const getStatusBadge = (percentage: number) => {
-  if (percentage >= 90)
+  // Handle invalid numbers (NaN, null, undefined)
+  const safePercentage =
+    isNaN(percentage) || percentage == null ? 0 : Number(percentage);
+
+  if (safePercentage >= 90)
     return <Badge className='bg-green-100 text-green-800'>Excellent</Badge>;
-  if (percentage >= 75)
+  if (safePercentage >= 75)
     return <Badge className='bg-yellow-100 text-yellow-800'>Good</Badge>;
-  if (percentage >= 50)
+  if (safePercentage >= 50)
     return <Badge className='bg-orange-100 text-orange-800'>Average</Badge>;
   return <Badge className='bg-red-100 text-red-800'>Poor</Badge>;
 };
@@ -120,10 +124,15 @@ export const courseColumns: ColumnDef<CourseAttendanceData>[] = [
     ),
     cell: ({ row }) => {
       const percentage = row.getValue('attendance_percentage') as number;
+      // Handle invalid numbers (NaN, null, undefined)
+      const safePercentage =
+        isNaN(percentage) || percentage == null ? 0 : Number(percentage);
+      const displayPercentage = safePercentage.toFixed(1);
+
       return (
         <div className='flex flex-col items-center space-y-1'>
-          <span className='text-sm font-semibold'>{percentage}%</span>
-          <Progress value={percentage} className='w-16 h-2' />
+          <span className='text-sm font-semibold'>{displayPercentage}%</span>
+          <Progress value={safePercentage} className='w-16 h-2' />
         </div>
       );
     }
@@ -135,10 +144,17 @@ export const courseColumns: ColumnDef<CourseAttendanceData>[] = [
     ),
     cell: ({ row }) => {
       const avgAttendance = row.getValue('avg_student_attendance') as number;
+      // Handle invalid numbers (NaN, null, undefined)
+      const safeAvgAttendance =
+        isNaN(avgAttendance) || avgAttendance == null
+          ? 0
+          : Number(avgAttendance);
+      const displayAvgAttendance = safeAvgAttendance.toFixed(1);
+
       return (
         <div className='flex flex-col items-center space-y-1'>
-          <span className='text-sm font-semibold'>{avgAttendance}%</span>
-          <Progress value={avgAttendance} className='w-16 h-2' />
+          <span className='text-sm font-semibold'>{displayAvgAttendance}%</span>
+          <Progress value={safeAvgAttendance} className='w-16 h-2' />
         </div>
       );
     }
@@ -154,10 +170,14 @@ export const courseColumns: ColumnDef<CourseAttendanceData>[] = [
     },
     filterFn: (row, id, value) => {
       const percentage = row.original.attendance_percentage;
-      if (value === 'excellent') return percentage >= 90;
-      if (value === 'good') return percentage >= 75 && percentage < 90;
-      if (value === 'average') return percentage >= 50 && percentage < 75;
-      if (value === 'poor') return percentage < 50;
+      const safePercentage =
+        isNaN(percentage) || percentage == null ? 0 : Number(percentage);
+
+      if (value === 'excellent') return safePercentage >= 90;
+      if (value === 'good') return safePercentage >= 75 && safePercentage < 90;
+      if (value === 'average')
+        return safePercentage >= 50 && safePercentage < 75;
+      if (value === 'poor') return safePercentage < 50;
       return true;
     }
   },
