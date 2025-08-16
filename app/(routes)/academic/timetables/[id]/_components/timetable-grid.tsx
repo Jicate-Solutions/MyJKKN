@@ -4,17 +4,13 @@ import { forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Calendar, Lock } from 'lucide-react';
-import { TimetableSlot, DayOfWeek, Period } from '@/types/academics';
+import { DayOfWeek, Period } from '@/types/academics';
 
 interface TimetableGridProps {
   selectedDays: DayOfWeek[];
   selectedPeriods: Period[];
-  slots: TimetableSlot[];
-  onSlotClick: (
-    day: DayOfWeek,
-    period: Period,
-    existingSlot?: TimetableSlot
-  ) => void;
+  slots: any[];
+  onSlotClick: (day: DayOfWeek, period: Period, existingSlot?: any) => void;
   lockedPeriods: string[];
 }
 
@@ -25,20 +21,21 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
   ) => {
     // Helper function to get slot for a specific day and period
     const getSlotForDayAndPeriod = (day: DayOfWeek, periodId: string) => {
+      if (!slots) return null;
       return slots.find(
-        (slot) => slot.day_of_week === day && slot.period_id === periodId
+        (slot: any) => slot.day_of_week === day && slot.period_id === periodId
       );
     };
 
     // Helper function to render regular slot content
-    const renderRegularSlot = (slot: TimetableSlot) => (
+    const renderRegularSlot = (slot: any) => (
       <div className='text-blue-700 min-h-[50px] flex flex-col justify-center text-center'>
         <div className='font-semibold text-xs mb-0.5 leading-tight'>
           {slot.course?.course_code || 'Course'}
         </div>
         {slot.staff_members && slot.staff_members.length > 0 && (
           <div className='text-xs text-gray-700 mb-0.5 leading-tight'>
-            {slot.staff_members.slice(0, 1).map((staff, idx) => (
+            {slot.staff_members.slice(0, 1).map((staff: any, idx: number) => (
               <div key={idx} className='truncate text-xs'>
                 {staff.first_name} {staff.last_name}
               </div>
@@ -52,7 +49,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
         )}
         {slot.sections && slot.sections.length > 0 && (
           <div className='text-xs'>
-            {slot.sections.slice(0, 2).map((section, idx) => (
+            {slot.sections.slice(0, 2).map((section: any, idx: number) => (
               <Badge
                 key={`${section.id || section.section_name}-${idx}`}
                 variant='outline'
@@ -72,12 +69,12 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
     );
 
     // Helper function to render combined slot content
-    const renderCombinedSlot = (slot: TimetableSlot) => (
+    const renderCombinedSlot = (slot: any) => (
       <div className='text-purple-700 min-h-[60px] flex flex-col text-center'>
         <div className='font-semibold text-xs mb-1 leading-tight'>Combined</div>
         {slot.sub_slots && slot.sub_slots.length > 0 && (
           <div className='flex-1 flex flex-col space-y-1'>
-            {slot.sub_slots.map((subSlot, idx) => (
+            {slot.sub_slots.map((subSlot: any, idx: number) => (
               <div
                 key={`subSlot-${subSlot.id || idx}`}
                 className='flex-1 border-gray-300 last:border-b-0 border-b border-dashed pb-0.5'
@@ -95,8 +92,13 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                       subSlot.staff_members.length > 0 && (
                         <div className='text-xs text-gray-700 mb-0.5 leading-tight'>
                           <div className='truncate'>
-                            {subSlot.staff_members[0]?.first_name}{' '}
-                            {subSlot.staff_members[0]?.last_name}
+                            {subSlot.staff_members
+                              .slice(0, 1)
+                              .map((staff: any, idx: number) => (
+                                <div key={idx} className='truncate text-xs'>
+                                  {staff.first_name} {staff.last_name}
+                                </div>
+                              ))}
                           </div>
                         </div>
                       )}
@@ -125,7 +127,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
     );
 
     // Helper function to render break slot content
-    const renderBreakSlot = (slot: TimetableSlot) => (
+    const renderBreakSlot = (slot: any) => (
       <div className='text-orange-600 font-semibold text-xs min-h-[40px] flex items-center justify-center'>
         {slot.break_description || 'Break'}
       </div>
@@ -136,9 +138,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
         <div ref={ref} className='border rounded-lg p-8 text-center'>
           <div className='text-gray-500'>
             <Calendar className='h-12 w-12 mx-auto mb-4 text-gray-300' />
-            <h3 className='text-lg font-medium mb-2'>
-              No Periods Configured
-            </h3>
+            <h3 className='text-lg font-medium mb-2'>No Periods Configured</h3>
             <p className='text-sm'>
               Please configure periods to view the timetable grid.
             </p>
@@ -172,7 +172,9 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                 ))
               ) : (
                 <th className='border border-blue-500 p-2 text-center font-semibold text-xs'>
-                  <span className='text-yellow-200'>No Days Selected - Please Configure Days</span>
+                  <span className='text-yellow-200'>
+                    No Days Selected - Please Configure Days
+                  </span>
                 </th>
               )}
             </tr>
@@ -254,7 +256,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                       </div>
                       <div className='text-xs font-semibold text-black mt-1'>
                         {new Date(
-                          `2000-01-01T${period.start_time}` 
+                          `2000-01-01T${period.start_time}`
                         ).toLocaleTimeString('en-US', {
                           hour: 'numeric',
                           minute: '2-digit',

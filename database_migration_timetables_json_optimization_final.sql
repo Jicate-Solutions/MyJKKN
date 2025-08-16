@@ -156,7 +156,7 @@ SELECT
                         jsonb_build_object(
                             'slot_id', ts.id,
                             'course_id', ts.course_id,
-                            'primary_staff_id', ts.staff_id,
+                            'primary_staff_id', (staff_agg.staff_ids ->> 0)::uuid,
                             'staff_ids', COALESCE(staff_agg.staff_ids, '[]'::jsonb),
                             'section_ids', COALESCE(section_agg.section_ids, '[]'::jsonb),
                             'is_break_slot', COALESCE(ts.is_break_slot, false),
@@ -219,7 +219,7 @@ SELECT
                     ) sub_sections ON tsub.id = sub_sections.sub_slot_id
                     GROUP BY tsub.parent_slot_id
                 ) sub_slots_agg ON ts.id = sub_slots_agg.parent_slot_id
-                WHERE ts.timetable_id = t.id
+                WHERE ts.timetable_id = t.id AND ts.day_of_week IS NOT NULL AND ts.period_id IS NOT NULL
                 GROUP BY ts.day_of_week
             ) day_data
         ),
@@ -327,6 +327,51 @@ ALTER INDEX idx_timetables_temp_active_template RENAME TO idx_timetables_active_
 -- STEP 7: CREATE UTILITY FUNCTIONS FOR JSON QUERYING
 -- =================================================================
 
+-- Function to get timetable slots by day or date
+CREATE OR REPLACE FUNCTION get_timetable_slots_for_day_or_date(
+    p_timetable_id UUID,
+    p_day_of_week TEXT DEFAULT NULL,
+    p_slot_date TEXT DEFAULT NULL
+)
+RETURNS TABLE (slot JSONB)
+LANGUAGE plpgsql
+STABLE
+AS $$
+BEGIN
+    -- Validate that at least one of day or date is provided
+    IF p_day_of_week IS NULL AND p_slot_date IS NULL THEN
+        RAISE EXCEPTION 'Either day of the week or a slot date must be provided';
+    END IF;
+
+    -- Return query for regular timetables (day-based)
+    IF p_day_of_week IS NOT NULL THEN
+        RETURN QUERY
+        SELECT 
+            value as slot
+        FROM 
+            timetables t,
+            jsonb_each(t.timetable_data -> p_day_of_week)
+        WHERE 
+            t.id = p_timetable_id;
+
+    -- Return query for batch timetables (date-based)
+    ELSE
+        RETURN QUERY
+        SELECT 
+            jsonb_build_object(
+                'period_id', key,
+                'slot_details', value
+            ) as slot
+        FROM 
+            timetables t,
+            jsonb_each(t.timetable_data -> p_slot_date)
+        WHERE 
+            t.id = p_timetable_id;
+    END IF;
+END;
+$$;
+
+
 -- Function to get timetable slot by day and period
 CREATE OR REPLACE FUNCTION get_timetable_slot(
     timetable_uuid UUID,
@@ -401,6 +446,7 @@ GRANT EXECUTE ON FUNCTION get_timetable_slot(UUID, TEXT, UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION get_day_schedule(UUID, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION find_timetables_by_staff(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION find_timetables_by_course(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_timetable_slots_for_day_or_date(UUID, TEXT, TEXT) TO authenticated;
 
 -- =================================================================
 -- STEP 8: CREATE PERFORMANCE MONITORING VIEW

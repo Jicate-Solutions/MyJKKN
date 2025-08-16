@@ -27,12 +27,7 @@ import Loading from '@/components/Loading/Loading';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { StudentService } from '@/lib/services/student/student-service';
 import { useToast } from '@/hooks/use-toast';
-import type {
-  Timetable,
-  TimetableSlot,
-  Period,
-  DayOfWeek
-} from '@/types/academics';
+import type { Timetable, Period, DayOfWeek } from '@/types/academics';
 import type { Student } from '@/types/student';
 import { format, startOfWeek, addDays, isToday } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -169,7 +164,7 @@ export default function TimeTablePage() {
   const getSlotForDayAndPeriod = (
     day: DayOfWeek,
     periodId: string
-  ): TimetableSlot | undefined => {
+  ): any | undefined => {
     return timetable?.slots?.find(
       (slot) => slot.day_of_week === day && slot.period_id === periodId
     );
@@ -190,7 +185,7 @@ export default function TimeTablePage() {
     }
   };
 
-  const renderSlotContent = (slot: TimetableSlot) => {
+  const renderSlotContent = (slot: any) => {
     if (slot.is_break_slot) {
       return (
         <div className='text-center'>

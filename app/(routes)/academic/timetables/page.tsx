@@ -24,13 +24,13 @@ export default function TimetablesPage() {
 
   // Parse current search parameters
   const search = timetablesSearchParamsSchema.parse(
-    Object.fromEntries(searchParams.entries())
+    Object.fromEntries(searchParams?.entries() ?? [])
   );
 
   // Handle filter changes by updating URL
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {
-      const params = new URLSearchParams(searchParams);
+      const params = new URLSearchParams(searchParams?.toString() ?? '');
 
       if (value) {
         params.set(key, value);
@@ -51,8 +51,9 @@ export default function TimetablesPage() {
     const params = new URLSearchParams();
     // Keep only page and pageSize
     params.set('page', '1');
-    if (searchParams.get('pageSize')) {
-      params.set('pageSize', searchParams.get('pageSize')!);
+    const pageSize = searchParams?.get('pageSize');
+    if (pageSize) {
+      params.set('pageSize', pageSize);
     }
     router.push(`/academic/timetables?${params.toString()}`);
   }, [router, searchParams]);

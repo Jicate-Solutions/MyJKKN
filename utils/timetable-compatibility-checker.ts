@@ -17,9 +17,9 @@ export async function checkTimetableStructure() {
       .select('id, timetable_data, periods')
       .limit(1);
 
-    // Check if old structure still exists
+    // Check if old structure still exists (should be renamed to _old after migration)
     const { data: oldStructure, error: oldError } = await supabase
-      .from('timetable_slots')
+      .from('timetable_slots_old')
       .select('id')
       .limit(1);
 
@@ -30,8 +30,12 @@ export async function checkTimetableStructure() {
       .limit(1);
 
     const results = {
-      hasJsonStructure: !newError && newStructure && newStructure.length > 0 && newStructure[0]?.timetable_data,
-      hasOldStructure: !oldError,
+      hasJsonStructure:
+        !newError &&
+        newStructure &&
+        newStructure.length > 0 &&
+        newStructure[0]?.timetable_data,
+      hasOldStructure: !oldError, // This checks if _old tables exist (good sign)
       hasBackupTables: !backupError,
       migrationComplete: false,
       recommendations: [] as string[]
@@ -39,33 +43,69 @@ export async function checkTimetableStructure() {
 
     console.log('📊 Structure Analysis:', {
       'JSON Structure': results.hasJsonStructure ? '✅ Found' : '❌ Not found',
-      'Old Structure': results.hasOldStructure ? '⚠️  Still exists' : '✅ Removed',
+      'Old Structure Backup': results.hasOldStructure
+        ? '✅ Backed up as _old tables'
+        : '⚠️  No backup found',
       'Backup Tables': results.hasBackupTables ? '✅ Found' : '❌ Not found'
     });
 
     // Analyze migration status
-    if (results.hasJsonStructure && !results.hasOldStructure && results.hasBackupTables) {
+    if (
+      results.hasJsonStructure &&
+      results.hasOldStructure &&
+      results.hasBackupTables
+    ) {
       results.migrationComplete = true;
-      results.recommendations.push('✅ Migration complete - using JSON structure');
-      results.recommendations.push('📈 You should see ~98% reduction in timetable records');
-    } else if (results.hasJsonStructure && results.hasOldStructure) {
-      results.recommendations.push('⚠️  Both structures exist - migration may be incomplete');
-      results.recommendations.push('📝 Check if old tables are renamed with _old suffix');
-      results.recommendations.push('🔍 Verify that current queries use JSON structure');
-    } else if (!results.hasJsonStructure && results.hasOldStructure) {
-      results.recommendations.push('❌ Migration not applied - still using old structure');
-      results.recommendations.push('📝 Run: database_migration_timetables_json_optimization.sql');
-      results.recommendations.push('⚡ Expected benefits: 98% record reduction, faster queries');
+      results.recommendations.push(
+        '✅ Migration complete - using JSON structure'
+      );
+      results.recommendations.push(
+        '📈 Old tables safely backed up with _old suffix'
+      );
+      results.recommendations.push(
+        '🚀 Should see ~98% reduction in timetable records'
+      );
+    } else if (results.hasJsonStructure && !results.hasOldStructure) {
+      results.recommendations.push(
+        '⚠️  JSON structure exists but no backup found'
+      );
+      results.recommendations.push(
+        '🔍 Migration may have been applied without backup'
+      );
+      results.recommendations.push('✅ Current structure should be working');
+    } else if (!results.hasJsonStructure) {
+      results.recommendations.push(
+        '❌ JSON structure not found - migration not applied'
+      );
+      results.recommendations.push(
+        '📝 Run: database_migration_timetables_json_optimization_final.sql'
+      );
+      results.recommendations.push(
+        '⚡ Expected benefits: 98% record reduction, faster queries'
+      );
     } else {
-      results.recommendations.push('❓ Unknown state - check database manually');
+      results.recommendations.push(
+        '❓ Unknown state - check database manually'
+      );
     }
 
-    // Check for utility functions
+    // Check for new utility functions
     try {
-      await supabase.rpc('get_day_schedule', { timetable_uuid: '00000000-0000-0000-0000-000000000000', day_name: 'TEST' });
+      await supabase.rpc('get_all_timetable_slots', {
+        p_timetable_id: '00000000-0000-0000-0000-000000000000'
+      });
     } catch (funcError: any) {
-      if (funcError.message?.includes('function public.get_day_schedule does not exist')) {
-        results.recommendations.push('⚠️  Utility functions not found - migration incomplete');
+      if (
+        funcError.message?.includes(
+          'function public.get_all_timetable_slots does not exist'
+        )
+      ) {
+        results.recommendations.push(
+          '⚠️  New utility functions not found - migration incomplete'
+        );
+        results.recommendations.push(
+          '📝 Missing: get_all_timetable_slots, update_timetable_slot, delete_timetable_slot'
+        );
       }
     }
 
@@ -92,7 +132,9 @@ export async function getPerformanceStats() {
       .select('*');
 
     if (error) {
-      console.log('📊 Performance stats view not found (expected if migration not run)');
+      console.log(
+        '📊 Performance stats view not found (expected if migration not run)'
+      );
       return null;
     }
 
@@ -108,18 +150,20 @@ export async function runCompatibilityCheck() {
   console.log('🚀 Starting Timetable Compatibility Check...\n');
 
   const structureStatus = await checkTimetableStructure();
-  
+
   console.log('📋 Migration Status:');
-  structureStatus.recommendations.forEach(rec => console.log(`   ${rec}`));
+  structureStatus.recommendations.forEach((rec) => console.log(`   ${rec}`));
 
   if (structureStatus.migrationComplete) {
     console.log('\n📊 Fetching performance statistics...');
     const perfStats = await getPerformanceStats();
-    
+
     if (perfStats) {
       console.log('\n📈 Performance Comparison:');
-      perfStats.forEach(stat => {
-        console.log(`   ${stat.table_name}: ${stat.record_count} records (${stat.table_size})`);
+      perfStats.forEach((stat) => {
+        console.log(
+          `   ${stat.table_name}: ${stat.record_count} records (${stat.table_size})`
+        );
       });
     }
   }
