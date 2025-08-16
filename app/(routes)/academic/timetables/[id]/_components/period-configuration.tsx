@@ -107,7 +107,7 @@ export function PeriodConfiguration({
                 <Button
                   variant='outline'
                   size='sm'
-                  onClick={onSelectAllClassPeriods}
+                  onClick={() => onSelectAllClassPeriods()}
                   className='h-6 text-[10px] text-green-600 border-green-200 hover:bg-green-50'
                 >
                   Add All Classes
@@ -115,7 +115,7 @@ export function PeriodConfiguration({
                 <Button
                   variant='outline'
                   size='sm'
-                  onClick={onClearAllPeriods}
+                  onClick={() => onClearAllPeriods()}
                   className='h-6 text-[10px] text-red-600 border-red-200 hover:bg-red-50'
                 >
                   Clear All

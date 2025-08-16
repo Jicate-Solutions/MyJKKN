@@ -6,13 +6,10 @@ import {
 } from '@/lib/auth/api-institution-filter';
 import type {
   Timetable,
-  TimetableSlot,
   CreateTimetableDto,
   UpdateTimetableDto,
   TimetableFilters,
   TimetableListResponse,
-  CreateTimetableSlotDto,
-  UpdateTimetableSlotDto,
   DayOfWeek
 } from '@/types/academics';
 
@@ -230,21 +227,26 @@ export class TimetableService {
   static async deleteTimetable(id: string, showToast = true): Promise<void> {
     try {
       // First check if this timetable has any attendance records
-      const { data: attendanceRecords, error: attendanceCheckError } = await this.supabase
-        .from('student_attendance')
-        .select('id')
-        .eq('timetable_id', id)
-        .limit(1);
+      const { data: attendanceRecords, error: attendanceCheckError } =
+        await this.supabase
+          .from('student_attendance')
+          .select('id')
+          .eq('timetable_id', id)
+          .limit(1);
 
       if (attendanceCheckError) {
-        console.error('Error checking attendance records:', attendanceCheckError);
+        console.error(
+          'Error checking attendance records:',
+          attendanceCheckError
+        );
         throw attendanceCheckError;
       }
 
       // If attendance records exist, prevent deletion
       if (attendanceRecords && attendanceRecords.length > 0) {
-        const errorMessage = 'Cannot delete this timetable because it has associated attendance records. The timetable is being used to track student attendance and must be preserved for record-keeping purposes. You can still edit the timetable if needed.';
-        
+        const errorMessage =
+          'Cannot delete this timetable because it has associated attendance records. The timetable is being used to track student attendance and must be preserved for record-keeping purposes. You can still edit the timetable if needed.';
+
         if (showToast) {
           toast.error(errorMessage, {
             duration: 6000,
@@ -257,28 +259,13 @@ export class TimetableService {
             }
           });
         }
-        
+
         throw new Error(errorMessage);
       }
 
       // If no attendance records, proceed with deletion
-      // First delete all timetable periods
-      const { error: periodsError } = await this.supabase
-        .from('timetable_periods')
-        .delete()
-        .eq('timetable_id', id);
-
-      if (periodsError) throw periodsError;
-
-      // Then delete all timetable slots
-      const { error: slotsError } = await this.supabase
-        .from('timetable_slots')
-        .delete()
-        .eq('timetable_id', id);
-
-      if (slotsError) throw slotsError;
-
-      // Finally delete the timetable
+      // With the new JSON-based structure, we only need to delete the timetable record
+      // All slots and periods are stored in the timetable_data JSONB column
       const { error } = await this.supabase
         .from('timetables')
         .delete()
@@ -310,13 +297,14 @@ export class TimetableService {
         success.push(id);
       } catch (error) {
         console.error(`Error deleting timetable ${id}:`, error);
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
+
         // Check if it's an attendance-related error
         if (errorMessage.includes('attendance records')) {
           hasAttendanceRecords.push(id);
         }
-        
+
         failed.push({
           id,
           error: errorMessage
@@ -457,1119 +445,137 @@ export class TimetableService {
 
       if (error) throw error;
 
-      // Get all slots for this timetable
-      const { data: slots, error: slotsError } = await this.supabase
-        .from('timetable_slots')
-        .select(
-          `
-          *,
-          period:period_id(*),
-          course:course_id(id, course_name, course_code)
-        `
-        )
-        .eq('timetable_id', id)
-        .order('day_of_week');
-
-      if (slotsError) throw slotsError;
-
-      // Optimized batch fetching of related data
-      if (slots && slots.length > 0) {
-        const slotIds = slots.map((slot) => slot.id);
-        const combinedSlotIds = slots
-          .filter((slot) => slot.is_combined)
-          .map((slot) => slot.id);
-
-        // Batch fetch all sub-slots for combined slots
-        const subSlotsMap = new Map();
-        if (combinedSlotIds.length > 0) {
-          const { data: allSubSlots, error: subSlotsError } =
-            await this.supabase
-              .from('timetable_sub_slots')
-              .select(
-                `
-              *,
-              course:course_id(id, course_name, course_code)
-            `
-              )
-              .in('parent_slot_id', combinedSlotIds)
-              .order('sub_slot_order');
-
-          if (!subSlotsError && allSubSlots) {
-            // Group sub-slots by parent slot ID
-            for (const subSlot of allSubSlots) {
-              if (!subSlotsMap.has(subSlot.parent_slot_id)) {
-                subSlotsMap.set(subSlot.parent_slot_id, []);
-              }
-              subSlotsMap.get(subSlot.parent_slot_id).push(subSlot);
-            }
-
-            // Batch fetch all sub-slot staff and sections
-            const subSlotIds = allSubSlots.map((ss) => ss.id);
-
-            if (subSlotIds.length > 0) {
-              // Fetch all sub-slot staff in one query
-              const { data: allSubSlotStaff } = await this.supabase
-                .from('timetable_sub_slot_staff')
-                .select(
-                  `
-                  sub_slot_id,
-                  staff_id,
-                  staff:staff(id, first_name, last_name)
-                `
-                )
-                .in('sub_slot_id', subSlotIds);
-
-              // Fetch all sub-slot sections in one query
-              const { data: allSubSlotSections } = await this.supabase
-                .from('timetable_sub_slot_sections')
-                .select(
-                  `
-                  sub_slot_id,
-                  section_id,
-                  sections:section_id(id, section_name)
-                `
-                )
-                .in('sub_slot_id', subSlotIds);
-
-              // Map staff and sections to sub-slots
-              if (allSubSlotStaff) {
-                const staffBySubSlot = new Map();
-                for (const staff of allSubSlotStaff) {
-                  if (!staffBySubSlot.has(staff.sub_slot_id)) {
-                    staffBySubSlot.set(staff.sub_slot_id, []);
-                  }
-                  if (staff.staff) {
-                    staffBySubSlot.get(staff.sub_slot_id).push(staff.staff);
-                  }
-                }
-
-                // Assign staff to sub-slots
-                for (const [parentSlotId, subSlots] of subSlotsMap.entries()) {
-                  for (const subSlot of subSlots) {
-                    subSlot.staff_members =
-                      staffBySubSlot.get(subSlot.id) || [];
-                  }
-                }
-              }
-
-              if (allSubSlotSections) {
-                const sectionsBySubSlot = new Map();
-                for (const section of allSubSlotSections) {
-                  if (!sectionsBySubSlot.has(section.sub_slot_id)) {
-                    sectionsBySubSlot.set(section.sub_slot_id, []);
-                  }
-                  if (section.sections) {
-                    sectionsBySubSlot
-                      .get(section.sub_slot_id)
-                      .push(section.sections);
-                  }
-                }
-
-                // Assign sections to sub-slots
-                for (const [parentSlotId, subSlots] of subSlotsMap.entries()) {
-                  for (const subSlot of subSlots) {
-                    subSlot.sections = sectionsBySubSlot.get(subSlot.id) || [];
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        // Batch fetch all regular slot staff and sections
-        const regularSlotIds = slots
-          .filter((slot) => !slot.is_combined)
-          .map((slot) => slot.id);
-
-        if (regularSlotIds.length > 0) {
-          // Fetch all slot staff in one query
-          const { data: allSlotStaff, error: staffFetchError } = await this.supabase
-            .from('timetable_slot_staff')
-            .select(
-              `
-              timetable_slot_id,
-              staff_id,
-              staff:staff(id, first_name, last_name)
-            `
-            )
-            .in('timetable_slot_id', regularSlotIds);
-
-          if (staffFetchError) {
-            console.error('Error fetching timetable slot staff:', staffFetchError);
-            throw staffFetchError;
-          }
-
-          // Fetch all slot sections in one query
-          const { data: allSlotSections } = await this.supabase
-            .from('timetable_slot_sections')
-            .select(
-              `
-              timetable_slot_id,
-              section_id,
-              sections:section_id(id, section_name)
-            `
-            )
-            .in('timetable_slot_id', regularSlotIds);
-
-          // Map staff and sections to slots
-          const staffBySlot = new Map();
-          const sectionsBySlot = new Map();
-
-          if (allSlotStaff) {
-            for (const staff of allSlotStaff) {
-              if (!staffBySlot.has(staff.timetable_slot_id)) {
-                staffBySlot.set(staff.timetable_slot_id, []);
-              }
-              if (staff.staff) {
-                staffBySlot.get(staff.timetable_slot_id).push(staff.staff);
-              }
-            }
-          }
-
-          if (allSlotSections) {
-            for (const section of allSlotSections) {
-              if (!sectionsBySlot.has(section.timetable_slot_id)) {
-                sectionsBySlot.set(section.timetable_slot_id, []);
-              }
-              if (section.sections) {
-                sectionsBySlot
-                  .get(section.timetable_slot_id)
-                  .push(section.sections);
-              }
-            }
-          }
-
-          // Assign data to slots
-          for (const slot of slots) {
-            if (slot.is_combined) {
-              slot.sub_slots = subSlotsMap.get(slot.id) || [];
-            } else {
-              slot.staff_members = staffBySlot.get(slot.id) || [];
-              slot.sections = sectionsBySlot.get(slot.id) || [];
-            }
-          }
-        }
-      }
-
-      // Sort slots by period start time after fetching
-      const sortedSlots = slots
-        ? [...slots].sort((a, b) => {
-            // Handle batch timetable slots (with slot_date) vs regular slots (with day_of_week)
-            if (a.slot_date && b.slot_date) {
-              // Both are batch slots - sort by date first
-              const dateComparison = a.slot_date.localeCompare(b.slot_date);
-              if (dateComparison !== 0) {
-                return dateComparison;
-              }
-            } else if (a.day_of_week && b.day_of_week) {
-              // Both are regular slots - sort by day_of_week first
-              const dayComparison = a.day_of_week.localeCompare(b.day_of_week);
-              if (dayComparison !== 0) {
-                return dayComparison;
-              }
-            } else if (a.slot_date && b.day_of_week) {
-              // Mixed: batch slot vs regular slot - batch slots come first
-              return -1;
-            } else if (a.day_of_week && b.slot_date) {
-              // Mixed: regular slot vs batch slot - batch slots come first
-              return 1;
-            }
-
-            // Then sort by period start time if primary sort criteria are the same
-            const aStartTime = a.period?.start_time || '';
-            const bStartTime = b.period?.start_time || '';
-            return aStartTime.localeCompare(bStartTime);
-          })
-        : [];
-
-      return {
-        ...timetable,
-        slots: sortedSlots
-      };
+      return timetable;
     } catch (error) {
       console.error('Error fetching timetable:', error);
       throw error;
     }
   }
 
-  static async saveTimetableAsTemplate(
-    id: string,
-    templateName: string
-  ): Promise<Timetable> {
+  static async getTimetableSlots(
+    timetableId: string,
+    day?: DayOfWeek,
+    date?: string
+  ): Promise<any[]> {
     try {
-      // Get the current timetable
-      const timetable = await this.getTimetable(id);
-
-      // Create a new timetable as a template
-      const { data: newTemplate, error } = await this.supabase
-        .from('timetables')
-        .insert([
+      if (day || date) {
+        const { data, error } = await this.supabase.rpc(
+          'get_timetable_slots_for_day_or_date',
           {
-            institution_id: timetable.institution_id,
-            academic_year_id: timetable.academic_year_id,
-            degree_id: timetable.degree_id,
-            program_id: timetable.program_id,
-            department_id: timetable.department_id,
-            semester: timetable.semester,
-            section: timetable.section,
-            timetable_name: timetable.timetable_name,
-            version: 1,
-            is_active: true,
-            is_template: true,
-            template_name: templateName
+            p_timetable_id: timetableId,
+            p_day_of_week: day || null,
+            p_slot_date: date || null
           }
-        ])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Copy period selections to the new template
-      const timetablePeriods = await this.getTimetablePeriods(id);
-      if (timetablePeriods.length > 0) {
-        const newTimetablePeriods = timetablePeriods.map((tp) => ({
-          timetable_id: newTemplate.id,
-          period_id: tp.period_id,
-          sort_order: tp.sort_order
-        }));
-
-        const { error: periodsError } = await this.supabase
-          .from('timetable_periods')
-          .insert(newTimetablePeriods);
-
-        if (periodsError) throw periodsError;
-      }
-
-      // Copy all slots to the new template
-      if (timetable.slots && timetable.slots.length > 0) {
-        const newSlots = timetable.slots.map((slot) => ({
-          timetable_id: newTemplate.id,
-          day_of_week: slot.day_of_week,
-          period_id: slot.period_id,
-          course_id: slot.course_id,
-          is_break_slot: slot.is_break_slot,
-          break_description: slot.break_description
-        }));
-
-        const { error: slotsError } = await this.supabase
-          .from('timetable_slots')
-          .insert(newSlots);
-
-        if (slotsError) throw slotsError;
-      }
-
-      toast.success('Timetable saved as template successfully');
-      return this.getTimetable(newTemplate.id);
-    } catch (error) {
-      console.error('Error saving timetable as template:', error);
-      throw error;
-    }
-  }
-
-  static async createTimetableFromTemplate(
-    templateId: string,
-    newTimetableData: CreateTimetableDto
-  ): Promise<Timetable> {
-    try {
-      // Create a new timetable
-      const { data: newTimetable, error } = await this.supabase
-        .from('timetables')
-        .insert([
-          {
-            ...newTimetableData,
-            version: 1,
-            is_active: true,
-            is_template: false
-          }
-        ])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Copy period selections from the template
-      const templatePeriods = await this.getTimetablePeriods(templateId);
-      if (templatePeriods.length > 0) {
-        const newTimetablePeriods = templatePeriods.map((tp) => ({
-          timetable_id: newTimetable.id,
-          period_id: tp.period_id,
-          sort_order: tp.sort_order
-        }));
-
-        const { error: periodsError } = await this.supabase
-          .from('timetable_periods')
-          .insert(newTimetablePeriods);
-
-        if (periodsError) throw periodsError;
-      }
-
-      // Get all slots from the template
-      const { data: templateSlots, error: slotsError } = await this.supabase
-        .from('timetable_slots')
-        .select('*')
-        .eq('timetable_id', templateId);
-
-      if (slotsError) throw slotsError;
-
-      if (templateSlots && templateSlots.length > 0) {
-        const newSlots = templateSlots.map((slot) => ({
-          timetable_id: newTimetable.id,
-          day_of_week: slot.day_of_week,
-          period_id: slot.period_id,
-          course_id: slot.course_id,
-          is_break_slot: slot.is_break_slot,
-          break_description: slot.break_description
-        }));
-
-        const { error: insertError } = await this.supabase
-          .from('timetable_slots')
-          .insert(newSlots);
-
-        if (insertError) throw insertError;
-      }
-
-      toast.success('Timetable created from template successfully');
-      return this.getTimetable(newTimetable.id);
-    } catch (error) {
-      console.error('Error creating timetable from template:', error);
-      throw error;
-    }
-  }
-
-  // Batch create multiple timetable slots for improved performance
-  static async createTimetableSlotsBatch(
-    slots: CreateTimetableSlotDto[]
-  ): Promise<TimetableSlot[]> {
-    try {
-      if (!slots.length) return [];
-
-      // Prepare all slot data for batch insertion
-      const slotsData = slots.map((data) => ({
-        timetable_id: data.timetable_id,
-        day_of_week: data.day_of_week,
-        slot_date: data.slot_date,
-        period_id: data.period_id,
-        course_id: data.is_combined ? null : data.course_id,
-        is_break_slot: data.is_break_slot || false,
-        break_description: data.break_description,
-        is_combined: data.is_combined || false
-      }));
-
-      // Batch insert all slots at once
-      const { data: insertedSlots, error: insertError } = await this.supabase
-        .from('timetable_slots')
-        .insert(slotsData)
-        .select('*');
-
-      if (insertError) throw insertError;
-      if (!insertedSlots) throw new Error('Failed to create slots');
-
-      // Process staff, sections, and sub-slots for each created slot
-      const promises = [];
-
-      for (let i = 0; i < insertedSlots.length; i++) {
-        const slot = insertedSlots[i];
-        const originalData = slots[i];
-
-        // Handle combined slots with sub-slots
-        if (originalData.is_combined && originalData.sub_slots) {
-          promises.push(this.createSubSlots(slot.id, originalData.sub_slots));
-        }
-
-        // Handle staff assignments (for non-combined slots)
-        if (!originalData.is_combined && originalData.staff_ids?.length) {
-          const staffData = originalData.staff_ids.map((staffId) => ({
-            timetable_slot_id: slot.id,
-            staff_id: staffId
-          }));
-          promises.push(
-            this.supabase.from('timetable_slot_staff').insert(staffData)
-          );
-        }
-
-        // Handle section assignments (for non-combined slots)
-        if (!originalData.is_combined && originalData.section_ids?.length) {
-          const sectionData = originalData.section_ids.map((sectionId) => ({
-            timetable_slot_id: slot.id,
-            section_id: sectionId
-          }));
-          promises.push(
-            this.supabase.from('timetable_slot_sections').insert(sectionData)
-          );
-        }
-      }
-
-      // Execute all relationship inserts in parallel
-      await Promise.all(promises);
-
-      return insertedSlots;
-    } catch (error) {
-      console.error('Error creating batch timetable slots:', error);
-      throw error;
-    }
-  }
-
-  // Timetable Slots Methods
-  static async createTimetableSlot(
-    data: CreateTimetableSlotDto
-  ): Promise<TimetableSlot> {
-    try {
-      // Validate that either day_of_week or slot_date is provided, but not both
-      if (!data.day_of_week && !data.slot_date) {
-        throw new Error('Either day_of_week or slot_date must be provided.');
-      }
-      if (data.day_of_week && data.slot_date) {
-        throw new Error(
-          'Both day_of_week and slot_date cannot be provided at the same time.'
         );
-      }
 
-      // Check for existing slot at the same day and period
-      const { data: existing, error: checkError } = await this.supabase
-        .from('timetable_slots')
-        .select('*')
-        .eq('timetable_id', data.timetable_id)
-        .eq('day_of_week', data.day_of_week)
-        .eq('period_id', data.period_id)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-
-      if (existing) {
-        // Update the existing slot
-        return this.updateTimetableSlot(existing.id, {
-          course_id: data.course_id,
-            staff_ids: data.staff_ids,
-          section_ids: data.section_ids,
-          is_break_slot: data.is_break_slot,
-          break_description: data.break_description,
-          is_combined: data.is_combined,
-          sub_slots: data.sub_slots
-        });
-      }
-
-      // Prepare slot data for insertion
-      const slotData = {
-        timetable_id: data.timetable_id,
-        day_of_week: data.day_of_week,
-        slot_date: data.slot_date,
-        period_id: data.period_id,
-        course_id: data.is_combined ? null : data.course_id, // No main course for combined slots
-        is_break_slot: data.is_break_slot || false,
-        break_description: data.break_description,
-        is_combined: data.is_combined || false
-      };
-
-      // Insert a new slot
-      const { data: slot, error } = await this.supabase
-        .from('timetable_slots')
-        .insert([slotData])
-        .select(
-          `
-          *,
-          period:period_id(*),
-          course:course_id(id, course_name, course_code)
-        `
-        )
-        .single();
-
-      if (error) throw error;
-
-      // Handle combined class with sub-slots
-      if (data.is_combined && data.sub_slots && data.sub_slots.length > 0) {
-        for (const subSlotData of data.sub_slots) {
-          await this.createSubSlot(slot.id, subSlotData);
+        if (error) {
+          console.error('Error in getTimetableSlots:', error);
+          throw error;
         }
+
+        return data.map((item: any) => item.slot);
       } else {
-        // Handle regular slot assignments (non-combined)
-
-        // Handle multiple staff assignments
-        if (data.staff_ids && data.staff_ids.length > 0) {
-          const staffAssignments = data.staff_ids.map((staffId) => ({
-            timetable_slot_id: slot.id,
-            staff_id: staffId
-          }));
-
-          const { error: staffError } = await this.supabase
-            .from('timetable_slot_staff')
-            .insert(staffAssignments);
-
-          if (staffError) {
-            console.error('Error assigning staff to slot:', staffError);
-          }
-        }
-
-        // Handle multiple section assignments
-        if (data.section_ids && data.section_ids.length > 0) {
-          const sectionAssignments = data.section_ids.map((sectionId) => ({
-            timetable_slot_id: slot.id,
-            section_id: sectionId
-          }));
-
-          const { error: sectionError } = await this.supabase
-            .from('timetable_slot_sections')
-            .insert(sectionAssignments);
-
-          if (sectionError) {
-            console.error('Error assigning sections to slot:', sectionError);
-          }
-        }
-      }
-
-      // Fetch the complete slot with all relations
-      return this.getSlotWithStaff(slot.id);
-    } catch (error) {
-      console.error('Error creating timetable slot:', error);
-      throw error;
-    }
-  }
-
-  // Create multiple sub-slots for combined classes (batch operation)
-  static async createSubSlots(
-    parentSlotId: string,
-    subSlotsData: any[]
-  ): Promise<void> {
-    try {
-      if (!subSlotsData || subSlotsData.length === 0) return;
-
-      // Prepare all sub-slots for batch insertion
-      const subSlotsToInsert = subSlotsData.map((subSlotData, index) => ({
-        parent_slot_id: parentSlotId,
-        sub_slot_order: subSlotData.sub_slot_order || index,
-        course_id: subSlotData.course_id,
-        is_break_slot: subSlotData.is_break_slot || false,
-        break_description: subSlotData.break_description
-      }));
-
-      // Batch insert all sub-slots
-      const { data: insertedSubSlots, error } = await this.supabase
-        .from('timetable_sub_slots')
-        .insert(subSlotsToInsert)
-        .select();
-
-      if (error) throw error;
-      if (!insertedSubSlots) throw new Error('Failed to create sub-slots');
-
-      // Process staff and section assignments for all sub-slots
-      const promises = [];
-
-      for (let i = 0; i < insertedSubSlots.length; i++) {
-        const subSlot = insertedSubSlots[i];
-        const originalData = subSlotsData[i];
-
-        // Handle staff assignments for this sub-slot
-        if (originalData.staff_ids && originalData.staff_ids.length > 0) {
-          const staffAssignments = originalData.staff_ids.map(
-            (staffId: string) => ({
-              sub_slot_id: subSlot.id,
-              staff_id: staffId
-            })
-          );
-          promises.push(
-            this.supabase.from('timetable_sub_slot_staff').insert(staffAssignments)
-          );
-        }
-
-        // Handle section assignments for this sub-slot
-        if (originalData.section_ids && originalData.section_ids.length > 0) {
-          const sectionAssignments = originalData.section_ids.map(
-            (sectionId: string) => ({
-              sub_slot_id: subSlot.id,
-              section_id: sectionId
-            })
-          );
-          promises.push(
-            this.supabase.from('timetable_sub_slot_sections').insert(sectionAssignments)
-          );
-        }
-      }
-
-      // Execute all assignments in parallel
-      await Promise.all(promises);
-    } catch (error) {
-      console.error('Error creating sub-slots:', error);
-      throw error;
-    }
-  }
-
-  // Create a sub-slot for combined classes
-  static async createSubSlot(
-    parentSlotId: string,
-    subSlotData: any
-  ): Promise<void> {
-    try {
-      // Insert the sub-slot
-      const { data: subSlot, error } = await this.supabase
-        .from('timetable_sub_slots')
-        .insert([
+        // New logic to fetch all slots if no day or date is provided
+        const { data, error } = await this.supabase.rpc(
+          'get_all_timetable_slots',
           {
-            parent_slot_id: parentSlotId,
-            sub_slot_order: subSlotData.sub_slot_order,
-            course_id: subSlotData.course_id,
-            is_break_slot: subSlotData.is_break_slot || false,
-            break_description: subSlotData.break_description
+            p_timetable_id: timetableId
           }
-        ])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Handle staff assignments for this sub-slot
-      if (subSlotData.staff_ids && subSlotData.staff_ids.length > 0) {
-        const staffAssignments = subSlotData.staff_ids.map(
-          (staffId: string) => ({
-            sub_slot_id: subSlot.id,
-            staff_id: staffId
-          })
         );
 
-        const { error: staffError } = await this.supabase
-          .from('timetable_sub_slot_staff')
-          .insert(staffAssignments);
-
-        if (staffError) {
-          console.error('Error assigning staff to sub-slot:', staffError);
+        if (error) {
+          console.error('Error in getTimetableSlots (all):', error);
+          throw error;
         }
-      }
-
-      // Handle section assignments for this sub-slot
-      if (subSlotData.section_ids && subSlotData.section_ids.length > 0) {
-        const sectionAssignments = subSlotData.section_ids.map(
-          (sectionId: string) => ({
-            sub_slot_id: subSlot.id,
-            section_id: sectionId
-          })
-        );
-
-        const { error: sectionError } = await this.supabase
-          .from('timetable_sub_slot_sections')
-          .insert(sectionAssignments);
-
-        if (sectionError) {
-          console.error('Error assigning sections to sub-slot:', sectionError);
-        }
+        return data.map((item: any) => item.slot);
       }
     } catch (error) {
-      console.error('Error creating sub-slot:', error);
+      console.error('Error fetching timetable slots:', error);
       throw error;
     }
   }
 
-  static async getSlotWithStaff(slotId: string): Promise<TimetableSlot> {
+  static async getTimetableByDate(
+    institutionId: string,
+    sectionId: string,
+    date: string
+  ): Promise<any> {
     try {
-      // Get the slot with basic relations
-      const { data: slot, error } = await this.supabase
-        .from('timetable_slots')
-        .select(
-          `
-          *,
-          period:period_id(*),
-          course:course_id(id, course_name, course_code)
-        `
-        )
-        .eq('id', slotId)
-        .single();
+      const { data, error } = await this.supabase.rpc('get_timetable_by_date', {
+        p_institution_id: institutionId,
+        p_section_id: sectionId,
+        p_date: date
+      });
 
-      if (error) throw error;
-
-      if (slot.is_combined) {
-        // For combined slots, get sub-slots with their staff and sections
-        const { data: subSlots, error: subSlotsError } = await this.supabase
-          .from('timetable_sub_slots')
-          .select(
-            `
-            *,
-            course:course_id(id, course_name, course_code)
-          `
-          )
-          .eq('parent_slot_id', slotId)
-          .order('sub_slot_order');
-
-        if (subSlotsError) {
-          console.error('Error fetching sub-slots:', subSlotsError);
-        } else if (subSlots) {
-          // Get staff and sections for each sub-slot
-          for (const subSlot of subSlots) {
-            // Get staff for this sub-slot
-            const { data: subSlotStaff, error: staffError } =
-              await this.supabase
-                .from('timetable_sub_slot_staff')
-                .select(
-                  `
-                  staff_id,
-                  staff:staff(id, first_name, last_name)
-                `
-                )
-                .eq('sub_slot_id', subSlot.id);
-
-            if (staffError) {
-              console.error('Error fetching sub-slot staff:', staffError);
-            } else {
-              subSlot.staff_members =
-                subSlotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
-            }
-
-            // Get sections for this sub-slot
-            const { data: subSlotSections, error: sectionsError } =
-              await this.supabase
-                .from('timetable_sub_slot_sections')
-                .select(
-                  `
-                section_id,
-                sections:section_id(id, section_name)
-              `
-                )
-                .eq('sub_slot_id', subSlot.id);
-
-            if (sectionsError) {
-              console.error('Error fetching sub-slot sections:', sectionsError);
-            } else {
-              subSlot.sections =
-                subSlotSections?.map((ss) => ss.sections).filter(Boolean) || [];
-            }
-          }
-
-          slot.sub_slots = subSlots;
-        }
-      } else {
-        // For regular slots, get staff and sections
-
-        // Get staff members from the junction table
-        const { data: slotStaff, error: staffError } = await this.supabase
-          .from('timetable_slot_staff')
-          .select(
-            `
-            staff_id,
-            staff:staff(id, first_name, last_name)
-          `
-          )
-          .eq('timetable_slot_id', slotId);
-
-        if (staffError) {
-          console.error('Error fetching slot staff:', staffError);
-        } else {
-          slot.staff_members =
-            slotStaff?.map((ss) => ss.staff).filter(Boolean) || [];
-        }
-
-        // Get sections from the junction table
-        const { data: slotSections, error: sectionsError } = await this.supabase
-          .from('timetable_slot_sections')
-          .select(
-            `
-            section_id,
-            sections:section_id(id, section_name)
-          `
-          )
-          .eq('timetable_slot_id', slotId);
-
-        if (sectionsError) {
-          console.error('Error fetching slot sections:', sectionsError);
-        } else {
-          slot.sections =
-            slotSections?.map((ss) => ss.sections).filter(Boolean) || [];
-        }
+      if (error) {
+        console.error('Error fetching timetable by date:', error);
+        throw error;
       }
 
-      return slot;
+      return data;
     } catch (error) {
-      console.error('Error fetching slot with staff:', error);
+      console.error('Error in getTimetableByDate:', error);
       throw error;
     }
   }
 
   static async updateTimetableSlot(
-    id: string,
-    data: UpdateTimetableSlotDto
-  ): Promise<TimetableSlot> {
-    try {
-      // Validate that either day_of_week or slot_date is not being set to null if the other is also null
-      if (data.day_of_week === null && data.slot_date === undefined) {
-        const { data: currentSlot, error } = await this.supabase
-          .from('timetable_slots')
-          .select('slot_date')
-          .eq('id', id)
-          .single();
-        if (currentSlot && currentSlot.slot_date === null) {
-          throw new Error('Either day_of_week or slot_date must be provided.');
-        }
-      }
-
-      if (data.slot_date === null && data.day_of_week === undefined) {
-        const { data: currentSlot, error } = await this.supabase
-          .from('timetable_slots')
-          .select('day_of_week')
-          .eq('id', id)
-          .single();
-        if (currentSlot && currentSlot.day_of_week === null) {
-          throw new Error('Either day_of_week or slot_date must be provided.');
-        }
-      }
-
-      // Prepare update data (exclude complex fields from main table update)
-      const { staff_ids, section_ids, sub_slots, ...slotUpdateData } = data;
-
-      const { data: updatedSlot, error } = await this.supabase
-        .from('timetable_slots')
-        .update({
-          ...slotUpdateData,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id)
-        .select(
-          `
-          *,
-          period:period_id(*),
-          course:course_id(id, course_name, course_code)
-        `
-        )
-        .single();
-
-      if (error) throw error;
-
-      // Handle combined class updates
-      if (data.is_combined && sub_slots) {
-        // Delete existing sub-slots (CASCADE will handle related records)
-        const { error: deleteSubSlotsError } = await this.supabase
-          .from('timetable_sub_slots')
-          .delete()
-          .eq('parent_slot_id', id);
-
-        if (deleteSubSlotsError) {
-          console.error(
-            'Error deleting existing sub-slots:',
-            deleteSubSlotsError
-          );
-        }
-
-        // Create new sub-slots
-        for (const subSlotData of sub_slots) {
-          await this.createSubSlot(id, subSlotData);
-        }
-      } else {
-        // Handle regular slot updates (non-combined)
-
-        // Handle multiple staff assignments if provided
-        if (staff_ids !== undefined) {
-          // First, delete existing staff assignments
-          const { error: deleteError } = await this.supabase
-            .from('timetable_slot_staff')
-            .delete()
-            .eq('timetable_slot_id', id);
-
-          if (deleteError) {
-            console.error(
-              'Error deleting existing staff assignments:',
-              deleteError
-            );
-          }
-
-          // Then, insert new staff assignments
-          if (staff_ids.length > 0) {
-            const staffAssignments = staff_ids.map((staffId) => ({
-              timetable_slot_id: id,
-              staff_id: staffId
-            }));
-
-            const { error: insertError } = await this.supabase
-              .from('timetable_slot_staff')
-              .insert(staffAssignments);
-
-            if (insertError) {
-              console.error(
-                'Error inserting new staff assignments:',
-                insertError
-              );
-            }
-          }
-        }
-
-        // Handle multiple section assignments if provided
-        if (section_ids !== undefined) {
-          // First, delete existing section assignments
-          const { error: deleteError } = await this.supabase
-            .from('timetable_slot_sections')
-            .delete()
-            .eq('timetable_slot_id', id);
-
-          if (deleteError) {
-            console.error(
-              'Error deleting existing section assignments:',
-              deleteError
-            );
-          }
-
-          // Then, insert new section assignments
-          if (section_ids.length > 0) {
-            const sectionAssignments = section_ids.map((sectionId) => ({
-              timetable_slot_id: id,
-              section_id: sectionId
-            }));
-
-            const { error: insertError } = await this.supabase
-              .from('timetable_slot_sections')
-              .insert(sectionAssignments);
-
-            if (insertError) {
-              console.error(
-                'Error inserting new section assignments:',
-                insertError
-              );
-            }
-          }
-        }
-      }
-
-      // Return the complete slot with all relations
-      return this.getSlotWithStaff(id);
-    } catch (error) {
-      console.error('Error updating timetable slot:', error);
-      throw error;
-    }
-  }
-
-  static async deleteTimetableSlot(id: string): Promise<void> {
-    try {
-      // Delete staff assignments (CASCADE should handle this, but let's be explicit)
-      const { error: staffError } = await this.supabase
-        .from('timetable_slot_staff')
-        .delete()
-        .eq('timetable_slot_id', id);
-
-      if (staffError) {
-        console.error('Error deleting staff assignments:', staffError);
-      }
-
-      // Delete section assignments
-      const { error: sectionError } = await this.supabase
-        .from('timetable_slot_sections')
-        .delete()
-        .eq('timetable_slot_id', id);
-
-      if (sectionError) {
-        console.error('Error deleting section assignments:', sectionError);
-      }
-
-      // Delete sub-slots (CASCADE will handle sub-slot staff and sections)
-      const { error: subSlotsError } = await this.supabase
-        .from('timetable_sub_slots')
-        .delete()
-        .eq('parent_slot_id', id);
-
-      if (subSlotsError) {
-        console.error('Error deleting sub-slots:', subSlotsError);
-      }
-
-      // Finally delete the main slot
-      const { error } = await this.supabase
-        .from('timetable_slots')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error deleting timetable slot:', error);
-      throw error;
-    }
-  }
-
-  static async getTimetableSlotsByDay(
     timetableId: string,
-    dayOfWeek: string
-  ): Promise<TimetableSlot[]> {
-    try {
-      const { data: slots, error } = await this.supabase
-        .from('timetable_slots')
-        .select(
-          `
-          *,
-          period:period_id(*),
-          course:course_id(id, course_name, course_code)
-        `
-        )
-        .eq('timetable_id', timetableId)
-        .eq('day_of_week', dayOfWeek)
-        .order('period.start_time', { ascending: true });
-
-      if (error) throw error;
-
-      return slots || [];
-    } catch (error) {
-      console.error('Error fetching timetable slots by day:', error);
-      throw error;
-    }
-  }
-
-  // Check for scheduling conflicts
-  static async checkStaffConflicts(
-    staffId: string,
-    dayOfWeek: string,
+    day: string,
     periodId: string,
-    timetableId?: string
-  ): Promise<boolean> {
+    slotData: any,
+    isBatch: boolean = false
+  ): Promise<any> {
     try {
+      const payload: any = {
+        p_timetable_id: timetableId,
+        p_day_of_week: day,
+        p_period_id: periodId,
+        p_slot_data: slotData,
+        p_is_batch: isBatch
+      };
+      const { data, error } = await this.supabase.rpc(
+        'update_timetable_slot',
+        payload
+      );
 
-      // Check conflicts in staff assignments
-      let staffAssignmentQuery = this.supabase
-        .from('timetable_slot_staff')
-        .select(
-          `
-          timetable_slot_id,
-          timetable_slots!inner(
-            id,
-            timetable_id,
-            day_of_week,
-            period_id
-          )
-        `
-        )
-        .eq('staff_id', staffId)
-        .eq('timetable_slots.day_of_week', dayOfWeek)
-        .eq('timetable_slots.period_id', periodId);
-
-      // Exclude current timetable if provided
-      if (timetableId) {
-        staffAssignmentQuery = staffAssignmentQuery.neq(
-          'timetable_slots.timetable_id',
-          timetableId
-        );
+      if (error) {
+        console.error('Error updating timetable slot:', error);
+        toast.error('Failed to update timetable slot.');
+        throw error;
       }
 
-      const { data: staffConflicts, error: staffError } =
-        await staffAssignmentQuery;
-
-      if (staffError) throw staffError;
-
-      // Return true if conflicts exist
-      const hasStaffConflicts = staffConflicts && staffConflicts.length > 0;
-
-      return hasStaffConflicts;
+      toast.success('Timetable slot updated successfully!');
+      return data;
     } catch (error) {
-      console.error('Error checking staff conflicts:', error);
+      console.error('Error in updateTimetableSlot:', error);
       throw error;
     }
   }
 
-  // Timetable Periods Methods
-  static async getTimetablePeriods(timetableId: string): Promise<any[]> {
+  static async deleteTimetableSlot(
+    timetableId: string,
+    day: string,
+    periodId: string,
+    isBatch: boolean = false
+  ): Promise<void> {
     try {
-      const { data, error } = await this.supabase
-        .from('timetable_periods')
-        .select(
-          `
-          *,
-          period:period_id(*)
-        `
-        )
-        .eq('timetable_id', timetableId)
-        .order('sort_order');
+      const { error } = await this.supabase.rpc('delete_timetable_slot', {
+        p_timetable_id: timetableId,
+        p_day_of_week: day,
+        p_period_id: periodId,
+        p_is_batch: isBatch
+      });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error deleting timetable slot:', error);
+        toast.error('Failed to delete timetable slot.');
+        throw error;
+      }
 
-      return data || [];
+      toast.success('Timetable slot deleted successfully!');
     } catch (error) {
-      console.error('Error fetching timetable periods:', error);
+      console.error('Error in deleteTimetableSlot:', error);
       throw error;
     }
   }
@@ -1579,85 +585,48 @@ export class TimetableService {
     periodIds: string[]
   ): Promise<void> {
     try {
-      // Get the current list of periods for the timetable
-      const { data: existingPeriods, error: fetchError } = await this.supabase
-        .from('timetable_periods')
-        .select('period_id')
-        .eq('timetable_id', timetableId);
+      // First, fetch the full period objects from the period IDs
+      const { data: periodsData, error: periodsError } = await this.supabase
+        .from('periods')
+        .select('*')
+        .in('id', periodIds);
 
-      if (fetchError) throw fetchError;
-
-      const existingPeriodIds = new Set(
-        existingPeriods.map((p) => p.period_id)
-      );
-      const newPeriodIds = new Set(periodIds);
-
-      // Determine which periods to add and which to remove
-      const periodsToAdd = periodIds
-        .filter((id) => !existingPeriodIds.has(id))
-        .map((periodId, index) => ({
-          timetable_id: timetableId,
-          period_id: periodId,
-          sort_order: periodIds.indexOf(periodId)
-        }));
-
-      const periodsToRemove = Array.from(existingPeriodIds).filter(
-        (id) => !newPeriodIds.has(id)
-      );
-
-      // Perform insertions and deletions
-      if (periodsToAdd.length > 0) {
-        const { error: insertError } = await this.supabase
-          .from('timetable_periods')
-          .insert(periodsToAdd);
-        if (insertError) throw insertError;
+      if (periodsError) {
+        console.error('Error fetching period data:', periodsError);
+        throw periodsError;
       }
 
-      if (periodsToRemove.length > 0) {
-        const { error: deleteError } = await this.supabase
-          .from('timetable_periods')
-          .delete()
-          .eq('timetable_id', timetableId)
-          .in('period_id', periodsToRemove);
-        if (deleteError) throw deleteError;
-      }
+      // Map the periods to the format expected by the timetable
+      // and maintain the order of periodIds
+      const orderedPeriods = periodIds
+        .map((id, index) => {
+          const period = periodsData.find((p) => p.id === id);
+          if (!period) return null;
 
-      // Update the sort order for all periods
-      const sortOrderUpdates = periodIds.map((periodId, index) => ({
-        timetable_id: timetableId,
-        period_id: periodId,
-        sort_order: index
-      }));
+          return {
+            period_id: period.id,
+            period_name: period.period_name,
+            start_time: period.start_time,
+            end_time: period.end_time,
+            is_break: period.is_break,
+            sort_order: index,
+            institution_id: period.institution_id
+          };
+        })
+        .filter(Boolean); // Remove any null values
 
-      if (sortOrderUpdates.length > 0) {
-        const { error: updateError } = await this.supabase
-          .from('timetable_periods')
-          .upsert(sortOrderUpdates, { onConflict: 'timetable_id, period_id' });
-        if (updateError) throw updateError;
-      }
-    } catch (error) {
-      console.error('Error saving timetable periods:', error);
-      throw error;
-    }
-  }
-
-  // Timetable Days Methods
-  static async saveTimetableDays(
-    timetableId: string,
-    selectedDays: string[]
-  ): Promise<void> {
-    try {
+      // Save the complete period objects to the timetable
       const { error } = await this.supabase
         .from('timetables')
-        .update({
-          selected_days: selectedDays,
-          updated_at: new Date().toISOString()
-        })
+        .update({ periods: orderedPeriods })
         .eq('id', timetableId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error saving timetable periods:', error);
+        throw error;
+      }
     } catch (error) {
-      console.error('Error saving timetable days:', error);
+      console.error('Error in saveTimetablePeriods:', error);
       throw error;
     }
   }

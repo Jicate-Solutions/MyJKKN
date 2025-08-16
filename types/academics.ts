@@ -144,75 +144,10 @@ export interface Timetable {
     id: string;
     department_name: string;
   };
-  slots?: TimetableSlot[];
-  timetable_format: 'regular' | 'batch'; // New field for timetable format
-}
-
-// Sub-slot for combined classes
-export interface TimetableSubSlot {
-  id: string;
-  parent_slot_id: string;
-  sub_slot_order: 1 | 2; // First or second sub-slot
-  course_id?: string;
-  is_break_slot: boolean;
-  break_description?: string;
-  created_at: string;
-  updated_at: string;
-  // Include related data
-  course?: {
-    id: string;
-    course_name: string;
-    course_code: string;
-  };
-  // Staff and sections for this sub-slot
-  staff_members?: {
-    id: string;
-    first_name: string;
-    last_name: string;
-  }[];
-  sections?: {
-    id: string;
-    section_name: string;
-  }[];
-}
-
-export interface TimetableSlot {
-  id: string;
-  timetable_id: string;
-  day_of_week: DayOfWeek;
-  slot_date?: string; // New field for batch timetable
-  period_id: string;
-  course_id?: string;
-  is_break_slot: boolean;
-  break_description?: string;
-  is_combined: boolean; // New field for combined classes
-  created_at: string;
-  updated_at: string;
-  // Include related data
-  period?: Period;
-  course?: {
-    id: string;
-    course_name: string;
-    course_code: string;
-  };
-  staff?: {
-    id: string;
-    first_name: string;
-    last_name: string;
-  };
-  // New field for multiple staff support
-  staff_members?: {
-    id: string;
-    first_name: string;
-    last_name: string;
-  }[];
-  // New field for sections (used when not combined)
-  sections?: {
-    id: string;
-    section_name: string;
-  }[];
-  // New field for sub-slots (used when combined)
-  sub_slots?: TimetableSubSlot[];
+  slots?: any[];
+  timetable_format: 'regular' | 'batch';
+  timetable_data?: any;
+  periods?: any;
 }
 
 export interface CreateTimetableDto {
@@ -231,36 +166,11 @@ export interface CreateTimetableDto {
   end_date?: string;
   selected_dates?: string[] | any; // JSONB column for selected dates in batch format
   timetable_format?: 'regular' | 'batch'; // New field for timetable format
+  timetable_data?: any;
+  periods?: any;
 }
 
 export interface UpdateTimetableDto extends Partial<CreateTimetableDto> {}
-
-export interface CreateTimetableSlotDto {
-  timetable_id: string;
-  day_of_week?: DayOfWeek;
-  slot_date?: string;
-  period_id: string;
-  course_id?: string;
-  staff_ids?: string[]; // Multiple staff support
-  section_ids?: string[]; // New field for multiple section support
-  is_break_slot?: boolean;
-  break_description?: string;
-  is_combined?: boolean; // New field for combined classes
-  sub_slots?: CreateTimetableSubSlotDto[]; // New field for sub-slots
-}
-
-// Sub-slot creation DTO
-export interface CreateTimetableSubSlotDto {
-  sub_slot_order: 1 | 2;
-  course_id?: string;
-  staff_ids?: string[];
-  section_ids?: string[];
-  is_break_slot?: boolean;
-  break_description?: string;
-}
-
-export interface UpdateTimetableSlotDto
-  extends Partial<Omit<CreateTimetableSlotDto, 'timetable_id'>> {}
 
 export interface TimetableFilters {
   search?: string;

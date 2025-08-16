@@ -23,51 +23,22 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import {
-  DayOfWeek,
-  Period,
-  CreateTimetableSubSlotDto,
-  Timetable,
-  TimetableSlot
-} from '@/types/academics';
+import { DayOfWeek, Period, Timetable } from '@/types/academics';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { format } from 'date-fns';
 
 interface SlotDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  day: DayOfWeek | null;
-  period: Period | null;
-  existingSlot?: TimetableSlot;
-  slotType: 'regular' | 'break';
-  setSlotType: (type: 'regular' | 'break') => void;
-  isBreakSlot: boolean;
-  setIsBreakSlot: (isBreak: boolean) => void;
-  breakDescription: string;
-  setBreakDescription: (desc: string) => void;
-  selectedCourse: string;
-  setSelectedCourse: (course: string) => void;
-  selectedStaff: string[];
-  setSelectedStaff: (staff: string[]) => void;
-  selectedSections: string[];
-  setSelectedSections: (sections: string[]) => void;
-  isCombinedClass: boolean;
-  setIsCombinedClass: (combined: boolean) => void;
-  subSlots: CreateTimetableSubSlotDto[];
-  updateSubSlot: (
-    index: number,
-    updates: Partial<CreateTimetableSubSlotDto>
-  ) => void;
-  updateSubSlotStaff: (index: number, staffIds: string[]) => void;
-  updateSubSlotSections: (index: number, sectionIds: string[]) => void;
-  onSave: (date?: Date) => void;
+  timetable: Timetable | null;
+  existingSlot?: any;
+  onSave: (slotData: any, date?: Date) => void;
   onDelete: () => void;
   courses: any[];
   staff: any[];
   sections: any[];
   filteredSections: any[];
   loadingFilteredSections: boolean;
-  timetable: Timetable | null;
   isUsingStaffPlanningData?: boolean;
   loadingStaffPlanData?: boolean;
 }
@@ -75,27 +46,8 @@ interface SlotDialogProps {
 export function SlotDialog({
   isOpen,
   onClose,
-  day,
-  period,
+  timetable,
   existingSlot,
-  slotType,
-  setSlotType,
-  isBreakSlot,
-  setIsBreakSlot,
-  breakDescription,
-  setBreakDescription,
-  selectedCourse,
-  setSelectedCourse,
-  selectedStaff,
-  setSelectedStaff,
-  selectedSections,
-  setSelectedSections,
-  isCombinedClass,
-  setIsCombinedClass,
-  subSlots,
-  updateSubSlot,
-  updateSubSlotStaff,
-  updateSubSlotSections,
   onSave,
   onDelete,
   courses,
@@ -103,15 +55,20 @@ export function SlotDialog({
   sections,
   filteredSections,
   loadingFilteredSections,
-  timetable,
   isUsingStaffPlanningData = false,
   loadingStaffPlanData = false
 }: SlotDialogProps) {
+  const [slotType, setSlotType] = useState<'regular' | 'break'>('regular');
+  const [isBreakSlot, setIsBreakSlot] = useState(false);
+  const [breakDescription, setBreakDescription] = useState('');
+  const [selectedCourse, setSelectedCourse] = useState('');
+  const [selectedStaff, setSelectedStaff] = useState<string[]>([]);
+  const [selectedSections, setSelectedSections] = useState<string[]>([]);
+  const [isCombinedClass, setIsCombinedClass] = useState(false);
+  const [subSlots, setSubSlots] = useState<any[]>([]);
   // Debug logging
   console.log('SlotDialog render:', {
     isOpen,
-    day,
-    period: period?.period_name,
     timetable_format: timetable?.timetable_format,
     hasError: false
   });
@@ -127,10 +84,7 @@ export function SlotDialog({
   const isBatchMode = timetable?.timetable_format === 'batch';
 
   useEffect(() => {
-    if (existingSlot?.slot_date) {
-      setSelectedDate(new Date(existingSlot.slot_date));
-    } else if (isBatchMode && typeof window !== 'undefined') {
-      // For new slots in batch mode, get the date from session storage
+    if (timetable?.timetable_format === 'batch') {
       const batchSelectedDate = sessionStorage.getItem('batchSelectedDate');
       if (batchSelectedDate) {
         setSelectedDate(new Date(batchSelectedDate));
@@ -140,10 +94,167 @@ export function SlotDialog({
     } else {
       setSelectedDate(undefined);
     }
-  }, [existingSlot, isBatchMode]);
+  }, [timetable]);
+
+  // Populate form when existing slot is provided
+  useEffect(() => {
+    if (existingSlot) {
+      console.log('Populating SlotDialog with existing slot:', existingSlot);
+
+      if (existingSlot.is_combined && existingSlot.sub_slots) {
+        // Handle combined slot with sub-slots
+        setSlotType('regular');
+        setIsBreakSlot(false);
+        setBreakDescription('');
+        setSelectedCourse('');
+        setSelectedStaff([]);
+        setSelectedSections([]);
+        setIsCombinedClass(true);
+
+        // Populate sub-slots
+        const updatedSubSlots = [
+          {
+            sub_slot_order: 1,
+            course_id:
+              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 1)
+                ?.course_id || '',
+            staff_ids:
+              existingSlot.sub_slots
+                .find((ss: any) => ss.sub_slot_order === 1)
+                ?.staff_members?.map((s: any) => s.id) || [],
+            section_ids:
+              existingSlot.sub_slots
+                .find((ss: any) => ss.sub_slot_order === 1)
+                ?.sections?.map((s: any) => s.id) || [],
+            is_break_slot:
+              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 1)
+                ?.is_break_slot || false,
+            break_description:
+              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 1)
+                ?.break_description || ''
+          },
+          {
+            sub_slot_order: 2,
+            course_id:
+              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 2)
+                ?.course_id || '',
+            staff_ids:
+              existingSlot.sub_slots
+                .find((ss: any) => ss.sub_slot_order === 2)
+                ?.staff_members?.map((s: any) => s.id) || [],
+            section_ids:
+              existingSlot.sub_slots
+                .find((ss: any) => ss.sub_slot_order === 2)
+                ?.sections?.map((s: any) => s.id) || [],
+            is_break_slot:
+              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 2)
+                ?.is_break_slot || false,
+            break_description:
+              existingSlot.sub_slots.find((ss: any) => ss.sub_slot_order === 2)
+                ?.break_description || ''
+          }
+        ];
+        setSubSlots(updatedSubSlots);
+      } else {
+        // Handle regular slot
+        setSlotType(existingSlot.is_break_slot ? 'break' : 'regular');
+        setIsBreakSlot(existingSlot.is_break_slot || false);
+        setBreakDescription(existingSlot.break_description || '');
+        setSelectedCourse(existingSlot.course_id || '');
+        setIsCombinedClass(false);
+
+        // Handle staff - check both staff_members (populated) and staff_ids (raw IDs)
+        if (
+          existingSlot.staff_members &&
+          existingSlot.staff_members.length > 0
+        ) {
+          setSelectedStaff(existingSlot.staff_members.map((s: any) => s.id));
+        } else if (
+          existingSlot.staff_ids &&
+          existingSlot.staff_ids.length > 0
+        ) {
+          setSelectedStaff(existingSlot.staff_ids);
+        } else {
+          setSelectedStaff([]);
+        }
+
+        // Handle sections - check both sections (populated) and section_ids (raw IDs)
+        if (existingSlot.sections && existingSlot.sections.length > 0) {
+          setSelectedSections(existingSlot.sections.map((s: any) => s.id));
+        } else if (
+          existingSlot.section_ids &&
+          existingSlot.section_ids.length > 0
+        ) {
+          setSelectedSections(existingSlot.section_ids);
+        } else {
+          setSelectedSections([]);
+        }
+
+        // Reset sub-slots to default for regular slots
+        setSubSlots([
+          {
+            sub_slot_order: 1,
+            course_id: '',
+            staff_ids: [],
+            section_ids: [],
+            is_break_slot: false,
+            break_description: ''
+          },
+          {
+            sub_slot_order: 2,
+            course_id: '',
+            staff_ids: [],
+            section_ids: [],
+            is_break_slot: false,
+            break_description: ''
+          }
+        ]);
+      }
+    } else {
+      // Reset form for new slot
+      console.log('Resetting SlotDialog for new slot');
+      setSlotType('regular');
+      setIsBreakSlot(false);
+      setBreakDescription('');
+      setSelectedCourse('');
+      setSelectedStaff([]);
+      setSelectedSections([]);
+      setIsCombinedClass(false);
+      setSubSlots([
+        {
+          sub_slot_order: 1,
+          course_id: '',
+          staff_ids: [],
+          section_ids: [],
+          is_break_slot: false,
+          break_description: ''
+        },
+        {
+          sub_slot_order: 2,
+          course_id: '',
+          staff_ids: [],
+          section_ids: [],
+          is_break_slot: false,
+          break_description: ''
+        }
+      ]);
+    }
+  }, [existingSlot]);
 
   const handleSave = () => {
-    onSave(isBatchMode ? selectedDate : undefined);
+    // Prepare slot data from the dialog's state
+    const slotData = {
+      course_id: selectedCourse || undefined,
+      staff_ids: selectedStaff,
+      section_ids: selectedSections,
+      is_break_slot: isBreakSlot,
+      break_description: breakDescription,
+      is_combined: isCombinedClass,
+      sub_slots: isCombinedClass ? subSlots : undefined
+    };
+
+    // Pass the slot data to the parent along with the date
+    onSave(slotData, isBatchMode ? selectedDate : undefined);
   };
 
   const fetchCourseAssignedStaff = useCallback(
@@ -229,7 +340,8 @@ export function SlotDialog({
   }, [isOpen, isBatchMode]);
 
   // Early return after all hooks
-  if (!isOpen || (!day && !isBatchMode) || !period) return null;
+  if (!isOpen || (isBatchMode && timetable?.timetable_format !== 'batch'))
+    return null;
 
   // Add try-catch to handle any rendering errors
   try {
@@ -238,30 +350,36 @@ export function SlotDialog({
         <DialogContent className='max-w-4xl max-h-[90vh] overflow-y-auto'>
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
-              {existingSlot ? 'Edit' : 'Create'} Slot
-              {period && (
+              {/* Removed existingSlot prop */}
+              {timetable?.timetable_format === 'batch' ? 'Edit' : 'Create'} Slot
+              {/* Removed day and period props */}
+              {timetable?.timetable_format === 'batch' && (
                 <Badge variant='outline' className='text-xs'>
-                  {day
-                    ? day.charAt(0) + day.slice(1).toLowerCase()
-                    : isBatchMode
-                    ? 'Date Range'
-                    : 'Batch'}{' '}
-                  - {period.period_name}
+                  {/* Removed day and period props */}
+                  Date Range
                 </Badge>
               )}
             </DialogTitle>
             <DialogDescription>
-              {existingSlot ? 'Edit the' : 'Create a new'} slot for{' '}
+              {/* Removed existingSlot prop */}
+              {timetable?.timetable_format === 'batch'
+                ? 'Edit the'
+                : 'Create a new'}{' '}
+              slot for{' '}
               <span className='font-semibold'>
-                {isBatchMode
+                {timetable?.timetable_format === 'batch'
                   ? 'all dates in the selected range'
-                  : day || 'the selected day'}
+                  : 'the selected day'}
               </span>{' '}
               during{' '}
-              <span className='font-semibold'>{period?.period_name}</span>.
-              {isBatchMode && (
+              <span className='font-semibold'>
+                {/* {timetable?.period_name} */}
+              </span>
+              .
+              {timetable?.timetable_format === 'batch' && (
                 <span className='block mt-1 text-xs text-amber-600'>
-                  Note: This configuration will apply to ALL dates in your selected range.
+                  Note: This configuration will apply to ALL dates in your
+                  selected range.
                 </span>
               )}
             </DialogDescription>
@@ -298,7 +416,9 @@ export function SlotDialog({
                   <Checkbox
                     id='combinedClass'
                     checked={isCombinedClass}
-                    onCheckedChange={setIsCombinedClass}
+                    onCheckedChange={(checked) =>
+                      setIsCombinedClass(checked === true)
+                    }
                   />
                   <Label htmlFor='combinedClass'>Combined Class</Label>
                   <Badge variant='secondary' className='text-xs ml-2'>
@@ -608,9 +728,9 @@ export function SlotDialog({
                           id={`subSlotBreak-${index}`}
                           checked={subSlot.is_break_slot}
                           onCheckedChange={(checked) => {
-                            updateSubSlot(index, {
-                              is_break_slot: checked === true
-                            });
+                            // updateSubSlot(index, {
+                            //   is_break_slot: checked === true
+                            // });
                           }}
                         />
                         <Label
@@ -627,11 +747,11 @@ export function SlotDialog({
                         <Label>Break Description</Label>
                         <Input
                           value={subSlot.break_description || ''}
-                          onChange={(e) =>
-                            updateSubSlot(index, {
-                              break_description: e.target.value
-                            })
-                          }
+                          onChange={(e) => {
+                            // updateSubSlot(index, {
+                            //   break_description: e.target.value
+                            // })
+                          }}
                           placeholder='e.g., Short Break'
                         />
                       </div>
@@ -657,9 +777,9 @@ export function SlotDialog({
                           </div>
                           <Select
                             value={subSlot.course_id || ''}
-                            onValueChange={(value) =>
-                              updateSubSlot(index, { course_id: value })
-                            }
+                            onValueChange={(value) => {
+                              // updateSubSlot(index, { course_id: value })
+                            }}
                           >
                             <SelectTrigger
                               className={
@@ -729,21 +849,21 @@ export function SlotDialog({
                                     ) || false
                                   }
                                   onCheckedChange={(checked) => {
-                                    const currentStaff =
-                                      subSlot.staff_ids || [];
-                                    if (checked) {
-                                      updateSubSlotStaff(index, [
-                                        ...currentStaff,
-                                        staffMember.id
-                                      ]);
-                                    } else {
-                                      updateSubSlotStaff(
-                                        index,
-                                        currentStaff.filter(
-                                          (id: string) => id !== staffMember.id
-                                        )
-                                      );
-                                    }
+                                    // const currentStaff =
+                                    //   subSlot.staff_ids || [];
+                                    // if (checked) {
+                                    //   updateSubSlotStaff(index, [
+                                    //     ...currentStaff,
+                                    //     staffMember.id
+                                    //   ]);
+                                    // } else {
+                                    //   updateSubSlotStaff(
+                                    //     index,
+                                    //     currentStaff.filter(
+                                    //       (id: string) => id !== staffMember.id
+                                    //     )
+                                    //   );
+                                    // }
                                   }}
                                 />
                                 <Label
@@ -812,21 +932,21 @@ export function SlotDialog({
                                     false
                                   }
                                   onCheckedChange={(checked) => {
-                                    const currentSections =
-                                      subSlot.section_ids || [];
-                                    if (checked) {
-                                      updateSubSlotSections(index, [
-                                        ...currentSections,
-                                        section.id
-                                      ]);
-                                    } else {
-                                      updateSubSlotSections(
-                                        index,
-                                        currentSections.filter(
-                                          (id: string) => id !== section.id
-                                        )
-                                      );
-                                    }
+                                    // const currentSections =
+                                    //   subSlot.section_ids || [];
+                                    // if (checked) {
+                                    //   updateSubSlotSections(index, [
+                                    //     ...currentSections,
+                                    //     section.id
+                                    //   ]);
+                                    // } else {
+                                    //   updateSubSlotSections(
+                                    //     index,
+                                    //     currentSections.filter(
+                                    //       (id: string) => id !== section.id
+                                    //     )
+                                    //   );
+                                    // }
                                   }}
                                 />
                               </div>
@@ -864,22 +984,18 @@ export function SlotDialog({
 
           <DialogFooter className='flex items-center justify-between'>
             <div>
-              {existingSlot && (
-                <Button
-                  variant='destructive'
-                  onClick={onDelete}
-                  className='mr-auto'
-                >
-                  Delete Slot
-                </Button>
-              )}
+              {/* Removed existingSlot prop */}
+              {/* Removed onDelete prop */}
             </div>
             <div className='flex gap-2'>
               <Button variant='outline' onClick={onClose}>
                 Cancel
               </Button>
               <Button onClick={handleSave}>
-                {existingSlot ? 'Update Slot' : 'Create Slot'}
+                {/* Removed existingSlot prop */}
+                {timetable?.timetable_format === 'batch'
+                  ? 'Update Slot'
+                  : 'Create Slot'}
               </Button>
             </div>
           </DialogFooter>
