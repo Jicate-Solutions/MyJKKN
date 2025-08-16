@@ -8,6 +8,9 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { CalendarIcon } from 'lucide-react';
+import { DatePicker } from '@/components/ui/date-picker';
 import {
   useInstitutions,
   useDegrees,
@@ -37,7 +40,6 @@ export function AttendanceDashboardFilters({
   filters,
   onFilterChange
 }: AttendanceDashboardFiltersProps) {
-
   // Data fetching hooks with dependency chain
   const { data: institutions, isLoading: institutionsLoading } =
     useInstitutions();
@@ -97,8 +99,119 @@ export function AttendanceDashboardFilters({
     });
   };
 
+  // Helper function to format date for display
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  // Helper function to set default date ranges
+  const setQuickDateRange = (days: number) => {
+    const end = new Date();
+    const start =
+      days === 0
+        ? new Date()
+        : new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    onFilterChange({
+      start_date: start.toISOString().split('T')[0],
+      end_date: end.toISOString().split('T')[0]
+    });
+  };
+
   return (
-    <div className='space-y-4'>
+    <div className='space-y-6'>
+      {/* Date Range Filters */}
+      <div className='space-y-4'>
+        <h4 className='text-sm font-medium flex items-center gap-2'>
+          <CalendarIcon className='h-4 w-4' />
+          Date Range (for period scheduling)
+        </h4>
+        <p className='text-xs text-gray-600'>
+          Select the date range to show periods that were scheduled for those
+          dates in timetables
+        </p>
+
+        <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+          {/* Start Date */}
+          <div className='space-y-2'>
+            <Label>Start Date</Label>
+            <DatePicker
+              date={
+                filters.start_date ? new Date(filters.start_date) : undefined
+              }
+              setDate={(date) => {
+                if (date) {
+                  onFilterChange({
+                    start_date: date.toISOString().split('T')[0]
+                  });
+                }
+              }}
+            />
+          </div>
+
+          {/* End Date */}
+          <div className='space-y-2'>
+            <Label>End Date</Label>
+            <DatePicker
+              date={filters.end_date ? new Date(filters.end_date) : undefined}
+              setDate={(date) => {
+                if (date) {
+                  onFilterChange({
+                    end_date: date.toISOString().split('T')[0]
+                  });
+                }
+              }}
+            />
+          </div>
+
+          {/* Quick Date Buttons */}
+          <div className='space-y-2'>
+            <Label>Quick Select</Label>
+            <div className='flex gap-1'>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setQuickDateRange(0)}
+                className='text-xs px-2 py-1 h-8'
+              >
+                Today
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setQuickDateRange(7)}
+                className='text-xs px-2 py-1 h-8'
+              >
+                7 Days
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setQuickDateRange(30)}
+                className='text-xs px-2 py-1 h-8'
+              >
+                30 Days
+              </Button>
+            </div>
+          </div>
+
+          {/* Current Range Display */}
+          <div className='space-y-2'>
+            <Label>Current Range</Label>
+            <div className='text-xs text-gray-600 bg-gray-50 p-2 rounded border'>
+              {formatDate(filters.start_date)} to {formatDate(filters.end_date)}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Academic Hierarchy Filters */}
       <div className='space-y-4'>
         <h4 className='text-sm font-medium'>Academic Filters</h4>

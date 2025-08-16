@@ -57,7 +57,9 @@ export function CourseDataTable({ filters, enabled }: CourseDataTableProps) {
 
     if (statusFilter !== 'all') {
       filtered = filtered.filter((course) => {
-        const percentage = course.attendance_percentage;
+        const percentage = isNaN(course.attendance_percentage)
+          ? 0
+          : course.attendance_percentage;
         switch (statusFilter) {
           case 'excellent':
             return percentage >= 90;
@@ -75,7 +77,9 @@ export function CourseDataTable({ filters, enabled }: CourseDataTableProps) {
 
     if (attendanceFilter !== 'all') {
       filtered = filtered.filter((course) => {
-        const avgAttendance = course.avg_student_attendance;
+        const avgAttendance = isNaN(course.avg_student_attendance)
+          ? 0
+          : course.avg_student_attendance;
         switch (attendanceFilter) {
           case 'high':
             return avgAttendance >= 80;

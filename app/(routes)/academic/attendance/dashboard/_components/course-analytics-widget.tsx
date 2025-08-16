@@ -25,11 +25,11 @@ import {
   LineChart,
   Line
 } from 'recharts';
-import { 
-  BookOpen, 
-  BarChart3, 
-  FileText, 
-  TrendingUp, 
+import {
+  BookOpen,
+  BarChart3,
+  FileText,
+  TrendingUp,
   Award,
   Users,
   Activity,
@@ -67,19 +67,32 @@ export function CourseAnalyticsWidget({
         name: course.course_code || course.course_name.slice(0, 10),
         fullName: course.course_name,
         code: course.course_code,
-        attendance_percentage: course.attendance_percentage,
-        student_attendance: course.avg_student_attendance,
+        attendance_percentage: isNaN(course.attendance_percentage)
+          ? 0
+          : course.attendance_percentage,
+        student_attendance: isNaN(course.avg_student_attendance)
+          ? 0
+          : course.avg_student_attendance,
         taken: course.attendance_taken,
         total: course.total_periods
       }))
-      .sort((a, b) => b.attendance_percentage - a.attendance_percentage);
+      .sort((a, b) => {
+        const safeA = isNaN(a.attendance_percentage)
+          ? 0
+          : a.attendance_percentage;
+        const safeB = isNaN(b.attendance_percentage)
+          ? 0
+          : b.attendance_percentage;
+        return safeB - safeA;
+      });
   }, [courseStats]);
 
   // Color based on attendance percentage
   const getColor = (percentage: number) => {
-    if (percentage >= 90) return '#22c55e'; // Green
-    if (percentage >= 75) return '#eab308'; // Yellow
-    if (percentage >= 50) return '#f97316'; // Orange
+    const safePercentage = isNaN(percentage) ? 0 : percentage;
+    if (safePercentage >= 90) return '#22c55e'; // Green
+    if (safePercentage >= 75) return '#eab308'; // Yellow
+    if (safePercentage >= 50) return '#f97316'; // Orange
     return '#ef4444'; // Red
   };
 
@@ -95,15 +108,39 @@ export function CourseAnalyticsWidget({
     }
 
     const averageCompletion = Math.round(
-      courseStats.reduce((acc, c) => acc + c.attendance_percentage, 0) / courseStats.length
+      courseStats.reduce(
+        (acc, c) =>
+          acc + (isNaN(c.attendance_percentage) ? 0 : c.attendance_percentage),
+        0
+      ) / courseStats.length
     );
     const averageStudentAttendance = Math.round(
-      courseStats.reduce((acc, c) => acc + c.avg_student_attendance, 0) / courseStats.length
+      courseStats.reduce(
+        (acc, c) =>
+          acc +
+          (isNaN(c.avg_student_attendance) ? 0 : c.avg_student_attendance),
+        0
+      ) / courseStats.length
     );
-    const excellentCount = courseStats.filter(c => c.attendance_percentage >= 90).length;
-    const criticalCount = courseStats.filter(c => c.avg_student_attendance < 60).length;
+    const excellentCount = courseStats.filter((c) => {
+      const safePercentage = isNaN(c.attendance_percentage)
+        ? 0
+        : c.attendance_percentage;
+      return safePercentage >= 90;
+    }).length;
+    const criticalCount = courseStats.filter((c) => {
+      const safeStudentAttendance = isNaN(c.avg_student_attendance)
+        ? 0
+        : c.avg_student_attendance;
+      return safeStudentAttendance < 60;
+    }).length;
 
-    return { averageCompletion, averageStudentAttendance, excellentCount, criticalCount };
+    return {
+      averageCompletion,
+      averageStudentAttendance,
+      excellentCount,
+      criticalCount
+    };
   }, [courseStats]);
 
   // Prepare distribution data for pie chart
@@ -119,9 +156,12 @@ export function CourseAnalyticsWidget({
 
     return ranges.map((range) => ({
       name: range.name,
-      count: courseStats.filter(
-        (c) => c.attendance_percentage >= range.min && c.attendance_percentage <= range.max
-      ).length,
+      count: courseStats.filter((c) => {
+        const safePercentage = isNaN(c.attendance_percentage)
+          ? 0
+          : c.attendance_percentage;
+        return safePercentage >= range.min && safePercentage <= range.max;
+      }).length,
       color: range.color
     }));
   }, [courseStats]);
@@ -302,9 +342,12 @@ export function CourseAnalyticsWidget({
                         cy='50%'
                         outerRadius={80}
                         dataKey='count'
-                        label={({ name, count, percent }) =>
-                          `${count} (${(percent * 100).toFixed(0)}%)`
-                        }
+                        label={({ name, count, percent }) => {
+                          const safePercent = isNaN(percent) ? 0 : percent;
+                          return `${count} (${(safePercent * 100).toFixed(
+                            0
+                          )}%)`;
+                        }}
                       >
                         {distributionData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
@@ -362,13 +405,19 @@ export function CourseAnalyticsWidget({
                             return (
                               <div className='rounded-lg border bg-background p-2 shadow-sm'>
                                 <div className='grid gap-2'>
-                                  <div className='font-medium'>{data.fullName}</div>
+                                  <div className='font-medium'>
+                                    {data.fullName}
+                                  </div>
                                   <div className='text-sm text-muted-foreground'>
                                     {data.code}
                                   </div>
                                   <div className='grid gap-1 text-sm'>
-                                    <div>Completion: {data.attendance_percentage}%</div>
-                                    <div>Student Avg: {data.student_attendance}%</div>
+                                    <div>
+                                      Completion: {data.attendance_percentage}%
+                                    </div>
+                                    <div>
+                                      Student Avg: {data.student_attendance}%
+                                    </div>
                                     <div>
                                       Taken: {data.taken}/{data.total} periods
                                     </div>
@@ -380,7 +429,10 @@ export function CourseAnalyticsWidget({
                           return null;
                         }}
                       />
-                      <Bar dataKey='attendance_percentage' radius={[0, 4, 4, 0]}>
+                      <Bar
+                        dataKey='attendance_percentage'
+                        radius={[0, 4, 4, 0]}
+                      >
                         {chartData.map((entry, index) => (
                           <Cell
                             key={`cell-${index}`}
@@ -398,16 +450,15 @@ export function CourseAnalyticsWidget({
           {/* Global Data Table */}
           <div className='space-y-4'>
             <div className='flex items-center justify-between'>
-              <h3 className='text-lg font-semibold'>Course Attendance Details</h3>
+              <h3 className='text-lg font-semibold'>
+                Course Attendance Details
+              </h3>
               <Badge variant='outline' className='text-sm'>
                 {courseStats.length} Total Courses
               </Badge>
             </div>
-            
-            <CourseDataTable 
-              filters={filters} 
-              enabled={enabled} 
-            />
+
+            <CourseDataTable filters={filters} enabled={enabled} />
           </div>
         </CardContent>
       </Card>

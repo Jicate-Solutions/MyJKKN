@@ -124,9 +124,9 @@ export class AttendanceAnalyticsService {
         staff_id: item.staff_id,
         staff_name: item.staff_name,
         staff_designation: item.staff_designation,
-        total_periods: item.total_assigned_periods,
-        attendance_taken: item.attendance_marked_periods,
-        attendance_not_taken: item.attendance_not_marked,
+        total_periods: item.total_periods,
+        attendance_taken: item.attendance_taken,
+        attendance_not_taken: item.attendance_not_taken,
         attendance_percentage: item.attendance_percentage,
         staff_email: item.staff_email,
         assigned_courses: item.assigned_courses,
@@ -196,7 +196,8 @@ export class AttendanceAnalyticsService {
         assigned_staff: item.assigned_staff,
         total_periods: item.total_scheduled_periods,
         attendance_taken: item.attendance_marked_periods,
-        attendance_not_taken: item.attendance_not_marked,
+        attendance_not_taken:
+          item.total_scheduled_periods - item.attendance_marked_periods, // Calculate not taken
         attendance_percentage: item.attendance_percentage,
         avg_student_attendance: item.avg_student_attendance,
         total_students: item.total_students
