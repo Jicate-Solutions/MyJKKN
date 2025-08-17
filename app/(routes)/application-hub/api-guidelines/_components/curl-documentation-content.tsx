@@ -32,100 +32,100 @@ export default function CurlDocumentationContent() {
 
   const curlExamples = {
     students: {
-      basic: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/students" \\
+      basic: `curl -X GET "https://my.jkkn.ac.in/api/api-management/students" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      pagination: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/students?page=1&limit=5" \\
+      pagination: `curl -X GET "https://my.jkkn.ac.in/api/api-management/students?page=1&limit=5" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      search: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/students?search=John&page=1&limit=10" \\
+      search: `curl -X GET "https://my.jkkn.ac.in/api/api-management/students?search=John&page=1&limit=10" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      filters: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/students?institution_id=YOUR_INSTITUTION_ID&is_profile_complete=true&page=1&limit=10" \\
+      filters: `curl -X GET "https://my.jkkn.ac.in/api/api-management/students?institution_id=YOUR_INSTITUTION_ID&is_profile_complete=true&page=1&limit=10" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      byId: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/students/STUDENT_ID_HERE" \\
+      byId: `curl -X GET "https://my.jkkn.ac.in/api/api-management/students/STUDENT_ID_HERE" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`
     },
 
     staff: {
-      basic: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/staff" \\
+      basic: `curl -X GET "https://my.jkkn.ac.in/api/api-management/staff" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      all: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/staff?all=true" \\
+      all: `curl -X GET "https://my.jkkn.ac.in/api/api-management/staff?all=true" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      search: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/staff?search=Professor&page=1&limit=10" \\
+      search: `curl -X GET "https://my.jkkn.ac.in/api/api-management/staff?search=Professor&page=1&limit=10" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      filters: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/staff?institution_id=YOUR_INSTITUTION_ID&department_id=YOUR_DEPARTMENT_ID&is_active=true&page=1&limit=10" \\
+      filters: `curl -X GET "https://my.jkkn.ac.in/api/api-management/staff?institution_id=YOUR_INSTITUTION_ID&department_id=YOUR_DEPARTMENT_ID&is_active=true&page=1&limit=10" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      allWithFilters: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/staff?all=true&is_active=true&institution_id=YOUR_INSTITUTION_ID" \\
+      allWithFilters: `curl -X GET "https://my.jkkn.ac.in/api/api-management/staff?all=true&is_active=true&institution_id=YOUR_INSTITUTION_ID" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`
     },
 
     organizations: {
-      institutions: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/organizations/institutions" \\
+      institutions: `curl -X GET "https://my.jkkn.ac.in/api/api-management/organizations/institutions" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      degrees: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/organizations/degrees" \\
+      degrees: `curl -X GET "https://my.jkkn.ac.in/api/api-management/organizations/degrees" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      departments: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/organizations/departments" \\
+      departments: `curl -X GET "https://my.jkkn.ac.in/api/api-management/organizations/departments" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      programs: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/organizations/programs" \\
+      programs: `curl -X GET "https://my.jkkn.ac.in/api/api-management/organizations/programs" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`,
 
-      courses: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/organizations/courses" \\
+      courses: `curl -X GET "https://my.jkkn.ac.in/api/api-management/organizations/courses" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json"`
     },
 
     testing: {
-      validity: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/students?limit=1" \\
+      validity: `curl -X GET "https://my.jkkn.ac.in/api/api-management/students?limit=1" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json" \\
   -w "\\nHTTP Status: %{http_code}\\nTotal Time: %{time_total}s\\n"`,
 
-      invalidKey: `curl -X GET "https://myadmin.jkkn.ac.in/api/api-management/students?limit=1" \\
+      invalidKey: `curl -X GET "https://my.jkkn.ac.in/api/api-management/students?limit=1" \\
   -H "Authorization: Bearer invalid_api_key" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json" \\
   -w "\\nHTTP Status: %{http_code}\\n"`,
 
-      verbose: `curl -v -X GET "https://myadmin.jkkn.ac.in/api/api-management/students?limit=1" \\
+      verbose: `curl -v -X GET "https://my.jkkn.ac.in/api/api-management/students?limit=1" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json"`
     }
@@ -135,7 +135,7 @@ export default function CurlDocumentationContent() {
 
 # Configuration
 API_KEY="YOUR_API_KEY_HERE"
-BASE_URL="https://myadmin.jkkn.ac.in/api"
+BASE_URL="https://my.jkkn.ac.in/api"
 
 # Colors for output
 RED='\\033[0;31m'
@@ -211,8 +211,7 @@ echo "API Tests Completed!"`;
             </li>
             <li>CURL installed on your system</li>
             <li>
-              Internet connection to reach{' '}
-              <code>https://myadmin.jkkn.ac.in</code>
+              Internet connection to reach <code>https://my.jkkn.ac.in</code>
             </li>
           </ul>
         </AlertDescription>

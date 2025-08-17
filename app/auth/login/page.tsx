@@ -40,10 +40,31 @@ const EducationalHero = () => {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [childAppAuth, setChildAppAuth] = useState<{
+    app_id: string;
+    redirect_uri: string;
+    scope?: string;
+    state?: string;
+  } | null>(null);
   const router = useRouter();
 
   // Prevent recreation of client on each render
   const supabase = useMemo(() => createClientSupabaseClient(), []);
+
+  // Check for child app authentication request
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const appId = params.get('app_id');
+    const redirectUri = params.get('redirect_uri');
+    const scope = params.get('scope');
+    const state = params.get('state');
+    
+    if (appId && redirectUri) {
+      setChildAppAuth({ app_id: appId, redirect_uri: redirectUri, scope: scope || undefined, state: state || undefined });
+      // Store in cookie for callback
+      document.cookie = `child_app_auth=${JSON.stringify({ app_id: appId, redirect_uri: redirectUri, scope: scope || undefined, state: state || undefined })}; path=/; max-age=300; SameSite=Lax`;
+    }
+  }, []);
 
   // Check if user is already logged in - only once
   useEffect(() => {
@@ -58,7 +79,7 @@ export default function LoginPage() {
       (redirectedFrom.includes('__nextjs_original-stack-frames') ||
         redirectedFrom.includes('/error'))
     ) {
-      console.log('Preventing redirect from error page:', redirectedFrom);
+      // Preventing redirect from error page
       setIsCheckingAuth(false);
       return;
     }
@@ -70,6 +91,20 @@ export default function LoginPage() {
         if (!isMounted) return;
 
         if (!error && data.user) {
+          // If this is a child app auth request, redirect to authorize endpoint
+          if (childAppAuth) {
+            const params = new URLSearchParams({
+              app_id: childAppAuth.app_id,
+              redirect_uri: childAppAuth.redirect_uri,
+              response_type: 'code'
+            });
+            if (childAppAuth.scope) params.append('scope', childAppAuth.scope);
+            if (childAppAuth.state) params.append('state', childAppAuth.state);
+            
+            router.push(`/api/auth/child-app/authorize?${params.toString()}`);
+            return;
+          }
+          
           // User is authenticated, check their role
           const { data: profile } = await supabase
             .from('profiles')
@@ -97,7 +132,10 @@ export default function LoginPage() {
         }
       } catch (err) {
         console.error('Auth check error:', err);
-        if (isMounted) setIsCheckingAuth(false);
+        if (isMounted) {
+          setIsCheckingAuth(false);
+          toast.error('Authentication check failed. Please try again.');
+        }
       }
     };
 
@@ -106,7 +144,7 @@ export default function LoginPage() {
     return () => {
       isMounted = false;
     };
-  }, [router, supabase]);
+  }, [router, supabase, childAppAuth]);
 
   // Check for error params
   useEffect(() => {
@@ -147,9 +185,9 @@ export default function LoginPage() {
       if (error) throw error;
 
       toast.success('Redirecting to Google...');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      toast.error('Failed to sign in with Google');
+      toast.error(error?.message || 'Failed to sign in with Google');
       setLoading(false);
     }
     // We don't set isLoading to false on success because we're redirecting to Google
@@ -239,11 +277,18 @@ export default function LoginPage() {
             {/* Welcome Text */}
             <div className='text-center space-y-2'>
               <h2 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
-                Welcome Back
+                {childAppAuth ? 'Sign In Required' : 'Welcome Back'}
               </h2>
               <p className='text-gray-600 dark:text-gray-400 text-sm'>
-                Sign in to access your learning portal
+                {childAppAuth 
+                  ? 'Please sign in to continue to the application' 
+                  : 'Sign in to access your learning portal'}
               </p>
+              {childAppAuth && (
+                <p className='text-xs text-gray-500 dark:text-gray-400 mt-2'>
+                  Authenticating for: {childAppAuth.redirect_uri}
+                </p>
+              )}
             </div>
 
             {/* Google Sign In */}

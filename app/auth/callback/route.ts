@@ -22,6 +22,17 @@ export async function GET(request: NextRequest) {
     }
 
     const cookieStore = await cookies();
+    
+    // Check for child app auth cookie
+    const childAppAuthCookie = cookieStore.get('child_app_auth');
+    let childAppAuth: any = null;
+    if (childAppAuthCookie) {
+      try {
+        childAppAuth = JSON.parse(childAppAuthCookie.value);
+      } catch (e) {
+        // Invalid JSON, ignore
+      }
+    }
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -133,7 +144,27 @@ export async function GET(request: NextRequest) {
 
       // If profile exists but not completed
       if (!existingProfile.profile_completed) {
+        // Clear child app auth cookie if present
+        if (childAppAuth) {
+          cookieStore.delete('child_app_auth');
+        }
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));
+      }
+
+      // If this is a child app authentication request
+      if (childAppAuth && childAppAuth.app_id && childAppAuth.redirect_uri) {
+        // Clear the cookie
+        cookieStore.delete('child_app_auth');
+        
+        // Redirect to authorize endpoint to generate auth code
+        const authUrl = new URL('/api/auth/child-app/authorize', origin);
+        authUrl.searchParams.append('app_id', childAppAuth.app_id);
+        authUrl.searchParams.append('redirect_uri', childAppAuth.redirect_uri);
+        authUrl.searchParams.append('response_type', 'code');
+        if (childAppAuth.scope) authUrl.searchParams.append('scope', childAppAuth.scope);
+        if (childAppAuth.state) authUrl.searchParams.append('state', childAppAuth.state);
+        
+        return NextResponse.redirect(authUrl);
       }
 
       // If profile exists and is completed, redirect based on role

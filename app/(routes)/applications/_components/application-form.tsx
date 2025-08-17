@@ -44,6 +44,7 @@ import { StorageUtils } from '@/lib/supabase/storage-utils';
 import Image from 'next/image';
 import { X, Upload, Image as ImageIcon } from 'lucide-react';
 import { Label } from '@/components/ui/label';
+import { ParentAuthSettings } from './parent-auth-settings';
 
 // Add this type inside your component
 type CategoryOption = {
@@ -99,7 +100,18 @@ const applicationSchema = z.object({
   application_type: z.enum(['internal', 'external']),
   data_sensitivity: z.enum(['public', 'restricted', 'confidential']),
   icon_path: z.string().nullable(),
-  screenshots: z.array(z.string()).nullable()
+  screenshots: z.array(z.string()).nullable(),
+  // Parent authentication fields
+  uses_parent_auth: z.boolean().default(false),
+  app_id: z.string().optional().default(''),
+  api_key: z.string().optional().default(''), // Only for new generation, not stored
+  allowed_redirect_uris: z.array(z.string()).optional().default([]),
+  allowed_scopes: z
+    .array(z.string())
+    .optional()
+    .default(['read', 'write', 'profile']),
+  rate_limit_requests: z.number().default(1000).optional(),
+  rate_limit_window_minutes: z.number().default(60).optional()
 });
 
 type FormValues = z.infer<typeof applicationSchema>;
@@ -163,7 +175,6 @@ export function ApplicationForm({
           setSelectedCategory(initialData.category_id);
         }
       } catch (error) {
-        console.error('Error fetching categories:', error);
         toast.error('Failed to load categories');
       } finally {
         setLoadingCategories(false);
@@ -181,7 +192,6 @@ export function ApplicationForm({
         const availableRoles = await ApplicationService.getAvailableRoles();
         setRoles(availableRoles);
       } catch (error) {
-        console.error('Error fetching roles:', error);
         toast.error('Failed to load roles');
       } finally {
         setLoadingRoles(false);
@@ -215,7 +225,18 @@ export function ApplicationForm({
       application_type: initialData?.application_type || 'internal',
       data_sensitivity: initialData?.data_sensitivity || 'restricted',
       icon_path: initialData?.icon_path || null,
-      screenshots: initialData?.screenshots || null
+      screenshots: initialData?.screenshots || null,
+      // Parent authentication fields
+      uses_parent_auth: initialData?.uses_parent_auth || false,
+      app_id: initialData?.app_id || '',
+      allowed_redirect_uris: initialData?.allowed_redirect_uris || [],
+      allowed_scopes: initialData?.allowed_scopes || [
+        'read',
+        'write',
+        'profile'
+      ],
+      rate_limit_requests: initialData?.rate_limit_requests || 1000,
+      rate_limit_window_minutes: initialData?.rate_limit_window_minutes || 60
     }
   });
 
@@ -333,7 +354,8 @@ export function ApplicationForm({
         }
       }
 
-      const dataWithImages = {
+      // Prepare the data for submission
+      const dataWithImages: any = {
         ...values,
         icon_path: iconPath,
         screenshots: screenshotPaths,
@@ -341,6 +363,42 @@ export function ApplicationForm({
         description: values.description || null,
         support_contact: values.support_contact || null
       };
+
+      // Only add authentication fields if parent auth is enabled
+      if (values.uses_parent_auth) {
+        // Hash API key if present (only for new keys)
+        if (values.api_key) {
+          const encoder = new TextEncoder();
+          const data = encoder.encode(values.api_key);
+          const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          dataWithImages.api_key_hash = hashArray
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join('');
+        }
+
+        dataWithImages.app_id = values.app_id || null;
+        dataWithImages.allowed_redirect_uris = values.allowed_redirect_uris?.length
+          ? values.allowed_redirect_uris
+          : null;
+        dataWithImages.allowed_scopes = values.allowed_scopes?.length
+          ? values.allowed_scopes
+          : null;
+        dataWithImages.rate_limit_requests = values.rate_limit_requests || 1000;
+        dataWithImages.rate_limit_window_minutes = values.rate_limit_window_minutes || 60;
+      } else {
+        // Explicitly set auth fields to null when not using parent auth
+        dataWithImages.uses_parent_auth = false;
+        dataWithImages.app_id = null;
+        dataWithImages.api_key_hash = null;
+        dataWithImages.allowed_redirect_uris = null;
+        dataWithImages.allowed_scopes = null;
+        dataWithImages.rate_limit_requests = null;
+        dataWithImages.rate_limit_window_minutes = null;
+      }
+
+      // Remove the raw API key - never send it to backend
+      delete dataWithImages.api_key;
 
       if (isEditing && initialData) {
         await ApplicationService.updateApplication(
@@ -354,7 +412,6 @@ export function ApplicationForm({
       router.push('/applications');
       router.refresh();
     } catch (error) {
-      console.error('Form submission error:', error);
       toast.error('Failed to save application');
     } finally {
       setIsSubmitting(false);
@@ -366,7 +423,7 @@ export function ApplicationForm({
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className='space-y-8 max-w-5xl mx-auto'
+        className='space-y-8 max-w-7xl mx-auto'
       >
         {/* Basic Information Card */}
         <Card>
@@ -535,11 +592,11 @@ export function ApplicationForm({
                           className='flex items-center space-x-2 bg-secondary/20 p-2 rounded-md'
                         >
                           <Checkbox
-                            checked={form
-                              .watch('roles_access')
-                              .includes(role.key)}
+                            checked={(
+                              form.watch('roles_access') || []
+                            ).includes(role.key)}
                             onCheckedChange={(checked) => {
-                              const current = form.watch('roles_access');
+                              const current = form.watch('roles_access') || [];
                               const updated = checked
                                 ? [...current, role.key]
                                 : current.filter((r) => r !== role.key);
@@ -985,6 +1042,13 @@ export function ApplicationForm({
               </div>
             </FormItem>
           )}
+        />
+
+        {/* Parent Authentication Settings */}
+        <ParentAuthSettings
+          form={form}
+          isEditing={isEditing}
+          existingApiKey={initialData?.api_key_hash ? 'hidden' : null}
         />
 
         {/* Submit Buttons */}

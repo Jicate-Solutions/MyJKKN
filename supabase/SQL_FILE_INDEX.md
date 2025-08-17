@@ -45,32 +45,88 @@ When updating any SQL file:
 
 ## 📊 Current Database Objects
 
-### Tables (19 total)
-| Table Name | Location | Last Updated | Purpose |
-|------------|----------|--------------|---------|
-| profiles | setup/01_tables.sql | 2025-01-16 | User profiles extending auth.users |
-| institutions | setup/01_tables.sql | 2025-01-16 | Educational institutions |
-| departments | setup/01_tables.sql | 2025-01-16 | Institution departments |
-| programs | setup/01_tables.sql | 2025-01-16 | Academic programs |
-| academic_years | setup/01_tables.sql | 2025-01-16 | Academic year definitions |
-| semesters | setup/01_tables.sql | 2025-01-16 | Program semesters |
-| courses | setup/01_tables.sql | 2025-01-16 | Course definitions |
-| sections | setup/01_tables.sql | 2025-01-16 | Class sections |
-| students | setup/01_tables.sql | 2025-01-16 | Student records |
-| staff | setup/01_tables.sql | 2025-01-16 | Staff records |
-| daily_attendance | setup/01_tables.sql | 2025-01-16 | Daily attendance tracking |
-| student_bills | setup/01_tables.sql | 2025-01-16 | Student billing |
-| billing_receipts | setup/01_tables.sql | 2025-01-16 | Payment receipts |
-| periods | setup/01_tables.sql | 2025-01-16 | Timetable periods |
-| timetables | setup/01_tables.sql | 2025-01-16 | Class timetables |
+### Tables (56 total in database, 19 in setup file)
+| Module | Tables | Count | Status |
+|--------|--------|-------|--------|
+| Academic | academic_years, degrees, departments, programs, semesters, sections, courses, course_mappings | 8 | ✅ |
+| Billing | billing_student_bills, billing_receipts, billing_invoices, billing_invoice_items, billing_receipt_items, billing_discounts, billing_refunds, billing_parent_categories, billing_sub_categories, billing_item_categories | 10 | ✅ |
+| Students | students | 1 | ✅ |
+| Staff | staff, staff_plans, staff_plan_courses | 3 | ✅ |
+| Admission | admissions | 1 | ✅ |
+| Attendance | periods, student_attendance | 2 | ✅ |
+| Timetable | timetables, timetable_slot_continuity | 2 | ⚠️ Missing continuity table |
+| Resources | resources, resource_reservations, resource_approvals, resource_usage_logs, resource_parent_categories, resource_sub_categories, resource_attribute_definitions | 7 | ✅ |
+| Bug Reports | bug_reports, bug_report_messages, bug_report_participants | 3 | ✅ |
+| Notifications | notifications, user_notifications, push_subscriptions | 3 | ✅ |
+| API | api_keys | 1 | ✅ |
+| User Management | profiles, users, user_institution_access, custom_roles | 4 | ✅ |
+| Dashboard | dashboard_configurations, dashboard_widgets, dashboard_widget_types | 3 | ✅ |
+| Child App Auth | registered_child_apps, child_app_sessions, child_app_access_logs, child_app_permissions, user_child_app_permissions | 5 | ✅ |
+| Other | applications (with parent auth), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log | 8 | ✅ Updated with auth |
 
-### Functions
-| Function Name | Location | Purpose |
-|---------------|----------|---------|
-| auth.get_user_role() | setup/00_master_setup.sql | Get current user role |
-| auth.get_user_institutions() | setup/00_master_setup.sql | Get user's institution IDs |
-| auth.has_institution_access() | setup/00_master_setup.sql | Check institution access |
-| update_updated_at_column() | setup/00_master_setup.sql | Auto-update timestamp |
+### Functions (237 total)
+| Category | Location | Count | Purpose |
+|----------|----------|-------|---------|
+| Authentication & User | setup/02_functions.sql | 15 | User management, profiles, auth |
+| Institution Access | setup/02_functions.sql | 10 | Institution access control |
+| Billing | setup/02_functions.sql | 20 | Billing calculations, invoices |
+| Attendance | setup/02_functions.sql | 5 | Attendance statistics |
+| Timetable | setup/02_functions.sql | 10 | Timetable management |
+| Academic | setup/02_functions.sql | 15 | Academic hierarchy, validations |
+| Staff | setup/02_functions.sql | 5 | Staff management |
+| Admission | setup/02_functions.sql | 4 | Application ID generation |
+| Bug Reports | setup/02_functions.sql | 4 | Bug tracking |
+| Resources | setup/02_functions.sql | 6 | Resource management |
+| Notifications | setup/02_functions.sql | 1 | User notifications |
+| API Keys | setup/02_functions.sql | 4 | API key management |
+| Activity Logging | setup/02_functions.sql | 2 | Log cleanup, stats |
+| Utilities | setup/02_functions.sql | 10+ | Helper functions |
+| Dashboard | setup/02_functions.sql | 2 | Dashboard reporting |
+| Permissions | setup/02_functions.sql | 6 | Role and permission checks |
+| Child App Auth | setup/02_functions.sql | 2 | Session cleanup, access logging |
+
+### RLS Policies (250+ total)
+| Location | Count | Coverage |
+|----------|-------|----------|
+| setup/03_policies.sql | 250+ | 53 tables (94.6%) |
+
+### Triggers (71 total)
+| Category | Location | Count | Purpose |
+|----------|----------|-------|---------|
+| Timestamp Updates | setup/04_triggers.sql | 35 | Auto-update updated_at |
+| Business Logic | setup/04_triggers.sql | 20 | Auto-populate, validations |
+| Billing | setup/04_triggers.sql | 10 | Status updates, calculations |
+| Other | setup/04_triggers.sql | 6 | Various business rules |
+
+### Views (7 total)
+| View Name | Location | Module |
+|-----------|----------|--------|
+| auto_generated_invoices | setup/05_views.sql | Billing |
+| bill_invoice_relationships | setup/05_views.sql | Billing |
+| v_bill_details | setup/05_views.sql | Billing |
+| bug_reporters_leaderboard | setup/05_views.sql | Bug Reports |
+| bug_reports_with_details | setup/05_views.sql | Bug Reports |
+| semester_hierarchy_health | setup/05_views.sql | Academic |
+| semester_program_audit_view | setup/05_views.sql | Academic |
+
+### Storage Buckets (7 total)
+| Bucket | Purpose | Size Limit |
+|--------|---------|------------|
+| applications | Application documents | 50MB |
+| avatars | User profile pictures | None |
+| bug-reports | Bug report screenshots | 10MB |
+| institution-logos | Institution branding | None |
+| resource-management | Resource images | 10MB |
+| staff-images | Staff photos | None |
+| student-photos | Student photos | None |
+
+### Indexes (382 total)
+| Type | Count | Purpose |
+|------|-------|---------|
+| Primary Keys | 56 | Table primary keys |
+| Unique | 95 | Unique constraints |
+| Foreign Key | 0 | ⚠️ No FK constraints defined |
+| Performance | 231 | Query optimization |
 
 ### Custom Types
 | Type Name | Location | Values |
@@ -105,6 +161,22 @@ When updating any SQL file:
 ```
 
 ## 📝 Change Log
+
+### 2025-01-17
+- **Complete Database Analysis Performed**
+- Created setup/02_functions.sql with 237 functions
+- Created setup/03_policies.sql with 250+ RLS policies
+- Created setup/04_triggers.sql with 71 triggers
+- Created setup/05_views.sql with 7 views
+- Generated comprehensive DATABASE_ANALYSIS_REPORT.md
+- Identified critical issues (no foreign keys)
+- Updated index with complete database structure
+- **Parent Authentication Integration with Applications Module**
+  - Added authentication fields to applications table in setup/01_tables.sql
+  - Created migration file 20250117_add_auth_to_applications.sql
+  - Updated TypeScript types to support authentication
+  - Integrated authentication settings into application form UI
+  - Applications can now optionally use MyJKKN authentication instead of separate login
 
 ### 2025-01-16
 - Created organized structure

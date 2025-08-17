@@ -4,6 +4,7 @@ import OrganizationApiDocs from './_components/organization-api-docs';
 import StudentsApiDocs from './_components/students-api-docs';
 import StaffApiDocs from './_components/staff-api-docs';
 import CurlDocumentationContent from './_components/curl-documentation-content';
+import ChildAppIntegrationDocs from './_components/child-app-integration-docs';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -53,6 +54,7 @@ export default function ApiGuidelinesPage() {
         <Tabs defaultValue='basic'>
           <TabsList>
             <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
+            <TabsTrigger value='child-app'>Child App Integration</TabsTrigger>
             <TabsTrigger value='organization'>Organizations API</TabsTrigger>
             <TabsTrigger value='students'>Students API</TabsTrigger>
             <TabsTrigger value='staff'>Staff API</TabsTrigger>
@@ -61,6 +63,11 @@ export default function ApiGuidelinesPage() {
           <TabsContent value='basic'>
             <Card className='p-6'>
               <ApiGuidelinesContent />
+            </Card>
+          </TabsContent>
+          <TabsContent value='child-app'>
+            <Card className='p-6'>
+              <ChildAppIntegrationDocs />
             </Card>
           </TabsContent>
           <TabsContent value='organization'>

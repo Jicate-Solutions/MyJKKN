@@ -10,7 +10,9 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  Eye
+  Eye,
+  Shield,
+  LogIn
 } from 'lucide-react';
 import { Application } from '@/types/applications';
 import { ApplicationService } from '@/lib/services/application/application-service';
@@ -107,6 +109,7 @@ export function ApplicationList({
             <TableHead>Name</TableHead>
             <TableHead>Category</TableHead>
             <TableHead className='hidden md:table-cell'>Status</TableHead>
+            <TableHead className='hidden md:table-cell'>Auth</TableHead>
             <TableHead className='hidden md:table-cell'>Integration</TableHead>
             <TableHead className='hidden md:table-cell'>Platform</TableHead>
             <TableHead className='text-right'>Actions</TableHead>
@@ -115,7 +118,7 @@ export function ApplicationList({
         <TableBody>
           {applications.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={6} className='text-center'>
+              <TableCell colSpan={8} className='text-center'>
                 No applications found
               </TableCell>
             </TableRow>
@@ -123,12 +126,36 @@ export function ApplicationList({
             applications.map((app, index) => (
               <TableRow key={app.id}>
                 <TableCell className='font-medium'>{index + 1}</TableCell>
-                <TableCell className='font-medium'>{app.name}</TableCell>
+                <TableCell className='font-medium'>
+                  <div className='flex items-center gap-2'>
+                    {app.name}
+                    {app.uses_parent_auth && (
+                      <Shield className='h-3 w-3 text-primary' />
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell>{app.category?.name || 'Uncategorized'}</TableCell>
                 <TableCell className='hidden md:table-cell'>
                   <Badge variant={app.is_active ? 'default' : 'secondary'}>
                     {app.is_active ? 'Active' : 'Inactive'}
                   </Badge>
+                </TableCell>
+                <TableCell className='hidden md:table-cell'>
+                  {app.uses_parent_auth ? (
+                    <Badge variant='outline' className='gap-1'>
+                      <Shield className='h-3 w-3' />
+                      MyJKKN
+                    </Badge>
+                  ) : (
+                    <Badge variant='secondary' className='gap-1'>
+                      <LogIn className='h-3 w-3' />
+                      {app.auth_method === 'sso'
+                        ? 'SSO'
+                        : app.auth_method === 'none'
+                        ? 'None'
+                        : 'Separate'}
+                    </Badge>
+                  )}
                 </TableCell>
                 <TableCell className='hidden md:table-cell'>
                   {app.integration_type}

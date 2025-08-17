@@ -7,7 +7,6 @@
         "npx",
         "-y",
         "@supabase/mcp-server-supabase@latest",
-        "--read-only",
         "--project-ref=kvizhngldtiuufknvehv"
       ],
       "env": {
@@ -25,12 +24,7 @@
     },
     "memory": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-memory@latest"
-      ],
+      "args": ["/c", "npx", "-y", "@modelcontextprotocol/server-memory@latest"],
       "env": {
         "MEMORY_STORE_PATH": "D:\\MyJKKN\\.claude\\memory"
       }

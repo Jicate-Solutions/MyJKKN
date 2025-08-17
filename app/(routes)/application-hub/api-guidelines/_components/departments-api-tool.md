@@ -112,7 +112,7 @@ If you need to fetch departments from a serverless function, here's an example u
 // Edge function for fetching departments
 async function getDepartments(req) {
   const API_KEY = Deno.env.get("MYJKKN_API_KEY");
-  const API_BASE_URL = Deno.env.get("MYJKKN_API_BASE_URL") || "https://myadmin.jkkn.ac.in";
+  const API_BASE_URL = Deno.env.get("MYJKKN_API_BASE_URL") || "https://my.jkkn.ac.in";
 
   // Parse request parameters
   const url = new URL(req.url);
