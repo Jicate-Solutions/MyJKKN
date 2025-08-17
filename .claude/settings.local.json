@@ -13,8 +13,16 @@
       "mcp__supabase__apply_migration",
       "Bash(wc:*)",
       "Bash(npm run lint)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(npx:*)",
+      "Bash(npm install:*)",
+      "Bash(dir:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": []
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }
