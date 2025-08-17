@@ -34,8 +34,6 @@ export class ApplicationService {
       // Build query parameters
       const params = new URLSearchParams();
 
-      // Debug log
-      console.log('Filters:', filters);
 
       if (filters.category) params.append('category', filters.category);
       if (filters.search) params.append('search', filters.search);
@@ -44,14 +42,10 @@ export class ApplicationService {
       if (filters.page) params.append('page', String(filters.page));
       if (filters.limit) params.append('limit', String(filters.limit));
 
-      // Debug log
-      console.log('Request URL:', `/api/applications?${params.toString()}`);
-
       const response = await fetch(`/api/applications?${params.toString()}`);
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('API error response:', errorData);
 
         // Provide a more detailed error message from the API if available
         const errorMessage =
@@ -65,13 +59,11 @@ export class ApplicationService {
 
       // Validate response structure
       if (!data || !Array.isArray(data.data)) {
-        console.error('Invalid API response format:', data);
         throw new Error('Invalid response format from the server');
       }
 
       return data;
     } catch (error) {
-      console.error('Error fetching applications:', error);
 
       // Re-throw with enhanced error message if available
       if (error instanceof Error) {
@@ -93,7 +85,6 @@ export class ApplicationService {
       }
       return await response.json();
     } catch (error) {
-      console.error(`Error fetching application ${id}:`, error);
       throw error;
     }
   }
@@ -188,7 +179,6 @@ export class ApplicationService {
       toast.success('Application updated successfully');
       return result;
     } catch (error) {
-      console.error(`Error updating application ${id}:`, error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to update application'
       );
@@ -209,7 +199,6 @@ export class ApplicationService {
 
       toast.success('Application deleted successfully');
     } catch (error) {
-      console.error(`Error deleting application ${id}:`, error);
       toast.error(
         error instanceof Error ? error.message : 'Failed to delete application'
       );
@@ -260,7 +249,6 @@ export class ApplicationService {
         }))
       };
     } catch (error) {
-      console.error('Error fetching category options:', error);
       throw error;
     }
   }
@@ -296,7 +284,6 @@ export class ApplicationService {
         name: role.role_name
       }));
     } catch (error) {
-      console.error('Error fetching available roles:', error);
       // Fallback to system roles if fetching fails
       return Object.entries(SYSTEM_ROLES).map(([_, roleKey]) => ({
         key: roleKey as string,

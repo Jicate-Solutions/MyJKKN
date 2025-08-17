@@ -32,7 +32,7 @@ export default function StudentsApiDocs(): ReactNode {
   ) => `I need to implement a feature to fetch data from the MyJKKN API system. The API requires authentication using an API key.
 
 Key details:
-- Base URL: https://myadmin.jkkn.ac.in/api
+- Base URL: https://my.jkkn.ac.in/api
 - API Key format: jk_xxxxx_xxxxx (provided by administrator)
 - Authentication: Bearer token in Authorization header
 - Module: students
@@ -64,7 +64,7 @@ Please show me a complete implementation using Next.js 14, TypeScript, and Tailw
     listStudents: `// Fetch students example
 const fetchStudents = async (apiKey) => {
   try {
-    const response = await fetch('https://myadmin.jkkn.ac.in/api/api-management/students', {
+    const response = await fetch('https://my.jkkn.ac.in/api/api-management/students', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -87,7 +87,7 @@ const fetchStudents = async (apiKey) => {
     getStudent: `// Fetch student by ID example
 const fetchStudentById = async (apiKey, studentId) => {
   try {
-    const response = await fetch(\`https://myadmin.jkkn.ac.in/api/api-management/students/\${studentId}\`, {
+    const response = await fetch(\`https://my.jkkn.ac.in/api/api-management/students/\${studentId}\`, {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -125,7 +125,7 @@ const fetchFilteredStudents = async (apiKey, filters = {}) => {
     if (filters.is_profile_complete !== undefined) 
       queryParams.append('is_profile_complete', filters.is_profile_complete);
     
-    const url = \`https://myadmin.jkkn.ac.in/api/api-management/students?\${queryParams.toString()}\`;
+    const url = \`https://my.jkkn.ac.in/api/api-management/students?\${queryParams.toString()}\`;
     
     const response = await fetch(url, {
       method: 'GET',

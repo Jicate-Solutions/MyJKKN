@@ -3,7 +3,20 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, Edit, ExternalLink, ImageIcon } from 'lucide-react';
+import {
+  ChevronLeft,
+  Edit,
+  ExternalLink,
+  ImageIcon,
+  Shield,
+  Key,
+  Clock,
+  Globe,
+  Users,
+  Info,
+  Copy,
+  Check
+} from 'lucide-react';
 import { ApplicationService } from '@/lib/services/application/application-service';
 import { Application } from '@/types/applications';
 import { Button } from '@/components/ui/button';
@@ -60,7 +73,6 @@ export default function ApplicationDetailsPage({
         const data = await ApplicationService.getApplicationById(params.id);
         setApplication(data);
       } catch (error) {
-        console.error('Error fetching application:', error);
         toast.error('Failed to load application details');
       } finally {
         setLoading(false);
@@ -450,6 +462,154 @@ export default function ApplicationDetailsPage({
                     </div>
                   </div>
                 ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Parent Authentication Settings */}
+        {application.uses_parent_auth && (
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Shield className='h-5 w-5 text-primary' />
+                Parent App Authentication
+              </CardTitle>
+              <CardDescription>
+                This application uses MyJKKN authentication
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className='space-y-6'>
+                {/* App ID */}
+                <div>
+                  <h3 className='text-sm font-medium text-muted-foreground mb-1'>
+                    Application ID
+                  </h3>
+                  <div className='flex items-center gap-2'>
+                    <code className='text-sm bg-muted px-2 py-1 rounded'>
+                      {application.app_id || 'Not configured'}
+                    </code>
+                  </div>
+                </div>
+
+                {/* API Key Status */}
+                <div>
+                  <h3 className='text-sm font-medium text-muted-foreground mb-1'>
+                    API Key
+                  </h3>
+                  <div className='flex items-center gap-2'>
+                    <Badge
+                      variant={
+                        application.api_key_hash ? 'default' : 'secondary'
+                      }
+                    >
+                      <Key className='h-3 w-3 mr-1' />
+                      {application.api_key_hash ? 'Configured' : 'Not Set'}
+                    </Badge>
+                    {application.api_key_hash && (
+                      <span className='text-xs text-muted-foreground'>
+                        (Hash stored securely)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Redirect URIs */}
+                {application.allowed_redirect_uris &&
+                  application.allowed_redirect_uris.length > 0 && (
+                    <div>
+                      <h3 className='text-sm font-medium text-muted-foreground mb-2'>
+                        Allowed Redirect URIs
+                      </h3>
+                      <div className='space-y-1'>
+                        {application.allowed_redirect_uris.map((uri, index) => (
+                          <div key={index} className='flex items-center gap-2'>
+                            <Globe className='h-3 w-3 text-muted-foreground' />
+                            <code className='text-xs bg-muted px-2 py-1 rounded'>
+                              {uri}
+                            </code>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                {/* Permission Scopes */}
+                {application.allowed_scopes &&
+                  application.allowed_scopes.length > 0 && (
+                    <div>
+                      <h3 className='text-sm font-medium text-muted-foreground mb-2'>
+                        Permission Scopes
+                      </h3>
+                      <div className='flex flex-wrap gap-2'>
+                        {application.allowed_scopes.map((scope) => (
+                          <Badge key={scope} variant='outline'>
+                            {scope}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                {/* Rate Limiting */}
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                  <div>
+                    <h3 className='text-sm font-medium text-muted-foreground mb-1'>
+                      Rate Limit
+                    </h3>
+                    <p className='text-sm'>
+                      {application.rate_limit_requests || 1000} requests per{' '}
+                      {application.rate_limit_window_minutes || 60} minutes
+                    </p>
+                  </div>
+                  {application.last_auth_activity && (
+                    <div>
+                      <h3 className='text-sm font-medium text-muted-foreground mb-1'>
+                        Last Authentication Activity
+                      </h3>
+                      <div className='flex items-center gap-2 text-sm'>
+                        <Clock className='h-3 w-3 text-muted-foreground' />
+                        {new Date(
+                          application.last_auth_activity
+                        ).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Access Control Note */}
+                <div className='rounded-lg border bg-blue-50 dark:bg-blue-950/20 p-3'>
+                  <div className='flex gap-2'>
+                    <Info className='h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5' />
+                    <div className='text-sm text-blue-900 dark:text-blue-100'>
+                      <strong>Access Control:</strong> This application uses the
+                      roles configured in the &quot;Access Control&quot; section
+                      above.
+                      {application.roles_access &&
+                      application.roles_access.length > 0 ? (
+                        <span>
+                          {' '}
+                          Only users with the following roles can authenticate:{' '}
+                          {application.roles_access.join(', ')}.
+                        </span>
+                      ) : (
+                        <span>
+                          {' '}
+                          All authenticated users can access this application.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Auth Enablement Info */}
+                {application.auth_enabled_at && (
+                  <div className='text-xs text-muted-foreground'>
+                    Authentication enabled on{' '}
+                    {new Date(application.auth_enabled_at).toLocaleString()}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

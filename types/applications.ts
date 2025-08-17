@@ -55,6 +55,18 @@ export interface Application {
   created_by: string;
   created_at: string;
   updated_at: string;
+  // Parent authentication fields (optional)
+  // Note: Uses existing roles_access field for role-based permissions
+  uses_parent_auth?: boolean;
+  app_id?: string | null;
+  api_key_hash?: string | null;
+  allowed_redirect_uris?: string[] | null;
+  allowed_scopes?: string[] | null;
+  rate_limit_requests?: number;
+  rate_limit_window_minutes?: number;
+  last_auth_activity?: string | null;
+  auth_enabled_at?: string | null;
+  auth_enabled_by?: string | null;
 }
 
 export type CreateApplicationDTO = Omit<

@@ -17,7 +17,8 @@
       "Bash(npx:*)",
       "Bash(npm install:*)",
       "Bash(dir:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "mcp__sequential-thinking__sequentialthinking"
     ],
     "deny": []
   },
