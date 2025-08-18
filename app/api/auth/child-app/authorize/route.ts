@@ -117,6 +117,93 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { app_id, scope, redirect_uri, state } = body;
+
+    // Validate required parameters
+    if (!app_id || !redirect_uri) {
+      return NextResponse.json(
+        { error: 'invalid_request', error_description: 'Missing required parameters' },
+        { status: 400 }
+      );
+    }
+
+    const supabase = await createServerSupabaseClient();
+
+    // Check if user is authenticated
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (!session || sessionError) {
+      return NextResponse.json(
+        { error: 'unauthorized', error_description: 'User not authenticated' },
+        { status: 401 }
+      );
+    }
+
+    // Verify the app exists and is active
+    const { data: app, error: appError } = await supabase
+      .from('applications')
+      .select('*')
+      .eq('app_id', app_id)
+      .eq('uses_parent_auth', true)
+      .eq('is_active', true)
+      .single();
+
+    if (!app || appError) {
+      return NextResponse.json(
+        { error: 'invalid_client', error_description: 'Application not found or not authorized' },
+        { status: 404 }
+      );
+    }
+
+    // Verify redirect URI is allowed
+    const allowedUris = app.allowed_redirect_uris || [];
+    if (!allowedUris.includes(redirect_uri)) {
+      return NextResponse.json(
+        { error: 'invalid_request', error_description: 'Redirect URI not allowed' },
+        { status: 403 }
+      );
+    }
+
+    // Generate authorization code
+    const authCode = generateAuthCode();
+    
+    // Store auth code with session info
+    const { error: storeError } = await supabase
+      .from('child_app_auth_codes')
+      .insert({
+        code: authCode,
+        app_id: app_id,
+        user_id: session.user.id,
+        redirect_uri: redirect_uri,
+        scope: scope || 'read',
+        expires_at: new Date(Date.now() + 5 * 60000).toISOString() // 5 minutes expiry
+      });
+
+    if (storeError) {
+      console.error('Error storing auth code:', storeError);
+      return NextResponse.json(
+        { error: 'server_error', error_description: 'Failed to generate authorization' },
+        { status: 500 }
+      );
+    }
+
+    // Return the authorization code
+    return NextResponse.json({
+      code: authCode,
+      state: state || ''
+    });
+  } catch (error) {
+    console.error('Authorization error:', error);
+    return NextResponse.json(
+      { error: 'server_error', error_description: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
 function generateAuthCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let code = '';

@@ -156,15 +156,14 @@ export async function GET(request: NextRequest) {
         // Clear the cookie
         cookieStore.delete('child_app_auth');
         
-        // Redirect to authorize endpoint to generate auth code
-        const authUrl = new URL('/api/auth/child-app/authorize', origin);
-        authUrl.searchParams.append('app_id', childAppAuth.app_id);
-        authUrl.searchParams.append('redirect_uri', childAppAuth.redirect_uri);
-        authUrl.searchParams.append('response_type', 'code');
-        if (childAppAuth.scope) authUrl.searchParams.append('scope', childAppAuth.scope);
-        if (childAppAuth.state) authUrl.searchParams.append('state', childAppAuth.state);
+        // Redirect to the child app login consent page
+        const consentUrl = new URL('/auth/child-app/login', origin);
+        consentUrl.searchParams.append('app_id', childAppAuth.app_id);
+        consentUrl.searchParams.append('redirect_uri', childAppAuth.redirect_uri);
+        if (childAppAuth.scope) consentUrl.searchParams.append('scope', childAppAuth.scope);
+        if (childAppAuth.state) consentUrl.searchParams.append('state', childAppAuth.state);
         
-        return NextResponse.redirect(authUrl);
+        return NextResponse.redirect(consentUrl);
       }
 
       // If profile exists and is completed, redirect based on role
