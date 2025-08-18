@@ -31,7 +31,11 @@ import {
   BookOpen,
   Terminal,
   Bot,
-  Sparkles
+  Sparkles,
+  Database,
+  Globe,
+  Settings,
+  LogOut
 } from 'lucide-react';
 
 export default function ChildAppIntegrationDocs() {
@@ -92,21 +96,21 @@ import Cookies from 'js-cookie';
 interface AuthConfig {
   parentAppUrl: string;
   appId: string;
-  apiKey: string;
   redirectUri: string;
+  scopes: string[];
 }
 
 interface UserSession {
   user: {
     id: string;
     email: string;
-    name: string;
+    full_name: string;
     role: string;
     institution_id?: string;
   };
-  token: string;
-  refreshToken: string;
-  expiresAt: string;
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
 }
 
 export class ParentAuthService {
@@ -118,8 +122,8 @@ export class ParentAuthService {
     this.config = {
       parentAppUrl: process.env.NEXT_PUBLIC_PARENT_APP_URL || 'https://my.jkkn.ac.in',
       appId: process.env.NEXT_PUBLIC_APP_ID || '',
-      apiKey: process.env.NEXT_PUBLIC_API_KEY || '',
-      redirectUri: process.env.NEXT_PUBLIC_REDIRECT_URI || ''
+      redirectUri: process.env.NEXT_PUBLIC_REDIRECT_URI || window.location.origin + '/auth/callback',
+      scopes: ['read', 'write', 'profile']
     };
   }
 
@@ -130,71 +134,104 @@ export class ParentAuthService {
     return ParentAuthService.instance;
   }
 
-  // Initialize authentication flow
-  async initiateLogin(): Promise<void> {
-    const authUrl = new URL(\`\${this.config.parentAppUrl}/auth/login\`);
+  // Initialize OAuth2 authentication flow
+  async initiateLogin(state?: string): Promise<void> {
+    const authUrl = new URL(\`\${this.config.parentAppUrl}/auth/authorize\`);
+    
+    // OAuth2 standard parameters
+    authUrl.searchParams.append('response_type', 'code');
+    authUrl.searchParams.append('client_id', this.config.appId);
     authUrl.searchParams.append('app_id', this.config.appId);
     authUrl.searchParams.append('redirect_uri', this.config.redirectUri);
-    authUrl.searchParams.append('response_type', 'code');
-    authUrl.searchParams.append('scope', 'read write profile');
-    authUrl.searchParams.append('state', this.generateState());
+    authUrl.searchParams.append('scope', this.config.scopes.join(' '));
+    authUrl.searchParams.append('state', state || this.generateState());
+    
+    // Store state for CSRF protection
+    if (!state) {
+      sessionStorage.setItem('oauth_state', authUrl.searchParams.get('state')!);
+    }
     
     window.location.href = authUrl.toString();
   }
 
-  // Handle callback from parent app
-  async handleCallback(code: string): Promise<UserSession> {
-    const response = await fetch('/api/auth/callback', {
+  // Handle OAuth callback with authorization code
+  async handleCallback(code: string, state: string): Promise<UserSession> {
+    // Verify state for CSRF protection
+    const savedState = sessionStorage.getItem('oauth_state');
+    if (state !== savedState) {
+      throw new Error('Invalid state parameter - possible CSRF attack');
+    }
+    
+    // Exchange authorization code for tokens
+    const response = await fetch(\`\${this.config.parentAppUrl}/api/auth/child-app/token\`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
-        code,
+        grant_type: 'authorization_code',
+        code: code,
         app_id: this.config.appId,
-        api_key: this.config.apiKey,
         redirect_uri: this.config.redirectUri
       })
     });
 
     if (!response.ok) {
-      throw new Error('Authentication failed');
+      const error = await response.json();
+      throw new Error(error.error_description || 'Authentication failed');
     }
 
     const session = await response.json();
+    
+    // Save session data
     this.saveSession(session);
-    this.scheduleTokenRefresh(session);
+    
+    // Schedule automatic token refresh
+    this.scheduleTokenRefresh(session.expires_in);
+    
+    // Clear state
+    sessionStorage.removeItem('oauth_state');
+    
     return session;
   }
 
-  // Save session to cookies
+  // Save session tokens securely
   private saveSession(session: UserSession): void {
-    Cookies.set('auth_token', session.token, { 
-      expires: new Date(session.expiresAt),
+    // Store access token with expiry
+    const expiresAt = new Date(Date.now() + session.expires_in * 1000);
+    
+    Cookies.set('access_token', session.access_token, { 
+      expires: expiresAt,
       secure: true,
       sameSite: 'strict'
     });
-    Cookies.set('refresh_token', session.refreshToken, { 
+    
+    // Store refresh token for 30 days
+    Cookies.set('refresh_token', session.refresh_token, { 
       expires: 30,
       secure: true,
       sameSite: 'strict'
     });
-    localStorage.setItem('user', JSON.stringify(session.user));
+    
+    // Store user data in localStorage
+    localStorage.setItem('user_data', JSON.stringify(session.user));
   }
 
   // Get current session
   getSession(): UserSession | null {
-    const token = Cookies.get('auth_token');
+    const accessToken = Cookies.get('access_token');
     const refreshToken = Cookies.get('refresh_token');
-    const userStr = localStorage.getItem('user');
+    const userData = localStorage.getItem('user_data');
 
-    if (!token || !refreshToken || !userStr) {
+    if (!accessToken || !refreshToken || !userData) {
       return null;
     }
 
     return {
-      token,
-      refreshToken,
-      user: JSON.parse(userStr),
-      expiresAt: new Date(Date.now() + 3600000).toISOString()
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: JSON.parse(userData),
+      expires_in: 3600
     };
   }
 
@@ -204,13 +241,13 @@ export class ParentAuthService {
     if (!refreshToken) return null;
 
     try {
-      const response = await fetch('/api/auth/refresh', {
+      const response = await fetch(\`\${this.config.parentAppUrl}/api/auth/child-app/token\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          grant_type: 'refresh_token',
           refresh_token: refreshToken,
-          app_id: this.config.appId,
-          api_key: this.config.apiKey
+          app_id: this.config.appId
         })
       });
 
@@ -220,43 +257,67 @@ export class ParentAuthService {
 
       const session = await response.json();
       this.saveSession(session);
-      this.scheduleTokenRefresh(session);
+      this.scheduleTokenRefresh(session.expires_in);
+      
       return session;
     } catch (error) {
-      this.logout();
+      // If refresh fails, clear session and redirect to login
+      this.clearSession();
       return null;
     }
   }
 
   // Schedule automatic token refresh
-  private scheduleTokenRefresh(session: UserSession): void {
+  private scheduleTokenRefresh(expiresIn: number): void {
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
     }
 
-    const expiresAt = new Date(session.expiresAt).getTime();
-    const now = Date.now();
-    const refreshIn = Math.max(0, expiresAt - now - 300000); // 5 min before expiry
-
+    // Refresh 5 minutes before expiry
+    const refreshIn = (expiresIn - 300) * 1000;
+    
     this.refreshTimer = setTimeout(() => {
       this.refreshToken();
     }, refreshIn);
   }
 
-  // Logout
-  logout(): void {
+  // Logout user
+  async logout(redirectUri?: string): Promise<void> {
+    // Clear local session
+    this.clearSession();
+    
+    // Redirect to parent app logout
+    const logoutUrl = new URL(\`\${this.config.parentAppUrl}/logout\`);
+    logoutUrl.searchParams.append('app_id', this.config.appId);
+    
+    if (redirectUri) {
+      logoutUrl.searchParams.append('redirect_uri', redirectUri);
+    }
+    
+    window.location.href = logoutUrl.toString();
+  }
+
+  // Clear session data
+  private clearSession(): void {
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
     }
-    Cookies.remove('auth_token');
+    
+    Cookies.remove('access_token');
     Cookies.remove('refresh_token');
-    localStorage.removeItem('user');
-    window.location.href = \`\${this.config.parentAppUrl}/logout?app_id=\${this.config.appId}\`;
+    localStorage.removeItem('user_data');
+    sessionStorage.clear();
   }
 
   // Check if user is authenticated
   isAuthenticated(): boolean {
     return !!this.getSession();
+  }
+
+  // Get current user
+  getUser(): any {
+    const session = this.getSession();
+    return session?.user || null;
   }
 
   // Get auth headers for API calls
@@ -265,25 +326,30 @@ export class ParentAuthService {
     if (!session) return {};
 
     return {
-      'Authorization': \`Bearer \${session.token}\`,
+      'Authorization': \`Bearer \${session.access_token}\`,
       'X-App-ID': this.config.appId
     };
   }
+
+  // Generate random state for CSRF protection
+  private generateState(): string {
+    return Math.random().toString(36).substring(2, 15);
+  }
 }
 
-export default ParentAuthService;`;
+export default ParentAuthService.getInstance();`;
 
   // Auth Context code
   const authContextCode = `// lib/auth/auth-context.tsx
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { ParentAuthService } from './parent-auth-service';
+import parentAuthService from './parent-auth-service';
 
 interface User {
   id: string;
   email: string;
-  name: string;
+  full_name: string;
   role: string;
   institution_id?: string;
 }
@@ -293,7 +359,7 @@ interface AuthContextType {
   loading: boolean;
   isAuthenticated: boolean;
   login: () => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
 }
 
@@ -302,50 +368,55 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const authService = ParentAuthService.getInstance();
 
   useEffect(() => {
-    // Check for existing session
-    const session = authService.getSession();
+    // Check for existing session on mount
+    const session = parentAuthService.getSession();
     if (session) {
       setUser(session.user);
     }
+    
+    // Handle OAuth callback
+    const handleCallback = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const state = params.get('state');
+      const error = params.get('error');
+      
+      if (error) {
+        console.error('OAuth error:', params.get('error_description'));
+        setLoading(false);
+        return;
+      }
+      
+      if (code && state) {
+        try {
+          const session = await parentAuthService.handleCallback(code, state);
+          setUser(session.user);
+          
+          // Clean URL after successful authentication
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (error) {
+          console.error('Auth callback failed:', error);
+        }
+      }
+    };
+    
+    handleCallback();
     setLoading(false);
-
-    // Handle auth callback
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    if (code) {
-      handleAuthCallback(code);
-    }
   }, []);
 
-  const handleAuthCallback = async (code: string) => {
-    try {
-      setLoading(true);
-      const session = await authService.handleCallback(code);
-      setUser(session.user);
-      
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } catch (error) {
-      console.error('Auth callback failed:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const login = async () => {
-    await authService.initiateLogin();
+    await parentAuthService.initiateLogin();
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await parentAuthService.logout(window.location.origin);
     setUser(null);
-    authService.logout();
   };
 
   const refreshSession = async () => {
-    const session = await authService.refreshToken();
+    const session = await parentAuthService.refreshToken();
     if (session) {
       setUser(session.user);
     }
@@ -376,12 +447,12 @@ export function useAuth() {
 }`;
 
   // Protected Route component
-  const protectedRouteCode = `// lib/auth/protected-route.tsx
+  const protectedRouteCode = `// components/protected-route.tsx
 'use client';
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from './auth-context';
+import { useAuth } from '@/lib/auth/auth-context';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -428,96 +499,15 @@ export function ProtectedRoute({
   return <>{children}</>;
 }`;
 
-  // API route handlers
-  const apiCallbackRoute = `// app/api/auth/callback/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-
-export async function POST(request: NextRequest) {
-  const { code, app_id, api_key, redirect_uri } = await request.json();
-
-  try {
-    // Exchange code for tokens with parent app
-    const response = await fetch(\`\${process.env.PARENT_APP_URL}/api/auth/child-app/token\`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': api_key
-      },
-      body: JSON.stringify({
-        grant_type: 'authorization_code',
-        code,
-        app_id,
-        redirect_uri
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error('Token exchange failed');
-    }
-
-    const data = await response.json();
-    
-    return NextResponse.json({
-      user: data.user,
-      token: data.access_token,
-      refreshToken: data.refresh_token,
-      expiresAt: data.expires_at
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: 'Authentication failed' },
-      { status: 401 }
-    );
-  }
-}`;
-
-  const apiRefreshRoute = `// app/api/auth/refresh/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-
-export async function POST(request: NextRequest) {
-  const { refresh_token, app_id, api_key } = await request.json();
-
-  try {
-    const response = await fetch(\`\${process.env.PARENT_APP_URL}/api/auth/child-app/refresh\`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': api_key
-      },
-      body: JSON.stringify({
-        grant_type: 'refresh_token',
-        refresh_token,
-        app_id
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error('Token refresh failed');
-    }
-
-    const data = await response.json();
-    
-    return NextResponse.json({
-      user: data.user,
-      token: data.access_token,
-      refreshToken: data.refresh_token,
-      expiresAt: data.expires_at
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: 'Token refresh failed' },
-      { status: 401 }
-    );
-  }
-}`;
-
   // Environment variables
   const envExample = `# .env.local
+# MyJKKN Parent App Configuration
 NEXT_PUBLIC_PARENT_APP_URL=https://my.jkkn.ac.in
-NEXT_PUBLIC_APP_ID=your_app_id_from_myjkkn
-NEXT_PUBLIC_API_KEY=your_api_key_from_myjkkn
+NEXT_PUBLIC_APP_ID=your_app_id_here
 NEXT_PUBLIC_REDIRECT_URI=http://localhost:3000/auth/callback
-PARENT_APP_URL=https://my.jkkn.ac.in`;
+
+# For production, update redirect URI:
+# NEXT_PUBLIC_REDIRECT_URI=https://your-app.com/auth/callback`;
 
   // Layout integration
   const layoutCode = `// app/layout.tsx
@@ -544,7 +534,7 @@ export default function RootLayout({
 'use client';
 
 import { useAuth } from '@/lib/auth/auth-context';
-import { ProtectedRoute } from '@/lib/auth/protected-route';
+import { ProtectedRoute } from '@/components/protected-route';
 
 export default function HomePage() {
   const { user, isAuthenticated, login, logout } = useAuth();
@@ -552,10 +542,11 @@ export default function HomePage() {
   if (!isAuthenticated) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
-        <h1 className="text-2xl font-bold mb-4">Welcome to Child App</h1>
+        <h1 className="text-2xl font-bold mb-4">Welcome to Our Application</h1>
+        <p className="text-gray-600 mb-8">Please login to continue</p>
         <button 
           onClick={login}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
           Login with MyJKKN
         </button>
@@ -569,8 +560,15 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto">
           <h1 className="text-3xl font-bold mb-4">Dashboard</h1>
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-2">Welcome, {user?.name}!</h2>
-            <p className="text-gray-600 mb-4">Role: {user?.role}</p>
+            <h2 className="text-xl font-semibold mb-2">
+              Welcome, {user?.full_name}!
+            </h2>
+            <p className="text-gray-600 mb-4">
+              Email: {user?.email}
+            </p>
+            <p className="text-gray-600 mb-4">
+              Role: {user?.role}
+            </p>
             <button 
               onClick={logout}
               className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
@@ -596,43 +594,73 @@ export default function HomePage() {
   }
 }`;
 
-  // AI Implementation Prompt
-  const aiPrompt = `I need to implement MyJKKN parent authentication in my Next.js child application.
+  // OAuth flow endpoints
+  const oauthEndpoints = `# OAuth 2.0 Endpoints
 
-CONTEXT:
-- Parent App URL: https://my.jkkn.ac.in
-- My App ID: [YOUR_APP_ID]
-- My API Key: [YOUR_API_KEY]
-- My Redirect URI: [YOUR_REDIRECT_URI]
+## Authorization Endpoint
+GET https://my.jkkn.ac.in/auth/authorize
+Parameters:
+- response_type=code (required)
+- client_id={your_app_id} (required)
+- app_id={your_app_id} (required)
+- redirect_uri={your_callback_url} (required)
+- scope=read write profile (optional)
+- state={random_string} (recommended for CSRF protection)
 
-REQUIREMENTS:
-1. Users should authenticate through MyJKKN instead of separate login
-2. Handle OAuth2 flow with authorization code grant
-3. Implement automatic token refresh
-4. Protect routes based on authentication status
-5. Support role-based access control
+## Token Exchange Endpoint
+POST https://my.jkkn.ac.in/api/auth/child-app/token
+Headers:
+- Content-Type: application/json
+Body:
+{
+  "grant_type": "authorization_code",
+  "code": "{auth_code}",
+  "app_id": "{your_app_id}",
+  "redirect_uri": "{your_callback_url}"
+}
 
-Please create a complete authentication system with:
-1. Authentication service class for handling OAuth flow
-2. React context for managing auth state
-3. Protected route component
-4. API routes for token exchange and refresh
-5. Integration with Next.js app router
-6. Proper error handling and loading states
-7. Secure cookie management for tokens
-8. Automatic token refresh before expiry
+## Token Refresh Endpoint
+POST https://my.jkkn.ac.in/api/auth/child-app/token
+Headers:
+- Content-Type: application/json
+Body:
+{
+  "grant_type": "refresh_token",
+  "refresh_token": "{refresh_token}",
+  "app_id": "{your_app_id}"
+}
 
-The implementation should:
-- Use TypeScript
-- Follow Next.js 14 app router patterns
-- Store tokens securely in httpOnly cookies
-- Handle authentication errors gracefully
-- Provide hooks for accessing auth state
-- Support role-based route protection
-- Clean up URLs after OAuth callback
-- Implement proper logout flow
+## Logout Endpoint
+GET https://my.jkkn.ac.in/logout
+Parameters:
+- app_id={your_app_id} (required)
+- redirect_uri={your_logout_redirect_url} (optional)`;
 
-Include all necessary files with complete code, not just snippets.`;
+  // Test endpoints
+  const testEndpoints = `# Test Your Integration
+
+## 1. Test Authorization URL
+Open this in your browser:
+https://my.jkkn.ac.in/auth/authorize?response_type=code&app_id=YOUR_APP_ID&redirect_uri=http://localhost:3000/auth/callback&scope=read write profile&state=test123
+
+## 2. Test Token Exchange
+curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "grant_type": "authorization_code",
+    "code": "TEST_AUTH_CODE",
+    "app_id": "YOUR_APP_ID",
+    "redirect_uri": "http://localhost:3000/auth/callback"
+  }'
+
+## 3. Test Token Refresh
+curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "grant_type": "refresh_token",
+    "refresh_token": "YOUR_REFRESH_TOKEN",
+    "app_id": "YOUR_APP_ID"
+  }'`;
 
   return (
     <div className='space-y-8'>
@@ -640,32 +668,181 @@ Include all necessary files with complete code, not just snippets.`;
       <div className='space-y-4'>
         <div className='flex items-center gap-3'>
           <GitBranch className='h-8 w-8 text-primary' />
-          <h1 className='text-3xl font-bold'>Child App Integration Guide</h1>
+          <h1 className='text-3xl font-bold'>
+            Complete Child App Integration Guide
+          </h1>
         </div>
         <p className='text-muted-foreground'>
-          Complete implementation guide for integrating child applications with
-          MyJKKN authentication
+          Step-by-step guide to integrate your application with MyJKKN
+          authentication system using OAuth 2.0 flow
         </p>
       </div>
 
-      {/* AI Tool Alert */}
-      <Alert className='border-purple-200 bg-purple-50 dark:bg-purple-950/20'>
-        <Bot className='h-4 w-4 text-purple-600' />
+      {/* Important Prerequisites */}
+      <Alert className='border-blue-200 bg-blue-50 dark:bg-blue-950/20'>
+        <Info className='h-4 w-4 text-blue-600' />
         <AlertDescription>
-          <strong>Using AI Tools?</strong> Copy our AI-optimized prompt below
-          for instant implementation with tools like Claude, ChatGPT, or
-          Lovable.
+          <strong>Prerequisites:</strong> Before starting, ensure you have:
+          <ul className='mt-2 space-y-1 text-sm'>
+            <li>• Your App ID from MyJKKN admin panel</li>
+            <li>• Your application registered in MyJKKN</li>
+            <li>• Redirect URIs configured in MyJKKN</li>
+            <li>• Next.js 14+ project with TypeScript</li>
+          </ul>
         </AlertDescription>
       </Alert>
 
       {/* Implementation Tabs */}
-      <Tabs defaultValue='quickstart' className='space-y-4'>
-        <TabsList className='grid w-full grid-cols-4'>
+      <Tabs defaultValue='overview' className='space-y-4'>
+        <TabsList className='grid w-full grid-cols-6'>
+          <TabsTrigger value='overview'>Overview</TabsTrigger>
           <TabsTrigger value='quickstart'>Quick Start</TabsTrigger>
-          <TabsTrigger value='manual'>Manual Setup</TabsTrigger>
-          <TabsTrigger value='ai-prompt'>AI Prompt</TabsTrigger>
+          <TabsTrigger value='implementation'>Code</TabsTrigger>
+          <TabsTrigger value='endpoints'>Endpoints</TabsTrigger>
           <TabsTrigger value='testing'>Testing</TabsTrigger>
+          <TabsTrigger value='troubleshoot'>Debug</TabsTrigger>
         </TabsList>
+
+        {/* Overview Tab */}
+        <TabsContent value='overview' className='space-y-6'>
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Globe className='h-5 w-5' />
+                How MyJKKN OAuth Integration Works
+              </CardTitle>
+              <CardDescription>
+                Understanding the authentication flow
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-6'>
+              {/* OAuth Flow Diagram */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>Authentication Flow</h3>
+                <div className='bg-muted p-6 rounded-lg space-y-4'>
+                  <div className='flex items-center gap-4'>
+                    <Badge className='w-8'>1</Badge>
+                    <div className='flex-1'>
+                      <p className='font-medium'>
+                        User clicks &quot;Login with MyJKKN&quot;
+                      </p>
+                      <p className='text-sm text-muted-foreground'>
+                        Your app redirects to MyJKKN authorization endpoint
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className='h-4 w-4 mx-auto text-muted-foreground' />
+                  <div className='flex items-center gap-4'>
+                    <Badge className='w-8'>2</Badge>
+                    <div className='flex-1'>
+                      <p className='font-medium'>
+                        User authenticates on MyJKKN
+                      </p>
+                      <p className='text-sm text-muted-foreground'>
+                        User logs in with Google OAuth via MyJKKN
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className='h-4 w-4 mx-auto text-muted-foreground' />
+                  <div className='flex items-center gap-4'>
+                    <Badge className='w-8'>3</Badge>
+                    <div className='flex-1'>
+                      <p className='font-medium'>User grants permission</p>
+                      <p className='text-sm text-muted-foreground'>
+                        MyJKKN shows consent screen for your app
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className='h-4 w-4 mx-auto text-muted-foreground' />
+                  <div className='flex items-center gap-4'>
+                    <Badge className='w-8'>4</Badge>
+                    <div className='flex-1'>
+                      <p className='font-medium'>
+                        Redirect with authorization code
+                      </p>
+                      <p className='text-sm text-muted-foreground'>
+                        MyJKKN redirects back to your app with code
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className='h-4 w-4 mx-auto text-muted-foreground' />
+                  <div className='flex items-center gap-4'>
+                    <Badge className='w-8'>5</Badge>
+                    <div className='flex-1'>
+                      <p className='font-medium'>Exchange code for tokens</p>
+                      <p className='text-sm text-muted-foreground'>
+                        Your app exchanges code for access/refresh tokens
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className='h-4 w-4 mx-auto text-muted-foreground' />
+                  <div className='flex items-center gap-4'>
+                    <Badge className='w-8'>6</Badge>
+                    <div className='flex-1'>
+                      <p className='font-medium'>User is authenticated</p>
+                      <p className='text-sm text-muted-foreground'>
+                        Your app can now access user data and make API calls
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Key Features */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>Key Features</h3>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                  <div className='flex items-start gap-3'>
+                    <Shield className='h-5 w-5 text-green-600 mt-0.5' />
+                    <div>
+                      <div className='font-medium'>Secure OAuth 2.0</div>
+                      <div className='text-sm text-muted-foreground'>
+                        Industry-standard authorization flow
+                      </div>
+                    </div>
+                  </div>
+                  <div className='flex items-start gap-3'>
+                    <Key className='h-5 w-5 text-green-600 mt-0.5' />
+                    <div>
+                      <div className='font-medium'>JWT Tokens</div>
+                      <div className='text-sm text-muted-foreground'>
+                        Secure token-based authentication
+                      </div>
+                    </div>
+                  </div>
+                  <div className='flex items-start gap-3'>
+                    <Database className='h-5 w-5 text-green-600 mt-0.5' />
+                    <div>
+                      <div className='font-medium'>Centralized Users</div>
+                      <div className='text-sm text-muted-foreground'>
+                        All user data managed in MyJKKN
+                      </div>
+                    </div>
+                  </div>
+                  <div className='flex items-start gap-3'>
+                    <Settings className='h-5 w-5 text-green-600 mt-0.5' />
+                    <div>
+                      <div className='font-medium'>Role-Based Access</div>
+                      <div className='text-sm text-muted-foreground'>
+                        Support for different user roles
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Security Notes */}
+              <Alert>
+                <Lock className='h-4 w-4' />
+                <AlertDescription>
+                  <strong>Security:</strong> All tokens are encrypted, have
+                  expiration times, and can be revoked. Always use HTTPS in
+                  production and implement CSRF protection with state parameter.
+                </AlertDescription>
+              </Alert>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Quick Start Tab */}
         <TabsContent value='quickstart' className='space-y-6'>
@@ -673,11 +850,10 @@ Include all necessary files with complete code, not just snippets.`;
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
                 <Zap className='h-5 w-5' />
-                Quick Start (5 Minutes)
+                Quick Start Guide
               </CardTitle>
               <CardDescription>
-                Get up and running quickly with our complete authentication
-                package
+                Get up and running in 10 minutes
               </CardDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
@@ -685,13 +861,19 @@ Include all necessary files with complete code, not just snippets.`;
               <div className='space-y-4'>
                 <h3 className='text-lg font-semibold flex items-center gap-2'>
                   <Badge>Step 1</Badge>
-                  Install Dependencies
+                  Install Required Dependencies
                 </h3>
                 <CodeBlock
                   code='npm install js-cookie @types/js-cookie'
                   language='bash'
                   id='install-deps'
                 />
+                <Alert>
+                  <Info className='h-4 w-4' />
+                  <AlertDescription>
+                    These packages handle secure cookie management for tokens
+                  </AlertDescription>
+                </Alert>
               </div>
 
               {/* Step 2: Environment Variables */}
@@ -706,43 +888,48 @@ Include all necessary files with complete code, not just snippets.`;
                   title='.env.local'
                   id='env-vars'
                 />
+                <Alert className='border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20'>
+                  <AlertCircle className='h-4 w-4 text-yellow-600' />
+                  <AlertDescription>
+                    <strong>Important:</strong> Get your APP_ID from MyJKKN
+                    admin panel. The redirect URI must match exactly with
+                    what&apos;s configured in MyJKKN.
+                  </AlertDescription>
+                </Alert>
               </div>
 
-              {/* Step 3: Copy Authentication Files */}
+              {/* Step 3: Create File Structure */}
               <div className='space-y-4'>
                 <h3 className='text-lg font-semibold flex items-center gap-2'>
                   <Badge>Step 3</Badge>
-                  Create Authentication Files
+                  Create Required Files
                 </h3>
-                <Alert className='mb-4'>
-                  <Info className='h-4 w-4' />
-                  <AlertDescription>
-                    Create these files in your child application. All code is
-                    provided below.
-                  </AlertDescription>
-                </Alert>
-                <div className='space-y-2 bg-muted p-4 rounded-lg'>
-                  <div className='font-mono text-sm'>
-                    <div>📁 lib/auth/</div>
-                    <div className='ml-4'>📄 parent-auth-service.ts</div>
-                    <div className='ml-4'>📄 auth-context.tsx</div>
-                    <div className='ml-4'>📄 protected-route.tsx</div>
-                  </div>
-                  <div className='font-mono text-sm mt-4'>
-                    <div>📁 app/api/auth/</div>
-                    <div className='ml-4'>📁 callback/</div>
-                    <div className='ml-8'>📄 route.ts</div>
-                    <div className='ml-4'>📁 refresh/</div>
-                    <div className='ml-8'>📄 route.ts</div>
+                <div className='bg-muted p-4 rounded-lg'>
+                  <p className='text-sm font-medium mb-3'>
+                    Create these files in your project:
+                  </p>
+                  <div className='font-mono text-sm space-y-2'>
+                    <div className='flex items-center gap-2'>
+                      <FileCode className='h-4 w-4' />
+                      <span>lib/auth/parent-auth-service.ts</span>
+                    </div>
+                    <div className='flex items-center gap-2'>
+                      <FileCode className='h-4 w-4' />
+                      <span>lib/auth/auth-context.tsx</span>
+                    </div>
+                    <div className='flex items-center gap-2'>
+                      <FileCode className='h-4 w-4' />
+                      <span>components/protected-route.tsx</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Step 4: Integration */}
+              {/* Step 4: Add AuthProvider */}
               <div className='space-y-4'>
                 <h3 className='text-lg font-semibold flex items-center gap-2'>
                   <Badge>Step 4</Badge>
-                  Integrate with Your App
+                  Wrap Your App with AuthProvider
                 </h3>
                 <CodeBlock
                   code={layoutCode}
@@ -752,45 +939,62 @@ Include all necessary files with complete code, not just snippets.`;
                 />
               </div>
 
+              {/* Step 5: Implement Login */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold flex items-center gap-2'>
+                  <Badge>Step 5</Badge>
+                  Implement Login Page
+                </h3>
+                <CodeBlock
+                  code={pageImplementation}
+                  language='typescript'
+                  title='app/page.tsx'
+                  id='page-implementation'
+                />
+              </div>
+
               {/* Success Message */}
               <Alert className='border-green-200 bg-green-50 dark:bg-green-950/20'>
                 <CheckCircle className='h-4 w-4 text-green-600' />
                 <AlertDescription>
-                  <strong>That&apos;s it!</strong> Your child app now uses
-                  MyJKKN authentication.
+                  <strong>Setup Complete!</strong> Your app now uses MyJKKN
+                  authentication. Users will login through MyJKKN and be
+                  redirected back to your app.
                 </AlertDescription>
               </Alert>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Manual Setup Tab */}
-        <TabsContent value='manual' className='space-y-6'>
+        {/* Implementation Tab */}
+        <TabsContent value='implementation' className='space-y-6'>
           <Card>
             <CardHeader>
-              <CardTitle>Complete Implementation Files</CardTitle>
+              <CardTitle>Complete Implementation Code</CardTitle>
               <CardDescription>
-                Copy these complete files to your child application
+                Copy these files to your project for full integration
               </CardDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
               {/* Authentication Service */}
               <div className='space-y-4'>
                 <div className='flex items-center justify-between'>
-                  <h3 className='text-lg font-semibold'>Parent Auth Service</h3>
+                  <h3 className='text-lg font-semibold'>
+                    Authentication Service
+                  </h3>
                   <Badge variant='outline'>Core Service</Badge>
                 </div>
                 <Alert>
                   <FileCode className='h-4 w-4' />
                   <AlertDescription>
-                    <strong>File Location:</strong>{' '}
-                    lib/auth/parent-auth-service.ts
+                    This service handles OAuth flow, token management, and
+                    session persistence
                   </AlertDescription>
                 </Alert>
                 <CodeBlock
                   code={parentAuthServiceCode}
                   language='typescript'
-                  title='parent-auth-service.ts'
+                  title='lib/auth/parent-auth-service.ts'
                   id='auth-service'
                 />
               </div>
@@ -798,21 +1002,20 @@ Include all necessary files with complete code, not just snippets.`;
               {/* Auth Context */}
               <div className='space-y-4'>
                 <div className='flex items-center justify-between'>
-                  <h3 className='text-lg font-semibold'>
-                    Auth Context Provider
-                  </h3>
-                  <Badge variant='outline'>React Context</Badge>
+                  <h3 className='text-lg font-semibold'>React Auth Context</h3>
+                  <Badge variant='outline'>State Management</Badge>
                 </div>
                 <Alert>
                   <FileCode className='h-4 w-4' />
                   <AlertDescription>
-                    <strong>File Location:</strong> lib/auth/auth-context.tsx
+                    Provides authentication state and methods throughout your
+                    app
                   </AlertDescription>
                 </Alert>
                 <CodeBlock
                   code={authContextCode}
                   language='typescript'
-                  title='auth-context.tsx'
+                  title='lib/auth/auth-context.tsx'
                   id='auth-context'
                 />
               </div>
@@ -828,204 +1031,97 @@ Include all necessary files with complete code, not just snippets.`;
                 <Alert>
                   <FileCode className='h-4 w-4' />
                   <AlertDescription>
-                    <strong>File Location:</strong> lib/auth/protected-route.tsx
+                    Protects pages that require authentication
                   </AlertDescription>
                 </Alert>
                 <CodeBlock
                   code={protectedRouteCode}
                   language='typescript'
-                  title='protected-route.tsx'
+                  title='components/protected-route.tsx'
                   id='protected-route'
-                />
-              </div>
-
-              {/* API Routes */}
-              <div className='space-y-4'>
-                <div className='flex items-center justify-between'>
-                  <h3 className='text-lg font-semibold'>
-                    API Route - Callback Handler
-                  </h3>
-                  <Badge variant='outline'>API Route</Badge>
-                </div>
-                <Alert>
-                  <FileCode className='h-4 w-4' />
-                  <AlertDescription>
-                    <strong>File Location:</strong>{' '}
-                    app/api/auth/callback/route.ts
-                  </AlertDescription>
-                </Alert>
-                <CodeBlock
-                  code={apiCallbackRoute}
-                  language='typescript'
-                  title='callback/route.ts'
-                  id='api-callback'
-                />
-              </div>
-
-              <div className='space-y-4'>
-                <div className='flex items-center justify-between'>
-                  <h3 className='text-lg font-semibold'>
-                    API Route - Token Refresh
-                  </h3>
-                  <Badge variant='outline'>API Route</Badge>
-                </div>
-                <Alert>
-                  <FileCode className='h-4 w-4' />
-                  <AlertDescription>
-                    <strong>File Location:</strong>{' '}
-                    app/api/auth/refresh/route.ts
-                  </AlertDescription>
-                </Alert>
-                <CodeBlock
-                  code={apiRefreshRoute}
-                  language='typescript'
-                  title='refresh/route.ts'
-                  id='api-refresh'
-                />
-              </div>
-
-              {/* Usage Example */}
-              <div className='space-y-4'>
-                <div className='flex items-center justify-between'>
-                  <h3 className='text-lg font-semibold'>Usage Example</h3>
-                  <Badge variant='outline'>Implementation</Badge>
-                </div>
-                <Alert>
-                  <FileCode className='h-4 w-4' />
-                  <AlertDescription>
-                    <strong>File Location:</strong> app/page.tsx (or any page)
-                  </AlertDescription>
-                </Alert>
-                <CodeBlock
-                  code={pageImplementation}
-                  language='typescript'
-                  title='page.tsx'
-                  id='page-example'
                 />
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* AI Prompt Tab */}
-        <TabsContent value='ai-prompt' className='space-y-6'>
+        {/* Endpoints Tab */}
+        <TabsContent value='endpoints' className='space-y-6'>
           <Card>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
-                <Sparkles className='h-5 w-5 text-purple-600' />
-                AI Implementation Prompt
+                <Server className='h-5 w-5' />
+                API Endpoints Reference
               </CardTitle>
               <CardDescription>
-                Copy this prompt for AI tools like Claude, ChatGPT, or Lovable
+                All MyJKKN OAuth endpoints and their usage
               </CardDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
-              <Alert className='border-purple-200 bg-purple-50 dark:bg-purple-950/20'>
-                <Bot className='h-4 w-4 text-purple-600' />
-                <AlertDescription>
-                  <strong>How to use:</strong>
-                  <ol className='mt-2 space-y-1 text-sm'>
-                    <li>1. Copy the prompt below</li>
-                    <li>
-                      2. Replace [YOUR_APP_ID], [YOUR_API_KEY], and
-                      [YOUR_REDIRECT_URI] with your actual values
-                    </li>
-                    <li>
-                      3. Paste into your AI tool (Claude, ChatGPT, Lovable,
-                      etc.)
-                    </li>
-                    <li>
-                      4. The AI will generate complete implementation files
-                    </li>
-                  </ol>
-                </AlertDescription>
-              </Alert>
+              <CodeBlock
+                code={oauthEndpoints}
+                language='markdown'
+                title='OAuth 2.0 Endpoints'
+                id='oauth-endpoints'
+              />
 
+              {/* Response Formats */}
               <div className='space-y-4'>
-                <h3 className='text-lg font-semibold'>Complete AI Prompt</h3>
-                <CodeBlock
-                  code={aiPrompt}
-                  language='markdown'
-                  title='AI Implementation Prompt'
-                  id='ai-prompt'
-                />
-              </div>
+                <h3 className='text-lg font-semibold'>Response Formats</h3>
 
-              <div className='space-y-4'>
-                <h3 className='text-lg font-semibold'>
-                  What the AI Will Generate
-                </h3>
-                <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                  <div className='flex items-start gap-3'>
-                    <CheckCircle className='h-5 w-5 text-green-600 mt-0.5' />
-                    <div>
-                      <div className='font-medium'>Authentication Service</div>
-                      <div className='text-sm text-muted-foreground'>
-                        Complete OAuth2 flow implementation
-                      </div>
-                    </div>
-                  </div>
-                  <div className='flex items-start gap-3'>
-                    <CheckCircle className='h-5 w-5 text-green-600 mt-0.5' />
-                    <div>
-                      <div className='font-medium'>React Context</div>
-                      <div className='text-sm text-muted-foreground'>
-                        State management for auth
-                      </div>
-                    </div>
-                  </div>
-                  <div className='flex items-start gap-3'>
-                    <CheckCircle className='h-5 w-5 text-green-600 mt-0.5' />
-                    <div>
-                      <div className='font-medium'>Protected Routes</div>
-                      <div className='text-sm text-muted-foreground'>
-                        Role-based access control
-                      </div>
-                    </div>
-                  </div>
-                  <div className='flex items-start gap-3'>
-                    <CheckCircle className='h-5 w-5 text-green-600 mt-0.5' />
-                    <div>
-                      <div className='font-medium'>API Routes</div>
-                      <div className='text-sm text-muted-foreground'>
-                        Token exchange and refresh
-                      </div>
-                    </div>
-                  </div>
-                  <div className='flex items-start gap-3'>
-                    <CheckCircle className='h-5 w-5 text-green-600 mt-0.5' />
-                    <div>
-                      <div className='font-medium'>Error Handling</div>
-                      <div className='text-sm text-muted-foreground'>
-                        Graceful error management
-                      </div>
-                    </div>
-                  </div>
-                  <div className='flex items-start gap-3'>
-                    <CheckCircle className='h-5 w-5 text-green-600 mt-0.5' />
-                    <div>
-                      <div className='font-medium'>Auto Refresh</div>
-                      <div className='text-sm text-muted-foreground'>
-                        Automatic token renewal
-                      </div>
-                    </div>
-                  </div>
+                {/* Success Response */}
+                <div className='space-y-2'>
+                  <p className='text-sm font-medium'>Token Exchange Success:</p>
+                  <CodeBlock
+                    code={`{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "read write profile",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "full_name": "John Doe",
+    "role": "student",
+    "institution_id": "uuid"
+  }
+}`}
+                    language='json'
+                    id='success-response'
+                  />
+                </div>
+
+                {/* Error Response */}
+                <div className='space-y-2'>
+                  <p className='text-sm font-medium'>Error Response:</p>
+                  <CodeBlock
+                    code={`{
+  "error": "invalid_grant",
+  "error_description": "Authorization code expired or invalid"
+}`}
+                    language='json'
+                    id='error-response'
+                  />
                 </div>
               </div>
 
-              <Alert>
-                <Info className='h-4 w-4' />
-                <AlertDescription>
-                  <strong>Pro Tip:</strong> After the AI generates the code,
-                  also ask it to:
-                  <ul className='mt-2 space-y-1 text-sm'>
-                    <li>• Add loading skeletons for better UX</li>
-                    <li>• Implement retry logic for failed requests</li>
-                    <li>• Add TypeScript interfaces for API responses</li>
-                    <li>• Create a custom useAuth hook with TypeScript</li>
-                  </ul>
-                </AlertDescription>
-              </Alert>
+              {/* Logout Implementation */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold flex items-center gap-2'>
+                  <LogOut className='h-5 w-5' />
+                  Logout Implementation
+                </h3>
+                <CodeBlock
+                  code={`// Simple logout redirect
+window.location.href = 'https://my.jkkn.ac.in/logout?app_id=YOUR_APP_ID&redirect_uri=https://your-app.com';
+
+// Or using the service
+await parentAuthService.logout('https://your-app.com');`}
+                  language='typescript'
+                  id='logout-implementation'
+                />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1034,149 +1130,190 @@ Include all necessary files with complete code, not just snippets.`;
         <TabsContent value='testing' className='space-y-6'>
           <Card>
             <CardHeader>
-              <CardTitle>Testing Your Integration</CardTitle>
+              <CardTitle className='flex items-center gap-2'>
+                <Terminal className='h-5 w-5' />
+                Testing Your Integration
+              </CardTitle>
               <CardDescription>
-                Verify your authentication setup is working correctly
+                Verify everything is working correctly
               </CardDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
-              {/* Test Checklist */}
+              <CodeBlock
+                code={testEndpoints}
+                language='bash'
+                title='Test Commands'
+                id='test-endpoints'
+              />
+
+              {/* Testing Checklist */}
               <div className='space-y-4'>
-                <h3 className='text-lg font-semibold'>Integration Checklist</h3>
+                <h3 className='text-lg font-semibold'>Testing Checklist</h3>
                 <div className='space-y-3'>
                   {[
-                    {
-                      step: 'Environment variables configured',
-                      check: 'Verify .env.local has all required values'
-                    },
-                    {
-                      step: 'Dependencies installed',
-                      check: 'Run: npm list js-cookie'
-                    },
-                    {
-                      step: 'Auth service created',
-                      check: 'File exists: lib/auth/parent-auth-service.ts'
-                    },
-                    {
-                      step: 'Context provider added',
-                      check: 'AuthProvider wraps app in layout.tsx'
-                    },
-                    {
-                      step: 'API routes created',
-                      check:
-                        'Routes exist: /api/auth/callback and /api/auth/refresh'
-                    },
-                    {
-                      step: 'Login flow works',
-                      check: 'Click login redirects to MyJKKN'
-                    },
-                    {
-                      step: 'Callback handling',
-                      check: 'Returns to app after MyJKKN login'
-                    },
-                    {
-                      step: 'User data available',
-                      check: 'useAuth() returns user object'
-                    },
-                    {
-                      step: 'Protected routes work',
-                      check: 'Unauthorized users redirected'
-                    },
-                    {
-                      step: 'Token refresh works',
-                      check: 'Tokens auto-refresh before expiry'
-                    }
+                    'Environment variables are set correctly',
+                    'App ID matches MyJKKN configuration',
+                    'Redirect URI matches exactly (including protocol)',
+                    'Login button redirects to MyJKKN',
+                    'After login, user returns to your app',
+                    'User data is displayed correctly',
+                    'Access token is stored in cookies',
+                    'Refresh token works before expiry',
+                    'Logout clears all session data',
+                    'Protected routes redirect when not authenticated'
                   ].map((item, index) => (
-                    <div key={index} className='flex items-start gap-3'>
-                      <div className='mt-1'>
-                        <div className='h-5 w-5 rounded border-2 border-gray-300' />
-                      </div>
-                      <div className='flex-1'>
-                        <div className='font-medium'>{item.step}</div>
-                        <div className='text-sm text-muted-foreground'>
-                          {item.check}
-                        </div>
-                      </div>
+                    <div key={index} className='flex items-center gap-3'>
+                      <div className='h-5 w-5 rounded border-2 border-gray-300' />
+                      <span className='text-sm'>{item}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Test Commands */}
+              {/* Browser Console Tests */}
               <div className='space-y-4'>
-                <h3 className='text-lg font-semibold'>Test Commands</h3>
+                <h3 className='text-lg font-semibold'>Browser Console Tests</h3>
                 <CodeBlock
-                  code={`# Check environment variables
-cat .env.local
+                  code={`// Check if user is authenticated
+localStorage.getItem('user_data')
 
-# Test API endpoint
-curl -X POST http://localhost:3000/api/auth/callback \\
-  -H "Content-Type: application/json" \\
-  -d '{"code":"test","app_id":"test","api_key":"test","redirect_uri":"test"}'
+// Check cookies (install EditThisCookie extension)
+document.cookie
 
-# Check if auth service loads
-npm run dev
-# Open browser console and run:
-# > window.localStorage.getItem('user')`}
-                  language='bash'
-                  title='Terminal Commands'
-                  id='test-commands'
+// Test auth service
+const auth = await import('./lib/auth/parent-auth-service');
+auth.default.isAuthenticated()
+auth.default.getUser()`}
+                  language='javascript'
+                  title='Console Commands'
+                  id='console-tests'
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Troubleshooting Tab */}
+        <TabsContent value='troubleshoot' className='space-y-6'>
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <AlertCircle className='h-5 w-5' />
+                Troubleshooting Guide
+              </CardTitle>
+              <CardDescription>
+                Common issues and their solutions
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              {/* Common Issues */}
+              <div className='space-y-4'>
+                {[
+                  {
+                    issue: 'CORS Error',
+                    cause: 'Cross-origin request blocked',
+                    solution:
+                      'Ensure your redirect_uri is exactly as configured in MyJKKN, including protocol (http/https)'
+                  },
+                  {
+                    issue: '404 Not Found on /auth/authorize',
+                    cause: 'Wrong endpoint URL',
+                    solution:
+                      'Use https://my.jkkn.ac.in/auth/authorize (not /api/auth/authorize)'
+                  },
+                  {
+                    issue: 'Invalid redirect URI',
+                    cause: 'Redirect URI mismatch',
+                    solution:
+                      "The redirect_uri must exactly match what's configured in MyJKKN admin panel"
+                  },
+                  {
+                    issue: 'Token expired',
+                    cause: 'Access token has expired',
+                    solution:
+                      'Implement automatic token refresh using the refresh token before expiry'
+                  },
+                  {
+                    issue: 'User stays logged in after logout',
+                    cause: 'Session not cleared properly',
+                    solution:
+                      'Ensure cookies, localStorage, and sessionStorage are all cleared on logout'
+                  },
+                  {
+                    issue: 'State parameter mismatch',
+                    cause: 'CSRF protection validation failed',
+                    solution:
+                      'Ensure the state parameter is stored in sessionStorage and validated on callback'
+                  },
+                  {
+                    issue: 'No user data after login',
+                    cause: 'Token exchange failed',
+                    solution:
+                      'Check network tab for token exchange request and verify app_id is correct'
+                  },
+                  {
+                    issue: 'Redirect loop',
+                    cause: 'Authentication check failing',
+                    solution:
+                      'Check that cookies are being set correctly with secure and sameSite flags'
+                  }
+                ].map((item, index) => (
+                  <Alert key={index}>
+                    <AlertCircle className='h-4 w-4' />
+                    <AlertDescription>
+                      <strong className='block mb-1'>{item.issue}</strong>
+                      <span className='text-sm'>
+                        <strong>Cause:</strong> {item.cause}
+                        <br />
+                        <strong>Solution:</strong> {item.solution}
+                      </span>
+                    </AlertDescription>
+                  </Alert>
+                ))}
+              </div>
+
+              {/* Debug Mode */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>Enable Debug Mode</h3>
+                <CodeBlock
+                  code={`// Add to your auth service for debugging
+class ParentAuthService {
+  private debug = true; // Enable debug mode
+  
+  private log(message: string, data?: any) {
+    if (this.debug) {
+      console.log('[Auth]', message, data);
+    }
+  }
+  
+  async handleCallback(code: string, state: string) {
+    this.log('Handling callback', { code, state });
+    // ... rest of the code
+  }
+}`}
+                  language='typescript'
+                  title='Debug Mode'
+                  id='debug-mode'
                 />
               </div>
 
-              {/* Common Issues */}
+              {/* Network Debugging */}
               <div className='space-y-4'>
-                <h3 className='text-lg font-semibold'>
-                  Common Issues & Solutions
-                </h3>
-                <div className='space-y-3'>
-                  <Alert>
-                    <AlertCircle className='h-4 w-4' />
-                    <AlertDescription>
-                      <strong>CORS Error:</strong> Ensure redirect_uri matches
-                      exactly with MyJKKN configuration
-                    </AlertDescription>
-                  </Alert>
-                  <Alert>
-                    <AlertCircle className='h-4 w-4' />
-                    <AlertDescription>
-                      <strong>401 Unauthorized:</strong> Check API key is
-                      correct and app is active in MyJKKN
-                    </AlertDescription>
-                  </Alert>
-                  <Alert>
-                    <AlertCircle className='h-4 w-4' />
-                    <AlertDescription>
-                      <strong>Redirect Loop:</strong> Verify redirect_uri in
-                      .env matches your callback route
-                    </AlertDescription>
-                  </Alert>
-                  <Alert>
-                    <AlertCircle className='h-4 w-4' />
-                    <AlertDescription>
-                      <strong>Token Expired:</strong> Ensure refresh token logic
-                      is implemented correctly
-                    </AlertDescription>
-                  </Alert>
-                </div>
+                <h3 className='text-lg font-semibold'>Network Debugging</h3>
+                <Alert>
+                  <Info className='h-4 w-4' />
+                  <AlertDescription>
+                    Open Browser DevTools → Network Tab → Filter by
+                    &quot;Fetch/XHR&quot; to see all API calls. Check for:
+                    <ul className='mt-2 space-y-1 text-sm'>
+                      <li>• Status codes (should be 200/201)</li>
+                      <li>• Request headers (Content-Type, Authorization)</li>
+                      <li>• Response body (error messages)</li>
+                      <li>• CORS headers in response</li>
+                    </ul>
+                  </AlertDescription>
+                </Alert>
               </div>
-
-              {/* Success Verification */}
-              <Alert className='border-green-200 bg-green-50 dark:bg-green-950/20'>
-                <CheckCircle className='h-4 w-4 text-green-600' />
-                <AlertDescription>
-                  <strong>Success Indicators:</strong>
-                  <ul className='mt-2 space-y-1 text-sm'>
-                    <li>✓ Login button redirects to MyJKKN login page</li>
-                    <li>✓ After login, returns to your app with user data</li>
-                    <li>✓ User name and role displayed correctly</li>
-                    <li>✓ Logout clears session and redirects to MyJKKN</li>
-                    <li>
-                      ✓ Protected routes only accessible when authenticated
-                    </li>
-                  </ul>
-                </AlertDescription>
-              </Alert>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1190,6 +1327,34 @@ npm run dev
         </CardHeader>
         <CardContent>
           <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+            <a
+              href='https://oauth.net/2/'
+              target='_blank'
+              rel='noopener noreferrer'
+              className='flex items-center gap-3 p-3 rounded-lg border hover:bg-muted transition-colors'
+            >
+              <ExternalLink className='h-5 w-5 text-muted-foreground' />
+              <div>
+                <div className='font-medium'>OAuth 2.0 Documentation</div>
+                <div className='text-sm text-muted-foreground'>
+                  Learn about OAuth 2.0 flow
+                </div>
+              </div>
+            </a>
+            <a
+              href='https://jwt.io/'
+              target='_blank'
+              rel='noopener noreferrer'
+              className='flex items-center gap-3 p-3 rounded-lg border hover:bg-muted transition-colors'
+            >
+              <ExternalLink className='h-5 w-5 text-muted-foreground' />
+              <div>
+                <div className='font-medium'>JWT.io</div>
+                <div className='text-sm text-muted-foreground'>
+                  Debug and verify JWT tokens
+                </div>
+              </div>
+            </a>
             <a
               href='https://nextjs.org/docs'
               target='_blank'
@@ -1205,32 +1370,6 @@ npm run dev
               </div>
             </a>
             <a
-              href='https://www.typescriptlang.org/docs/'
-              target='_blank'
-              rel='noopener noreferrer'
-              className='flex items-center gap-3 p-3 rounded-lg border hover:bg-muted transition-colors'
-            >
-              <ExternalLink className='h-5 w-5 text-muted-foreground' />
-              <div>
-                <div className='font-medium'>TypeScript Docs</div>
-                <div className='text-sm text-muted-foreground'>
-                  TypeScript language reference
-                </div>
-              </div>
-            </a>
-            <a
-              href='#'
-              className='flex items-center gap-3 p-3 rounded-lg border hover:bg-muted transition-colors'
-            >
-              <BookOpen className='h-5 w-5 text-muted-foreground' />
-              <div>
-                <div className='font-medium'>OAuth 2.0 Guide</div>
-                <div className='text-sm text-muted-foreground'>
-                  Understanding OAuth flow
-                </div>
-              </div>
-            </a>
-            <a
               href='#'
               className='flex items-center gap-3 p-3 rounded-lg border hover:bg-muted transition-colors'
             >
@@ -1238,7 +1377,7 @@ npm run dev
               <div>
                 <div className='font-medium'>Security Best Practices</div>
                 <div className='text-sm text-muted-foreground'>
-                  Secure token management
+                  Secure token management guide
                 </div>
               </div>
             </a>
@@ -1255,10 +1394,23 @@ npm run dev
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <Alert className='mb-4'>
+            <Info className='h-4 w-4' />
+            <AlertDescription>
+              <strong>Before contacting support:</strong>
+              <ul className='mt-2 space-y-1 text-sm'>
+                <li>• Check that your App ID is correct</li>
+                <li>• Verify redirect URIs match exactly</li>
+                <li>• Review the troubleshooting guide above</li>
+                <li>• Check browser console for errors</li>
+                <li>• Verify environment variables are set</li>
+              </ul>
+            </AlertDescription>
+          </Alert>
           <div className='flex flex-col sm:flex-row gap-4'>
             <Button variant='outline' className='flex-1'>
               <Terminal className='mr-2 h-4 w-4' />
-              View API Logs
+              View Integration Logs
             </Button>
             <Button variant='outline' className='flex-1'>
               <BookOpen className='mr-2 h-4 w-4' />
