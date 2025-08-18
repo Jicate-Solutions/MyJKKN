@@ -811,60 +811,197 @@ export default function TimetableDetailPage({
 
   // Save a timetable slot
   const saveSlot = async (slotData: any, slotDate?: Date) => {
-    if ((!selectedDay && timetableFormat === 'regular') || !selectedPeriod)
-      return;
-    try {
-      await TimetableService.updateTimetableSlot(
-        timetableId,
-        selectedDay as string,
-        selectedPeriod.id,
-        slotData
-      );
+    if (!selectedPeriod) return;
 
-      await fetchTimetableData();
-      closeSlotDialog();
-      toast({
-        title: 'Success',
-        description: 'Slot saved successfully'
+    // For batch mode, we need to use the date; for regular mode, use the day
+    if (timetableFormat === 'batch') {
+      // In batch mode, selectedDay contains the date string from the grid
+      // slotDate is from the dialog if user picked a different date
+      let dateStr: string;
+
+      if (slotDate) {
+        // User selected a specific date in the dialog
+        dateStr = slotDate.toISOString().split('T')[0];
+      } else if (selectedDay) {
+        // Use the date from when the slot was clicked (stored in selectedDay for batch mode)
+        dateStr = selectedDay as string;
+      } else {
+        // Fallback to sessionStorage
+        const storedDate = sessionStorage.getItem('batchSelectedDate');
+        if (storedDate) {
+          dateStr = storedDate;
+        } else {
+          console.error('No date available for batch mode slot');
+          toast({
+            title: 'Error',
+            description: 'Please select a date for the slot.',
+            variant: 'destructive'
+          });
+          return;
+        }
+      }
+
+      console.log('Batch mode save - parameters:', {
+        timetableId,
+        dateStr,
+        periodId: selectedPeriod.id,
+        slotData,
+        isBatch: true,
+        slotDate,
+        selectedDay
       });
-    } catch (err) {
-      console.error('Error saving slot:', err);
-      toast({
-        title: 'Error',
-        description: 'Failed to save slot. Please try again.',
-        variant: 'destructive'
-      });
+
+      if (!dateStr || dateStr === 'null' || dateStr === 'undefined') {
+        console.error('Invalid date string in batch mode:', dateStr);
+        toast({
+          title: 'Error',
+          description: 'Date information is invalid. Please try again.',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      try {
+        await TimetableService.updateTimetableSlot(
+          timetableId,
+          dateStr, // Pass the date string for batch mode
+          selectedPeriod.id,
+          slotData,
+          true // isBatch = true for batch mode
+        );
+
+        await fetchTimetableData();
+        closeSlotDialog();
+        toast({
+          title: 'Success',
+          description: 'Slot saved successfully'
+        });
+      } catch (err) {
+        console.error('Error saving batch slot:', err);
+        toast({
+          title: 'Error',
+          description: 'Failed to save slot. Please try again.',
+          variant: 'destructive'
+        });
+      }
+    } else {
+      // Regular mode - day of week is required
+      if (!selectedDay) {
+        console.error('No day selected for regular mode slot');
+        return;
+      }
+
+      try {
+        await TimetableService.updateTimetableSlot(
+          timetableId,
+          selectedDay as string,
+          selectedPeriod.id,
+          slotData,
+          false // isBatch = false for regular mode
+        );
+
+        await fetchTimetableData();
+        closeSlotDialog();
+        toast({
+          title: 'Success',
+          description: 'Slot saved successfully'
+        });
+      } catch (err) {
+        console.error('Error saving slot:', err);
+        toast({
+          title: 'Error',
+          description: 'Failed to save slot. Please try again.',
+          variant: 'destructive'
+        });
+      }
     }
   };
 
   // Delete a timetable slot
   const deleteSlot = async () => {
     const slotToDeleteNow = editingSlot || slotToDelete;
-    if (!slotToDeleteNow || !selectedDay || !selectedPeriod) return;
+    if (!slotToDeleteNow || !selectedPeriod) return;
 
-    try {
-      await TimetableService.deleteTimetableSlot(
-        timetableId,
-        selectedDay,
-        selectedPeriod.id
-      );
+    // For batch mode, use the date from selectedDay or sessionStorage
+    if (timetableFormat === 'batch') {
+      let dateStr: string;
 
-      await fetchTimetableData();
+      if (selectedDay) {
+        // Use the date from when the slot was clicked
+        dateStr = selectedDay as string;
+      } else {
+        // Fallback to sessionStorage
+        const storedDate = sessionStorage.getItem('batchSelectedDate');
+        if (storedDate) {
+          dateStr = storedDate;
+        } else {
+          console.error('No date found for batch mode deletion');
+          toast({
+            title: 'Error',
+            description: 'Unable to delete slot. Date information is missing.',
+            variant: 'destructive'
+          });
+          return;
+        }
+      }
 
-      toast({
-        title: 'Success',
-        description: 'Slot deleted successfully'
-      });
-      setDeleteDialogOpen(false);
-      setSlotToDelete(null);
-      closeSlotDialog();
-    } catch (err) {
-      console.error('Error deleting slot:', err);
-      toast({
-        title: 'Error',
-        description: 'Failed to delete slot. Please try again.',
-        variant: 'destructive'
-      });
+      try {
+        await TimetableService.deleteTimetableSlot(
+          timetableId,
+          dateStr,
+          selectedPeriod.id,
+          true // isBatch = true for batch mode
+        );
+
+        await fetchTimetableData();
+
+        toast({
+          title: 'Success',
+          description: 'Slot deleted successfully'
+        });
+        setDeleteDialogOpen(false);
+        setSlotToDelete(null);
+        closeSlotDialog();
+      } catch (err) {
+        console.error('Error deleting batch slot:', err);
+        toast({
+          title: 'Error',
+          description: 'Failed to delete slot. Please try again.',
+          variant: 'destructive'
+        });
+      }
+    } else {
+      // Regular mode
+      if (!selectedDay) {
+        console.error('No day selected for regular mode deletion');
+        return;
+      }
+
+      try {
+        await TimetableService.deleteTimetableSlot(
+          timetableId,
+          selectedDay,
+          selectedPeriod.id,
+          false // isBatch = false for regular mode
+        );
+
+        await fetchTimetableData();
+
+        toast({
+          title: 'Success',
+          description: 'Slot deleted successfully'
+        });
+        setDeleteDialogOpen(false);
+        setSlotToDelete(null);
+        closeSlotDialog();
+      } catch (err) {
+        console.error('Error deleting slot:', err);
+        toast({
+          title: 'Error',
+          description: 'Failed to delete slot. Please try again.',
+          variant: 'destructive'
+        });
+      }
     }
   };
 
@@ -1461,36 +1598,6 @@ export default function TimetableDetailPage({
                     )}
                   </Tooltip>
                 </TooltipProvider>
-                {timetableFormat === 'batch' && (
-                  <div className='flex items-end gap-2'>
-                    <div className='grid gap-1'>
-                      <Label htmlFor='start-date' className='text-xs'>
-                        Start Date
-                      </Label>
-                      <DatePicker
-                        date={batchStartDate}
-                        setDate={(date) => {
-                          setBatchStartDate(date ?? undefined);
-                          setHasUnsavedChanges(true);
-                        }}
-                        disabled={slots.length > 0}
-                      />
-                    </div>
-                    <div className='grid gap-1'>
-                      <Label htmlFor='end-date' className='text-xs'>
-                        End Date
-                      </Label>
-                      <DatePicker
-                        date={batchEndDate}
-                        setDate={(date) => {
-                          setBatchEndDate(date ?? undefined);
-                          setHasUnsavedChanges(true);
-                        }}
-                        disabled={slots.length > 0}
-                      />
-                    </div>
-                  </div>
-                )}
                 {timetableFormat === 'regular' && (
                   <Button
                     variant='outline'
@@ -1561,7 +1668,9 @@ export default function TimetableDetailPage({
                     return;
                   }
 
-                  setSelectedDay(null); // No day for batch mode
+                  // For batch mode, store the date in selectedDay even though it's not a day of week
+                  // This will be used in saveSlot function
+                  setSelectedDay(date as any); // Store the date string for batch mode
                   setSelectedPeriod(period);
 
                   if (existingSlot) {

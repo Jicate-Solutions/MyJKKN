@@ -200,39 +200,59 @@ export class ParentAuthService {
     // Store access token with expiry
     const expiresAt = new Date(Date.now() + session.expires_in * 1000);
     
+    // Use appropriate cookie settings based on environment
+    const isProduction = window.location.protocol === 'https:';
+    
     Cookies.set('access_token', session.access_token, { 
       expires: expiresAt,
-      secure: true,
-      sameSite: 'strict'
+      secure: isProduction, // Only use secure in production
+      sameSite: isProduction ? 'strict' : 'lax', // Use lax for development
+      path: '/' // Ensure cookie is available site-wide
     });
     
     // Store refresh token for 30 days
     Cookies.set('refresh_token', session.refresh_token, { 
       expires: 30,
-      secure: true,
-      sameSite: 'strict'
+      secure: isProduction,
+      sameSite: isProduction ? 'strict' : 'lax',
+      path: '/'
     });
     
-    // Store user data in localStorage
-    localStorage.setItem('user_data', JSON.stringify(session.user));
+    // Store user data in localStorage with error handling
+    try {
+      localStorage.setItem('user_data', JSON.stringify(session.user));
+      localStorage.setItem('auth_timestamp', Date.now().toString());
+    } catch (e) {
+      console.error('Failed to save user data to localStorage:', e);
+    }
   }
 
   // Get current session
   getSession(): UserSession | null {
-    const accessToken = Cookies.get('access_token');
-    const refreshToken = Cookies.get('refresh_token');
-    const userData = localStorage.getItem('user_data');
+    try {
+      const accessToken = Cookies.get('access_token');
+      const refreshToken = Cookies.get('refresh_token');
+      const userData = localStorage.getItem('user_data');
 
-    if (!accessToken || !refreshToken || !userData) {
+      // Debug logging for troubleshooting
+      if (!accessToken) console.debug('No access token found');
+      if (!refreshToken) console.debug('No refresh token found');
+      if (!userData) console.debug('No user data found');
+
+      if (!accessToken || !refreshToken || !userData) {
+        return null;
+      }
+
+      return {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        user: JSON.parse(userData),
+        expires_in: 3600
+      };
+    } catch (error) {
+      console.error('Error getting session:', error);
       return null;
     }
-
-    return {
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      user: JSON.parse(userData),
-      expires_in: 3600
-    };
   }
 
   // Refresh access token
@@ -370,18 +390,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session on mount
-    const session = parentAuthService.getSession();
-    if (session) {
-      setUser(session.user);
-    }
+    console.log('AuthContext: Initializing auth...');
     
-    // Handle OAuth callback
-    const handleCallback = async () => {
+    const initAuth = async () => {
+      // First check for OAuth callback parameters
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
       const state = params.get('state');
       const error = params.get('error');
+      
+      console.log('Checking for callback code:', !!code);
       
       if (error) {
         console.error('OAuth error:', params.get('error_description'));
@@ -390,8 +408,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       
       if (code && state) {
+        // Handle OAuth callback
         try {
+          console.log('Processing OAuth callback...');
           const session = await parentAuthService.handleCallback(code, state);
+          console.log('OAuth callback successful, user:', session.user.email);
           setUser(session.user);
           
           // Clean URL after successful authentication
@@ -399,11 +420,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           console.error('Auth callback failed:', error);
         }
+      } else {
+        // Check for existing session
+        const session = parentAuthService.getSession();
+        if (session) {
+          console.log('Found existing session for user:', session.user.email);
+          setUser(session.user);
+        } else {
+          console.log('No stored auth data found');
+        }
       }
+      
+      setLoading(false);
     };
     
-    handleCallback();
-    setLoading(false);
+    initAuth();
   }, []);
 
   const login = async () => {
@@ -1256,6 +1287,12 @@ auth.default.getUser()`}
                     cause: 'Authentication check failing',
                     solution:
                       'Check that cookies are being set correctly with secure and sameSite flags'
+                  },
+                  {
+                    issue: 'Immediate logout after successful login',
+                    cause: 'Cookies not persisting or being blocked',
+                    solution:
+                      'For localhost: use secure:false and sameSite:lax. For production: ensure HTTPS. Check browser console for cookie warnings. Verify localStorage is not disabled.'
                   }
                 ].map((item, index) => (
                   <Alert key={index}>
