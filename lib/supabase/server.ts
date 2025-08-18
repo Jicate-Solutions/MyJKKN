@@ -1,5 +1,6 @@
 import { Database } from '@/types/supabase';
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { Profile } from '@/types/auth';
 
@@ -27,6 +28,23 @@ export async function createServerSupabaseClient() {
       }
     }
   );
+}
+
+// Create service role client for administrative operations
+export function createServiceRoleClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Missing Supabase service role credentials');
+  }
+
+  return createClient<Database>(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  });
 }
 
 // Helper to get authenticated user - uses getUser for secure authentication

@@ -1,6 +1,6 @@
 // app/api/auth/child-app/token/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { SignJWT, jwtVerify } from 'jose';
 import crypto from 'crypto';
 
@@ -9,10 +9,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { grant_type, code, app_id, api_key, redirect_uri, refresh_token } = body;
 
+    // Use service role client for database operations
+    const serviceClient = createServiceRoleClient();
     const supabase = await createServerSupabaseClient();
 
     // Validate app credentials
-    const { data: app, error: appError } = await supabase
+    const { data: app, error: appError } = await serviceClient
       .from('applications')
       .select('*')
       .eq('app_id', app_id)
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     if (grant_type === 'authorization_code') {
       // Exchange authorization code for tokens
-      const { data: authCode, error: codeError } = await supabase
+      const { data: authCode, error: codeError } = await serviceClient
         .from('child_app_auth_codes')
         .select('*')
         .eq('code', code)
@@ -79,13 +81,13 @@ export async function POST(request: NextRequest) {
       }
 
       // Mark code as used
-      await supabase
+      await serviceClient
         .from('child_app_auth_codes')
         .update({ used_at: new Date().toISOString() })
         .eq('code', code);
 
       // Get user profile
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile, error: profileError } = await serviceClient
         .from('profiles')
         .select('*')
         .eq('id', authCode.user_id)
@@ -127,7 +129,7 @@ export async function POST(request: NextRequest) {
         .sign(secret);
 
       // Update last auth activity
-      await supabase
+      await serviceClient
         .from('applications')
         .update({ last_auth_activity: new Date().toISOString() })
         .eq('id', app.id);
@@ -168,7 +170,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Get user profile
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile, error: profileError } = await serviceClient
           .from('profiles')
           .select('*')
           .eq('id', payload.sub)
