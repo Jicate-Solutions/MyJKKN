@@ -99,12 +99,12 @@ class ParentAuthService {
   }
 
   /**
-   * Initiate login by redirecting to parent app
+   * Initiate login by redirecting to parent app login with child app parameters
    */
   login(redirectUrl?: string): void {
     const currentUrl = redirectUrl || window.location.href;
     const authUrl =
-      `${PARENT_APP_URL}/auth/child-app/login?` +
+      `${PARENT_APP_URL}/auth/login?` +
       `app_id=${CHILD_APP_ID}&` +
       `redirect_uri=${encodeURIComponent(currentUrl)}&` +
       `scope=read,write,profile`;
