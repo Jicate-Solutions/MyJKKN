@@ -51,57 +51,67 @@ export default function LoginPage() {
   // Prevent recreation of client on each render
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
-  // Check for child app authentication request
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    
-    // Check for direct child app params
-    let appId = params.get('app_id');
-    let redirectUri = params.get('redirect_uri');
-    let scope = params.get('scope');
-    let state = params.get('state');
-    
-    // If not found directly, check if they're in the redirect parameter
-    const redirectParam = params.get('redirect');
-    if (!appId && redirectParam) {
-      try {
-        const redirectUrl = new URL(decodeURIComponent(redirectParam));
-        const redirectParams = new URLSearchParams(redirectUrl.search);
-        appId = redirectParams.get('app_id');
-        redirectUri = redirectParams.get('redirect_uri');
-        scope = redirectParams.get('scope');
-        state = redirectParams.get('state');
-      } catch (e) {
-        // Invalid redirect URL, ignore
-      }
-    }
-    
-    if (appId && redirectUri) {
-      setChildAppAuth({ app_id: appId, redirect_uri: redirectUri, scope: scope || undefined, state: state || undefined });
-      // Store in cookie for callback
-      document.cookie = `child_app_auth=${JSON.stringify({ app_id: appId, redirect_uri: redirectUri, scope: scope || undefined, state: state || undefined })}; path=/; max-age=300; SameSite=Lax`;
-    }
-  }, []);
-
-  // Check if user is already logged in - only once
+  // Combined auth check and child app detection
   useEffect(() => {
     let isMounted = true;
 
-    // Don't redirect if coming from error page
-    const redirectedFrom = new URLSearchParams(window.location.search).get(
-      'redirectedFrom'
-    );
-    if (
-      redirectedFrom &&
-      (redirectedFrom.includes('__nextjs_original-stack-frames') ||
-        redirectedFrom.includes('/error'))
-    ) {
-      // Preventing redirect from error page
-      setIsCheckingAuth(false);
-      return;
-    }
+    const initializeAuth = async () => {
+      const params = new URLSearchParams(window.location.search);
+      
+      // First, check for child app authentication params
+      let appId = params.get('app_id');
+      let redirectUri = params.get('redirect_uri');
+      let scope = params.get('scope');
+      let state = params.get('state');
+      
+      // If not found directly, check if they're in the redirect parameter
+      const redirectParam = params.get('redirect');
+      if (!appId && redirectParam) {
+        try {
+          const redirectUrl = new URL(decodeURIComponent(redirectParam));
+          const redirectParams = new URLSearchParams(redirectUrl.search);
+          appId = redirectParams.get('app_id');
+          redirectUri = redirectParams.get('redirect_uri');
+          scope = redirectParams.get('scope');
+          state = redirectParams.get('state');
+        } catch (e) {
+          // Invalid redirect URL, ignore
+        }
+      }
+      
+      // Store child app auth if present
+      let childAppAuthData = null;
+      if (appId && redirectUri) {
+        childAppAuthData = { 
+          app_id: appId, 
+          redirect_uri: redirectUri, 
+          scope: scope || undefined, 
+          state: state || undefined 
+        };
+        setChildAppAuth(childAppAuthData);
+        // Store in cookie for callback - only use Secure on HTTPS
+        const isSecure = window.location.protocol === 'https:';
+        const cookieString = `child_app_auth=${JSON.stringify(childAppAuthData)}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+        document.cookie = cookieString;
+        
+        // Log for debugging
+        console.log('[Login Page] Setting child app auth cookie:', childAppAuthData);
+        console.log('[Login Page] Cookie string:', cookieString);
+        console.log('[Login Page] All cookies after set:', document.cookie);
+      }
 
-    const checkUser = async () => {
+      // Don't redirect if coming from error page
+      const redirectedFrom = params.get('redirectedFrom');
+      if (
+        redirectedFrom &&
+        (redirectedFrom.includes('__nextjs_original-stack-frames') ||
+          redirectedFrom.includes('/error'))
+      ) {
+        setIsCheckingAuth(false);
+        return;
+      }
+
+      // Now check authentication
       try {
         const { data, error } = await supabase.auth.getUser();
 
@@ -109,15 +119,15 @@ export default function LoginPage() {
 
         if (!error && data.user) {
           // If this is a child app auth request, redirect to consent page
-          if (childAppAuth) {
-            const params = new URLSearchParams({
-              app_id: childAppAuth.app_id,
-              redirect_uri: childAppAuth.redirect_uri
+          if (childAppAuthData) {
+            const consentParams = new URLSearchParams({
+              app_id: childAppAuthData.app_id,
+              redirect_uri: childAppAuthData.redirect_uri
             });
-            if (childAppAuth.scope) params.append('scope', childAppAuth.scope);
-            if (childAppAuth.state) params.append('state', childAppAuth.state);
+            if (childAppAuthData.scope) consentParams.append('scope', childAppAuthData.scope);
+            if (childAppAuthData.state) consentParams.append('state', childAppAuthData.state);
             
-            router.push(`/auth/child-app/login?${params.toString()}`);
+            router.push(`/auth/child-app/login?${consentParams.toString()}`);
             return;
           }
           
@@ -155,12 +165,12 @@ export default function LoginPage() {
       }
     };
 
-    checkUser();
+    initializeAuth();
 
     return () => {
       isMounted = false;
     };
-  }, [router, supabase, childAppAuth]);
+  }, [router, supabase]);
 
   // Check for error params
   useEffect(() => {
@@ -187,15 +197,28 @@ export default function LoginPage() {
           ? `${window.location.origin}/auth/callback`
           : '/auth/callback';
 
+      // Build OAuth options with state parameter for child app auth
+      const oauthOptions: any = {
+        redirectTo,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent'
+        }
+      };
+
+      // If there's child app auth, encode it in the state parameter
+      if (childAppAuth) {
+        // Encode child app auth data in state parameter
+        const stateData = {
+          childAppAuth: childAppAuth
+        };
+        oauthOptions.queryParams.state = btoa(JSON.stringify(stateData));
+        console.log('[Login Page] Adding child app auth to OAuth state:', stateData);
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent'
-          }
-        }
+        options: oauthOptions
       });
 
       if (error) throw error;

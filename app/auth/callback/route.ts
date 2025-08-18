@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
   try {
     const requestUrl = new URL(request.url);
     const code = requestUrl.searchParams.get('code');
+    const state = requestUrl.searchParams.get('state');
     const origin = requestUrl.origin;
 
     // Early return if no code
@@ -23,14 +24,36 @@ export async function GET(request: NextRequest) {
 
     const cookieStore = await cookies();
     
-    // Check for child app auth cookie
-    const childAppAuthCookie = cookieStore.get('child_app_auth');
+    // First try to get child app auth from state parameter (more reliable)
     let childAppAuth: any = null;
-    if (childAppAuthCookie) {
+    
+    if (state) {
       try {
-        childAppAuth = JSON.parse(childAppAuthCookie.value);
+        const stateData = JSON.parse(atob(state));
+        if (stateData.childAppAuth) {
+          childAppAuth = stateData.childAppAuth;
+          console.log('[Auth Callback] Child app auth from state:', childAppAuth);
+        }
       } catch (e) {
-        // Invalid JSON, ignore
+        console.log('[Auth Callback] State is not our encoded data, might be from OAuth provider');
+      }
+    }
+    
+    // Fallback to cookie if state doesn't have our data
+    if (!childAppAuth) {
+      const childAppAuthCookie = cookieStore.get('child_app_auth');
+      
+      // Log for debugging
+      console.log('[Auth Callback] Cookie found:', !!childAppAuthCookie);
+      console.log('[Auth Callback] Cookie value:', childAppAuthCookie?.value);
+      
+      if (childAppAuthCookie) {
+        try {
+          childAppAuth = JSON.parse(childAppAuthCookie.value);
+          console.log('[Auth Callback] Parsed child app auth from cookie:', childAppAuth);
+        } catch (e) {
+          console.error('[Auth Callback] Failed to parse cookie:', e);
+        }
       }
     }
     const supabase = createServerClient<Database>(
