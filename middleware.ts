@@ -27,6 +27,34 @@ const isPublicPath = (path: string) =>
 
 export async function middleware(request: NextRequest) {
   try {
+    // Handle CORS for child-app API routes
+    if (request.nextUrl.pathname.startsWith('/api/auth/child-app/')) {
+      const origin = request.headers.get('origin');
+      
+      // Handle preflight requests
+      if (request.method === 'OPTIONS') {
+        return new NextResponse(null, {
+          status: 200,
+          headers: {
+            'Access-Control-Allow-Origin': origin || '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Max-Age': '86400',
+          },
+        });
+      }
+
+      // For actual requests, add CORS headers
+      const res = NextResponse.next();
+      res.headers.set('Access-Control-Allow-Origin', origin || '*');
+      res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
+      res.headers.set('Access-Control-Allow-Credentials', 'true');
+      
+      return res;
+    }
+
     const res = NextResponse.next();
 
     // Create supabase client
@@ -274,6 +302,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    // API routes for child app authentication (CORS handling)
+    '/api/auth/child-app/:path*',
     // Protected routes
     '/system/:path*',
     '/settings/:path*',
@@ -288,6 +318,6 @@ export const config = {
     '/students/:path*',
     '/guest/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|api|auth/login|auth/callback|auth/complete-profile).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile).*)'
   ]
 };
