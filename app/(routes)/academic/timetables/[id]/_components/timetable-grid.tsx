@@ -3,7 +3,7 @@
 import { forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Calendar, Lock } from 'lucide-react';
+import { Plus, Calendar, Lock, X } from 'lucide-react';
 import { DayOfWeek, Period } from '@/types/academics';
 
 interface TimetableGridProps {
@@ -11,12 +11,20 @@ interface TimetableGridProps {
   selectedPeriods: Period[];
   slots: any[];
   onSlotClick: (day: DayOfWeek, period: Period, existingSlot?: any) => void;
+  onSlotDelete?: (day: DayOfWeek, period: Period, existingSlot: any) => void;
   lockedPeriods: string[];
 }
 
 export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
   (
-    { selectedDays, selectedPeriods, slots, onSlotClick, lockedPeriods },
+    {
+      selectedDays,
+      selectedPeriods,
+      slots,
+      onSlotClick,
+      onSlotDelete,
+      lockedPeriods
+    },
     ref
   ) => {
     // Helper function to get slot for a specific day and period
@@ -287,7 +295,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                           <div
                             className={`
                               p-1.5 border-2 rounded cursor-pointer transition-all duration-200 
-                              hover:shadow-md min-h-[60px] flex flex-col justify-center
+                              hover:shadow-md min-h-[60px] flex flex-col justify-center relative group
                               ${
                                 slot.is_break_slot
                                   ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
@@ -298,6 +306,19 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                             `}
                             onClick={() => onSlotClick(day, period, slot)}
                           >
+                            {/* Delete button */}
+                            {onSlotDelete && (
+                              <button
+                                className='absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-500 hover:bg-red-600 text-white z-10'
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSlotDelete(day, period, slot);
+                                }}
+                                title='Delete slot'
+                              >
+                                <X className='h-3 w-3' />
+                              </button>
+                            )}
                             {slot.is_break_slot
                               ? renderBreakSlot(slot)
                               : slot.is_combined

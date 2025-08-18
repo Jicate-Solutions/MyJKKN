@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { RotateCcw, Search } from 'lucide-react';
+import { RotateCcw, Search, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -54,7 +54,33 @@ export function TimetableFilters({
     Array<{ id: string; academic_year_name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
+  const [searchValue, setSearchValue] = useState(searchParams.search || '');
+  const [isSearching, setIsSearching] = useState(false);
   const { isSuperAdmin, userProfile } = usePermissions();
+
+  // Handle search input changes
+  const handleSearchChange = (value: string) => {
+    setSearchValue(value);
+    if (value !== searchParams.search) {
+      setIsSearching(true);
+    }
+  };
+
+  // Debounced search effect
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      onFilterChange('search', searchValue || undefined);
+      setIsSearching(false);
+    }, 500); // 500ms delay
+
+    return () => clearTimeout(timeoutId);
+  }, [searchValue, onFilterChange]);
+
+  // Sync search value when searchParams changes externally (e.g., from URL or reset)
+  useEffect(() => {
+    setSearchValue(searchParams.search || '');
+    setIsSearching(false);
+  }, [searchParams.search]);
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -169,7 +195,7 @@ export function TimetableFilters({
           const selectedSemester = semesters.find(
             (s) => s.semester_name === searchParams.semester
           );
-          
+
           if (selectedSemester) {
             const filters = {
               institution_id: searchParams.institution_id,
@@ -179,7 +205,7 @@ export function TimetableFilters({
               semester_id: selectedSemester.id,
               isActive: true
             };
-            
+
             const response = await SectionService.getSections(filters);
             setSections(response.data);
           }
@@ -235,14 +261,16 @@ export function TimetableFilters({
     <div className='space-y-4'>
       {/* Search Bar */}
       <div className='relative'>
-        <Search className='absolute left-3 top-3 h-4 w-4 text-muted-foreground' />
+        {isSearching ? (
+          <Loader2 className='absolute left-3 top-3 h-4 w-4 text-muted-foreground animate-spin' />
+        ) : (
+          <Search className='absolute left-3 top-3 h-4 w-4 text-muted-foreground' />
+        )}
         <Input
           placeholder='Search timetables...'
           className='pl-9'
-          value={searchParams.search || ''}
-          onChange={(e) =>
-            onFilterChange('search', e.target.value || undefined)
-          }
+          value={searchValue}
+          onChange={(e) => handleSearchChange(e.target.value)}
         />
       </div>
 
@@ -435,8 +463,10 @@ export function TimetableFilters({
             <SelectItem value='all'>All Sections</SelectItem>
             {/* Deduplicate sections by name for display */}
             {sections
-              .filter((section, index, self) =>
-                index === self.findIndex((s) => s.section_name === section.section_name)
+              .filter(
+                (section, index, self) =>
+                  index ===
+                  self.findIndex((s) => s.section_name === section.section_name)
               )
               .map((section) => (
                 <SelectItem key={section.id} value={section.section_name}>
