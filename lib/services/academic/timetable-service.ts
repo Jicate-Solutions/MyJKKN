@@ -527,6 +527,14 @@ export class TimetableService {
     isBatch: boolean = false
   ): Promise<any> {
     try {
+      console.log('TimetableService.updateTimetableSlot - inputs:', {
+        timetableId,
+        day,
+        periodId,
+        slotData,
+        isBatch
+      });
+      
       const payload: any = {
         p_timetable_id: timetableId,
         p_day_of_week: day,
@@ -534,6 +542,9 @@ export class TimetableService {
         p_slot_data: slotData,
         p_is_batch: isBatch
       };
+      
+      console.log('TimetableService.updateTimetableSlot - payload:', payload);
+      
       const { data, error } = await this.supabase.rpc(
         'update_timetable_slot',
         payload

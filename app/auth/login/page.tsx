@@ -54,10 +54,27 @@ export default function LoginPage() {
   // Check for child app authentication request
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const appId = params.get('app_id');
-    const redirectUri = params.get('redirect_uri');
-    const scope = params.get('scope');
-    const state = params.get('state');
+    
+    // Check for direct child app params
+    let appId = params.get('app_id');
+    let redirectUri = params.get('redirect_uri');
+    let scope = params.get('scope');
+    let state = params.get('state');
+    
+    // If not found directly, check if they're in the redirect parameter
+    const redirectParam = params.get('redirect');
+    if (!appId && redirectParam) {
+      try {
+        const redirectUrl = new URL(decodeURIComponent(redirectParam));
+        const redirectParams = new URLSearchParams(redirectUrl.search);
+        appId = redirectParams.get('app_id');
+        redirectUri = redirectParams.get('redirect_uri');
+        scope = redirectParams.get('scope');
+        state = redirectParams.get('state');
+      } catch (e) {
+        // Invalid redirect URL, ignore
+      }
+    }
     
     if (appId && redirectUri) {
       setChildAppAuth({ app_id: appId, redirect_uri: redirectUri, scope: scope || undefined, state: state || undefined });
