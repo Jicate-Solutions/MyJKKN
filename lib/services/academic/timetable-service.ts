@@ -312,11 +312,6 @@ export class TimetableService {
       }
     }
 
-    // Show consolidated toast messages
-    if (success.length > 0) {
-      toast.success(`${success.length} timetable(s) deleted successfully.`);
-    }
-
     if (hasAttendanceRecords.length > 0) {
       toast.error(
         `Cannot delete ${hasAttendanceRecords.length} timetable(s) because they have associated attendance records. These timetables are being used to track student attendance and must be preserved. You can still edit them if needed.`,
@@ -534,17 +529,23 @@ export class TimetableService {
         slotData,
         isBatch
       });
-      
+
+      // For batch mode, ensure slot_date is included in slotData
+      const processedSlotData = { ...slotData };
+      if (isBatch) {
+        processedSlotData.slot_date = day; // The day parameter contains the date for batch mode
+      }
+
       const payload: any = {
         p_timetable_id: timetableId,
         p_day_of_week: day,
         p_period_id: periodId,
-        p_slot_data: slotData,
+        p_slot_data: processedSlotData,
         p_is_batch: isBatch
       };
-      
+
       console.log('TimetableService.updateTimetableSlot - payload:', payload);
-      
+
       const { data, error } = await this.supabase.rpc(
         'update_timetable_slot',
         payload

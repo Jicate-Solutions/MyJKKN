@@ -10,6 +10,7 @@ interface BatchTimetableGridProps {
   selectedPeriods: Period[];
   slots: any[];
   onSlotClick: (date: string, period: Period, existingSlot?: any) => void;
+  onSlotDelete?: (date: string, period: Period, existingSlot: any) => void;
   onRemoveDate?: (dateStr: string) => void;
   lockedPeriods: string[];
 }
@@ -24,6 +25,7 @@ export const BatchTimetableGrid = React.forwardRef<
       selectedPeriods,
       slots,
       onSlotClick,
+      onSlotDelete,
       onRemoveDate,
       lockedPeriods
     },
@@ -285,7 +287,7 @@ export const BatchTimetableGrid = React.forwardRef<
                           <div
                             className={`
                             p-1.5 border-2 rounded cursor-pointer transition-all duration-200 
-                            hover:shadow-md min-h-[60px] flex flex-col justify-center
+                            hover:shadow-md min-h-[60px] flex flex-col justify-center relative group
                             ${
                               existingSlot.is_break_slot
                                 ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
@@ -303,6 +305,23 @@ export const BatchTimetableGrid = React.forwardRef<
                               );
                             }}
                           >
+                            {/* Delete button */}
+                            {onSlotDelete && (
+                              <button
+                                className='absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-500 hover:bg-red-600 text-white z-10'
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSlotDelete(
+                                    dateRange.start,
+                                    period,
+                                    existingSlot
+                                  );
+                                }}
+                                title='Delete slot'
+                              >
+                                <X className='h-3 w-3' />
+                              </button>
+                            )}
                             {existingSlot.is_break_slot ? (
                               <div className='text-orange-600 font-semibold text-xs min-h-[40px] flex items-center justify-center text-center'>
                                 {existingSlot.break_description || 'Break'}

@@ -9,7 +9,9 @@ import {
   Calendar,
   Settings,
   Download,
-  ArrowLeft
+  ArrowLeft,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import {
   DndContext,
@@ -172,6 +174,11 @@ export default function TimetableDetailPage({
   const [addPeriodDialogOpen, setAddPeriodDialogOpen] = useState(false);
   const [savingPeriods, setSavingPeriods] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] =
+    useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<string | null>(
+    null
+  );
 
   // Day configuration state
   const [selectedDays, setSelectedDays] =
@@ -569,8 +576,8 @@ export default function TimetableDetailPage({
       if (hasUnsavedChanges) {
         e.preventDefault();
         e.returnValue =
-          'You have unsaved changes. Are you sure you want to leave?';
-        return 'You have unsaved changes. Are you sure you want to leave?';
+          'You have unsaved changes to your timetable configuration. Are you sure you want to leave?';
+        return 'You have unsaved changes to your timetable configuration. Are you sure you want to leave?';
       }
     };
 
@@ -580,6 +587,49 @@ export default function TimetableDetailPage({
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [hasUnsavedChanges]);
+
+  // Handle navigation button clicks with unsaved changes protection
+  const handleNavigationWithWarning = (path: string) => {
+    if (hasUnsavedChanges) {
+      setPendingNavigation(path);
+      setShowUnsavedChangesDialog(true);
+    } else {
+      router.push(path);
+    }
+  };
+
+  // Functions to handle unsaved changes dialog
+  const handleSaveAndContinue = async () => {
+    try {
+      await savePeriodSelections();
+      setShowUnsavedChangesDialog(false);
+      if (pendingNavigation) {
+        router.push(pendingNavigation);
+        setPendingNavigation(null);
+      }
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save configuration. Please try again.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleDiscardAndContinue = () => {
+    setHasUnsavedChanges(false);
+    setShowUnsavedChangesDialog(false);
+    if (pendingNavigation) {
+      router.push(pendingNavigation);
+      setPendingNavigation(null);
+    }
+  };
+
+  const handleCancelNavigation = () => {
+    setShowUnsavedChangesDialog(false);
+    setPendingNavigation(null);
+  };
 
   // Load selected periods from local storage
   useEffect(() => {
@@ -678,6 +728,30 @@ export default function TimetableDetailPage({
 
       const timetableData = await TimetableService.getTimetable(timetableId);
       setTimetable(timetableData);
+
+      // Update timetable format based on fetched data
+      if (timetableData.timetable_format) {
+        setTimetableFormat(timetableData.timetable_format);
+      }
+
+      // Update selected days/dates based on timetable format
+      if (timetableData.timetable_format === 'batch') {
+        // For batch mode, load selected dates
+        if (
+          timetableData.selected_dates &&
+          Array.isArray(timetableData.selected_dates)
+        ) {
+          setSelectedDates(timetableData.selected_dates);
+        }
+      } else {
+        // For regular mode, load selected days
+        if (
+          timetableData.selected_days &&
+          Array.isArray(timetableData.selected_days)
+        ) {
+          setSelectedDays(timetableData.selected_days);
+        }
+      }
 
       // Load all available periods for the configuration
       try {
@@ -792,6 +866,35 @@ export default function TimetableDetailPage({
     setSelectedPeriod(null);
     setSelectedSlot(null);
     setEditingSlot(null);
+  };
+
+  // Delete a timetable slot from grid
+  const handleSlotDelete = async (
+    day: DayOfWeek | string,
+    period: Period,
+    existingSlot: any
+  ) => {
+    try {
+      await TimetableService.deleteTimetableSlot(
+        timetableId,
+        day as string,
+        period.id,
+        timetableFormat === 'batch'
+      );
+
+      await fetchTimetableData();
+      toast({
+        title: 'Success',
+        description: 'Slot deleted successfully'
+      });
+    } catch (err) {
+      console.error('Error deleting slot:', err);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete slot. Please try again.',
+        variant: 'destructive'
+      });
+    }
   };
 
   // Helper functions for sub-slot management
@@ -1097,6 +1200,22 @@ export default function TimetableDetailPage({
         timetableId,
         currentPeriodIds
       );
+
+      // Update timetable configuration with selected days/dates based on format
+      const updateData: any = {
+        timetable_format: timetableFormat
+      };
+
+      if (timetableFormat === 'batch') {
+        updateData.selected_dates = selectedDates;
+        updateData.selected_days = null; // Clear regular mode data
+      } else {
+        updateData.selected_days = selectedDays;
+        updateData.selected_dates = null; // Clear batch mode data
+      }
+
+      // Save the timetable configuration
+      await TimetableService.updateTimetable(timetableId, updateData);
 
       await fetchTimetableData();
       setHasUnsavedChanges(false);
@@ -1518,8 +1637,45 @@ export default function TimetableDetailPage({
         {/* Timetable Header */}
         <TimetableHeader
           timetable={timetable}
-          onBack={() => router.push('/academic/timetables')}
+          onBack={() => handleNavigationWithWarning('/academic/timetables')}
         />
+
+        {/* Unsaved Changes Indicator */}
+        {hasUnsavedChanges && (
+          <div className='bg-amber-50 border border-amber-200 rounded-lg p-4'>
+            <div className='flex items-center gap-3'>
+              <AlertCircle className='h-5 w-5 text-amber-600 flex-shrink-0' />
+              <div className='flex-1'>
+                <p className='text-sm font-medium text-amber-800'>
+                  You have unsaved changes
+                </p>
+                <p className='text-sm text-amber-700 mt-1'>
+                  Your timetable configuration changes haven&apos;t been saved
+                  yet. Click &quot;Save Configuration&quot; to save your
+                  changes.
+                </p>
+              </div>
+              <Button
+                size='sm'
+                onClick={savePeriodSelections}
+                disabled={savingPeriods}
+                className='bg-amber-600 hover:bg-amber-700 text-white'
+              >
+                {savingPeriods ? (
+                  <>
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className='mr-2 h-4 w-4' />
+                    Save Now
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Timetable Section */}
         <div className='bg-white rounded-lg shadow-sm border'>
@@ -1636,6 +1792,7 @@ export default function TimetableDetailPage({
                 slots={slots}
                 lockedPeriods={lockedPeriods}
                 onSlotClick={openSlotDialog}
+                onSlotDelete={handleSlotDelete}
               />
             ) : (
               <BatchTimetableGrid
@@ -1828,6 +1985,7 @@ export default function TimetableDetailPage({
                     slotDialogOpen
                   );
                 }}
+                onSlotDelete={handleSlotDelete}
                 onRemoveDate={(rangeMarker) => {
                   // Remove the specific range marker
                   const newDates = selectedDates.filter(
@@ -2165,6 +2323,75 @@ export default function TimetableDetailPage({
               disabled={!newStartDate || !newEndDate}
             >
               Add Date Range
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unsaved Changes Warning Dialog */}
+      <Dialog open={showUnsavedChangesDialog} onOpenChange={() => {}}>
+        <DialogContent className='sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle className='flex items-center gap-2 text-amber-600'>
+              <AlertCircle className='h-5 w-5' />
+              Unsaved Changes
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div>
+                <p className='text-sm text-muted-foreground'>
+                  You have unsaved changes to your timetable configuration
+                  including:
+                </p>
+                {timetableFormat === 'batch' ? (
+                  <ul className='mt-2 list-disc list-inside text-sm space-y-1 text-muted-foreground'>
+                    <li>Date ranges configuration</li>
+                    <li>Period selections</li>
+                    <li>Timetable format settings</li>
+                  </ul>
+                ) : (
+                  <ul className='mt-2 list-disc list-inside text-sm space-y-1 text-muted-foreground'>
+                    <li>Day selections</li>
+                    <li>Period selections</li>
+                    <li>Timetable format settings</li>
+                  </ul>
+                )}
+                <p className='mt-3 text-amber-700 font-medium'>
+                  Do you want to save these changes before leaving?
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className='flex-col sm:flex-row gap-2'>
+            <Button
+              variant='outline'
+              onClick={handleCancelNavigation}
+              className='w-full sm:w-auto'
+            >
+              Cancel
+            </Button>
+            <Button
+              variant='destructive'
+              onClick={handleDiscardAndContinue}
+              className='w-full sm:w-auto'
+            >
+              Discard Changes
+            </Button>
+            <Button
+              onClick={handleSaveAndContinue}
+              disabled={savingPeriods}
+              className='w-full sm:w-auto bg-green-600 hover:bg-green-700'
+            >
+              {savingPeriods ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className='mr-2 h-4 w-4' />
+                  Save & Continue
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
