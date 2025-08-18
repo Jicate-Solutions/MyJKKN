@@ -53,9 +53,18 @@ function ChildAppLoginContent() {
         } = await supabase.auth.getUser();
 
         if (userError || !currentUser) {
-          // Redirect to login with return URL
-          const returnUrl = encodeURIComponent(window.location.href);
-          router.push(`/auth/login?redirect=${returnUrl}`);
+          // Redirect to login with child app parameters preserved
+          const loginUrl = new URL('/auth/login', window.location.origin);
+          loginUrl.searchParams.append('app_id', appId);
+          loginUrl.searchParams.append('redirect_uri', redirectUri);
+          if (searchParams?.get('scope')) {
+            loginUrl.searchParams.append('scope', searchParams.get('scope')!);
+          }
+          if (searchParams?.get('state')) {
+            loginUrl.searchParams.append('state', searchParams.get('state')!);
+          }
+
+          router.push(loginUrl.toString());
           return;
         }
 
@@ -95,7 +104,6 @@ function ChildAppLoginContent() {
 
     validateAndLoadApp();
   }, [appId, redirectUri, router]);
-
 
   const handleAuthorize = async () => {
     try {

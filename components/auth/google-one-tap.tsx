@@ -25,13 +25,13 @@ export function GoogleOneTap() {
       // Check for child app auth parameters BEFORE signing in
       const params = new URLSearchParams(window.location.search);
       let childAppAuth = null;
-      
+
       // Check for direct child app params
       let appId = params.get('app_id');
       let redirectUri = params.get('redirect_uri');
       let scope = params.get('scope');
       let state = params.get('state');
-      
+
       // If not found directly, check if they're in the redirect parameter
       const redirectParam = params.get('redirect');
       if (!appId && redirectParam) {
@@ -46,18 +46,20 @@ export function GoogleOneTap() {
           // Invalid redirect URL, ignore
         }
       }
-      
+
       if (appId && redirectUri) {
-        childAppAuth = { 
-          app_id: appId, 
-          redirect_uri: redirectUri, 
-          scope: scope || undefined, 
-          state: state || undefined 
+        childAppAuth = {
+          app_id: appId,
+          redirect_uri: redirectUri,
+          scope: scope || undefined,
+          state: state || undefined
         };
-        
+
         // Store in cookie for callback
         const isSecure = window.location.protocol === 'https:';
-        document.cookie = `child_app_auth=${JSON.stringify(childAppAuth)}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+        document.cookie = `child_app_auth=${JSON.stringify(
+          childAppAuth
+        )}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
         console.log('[One Tap] Storing child app auth:', childAppAuth);
       }
 
@@ -97,9 +99,11 @@ export function GoogleOneTap() {
             app_id: childAppAuth.app_id,
             redirect_uri: childAppAuth.redirect_uri
           });
-          if (childAppAuth.scope) consentParams.append('scope', childAppAuth.scope);
-          if (childAppAuth.state) consentParams.append('state', childAppAuth.state);
-          
+          if (childAppAuth.scope)
+            consentParams.append('scope', childAppAuth.scope);
+          if (childAppAuth.state)
+            consentParams.append('state', childAppAuth.state);
+
           console.log('[One Tap] Redirecting to child app consent');
           router.push(`/auth/child-app/login?${consentParams.toString()}`);
         } else {
@@ -131,11 +135,11 @@ export function GoogleOneTap() {
     // Check for child app auth parameters - if present, skip One Tap
     const params = new URLSearchParams(window.location.search);
     let hasChildAppAuth = false;
-    
+
     // Check for direct child app params
     let appId = params.get('app_id');
     let redirectUri = params.get('redirect_uri');
-    
+
     // If not found directly, check if they're in the redirect parameter
     const redirectParam = params.get('redirect');
     if (!appId && redirectParam) {
@@ -148,10 +152,17 @@ export function GoogleOneTap() {
         // Invalid redirect URL, ignore
       }
     }
-    
-    if (appId && redirectUri) {
+
+    // Also check for existing child_app_auth cookie
+    const existingCookie = document.cookie
+      .split('; ')
+      .find((row) => row.startsWith('child_app_auth='));
+
+    if ((appId && redirectUri) || existingCookie) {
       hasChildAppAuth = true;
-      console.log('[One Tap] Child app auth detected, skipping One Tap initialization');
+      console.log(
+        '[One Tap] Child app auth detected, skipping One Tap initialization'
+      );
     }
 
     // Skip One Tap if child app auth is present

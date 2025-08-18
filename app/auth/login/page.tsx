@@ -57,13 +57,13 @@ export default function LoginPage() {
 
     const initializeAuth = async () => {
       const params = new URLSearchParams(window.location.search);
-      
-      // First, check for child app authentication params
+
+      // First, check for child app authentication params directly in URL
       let appId = params.get('app_id');
       let redirectUri = params.get('redirect_uri');
       let scope = params.get('scope');
       let state = params.get('state');
-      
+
       // If not found directly, check if they're in the redirect parameter
       const redirectParam = params.get('redirect');
       if (!appId && redirectParam) {
@@ -76,26 +76,32 @@ export default function LoginPage() {
           state = redirectParams.get('state');
         } catch (e) {
           // Invalid redirect URL, ignore
+          console.debug('Invalid redirect URL in parameters:', e);
         }
       }
-      
+
       // Store child app auth if present
       let childAppAuthData = null;
       if (appId && redirectUri) {
-        childAppAuthData = { 
-          app_id: appId, 
-          redirect_uri: redirectUri, 
-          scope: scope || undefined, 
-          state: state || undefined 
+        childAppAuthData = {
+          app_id: appId,
+          redirect_uri: redirectUri,
+          scope: scope || undefined,
+          state: state || undefined
         };
         setChildAppAuth(childAppAuthData);
         // Store in cookie for callback - only use Secure on HTTPS
         const isSecure = window.location.protocol === 'https:';
-        const cookieString = `child_app_auth=${JSON.stringify(childAppAuthData)}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+        const cookieString = `child_app_auth=${JSON.stringify(
+          childAppAuthData
+        )}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
         document.cookie = cookieString;
-        
+
         // Log for debugging
-        console.log('[Login Page] Setting child app auth cookie:', childAppAuthData);
+        console.log(
+          '[Login Page] Setting child app auth cookie:',
+          childAppAuthData
+        );
         console.log('[Login Page] Cookie string:', cookieString);
         console.log('[Login Page] All cookies after set:', document.cookie);
       }
@@ -124,13 +130,15 @@ export default function LoginPage() {
               app_id: childAppAuthData.app_id,
               redirect_uri: childAppAuthData.redirect_uri
             });
-            if (childAppAuthData.scope) consentParams.append('scope', childAppAuthData.scope);
-            if (childAppAuthData.state) consentParams.append('state', childAppAuthData.state);
-            
+            if (childAppAuthData.scope)
+              consentParams.append('scope', childAppAuthData.scope);
+            if (childAppAuthData.state)
+              consentParams.append('state', childAppAuthData.state);
+
             router.push(`/auth/child-app/login?${consentParams.toString()}`);
             return;
           }
-          
+
           // User is authenticated, check their role
           const { data: profile } = await supabase
             .from('profiles')
@@ -213,7 +221,10 @@ export default function LoginPage() {
           childAppAuth: childAppAuth
         };
         oauthOptions.queryParams.state = btoa(JSON.stringify(stateData));
-        console.log('[Login Page] Adding child app auth to OAuth state:', stateData);
+        console.log(
+          '[Login Page] Adding child app auth to OAuth state:',
+          stateData
+        );
       }
 
       const { error } = await supabase.auth.signInWithOAuth({
@@ -244,8 +255,8 @@ export default function LoginPage() {
   return (
     <div className='min-h-screen w-full'>
       <div className='h-screen lg:grid lg:grid-cols-2'>
-        {/* Google One Tap */}
-        {!isCheckingAuth && <GoogleOneTap />}
+        {/* Google One Tap - Only show if NOT child app auth */}
+        {!isCheckingAuth && !childAppAuth && <GoogleOneTap />}
 
         {/* Left Panel - Desktop Only */}
         <div className='hidden lg:flex bg-gradient-to-br from-green-600 via-green-700 to-emerald-700 dark:from-green-800 dark:via-green-900 dark:to-emerald-900 text-white relative overflow-hidden'>
@@ -319,8 +330,8 @@ export default function LoginPage() {
                 {childAppAuth ? 'Sign In Required' : 'Welcome Back'}
               </h2>
               <p className='text-gray-600 dark:text-gray-400 text-sm'>
-                {childAppAuth 
-                  ? 'Please sign in to continue to the application' 
+                {childAppAuth
+                  ? 'Please sign in to continue to the application'
                   : 'Sign in to access your learning portal'}
               </p>
               {childAppAuth && (
@@ -375,8 +386,8 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Google One Tap */}
-          <GoogleOneTap />
+          {/* Google One Tap - Only show if NOT child app auth */}
+          {!childAppAuth && <GoogleOneTap />}
         </div>
       </div>
     </div>
