@@ -4,7 +4,27 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
 import { SignJWT, jwtVerify } from 'jose';
 import crypto from 'crypto';
 
+// Add OPTIONS handler for CORS preflight
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
+  // Create CORS headers
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  };
+
   try {
     const body = await request.json();
     const { grant_type, code, app_id, api_key, redirect_uri, refresh_token } = body;
@@ -25,7 +45,7 @@ export async function POST(request: NextRequest) {
     if (!app || appError) {
       return NextResponse.json(
         { error: 'invalid_client', error_description: 'Invalid app credentials' },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       );
     }
 
@@ -42,7 +62,7 @@ export async function POST(request: NextRequest) {
       if (apiKeyHash !== app.api_key_hash) {
         return NextResponse.json(
           { error: 'invalid_client', error_description: 'Invalid API key' },
-          { status: 401 }
+          { status: 401, headers: corsHeaders }
         );
       }
     }
@@ -60,7 +80,7 @@ export async function POST(request: NextRequest) {
       if (!authCode || codeError) {
         return NextResponse.json(
           { error: 'invalid_grant', error_description: 'Invalid authorization code' },
-          { status: 400 }
+          { status: 400, headers: corsHeaders }
         );
       }
 
@@ -68,7 +88,7 @@ export async function POST(request: NextRequest) {
       if (new Date(authCode.expires_at) < new Date()) {
         return NextResponse.json(
           { error: 'invalid_grant', error_description: 'Authorization code expired' },
-          { status: 400 }
+          { status: 400, headers: corsHeaders }
         );
       }
 
@@ -76,7 +96,7 @@ export async function POST(request: NextRequest) {
       if (authCode.used_at) {
         return NextResponse.json(
           { error: 'invalid_grant', error_description: 'Authorization code already used' },
-          { status: 400 }
+          { status: 400, headers: corsHeaders }
         );
       }
 
@@ -96,7 +116,7 @@ export async function POST(request: NextRequest) {
       if (!profile || profileError) {
         return NextResponse.json(
           { error: 'server_error', error_description: 'Failed to fetch user profile' },
-          { status: 500 }
+          { status: 500, headers: corsHeaders }
         );
       }
 
@@ -147,13 +167,13 @@ export async function POST(request: NextRequest) {
           role: profile.role,
           institution_id: profile.institution_id
         }
-      });
+      }, { headers: corsHeaders });
     } else if (grant_type === 'refresh_token') {
       // Handle refresh token
       if (!refresh_token) {
         return NextResponse.json(
           { error: 'invalid_request', error_description: 'Refresh token required' },
-          { status: 400 }
+          { status: 400, headers: corsHeaders }
         );
       }
 
@@ -184,7 +204,7 @@ export async function POST(request: NextRequest) {
         if (!profile.is_active) {
           return NextResponse.json(
             { error: 'invalid_grant', error_description: 'User account is inactive' },
-            { status: 403 }
+            { status: 403, headers: corsHeaders }
           );
         }
 
@@ -207,24 +227,24 @@ export async function POST(request: NextRequest) {
           token_type: 'Bearer',
           expires_in: 3600,
           scope: 'read write profile'
-        });
+        }, { headers: corsHeaders });
       } catch (error) {
         return NextResponse.json(
           { error: 'invalid_grant', error_description: 'Invalid refresh token' },
-          { status: 400 }
+          { status: 400, headers: corsHeaders }
         );
       }
     } else {
       return NextResponse.json(
         { error: 'unsupported_grant_type', error_description: 'Grant type not supported' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
   } catch (error) {
     console.error('Token exchange error:', error);
     return NextResponse.json(
       { error: 'server_error', error_description: 'Internal server error' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
