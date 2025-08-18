@@ -1,6 +1,6 @@
 // app/api/auth/child-app/authorize/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -80,8 +80,9 @@ export async function GET(request: NextRequest) {
     // Generate authorization code
     const authCode = generateAuthCode();
     
-    // Store auth code with session info (in production, use Redis or database)
-    const { error: storeError } = await supabase
+    // Store auth code with session info using service role client
+    const serviceClient = createServiceRoleClient();
+    const { error: storeError } = await serviceClient
       .from('child_app_auth_codes')
       .insert({
         code: authCode,
@@ -170,8 +171,9 @@ export async function POST(request: NextRequest) {
     // Generate authorization code
     const authCode = generateAuthCode();
     
-    // Store auth code with session info
-    const { error: storeError } = await supabase
+    // Store auth code with session info using service role client
+    const serviceClient = createServiceRoleClient();
+    const { error: storeError } = await serviceClient
       .from('child_app_auth_codes')
       .insert({
         code: authCode,
