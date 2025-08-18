@@ -91,17 +91,16 @@ export default function LoginPage() {
         if (!isMounted) return;
 
         if (!error && data.user) {
-          // If this is a child app auth request, redirect to authorize endpoint
+          // If this is a child app auth request, redirect to consent page
           if (childAppAuth) {
             const params = new URLSearchParams({
               app_id: childAppAuth.app_id,
-              redirect_uri: childAppAuth.redirect_uri,
-              response_type: 'code'
+              redirect_uri: childAppAuth.redirect_uri
             });
             if (childAppAuth.scope) params.append('scope', childAppAuth.scope);
             if (childAppAuth.state) params.append('state', childAppAuth.state);
             
-            router.push(`/api/auth/child-app/authorize?${params.toString()}`);
+            router.push(`/auth/child-app/login?${params.toString()}`);
             return;
           }
           
