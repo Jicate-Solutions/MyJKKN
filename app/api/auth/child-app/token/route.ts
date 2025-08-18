@@ -1,8 +1,14 @@
 // app/api/auth/child-app/token/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient
+} from '@/lib/supabase/server';
 import { SignJWT, jwtVerify } from 'jose';
 import crypto from 'crypto';
+import { ChildAppSessionManagerService } from '@/lib/services/child-app/session-manager-service';
+import { ChildAppAnalyticsService } from '@/lib/services/child-app/analytics-service';
+import { AuthCodesCleanupService } from '@/lib/services/child-app/auth-codes-cleanup-service';
 
 // Add OPTIONS handler for CORS preflight
 export async function OPTIONS(request: NextRequest) {
@@ -12,8 +18,8 @@ export async function OPTIONS(request: NextRequest) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
-    },
+      'Access-Control-Max-Age': '86400'
+    }
   });
 }
 
@@ -22,12 +28,13 @@ export async function POST(request: NextRequest) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   };
 
   try {
     const body = await request.json();
-    const { grant_type, code, app_id, api_key, redirect_uri, refresh_token } = body;
+    const { grant_type, code, app_id, api_key, redirect_uri, refresh_token } =
+      body;
 
     // Use service role client for database operations
     const serviceClient = createServiceRoleClient();
@@ -44,7 +51,10 @@ export async function POST(request: NextRequest) {
 
     if (!app || appError) {
       return NextResponse.json(
-        { error: 'invalid_client', error_description: 'Invalid app credentials' },
+        {
+          error: 'invalid_client',
+          error_description: 'Invalid app credentials'
+        },
         { status: 401, headers: corsHeaders }
       );
     }
@@ -58,7 +68,7 @@ export async function POST(request: NextRequest) {
       const apiKeyHash = hashArray
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
-      
+
       if (apiKeyHash !== app.api_key_hash) {
         return NextResponse.json(
           { error: 'invalid_client', error_description: 'Invalid API key' },
@@ -79,7 +89,10 @@ export async function POST(request: NextRequest) {
 
       if (!authCode || codeError) {
         return NextResponse.json(
-          { error: 'invalid_grant', error_description: 'Invalid authorization code' },
+          {
+            error: 'invalid_grant',
+            error_description: 'Invalid authorization code'
+          },
           { status: 400, headers: corsHeaders }
         );
       }
@@ -87,7 +100,10 @@ export async function POST(request: NextRequest) {
       // Check if code is expired
       if (new Date(authCode.expires_at) < new Date()) {
         return NextResponse.json(
-          { error: 'invalid_grant', error_description: 'Authorization code expired' },
+          {
+            error: 'invalid_grant',
+            error_description: 'Authorization code expired'
+          },
           { status: 400, headers: corsHeaders }
         );
       }
@@ -95,7 +111,10 @@ export async function POST(request: NextRequest) {
       // Check if code was already used
       if (authCode.used_at) {
         return NextResponse.json(
-          { error: 'invalid_grant', error_description: 'Authorization code already used' },
+          {
+            error: 'invalid_grant',
+            error_description: 'Authorization code already used'
+          },
           { status: 400, headers: corsHeaders }
         );
       }
@@ -115,7 +134,10 @@ export async function POST(request: NextRequest) {
 
       if (!profile || profileError) {
         return NextResponse.json(
-          { error: 'server_error', error_description: 'Failed to fetch user profile' },
+          {
+            error: 'server_error',
+            error_description: 'Failed to fetch user profile'
+          },
           { status: 500, headers: corsHeaders }
         );
       }
@@ -148,31 +170,75 @@ export async function POST(request: NextRequest) {
         .setExpirationTime('30d')
         .sign(secret);
 
+      // Create user session in new JSON structure
+      const sessionResult =
+        await ChildAppSessionManagerService.createUserSession({
+          userId: authCode.user_id,
+          appId: app_id,
+          accessToken,
+          refreshToken: refreshTokenValue,
+          expiresIn: 3600,
+          scopes: (authCode.scope || 'read write profile').split(' '),
+          ipAddress:
+            request.headers.get('x-forwarded-for') ||
+            request.headers.get('x-real-ip') ||
+            undefined,
+          userAgent: request.headers.get('user-agent') || undefined
+        });
+
+      if (!sessionResult.success) {
+        console.warn('Failed to create session:', sessionResult.error);
+      }
+
+      // Log authentication success
+      await ChildAppAnalyticsService.logAuth({
+        appId: app_id,
+        userId: authCode.user_id,
+        action: 'login',
+        status: 'success',
+        ipAddress:
+          request.headers.get('x-forwarded-for') ||
+          request.headers.get('x-real-ip') ||
+          undefined,
+        userAgent: request.headers.get('user-agent') || undefined
+      });
+
       // Update last auth activity
       await serviceClient
         .from('applications')
         .update({ last_auth_activity: new Date().toISOString() })
         .eq('id', app.id);
 
-      return NextResponse.json({
-        access_token: accessToken,
-        refresh_token: refreshTokenValue,
-        token_type: 'Bearer',
-        expires_in: 3600,
-        scope: authCode.scope || 'read write profile',
-        user: {
-          id: authCode.user_id,
-          email: profile.email,
-          full_name: profile.full_name,
-          role: profile.role,
-          institution_id: profile.institution_id
-        }
-      }, { headers: corsHeaders });
+      // Cleanup old auth codes in the background (don't wait for it)
+      AuthCodesCleanupService.autoCleanupIfNeeded().catch((error) => {
+        console.warn('Auth codes cleanup failed:', error);
+      });
+
+      return NextResponse.json(
+        {
+          access_token: accessToken,
+          refresh_token: refreshTokenValue,
+          token_type: 'Bearer',
+          expires_in: 3600,
+          scope: authCode.scope || 'read write profile',
+          user: {
+            id: authCode.user_id,
+            email: profile.email,
+            full_name: profile.full_name,
+            role: profile.role,
+            institution_id: profile.institution_id
+          }
+        },
+        { headers: corsHeaders }
+      );
     } else if (grant_type === 'refresh_token') {
       // Handle refresh token
       if (!refresh_token) {
         return NextResponse.json(
-          { error: 'invalid_request', error_description: 'Refresh token required' },
+          {
+            error: 'invalid_request',
+            error_description: 'Refresh token required'
+          },
           { status: 400, headers: corsHeaders }
         );
       }
@@ -184,7 +250,7 @@ export async function POST(request: NextRequest) {
 
       try {
         const { payload } = await jwtVerify(refresh_token, secret);
-        
+
         if (payload.app_id !== app_id || payload.type !== 'refresh') {
           throw new Error('Invalid refresh token');
         }
@@ -203,7 +269,10 @@ export async function POST(request: NextRequest) {
         // Check if user is still active
         if (!profile.is_active) {
           return NextResponse.json(
-            { error: 'invalid_grant', error_description: 'User account is inactive' },
+            {
+              error: 'invalid_grant',
+              error_description: 'User account is inactive'
+            },
             { status: 403, headers: corsHeaders }
           );
         }
@@ -222,21 +291,63 @@ export async function POST(request: NextRequest) {
           .setExpirationTime('1h')
           .sign(secret);
 
-        return NextResponse.json({
-          access_token: accessToken,
-          token_type: 'Bearer',
-          expires_in: 3600,
-          scope: 'read write profile'
-        }, { headers: corsHeaders });
+        // Update session with new access token
+        const sessionResult =
+          await ChildAppSessionManagerService.createUserSession({
+            userId: payload.sub as string,
+            appId: app_id,
+            accessToken,
+            refreshToken: refresh_token,
+            expiresIn: 3600,
+            scopes: ['read', 'write', 'profile'],
+            ipAddress:
+              request.headers.get('x-forwarded-for') ||
+              request.headers.get('x-real-ip') ||
+              undefined,
+            userAgent: request.headers.get('user-agent') || undefined
+          });
+
+        if (!sessionResult.success) {
+          console.warn('Failed to update session:', sessionResult.error);
+        }
+
+        // Log token refresh
+        await ChildAppAnalyticsService.logAuth({
+          appId: app_id,
+          userId: payload.sub as string,
+          action: 'token_refresh',
+          status: 'success',
+          ipAddress:
+            request.headers.get('x-forwarded-for') ||
+            request.headers.get('x-real-ip') ||
+            undefined,
+          userAgent: request.headers.get('user-agent') || undefined
+        });
+
+        return NextResponse.json(
+          {
+            access_token: accessToken,
+            token_type: 'Bearer',
+            expires_in: 3600,
+            scope: 'read write profile'
+          },
+          { headers: corsHeaders }
+        );
       } catch (error) {
         return NextResponse.json(
-          { error: 'invalid_grant', error_description: 'Invalid refresh token' },
+          {
+            error: 'invalid_grant',
+            error_description: 'Invalid refresh token'
+          },
           { status: 400, headers: corsHeaders }
         );
       }
     } else {
       return NextResponse.json(
-        { error: 'unsupported_grant_type', error_description: 'Grant type not supported' },
+        {
+          error: 'unsupported_grant_type',
+          error_description: 'Grant type not supported'
+        },
         { status: 400, headers: corsHeaders }
       );
     }
