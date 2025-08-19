@@ -519,7 +519,8 @@ export class TimetableService {
     day: string,
     periodId: string,
     slotData: any,
-    isBatch: boolean = false
+    isBatch: boolean = false,
+    suppressToast: boolean = false
   ): Promise<any> {
     try {
       console.log('TimetableService.updateTimetableSlot - inputs:', {
@@ -553,11 +554,15 @@ export class TimetableService {
 
       if (error) {
         console.error('Error updating timetable slot:', error);
-        toast.error('Failed to update timetable slot.');
+        if (!suppressToast) {
+          toast.error('Failed to update timetable slot.');
+        }
         throw error;
       }
 
-      toast.success('Timetable slot updated successfully!');
+      if (!suppressToast) {
+        toast.success('Timetable slot updated successfully!');
+      }
       return data;
     } catch (error) {
       console.error('Error in updateTimetableSlot:', error);
@@ -569,7 +574,8 @@ export class TimetableService {
     timetableId: string,
     day: string,
     periodId: string,
-    isBatch: boolean = false
+    isBatch: boolean = false,
+    suppressToast: boolean = false
   ): Promise<void> {
     try {
       const { error } = await this.supabase.rpc('delete_timetable_slot', {
@@ -581,13 +587,103 @@ export class TimetableService {
 
       if (error) {
         console.error('Error deleting timetable slot:', error);
-        toast.error('Failed to delete timetable slot.');
+        if (!suppressToast) {
+          toast.error('Failed to delete timetable slot.');
+        }
         throw error;
       }
 
-      toast.success('Timetable slot deleted successfully!');
+      if (!suppressToast) {
+        toast.success('Timetable slot deleted successfully!');
+      }
     } catch (error) {
       console.error('Error in deleteTimetableSlot:', error);
+      throw error;
+    }
+  }
+
+  static async deleteSlotsForDateRange(
+    timetableId: string,
+    dateRange: { start: string; end: string },
+    periods: { id: string }[]
+  ): Promise<void> {
+    try {
+      console.log(
+        'Deleting slots for date range:',
+        dateRange,
+        'periods:',
+        periods
+      );
+
+      // Generate all dates in the range
+      const dates: string[] = [];
+      const current = new Date(dateRange.start);
+      const end = new Date(dateRange.end);
+
+      while (current <= end) {
+        dates.push(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 1);
+      }
+
+      // Delete all slots for each date and period combination
+      const deletePromises: Promise<void>[] = [];
+
+      for (const date of dates) {
+        for (const period of periods) {
+          deletePromises.push(
+            this.deleteTimetableSlot(timetableId, date, period.id, true, true) // suppressToast = true
+          );
+        }
+      }
+
+      // Execute all deletions (ignoring failures for non-existent slots)
+      await Promise.allSettled(deletePromises);
+
+      console.log(
+        `Successfully processed slot deletions for ${dates.length} dates and ${periods.length} periods`
+      );
+    } catch (error) {
+      console.error('Error in deleteSlotsForDateRange:', error);
+      throw error;
+    }
+  }
+
+  static async deleteSlotsForRemovedDates(
+    timetableId: string,
+    removedDates: string[],
+    periods: { id: string }[]
+  ): Promise<void> {
+    try {
+      console.log(
+        'Deleting slots for removed dates:',
+        removedDates,
+        'periods:',
+        periods
+      );
+
+      // Delete all slots for each removed date and period combination
+      const deletePromises: Promise<void>[] = [];
+
+      for (const date of removedDates) {
+        for (const period of periods) {
+          deletePromises.push(
+            this.deleteTimetableSlot(timetableId, date, period.id, true, true) // suppressToast = true
+          );
+        }
+      }
+
+      // Execute all deletions (ignoring failures for non-existent slots)
+      const results = await Promise.allSettled(deletePromises);
+
+      // Count successful deletions
+      const successful = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.filter((r) => r.status === 'rejected').length;
+
+      console.log(
+        `Slot deletion completed: ${successful} successful, ${failed} failed (expected for non-existent slots)`
+      );
+    } catch (error) {
+      console.error('Error in deleteSlotsForRemovedDates:', error);
       throw error;
     }
   }
