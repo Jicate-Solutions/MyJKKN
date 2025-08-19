@@ -302,6 +302,34 @@ export async function POST(request: Request) {
 
     console.log('[BUG_REPORTS_API] Report created with ID:', newReport.id);
 
+    // Ensure the reporter is added as a participant (fallback in case trigger fails)
+    try {
+      const { error: participantError } = await supabase
+        .from('bug_report_participants')
+        .insert({
+          bug_report_id: newReport.id,
+          user_id: user.id,
+          role: 'reporter',
+          can_view_internal: false,
+          is_active: true,
+          joined_at: new Date().toISOString()
+        });
+
+      // Don't fail if participant already exists (trigger likely worked)
+      if (participantError && !participantError.message.includes('duplicate')) {
+        console.warn(
+          '[BUG_REPORTS_API] Could not add participant:',
+          participantError
+        );
+      }
+    } catch (participantErr) {
+      console.warn(
+        '[BUG_REPORTS_API] Participant creation failed:',
+        participantErr
+      );
+      // Don't fail the whole operation
+    }
+
     // Handle screenshot upload if provided
     if (validatedData.screenshot_data_url) {
       console.log('[BUG_REPORTS_API] Processing screenshot upload');

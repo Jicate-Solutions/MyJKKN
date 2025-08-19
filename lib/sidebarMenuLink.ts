@@ -135,6 +135,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/years': 'academic.years.view',
   '/academic/staff-planning': 'academic.staff.planning.view',
   '/academic/timetables': 'academic.timetables.view',
+  '/academic/timetables/faculty-calendar': 'faculty.calendar.view',
   '/academic/periods': 'academic.periods.view',
   '/academic/attendance': 'academic.attendance.view',
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
@@ -468,9 +469,22 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/academic/timetables',
           label: 'Timetables',
-          active: pathname === '/academic/timetables',
+          active: pathname.startsWith('/academic/timetables'),
           icon: CalendarClock,
-          submenus: []
+          submenus: [
+            {
+              href: '/academic/timetables',
+              label: 'Manage Timetables',
+              active: pathname === '/academic/timetables'
+            },
+            {
+              href: '/academic/timetables/faculty-calendar',
+              label: 'Timetable Calendar',
+              active: pathname.startsWith(
+                '/academic/timetables/faculty-calendar'
+              )
+            }
+          ]
         },
         {
           href: '/academic/attendance',
