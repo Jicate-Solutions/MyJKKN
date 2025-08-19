@@ -32,7 +32,7 @@ interface SlotDialogProps {
   onClose: () => void;
   timetable: Timetable | null;
   existingSlot?: any;
-  onSave: (slotData: any, date?: Date) => void;
+  onSave: (slotData: any) => void;
   onDelete: () => void;
   courses: any[];
   staff: any[];
@@ -79,22 +79,8 @@ export function SlotDialog({
   const [courseStaffError, setCourseStaffError] = useState<string | null>(null);
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
 
   const isBatchMode = timetable?.timetable_format === 'batch';
-
-  useEffect(() => {
-    if (timetable?.timetable_format === 'batch') {
-      const batchSelectedDate = sessionStorage.getItem('batchSelectedDate');
-      if (batchSelectedDate) {
-        setSelectedDate(new Date(batchSelectedDate));
-      } else {
-        setSelectedDate(undefined);
-      }
-    } else {
-      setSelectedDate(undefined);
-    }
-  }, [timetable]);
 
   // Populate form when existing slot is provided
   useEffect(() => {
@@ -254,7 +240,7 @@ export function SlotDialog({
     };
 
     // Pass the slot data to the parent along with the date
-    onSave(slotData, isBatchMode ? selectedDate : undefined);
+    onSave(slotData);
   };
 
   const fetchCourseAssignedStaff = useCallback(

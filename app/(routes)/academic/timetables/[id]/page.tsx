@@ -721,10 +721,13 @@ export default function TimetableDetailPage({
   }, [lockedPeriods, timetableId]);
 
   // Fetch timetable data
-  const fetchTimetableData = async () => {
+  const fetchTimetableData = async (preserveUnsavedDates: boolean = false) => {
     try {
       setLoading(true);
       setError(null);
+
+      // Store current unsaved dates if preserving
+      const currentSelectedDates = preserveUnsavedDates ? selectedDates : [];
 
       const timetableData = await TimetableService.getTimetable(timetableId);
       setTimetable(timetableData);
@@ -737,7 +740,11 @@ export default function TimetableDetailPage({
       // Update selected days/dates based on timetable format
       if (timetableData.timetable_format === 'batch') {
         // For batch mode, load selected dates
-        if (
+        if (preserveUnsavedDates && currentSelectedDates.length > 0) {
+          // Preserve unsaved date ranges - use current state instead of DB data
+          console.log('Preserving unsaved date ranges:', currentSelectedDates);
+          setSelectedDates(currentSelectedDates);
+        } else if (
           timetableData.selected_dates &&
           Array.isArray(timetableData.selected_dates)
         ) {
@@ -875,18 +882,64 @@ export default function TimetableDetailPage({
     existingSlot: any
   ) => {
     try {
-      await TimetableService.deleteTimetableSlot(
-        timetableId,
-        day as string,
-        period.id,
-        timetableFormat === 'batch'
-      );
+      // Check if this is a range operation
+      if (typeof day === 'string' && day.startsWith('RANGE:')) {
+        const parts = day.split(':');
+        if (parts.length === 3) {
+          const startDate = parts[1];
+          const endDate = parts[2];
 
-      await fetchTimetableData();
-      toast({
-        title: 'Success',
-        description: 'Slot deleted successfully'
-      });
+          // Generate all dates in the range
+          const dates: string[] = [];
+          const current = new Date(startDate);
+          const end = new Date(endDate);
+
+          while (current <= end) {
+            dates.push(current.toISOString().split('T')[0]);
+            current.setDate(current.getDate() + 1);
+          }
+
+          console.log(
+            `Deleting slot from ${dates.length} dates in range:`,
+            dates
+          );
+
+          // Delete the slot from all dates in the range
+          const deletePromises = dates.map((date) =>
+            TimetableService.deleteTimetableSlot(
+              timetableId,
+              date,
+              period.id,
+              true, // isBatch = true for batch mode
+              true // suppressToast = true for bulk operations
+            )
+          );
+
+          await Promise.allSettled(deletePromises); // Use allSettled to handle non-existent slots gracefully
+
+          await fetchTimetableData(true); // Preserve unsaved date ranges
+          toast({
+            title: 'Success',
+            description: `Slot deleted from ${dates.length} dates (${startDate} to ${endDate})`
+          });
+        } else {
+          throw new Error('Invalid range format');
+        }
+      } else {
+        // Single date/day operation
+        await TimetableService.deleteTimetableSlot(
+          timetableId,
+          day as string,
+          period.id,
+          timetableFormat === 'batch'
+        );
+
+        await fetchTimetableData(true); // Preserve unsaved date ranges
+        toast({
+          title: 'Success',
+          description: 'Slot deleted successfully'
+        });
+      }
     } catch (err) {
       console.error('Error deleting slot:', err);
       toast({
@@ -913,58 +966,105 @@ export default function TimetableDetailPage({
   };
 
   // Save a timetable slot
-  const saveSlot = async (slotData: any, slotDate?: Date) => {
+  const saveSlot = async (slotData: any) => {
     if (!selectedPeriod) return;
 
     // For batch mode, we need to use the date; for regular mode, use the day
-    if (timetableFormat === 'batch') {
-      // In batch mode, selectedDay contains the date string from the grid
-      // slotDate is from the dialog if user picked a different date
-      let dateStr: string;
+    let dateStr: string;
 
-      if (slotDate) {
-        // User selected a specific date in the dialog
-        dateStr = slotDate.toISOString().split('T')[0];
-      } else if (selectedDay) {
-        // Use the date from when the slot was clicked (stored in selectedDay for batch mode)
-        dateStr = selectedDay as string;
-      } else {
-        // Fallback to sessionStorage
-        const storedDate = sessionStorage.getItem('batchSelectedDate');
-        if (storedDate) {
+    if (selectedDay) {
+      // Use the date from when the slot was clicked (stored in selectedDay for batch mode)
+      dateStr = selectedDay as string;
+    } else {
+      // Fallback to sessionStorage for safety, though direct state passing is preferred
+      const storedDate = sessionStorage.getItem('batchSelectedDate');
+      if (storedDate) {
+        // Handle both range identifiers and single dates from sessionStorage
+        if (storedDate.startsWith('RANGE:')) {
+          // Range identifier - use as is for range operations
           dateStr = storedDate;
         } else {
-          console.error('No date available for batch mode slot');
-          toast({
-            title: 'Error',
-            description: 'Please select a date for the slot.',
-            variant: 'destructive'
-          });
-          return;
+          // Single date string
+          dateStr = storedDate;
         }
-      }
-
-      console.log('Batch mode save - parameters:', {
-        timetableId,
-        dateStr,
-        periodId: selectedPeriod.id,
-        slotData,
-        isBatch: true,
-        slotDate,
-        selectedDay
-      });
-
-      if (!dateStr || dateStr === 'null' || dateStr === 'undefined') {
-        console.error('Invalid date string in batch mode:', dateStr);
+      } else {
+        console.error('No date available for batch mode slot');
         toast({
           title: 'Error',
-          description: 'Date information is invalid. Please try again.',
+          description: 'Please select a date for the slot.',
           variant: 'destructive'
         });
         return;
       }
+    }
 
-      try {
+    console.log('Batch mode save - parameters:', {
+      timetableId,
+      dateStr,
+      periodId: selectedPeriod.id,
+      slotData,
+      isBatch: true,
+      selectedDay
+    });
+
+    if (!dateStr || dateStr === 'null' || dateStr === 'undefined') {
+      console.error('Invalid date string in batch mode:', dateStr);
+      toast({
+        title: 'Error',
+        description: 'Date information is invalid. Please try again.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    try {
+      // Check if this is a range operation
+      if (dateStr.startsWith('RANGE:')) {
+        const parts = dateStr.split(':');
+        if (parts.length === 3) {
+          const startDate = parts[1];
+          const endDate = parts[2];
+
+          // Generate all dates in the range
+          const dates: string[] = [];
+          const current = new Date(startDate);
+          const end = new Date(endDate);
+
+          while (current <= end) {
+            dates.push(current.toISOString().split('T')[0]);
+            current.setDate(current.getDate() + 1);
+          }
+
+          console.log(
+            `Creating slot for ${dates.length} dates in range:`,
+            dates
+          );
+
+          // Create the same slot for all dates in the range
+          const createPromises = dates.map((date) =>
+            TimetableService.updateTimetableSlot(
+              timetableId,
+              date,
+              selectedPeriod.id,
+              { ...slotData, slot_date: date },
+              true, // isBatch = true for batch mode
+              true // suppressToast = true for bulk operations
+            )
+          );
+
+          await Promise.all(createPromises);
+
+          await fetchTimetableData(true); // Preserve unsaved date ranges
+          closeSlotDialog();
+          toast({
+            title: 'Success',
+            description: `Slot created for ${dates.length} dates (${startDate} to ${endDate})`
+          });
+        } else {
+          throw new Error('Invalid range format');
+        }
+      } else {
+        // Single date operation
         await TimetableService.updateTimetableSlot(
           timetableId,
           dateStr, // Pass the date string for batch mode
@@ -973,50 +1073,20 @@ export default function TimetableDetailPage({
           true // isBatch = true for batch mode
         );
 
-        await fetchTimetableData();
+        await fetchTimetableData(true); // Preserve unsaved date ranges
         closeSlotDialog();
         toast({
           title: 'Success',
           description: 'Slot saved successfully'
         });
-      } catch (err) {
-        console.error('Error saving batch slot:', err);
-        toast({
-          title: 'Error',
-          description: 'Failed to save slot. Please try again.',
-          variant: 'destructive'
-        });
       }
-    } else {
-      // Regular mode - day of week is required
-      if (!selectedDay) {
-        console.error('No day selected for regular mode slot');
-        return;
-      }
-
-      try {
-        await TimetableService.updateTimetableSlot(
-          timetableId,
-          selectedDay as string,
-          selectedPeriod.id,
-          slotData,
-          false // isBatch = false for regular mode
-        );
-
-        await fetchTimetableData();
-        closeSlotDialog();
-        toast({
-          title: 'Success',
-          description: 'Slot saved successfully'
-        });
-      } catch (err) {
-        console.error('Error saving slot:', err);
-        toast({
-          title: 'Error',
-          description: 'Failed to save slot. Please try again.',
-          variant: 'destructive'
-        });
-      }
+    } catch (err) {
+      console.error('Error saving batch slot:', err);
+      toast({
+        title: 'Error',
+        description: 'Failed to save slot. Please try again.',
+        variant: 'destructive'
+      });
     }
   };
 
@@ -1036,7 +1106,14 @@ export default function TimetableDetailPage({
         // Fallback to sessionStorage
         const storedDate = sessionStorage.getItem('batchSelectedDate');
         if (storedDate) {
-          dateStr = storedDate;
+          // Handle both range identifiers and single dates from sessionStorage
+          if (storedDate.startsWith('RANGE:')) {
+            // Range identifier - use as is for range operations
+            dateStr = storedDate;
+          } else {
+            // Single date string
+            dateStr = storedDate;
+          }
         } else {
           console.error('No date found for batch mode deletion');
           toast({
@@ -1049,22 +1126,72 @@ export default function TimetableDetailPage({
       }
 
       try {
-        await TimetableService.deleteTimetableSlot(
-          timetableId,
-          dateStr,
-          selectedPeriod.id,
-          true // isBatch = true for batch mode
-        );
+        // Check if this is a range operation
+        if (dateStr.startsWith('RANGE:')) {
+          const parts = dateStr.split(':');
+          if (parts.length === 3) {
+            const startDate = parts[1];
+            const endDate = parts[2];
 
-        await fetchTimetableData();
+            // Generate all dates in the range
+            const dates: string[] = [];
+            const current = new Date(startDate);
+            const end = new Date(endDate);
 
-        toast({
-          title: 'Success',
-          description: 'Slot deleted successfully'
-        });
-        setDeleteDialogOpen(false);
-        setSlotToDelete(null);
-        closeSlotDialog();
+            while (current <= end) {
+              dates.push(current.toISOString().split('T')[0]);
+              current.setDate(current.getDate() + 1);
+            }
+
+            console.log(
+              `Deleting slot from ${dates.length} dates in range:`,
+              dates
+            );
+
+            // Delete the slot from all dates in the range
+            const deletePromises = dates.map((date) =>
+              TimetableService.deleteTimetableSlot(
+                timetableId,
+                date,
+                selectedPeriod.id,
+                true, // isBatch = true for batch mode
+                true // suppressToast = true for bulk operations
+              )
+            );
+
+            await Promise.allSettled(deletePromises); // Use allSettled to handle non-existent slots gracefully
+
+            await fetchTimetableData(true); // Preserve unsaved date ranges
+
+            toast({
+              title: 'Success',
+              description: `Slot deleted from ${dates.length} dates (${startDate} to ${endDate})`
+            });
+            setDeleteDialogOpen(false);
+            setSlotToDelete(null);
+            closeSlotDialog();
+          } else {
+            throw new Error('Invalid range format');
+          }
+        } else {
+          // Single date operation
+          await TimetableService.deleteTimetableSlot(
+            timetableId,
+            dateStr,
+            selectedPeriod.id,
+            true // isBatch = true for batch mode
+          );
+
+          await fetchTimetableData(true); // Preserve unsaved date ranges
+
+          toast({
+            title: 'Success',
+            description: 'Slot deleted successfully'
+          });
+          setDeleteDialogOpen(false);
+          setSlotToDelete(null);
+          closeSlotDialog();
+        }
       } catch (err) {
         console.error('Error deleting batch slot:', err);
         toast({
@@ -1088,7 +1215,7 @@ export default function TimetableDetailPage({
           false // isBatch = false for regular mode
         );
 
-        await fetchTimetableData();
+        await fetchTimetableData(); // Regular mode - no need to preserve dates
 
         toast({
           title: 'Success',
@@ -1196,6 +1323,64 @@ export default function TimetableDetailPage({
     setSavingPeriods(true);
     try {
       const currentPeriodIds = selectedPeriods.map((p) => p.id);
+
+      // For batch mode, handle slot deletion for removed dates
+      if (timetableFormat === 'batch') {
+        const previousSelectedDates = timetable.selected_dates || [];
+        const currentSelectedDates = selectedDates;
+
+        // Helper function to extract individual dates from range markers
+        const extractDatesFromRanges = (dateArray: string[]) => {
+          const allDates: string[] = [];
+          dateArray.forEach((item) => {
+            if (item.startsWith('RANGE:')) {
+              const parts = item.split(':');
+              if (parts.length === 3) {
+                const startDate = parts[1];
+                const endDate = parts[2];
+
+                // Generate all dates in this range
+                const current = new Date(startDate);
+                const end = new Date(endDate);
+
+                while (current <= end) {
+                  allDates.push(current.toISOString().split('T')[0]);
+                  current.setDate(current.getDate() + 1);
+                }
+              }
+            } else if (!item.includes('RANGE')) {
+              // Individual date
+              allDates.push(item);
+            }
+          });
+          return allDates;
+        };
+
+        const previousDates = extractDatesFromRanges(previousSelectedDates);
+        const currentDates = extractDatesFromRanges(currentSelectedDates);
+
+        // Find removed dates
+        const removedDates = previousDates.filter(
+          (date) => !currentDates.includes(date)
+        );
+
+        if (removedDates.length > 0) {
+          console.log('Removing slots for dates:', removedDates);
+
+          // Delete slots for removed dates before saving configuration
+          await TimetableService.deleteSlotsForRemovedDates(
+            timetableId,
+            removedDates,
+            selectedPeriods
+          );
+
+          toast({
+            title: 'Cleanup Complete',
+            description: `Removed ${removedDates.length} dates and their associated slots.`
+          });
+        }
+      }
+
       await TimetableService.saveTimetablePeriods(
         timetableId,
         currentPeriodIds
@@ -2286,6 +2471,82 @@ export default function TimetableDetailPage({
                 if (newStartDate && newEndDate) {
                   const startDateStr = newStartDate.toISOString().split('T')[0];
                   const endDateStr = newEndDate.toISOString().split('T')[0];
+
+                  // Generate all dates in the new range to check for conflicts
+                  const newRangeDates: string[] = [];
+                  const current = new Date(startDateStr);
+                  const end = new Date(endDateStr);
+
+                  while (current <= end) {
+                    newRangeDates.push(current.toISOString().split('T')[0]);
+                    current.setDate(current.getDate() + 1);
+                  }
+
+                  // Check if any date in the new range already exists in current ranges
+                  const existingDates: string[] = [];
+                  selectedDates.forEach((item) => {
+                    if (item.startsWith('RANGE:')) {
+                      const parts = item.split(':');
+                      if (parts.length === 3) {
+                        const existingStart = parts[1];
+                        const existingEnd = parts[2];
+
+                        const existingCurrent = new Date(existingStart);
+                        const existingEndDate = new Date(existingEnd);
+
+                        while (existingCurrent <= existingEndDate) {
+                          existingDates.push(
+                            existingCurrent.toISOString().split('T')[0]
+                          );
+                          existingCurrent.setDate(
+                            existingCurrent.getDate() + 1
+                          );
+                        }
+                      }
+                    } else if (!item.includes('RANGE')) {
+                      existingDates.push(item);
+                    }
+                  });
+
+                  // Check for overlaps
+                  const overlappingDates = newRangeDates.filter((date) =>
+                    existingDates.includes(date)
+                  );
+
+                  if (overlappingDates.length > 0) {
+                    toast({
+                      title: 'Date Range Conflict',
+                      description: `The selected range overlaps with existing dates: ${overlappingDates
+                        .slice(0, 3)
+                        .join(', ')}${
+                        overlappingDates.length > 3
+                          ? ` and ${overlappingDates.length - 3} more`
+                          : ''
+                      }. Please choose a different range.`,
+                      variant: 'destructive'
+                    });
+                    return;
+                  }
+
+                  // Check if any dates in the new range already have slots
+                  const datesWithSlots = newRangeDates.filter((date) =>
+                    slots.some((slot) => slot.slot_date === date)
+                  );
+
+                  if (datesWithSlots.length > 0) {
+                    toast({
+                      title: 'Existing Slots Found',
+                      description: `Some dates in this range already have slots created: ${datesWithSlots
+                        .slice(0, 3)
+                        .join(', ')}${
+                        datesWithSlots.length > 3
+                          ? ` and ${datesWithSlots.length - 3} more`
+                          : ''
+                      }. Please save your current changes first or choose a different range.`,
+                      variant: 'destructive'
+                    });
+                    return;
+                  }
 
                   // Store the range as a JSON string in the selectedDates array
                   // Format: "RANGE:start:end"

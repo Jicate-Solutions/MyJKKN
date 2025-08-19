@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { X, Plus } from 'lucide-react';
-import { DayOfWeek, Period } from '@/types/academics';
 import { Badge } from '@/components/ui/badge';
+import { X } from 'lucide-react';
+import type { Period } from '@/types/academics';
 
 interface BatchTimetableGridProps {
   selectedDates: string[];
@@ -35,7 +35,12 @@ export const BatchTimetableGrid = React.forwardRef<
     const groupDatesIntoRanges = (dates: string[]) => {
       if (dates.length === 0) return [];
 
-      const ranges: { start: string; end: string; dates: string[] }[] = [];
+      const ranges: {
+        start: string;
+        end: string;
+        dates: string[];
+        rangeMarker: string;
+      }[] = [];
 
       // Process each item in the dates array
       dates.forEach((item) => {
@@ -59,7 +64,8 @@ export const BatchTimetableGrid = React.forwardRef<
             ranges.push({
               start: startDate,
               end: endDate,
-              dates: rangeDates
+              dates: rangeDates,
+              rangeMarker: item
             });
           }
         } else if (!item.includes('RANGE')) {
@@ -67,7 +73,8 @@ export const BatchTimetableGrid = React.forwardRef<
           ranges.push({
             start: item,
             end: item,
-            dates: [item]
+            dates: [item],
+            rangeMarker: item
           });
         }
       });
@@ -76,20 +83,6 @@ export const BatchTimetableGrid = React.forwardRef<
     };
 
     const dateRanges = groupDatesIntoRanges(selectedDates);
-
-    // Helper function to get slot for date range and period
-    const getSlotForDateRangeAndPeriod = (
-      dateRange: { start: string; end: string; dates: string[] },
-      periodId: string
-    ) => {
-      if (!slots) return null;
-      // Look for a slot that matches any date in the range
-      return slots.find(
-        (slot: any) =>
-          dateRange.dates.includes(slot.slot_date || '') &&
-          slot.period_id === periodId
-      );
-    };
 
     // Helper function to format time
     const formatTime = (timeString: string) => {
@@ -190,7 +183,7 @@ export const BatchTimetableGrid = React.forwardRef<
             </tr>
           </thead>
           <tbody>
-            {/* Date Range Rows */}
+            {/* Date Range Rows - One row per date range */}
             {dateRanges.map((dateRange, rangeIndex) => {
               const startDate = new Date(dateRange.start);
               const endDate = new Date(dateRange.end);
@@ -246,8 +239,7 @@ export const BatchTimetableGrid = React.forwardRef<
                         <button
                           onClick={() => {
                             // Remove the range marker from selectedDates
-                            const rangeMarker = `RANGE:${dateRange.start}:${dateRange.end}`;
-                            onRemoveDate(rangeMarker);
+                            onRemoveDate(dateRange.rangeMarker);
                           }}
                           className='opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-green-500 rounded'
                           title='Remove this date range'
@@ -260,9 +252,11 @@ export const BatchTimetableGrid = React.forwardRef<
 
                   {/* Period Cells */}
                   {selectedPeriods.map((period) => {
-                    const existingSlot = getSlotForDateRangeAndPeriod(
-                      dateRange,
-                      period.id
+                    // Check if any date in the range has a slot for this period
+                    const existingSlot = slots?.find(
+                      (slot: any) =>
+                        dateRange.dates.includes(slot.slot_date || '') &&
+                        slot.period_id === period.id
                     );
                     const isLocked = lockedPeriods.includes(period.id);
                     const isEmpty = !existingSlot;
@@ -299,7 +293,7 @@ export const BatchTimetableGrid = React.forwardRef<
                             onClick={(e) => {
                               e.stopPropagation();
                               onSlotClick(
-                                dateRange.start,
+                                dateRange.rangeMarker, // Pass range identifier
                                 period,
                                 existingSlot
                               );
@@ -312,12 +306,12 @@ export const BatchTimetableGrid = React.forwardRef<
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   onSlotDelete(
-                                    dateRange.start,
+                                    dateRange.rangeMarker, // Pass range identifier
                                     period,
                                     existingSlot
                                   );
                                 }}
-                                title='Delete slot'
+                                title='Delete slot from entire range'
                               >
                                 <X className='h-3 w-3' />
                               </button>
@@ -345,8 +339,8 @@ export const BatchTimetableGrid = React.forwardRef<
                                               'Break'}
                                           </div>
                                         ) : (
-                                          <div>
-                                            <div className='font-semibold text-xs mb-0.5 leading-tight'>
+                                          <div className='flex flex-col'>
+                                            <div className='font-medium text-xs leading-tight mb-0.5'>
                                               {subSlot.course?.course_code ||
                                                 'Course'}
                                             </div>
@@ -354,30 +348,55 @@ export const BatchTimetableGrid = React.forwardRef<
                                               subSlot.staff_members.length >
                                                 0 && (
                                                 <div className='text-xs text-gray-700 mb-0.5 leading-tight'>
-                                                  <div className='truncate'>
-                                                    {
-                                                      subSlot.staff_members[0]
-                                                        ?.first_name
-                                                    }{' '}
-                                                    {
-                                                      subSlot.staff_members[0]
-                                                        ?.last_name
-                                                    }
-                                                  </div>
+                                                  {subSlot.staff_members
+                                                    .slice(0, 1)
+                                                    .map(
+                                                      (
+                                                        staff: any,
+                                                        idx: number
+                                                      ) => (
+                                                        <div
+                                                          key={idx}
+                                                          className='truncate text-xs'
+                                                        >
+                                                          {staff.first_name}{' '}
+                                                          {staff.last_name}
+                                                        </div>
+                                                      )
+                                                    )}
+                                                  {subSlot.staff_members
+                                                    .length > 1 && (
+                                                    <div className='text-xs text-gray-500'>
+                                                      +
+                                                      {subSlot.staff_members
+                                                        .length - 1}{' '}
+                                                      more
+                                                    </div>
+                                                  )}
                                                 </div>
                                               )}
                                             {subSlot.sections &&
                                               subSlot.sections.length > 0 && (
                                                 <div className='text-xs'>
-                                                  <Badge
-                                                    variant='outline'
-                                                    className='text-xs bg-purple-50 text-purple-700 border-purple-200 px-1 py-0 h-4'
-                                                  >
-                                                    {
-                                                      subSlot.sections[0]
-                                                        ?.section_name
-                                                    }
-                                                  </Badge>
+                                                  {subSlot.sections
+                                                    .slice(0, 1)
+                                                    .map(
+                                                      (
+                                                        section: any,
+                                                        idx: number
+                                                      ) => (
+                                                        <Badge
+                                                          key={`${
+                                                            section.id ||
+                                                            section.section_name
+                                                          }-${idx}`}
+                                                          variant='outline'
+                                                          className='text-xs bg-purple-50 text-purple-700 border-purple-200 mr-0.5 mb-0.5 px-1 py-0 h-4'
+                                                        >
+                                                          {section.section_name}
+                                                        </Badge>
+                                                      )
+                                                    )}
                                                   {subSlot.sections.length >
                                                     1 && (
                                                     <span className='text-xs text-gray-500 ml-1'>
@@ -456,13 +475,19 @@ export const BatchTimetableGrid = React.forwardRef<
                             onClick={(e) => {
                               e.stopPropagation();
                               if (!isBreakPeriod && !isLocked) {
-                                onSlotClick(dateRange.start, period, undefined);
+                                onSlotClick(
+                                  dateRange.rangeMarker, // Pass range identifier
+                                  period,
+                                  undefined
+                                );
                               }
                             }}
                           >
                             <div className='flex flex-col items-center gap-0.5'>
                               <div className='text-gray-400 text-lg'>+</div>
-                              <span className='text-xs text-gray-500'>Add</span>
+                              <span className='text-xs text-gray-500'>
+                                Add to Range
+                              </span>
                             </div>
                           </button>
                         )}
