@@ -1360,27 +1360,27 @@ useEffect(() => {
                     <AlertCircle className='h-4 w-4 text-yellow-600' />
                     <AlertDescription>
                       <strong>Child App Auth Not Detected:</strong> Check
-                      browser console for "[Login Page] Setting child app auth
-                      cookie" message. If missing, URL parameters may not be
-                      parsed correctly.
+                      browser console for &quot;[Login Page] Setting child app
+                      auth cookie&quot; message. If missing, URL parameters may
+                      not be parsed correctly.
                     </AlertDescription>
                   </Alert>
                   <Alert className='border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20'>
                     <AlertCircle className='h-4 w-4 text-yellow-600' />
                     <AlertDescription>
                       <strong>Google One Tap Still Appears:</strong> Look for
-                      "[One Tap] Child app auth detected, skipping One Tap
-                      initialization" message. If missing, the component may not
-                      be detecting parameters correctly.
+                      &quot;[One Tap] Child app auth detected, skipping One Tap
+                      initialization&quot; message. If missing, the component
+                      may not be detecting parameters correctly.
                     </AlertDescription>
                   </Alert>
                   <Alert className='border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20'>
                     <AlertCircle className='h-4 w-4 text-yellow-600' />
                     <AlertDescription>
-                      <strong>OAuth Callback Issues:</strong> Check for "[Auth
-                      Callback] Child app auth from state" or "[Auth Callback]
-                      Parsed child app auth from cookie" messages in the
-                      callback page.
+                      <strong>OAuth Callback Issues:</strong> Check for
+                      &quot;[Auth Callback] Child app auth from state&quot; or
+                      &quot;[Auth Callback] Parsed child app auth from
+                      cookie&quot; messages in the callback page.
                     </AlertDescription>
                   </Alert>
                 </div>
@@ -1629,7 +1629,7 @@ NEXT_PUBLIC_AUTH_DEBUG=true`}
                       <strong>Required Parameters:</strong>
                       <ul className='mt-2 space-y-1 text-sm list-disc list-inside'>
                         <li>
-                          <code>response_type</code>: Always "code"
+                          <code>response_type</code>: Always &quot;code&quot;
                         </li>
                         <li>
                           <code>client_id</code>: Your app ID from MyJKKN admin
@@ -1643,8 +1643,8 @@ NEXT_PUBLIC_AUTH_DEBUG=true`}
                           exactly
                         </li>
                         <li>
-                          <code>scope</code>: Space-separated (e.g., "read write
-                          profile")
+                          <code>scope</code>: Space-separated (e.g., &quot;read
+                          write profile&quot;)
                         </li>
                         <li>
                           <code>state</code>: Random string for CSRF protection
@@ -1709,7 +1709,7 @@ const buildOAuthUrl = (appId, redirectUri) => {
                         Set <code>secure: false</code> for cookies
                       </li>
                       <li>
-                        Set <code>sameSite: 'lax'</code> for cookies
+                        Set <code>sameSite: &apos;lax&apos;</code> for cookies
                       </li>
                       <li>Enable debug logging</li>
                     </ul>
@@ -1724,7 +1724,8 @@ const buildOAuthUrl = (appId, redirectUri) => {
                         Set <code>secure: true</code> for cookies
                       </li>
                       <li>
-                        Set <code>sameSite: 'strict'</code> for cookies
+                        Set <code>sameSite: &apos;strict&apos;</code> for
+                        cookies
                       </li>
                       <li>Disable debug logging</li>
                     </ul>
@@ -2044,8 +2045,8 @@ const buildOAuthUrl = (appId, redirectUri) => {
                 <AlertCircle className='h-4 w-4 text-red-600' />
                 <AlertDescription>
                   <strong>Token Exchange Fails:</strong> Verify app_id in
-                  request body, check that authorization code hasn't expired (5
-                  minutes), ensure proper Content-Type header.
+                  request body, check that authorization code hasn&apos;t
+                  expired (5 minutes), ensure proper Content-Type header.
                 </AlertDescription>
               </Alert>
             </div>
@@ -2142,8 +2143,9 @@ console.log('Debug Info for Support:', JSON.stringify(debugInfo, null, 2));`}
             <AlertCircle className='h-4 w-4 text-orange-600' />
             <AlertDescription>
               <strong>Critical Issues:</strong> For production outages or
-              security concerns, include "URGENT" in your support request
-              subject line. Response time: 2-4 hours during business hours.
+              security concerns, include &quot;URGENT&quot; in your support
+              request subject line. Response time: 2-4 hours during business
+              hours.
             </AlertDescription>
           </Alert>
         </CardContent>
