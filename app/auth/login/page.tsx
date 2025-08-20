@@ -48,64 +48,25 @@ const EducationalHero = () => {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const {
-    isChildAppAuth: hasAlternativeAuth,
-    authState: alternativeAuthState
-  } = useChildAppAuth();
-
-  // Initialize childAppAuth based on URL params immediately
-  const getInitialChildAppAuth = () => {
-    if (typeof window === 'undefined') return null;
-
-    const params = new URLSearchParams(window.location.search);
-    let appId = params.get('app_id');
-    let redirectUri = params.get('redirect_uri');
-    let scope = params.get('scope');
-    let state = params.get('state');
-
-    // Check redirect parameter as fallback
-    if (!appId || !redirectUri) {
-      const redirectParam = params.get('redirect');
-      if (redirectParam) {
-        try {
-          const redirectUrl = new URL(decodeURIComponent(redirectParam));
-          const redirectParams = new URLSearchParams(redirectUrl.search);
-          appId = appId || redirectParams.get('app_id');
-          redirectUri = redirectUri || redirectParams.get('redirect_uri');
-          scope = scope || redirectParams.get('scope');
-          state = state || redirectParams.get('state');
-        } catch (e) {
-          // Invalid redirect URL, ignore
-        }
-      }
-    }
-
-    if (appId && redirectUri) {
-      return {
-        app_id: appId,
-        redirect_uri: redirectUri,
-        scope: scope || undefined,
-        state: state || undefined
-      };
-    }
-
-    return null;
-  };
+  // Initialize these as null to avoid SSR issues
+  const [hasAlternativeAuth, setHasAlternativeAuth] = useState(false);
+  const [alternativeAuthState, setAlternativeAuthState] = useState<any>(null);
 
   const [childAppAuth, setChildAppAuth] = useState<{
     app_id: string;
     redirect_uri: string;
     scope?: string;
     state?: string;
-  } | null>(getInitialChildAppAuth());
+  } | null>(null);
 
   const router = useRouter();
 
   // Prevent recreation of client on each render
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
-  // Check if One Tap should be disabled
+  // Check if One Tap should be disabled (only on client side)
   const shouldDisableOneTap = useMemo(() => {
+    if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
     return (
       params.get('disable_one_tap') === 'true' ||
@@ -119,62 +80,59 @@ export default function LoginPage() {
     let isMounted = true;
 
     const initializeAuth = async () => {
-      // Debug logging
-      childAppDebug.log('login-page', 'Initialize auth', {
-        hasChildAppAuth: !!childAppAuth,
-        hasAlternativeAuth,
-        alternativeAuthState,
-        url: window.location.href
-      });
+      // Initialize child app auth detection on client side
       const params = new URLSearchParams(window.location.search);
-
-      // First, check for child app authentication params directly in URL
       let appId = params.get('app_id');
       let redirectUri = params.get('redirect_uri');
       let scope = params.get('scope');
       let state = params.get('state');
 
-      // If not found directly, check if they're in the redirect parameter
-      const redirectParam = params.get('redirect');
-      if (!appId && redirectParam) {
-        try {
-          const redirectUrl = new URL(decodeURIComponent(redirectParam));
-          const redirectParams = new URLSearchParams(redirectUrl.search);
-          appId = redirectParams.get('app_id');
-          redirectUri = redirectParams.get('redirect_uri');
-          scope = redirectParams.get('scope');
-          state = redirectParams.get('state');
-        } catch (e) {
-          // Invalid redirect URL, ignore
-          console.debug('Invalid redirect URL in parameters:', e);
+      // Check redirect parameter as fallback
+      if (!appId || !redirectUri) {
+        const redirectParam = params.get('redirect');
+        if (redirectParam) {
+          try {
+            const redirectUrl = new URL(decodeURIComponent(redirectParam));
+            const redirectParams = new URLSearchParams(redirectUrl.search);
+            appId = appId || redirectParams.get('app_id');
+            redirectUri = redirectUri || redirectParams.get('redirect_uri');
+            scope = scope || redirectParams.get('scope');
+            state = state || redirectParams.get('state');
+          } catch (e) {
+            // Invalid redirect URL, ignore
+          }
         }
       }
 
-      // Store child app auth if present
-      let childAppAuthData = null;
       if (appId && redirectUri) {
-        childAppAuthData = {
+        const childAppAuthData = {
           app_id: appId,
           redirect_uri: redirectUri,
           scope: scope || undefined,
           state: state || undefined
         };
         setChildAppAuth(childAppAuthData);
+
         // Store in cookie for callback - only use Secure on HTTPS
         const isSecure = window.location.protocol === 'https:';
         const cookieString = `child_app_auth=${JSON.stringify(
           childAppAuthData
         )}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
         document.cookie = cookieString;
-
-        // Log for debugging
-        console.log(
-          '[Login Page] Setting child app auth cookie:',
-          childAppAuthData
-        );
-        console.log('[Login Page] Cookie string:', cookieString);
-        console.log('[Login Page] All cookies after set:', document.cookie);
       }
+
+      // Initialize alternative auth flow
+      const authState = AlternativeAuthFlow.getAuthState();
+      setAlternativeAuthState(authState);
+      setHasAlternativeAuth(!!authState);
+
+      // Debug logging
+      childAppDebug.log('login-page', 'Initialize auth', {
+        hasChildAppAuth: !!(appId && redirectUri),
+        hasAlternativeAuth: !!authState,
+        alternativeAuthState: authState,
+        url: window.location.href
+      });
 
       // Don't redirect if coming from error page
       const redirectedFrom = params.get('redirectedFrom');
@@ -195,15 +153,15 @@ export default function LoginPage() {
 
         if (!error && data.user) {
           // If this is a child app auth request, redirect to consent page
-          if (childAppAuthData) {
+          if (childAppAuth) {
             const consentParams = new URLSearchParams({
-              app_id: childAppAuthData.app_id,
-              redirect_uri: childAppAuthData.redirect_uri
+              app_id: childAppAuth.app_id,
+              redirect_uri: childAppAuth.redirect_uri
             });
-            if (childAppAuthData.scope)
-              consentParams.append('scope', childAppAuthData.scope);
-            if (childAppAuthData.state)
-              consentParams.append('state', childAppAuthData.state);
+            if (childAppAuth.scope)
+              consentParams.append('scope', childAppAuth.scope);
+            if (childAppAuth.state)
+              consentParams.append('state', childAppAuth.state);
 
             router.push(`/auth/child-app/login?${consentParams.toString()}`);
             return;
@@ -248,13 +206,8 @@ export default function LoginPage() {
     return () => {
       isMounted = false;
     };
-  }, [
-    router,
-    supabase,
-    alternativeAuthState,
-    childAppAuth,
-    hasAlternativeAuth
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, supabase]);
 
   // Check for error params
   useEffect(() => {
