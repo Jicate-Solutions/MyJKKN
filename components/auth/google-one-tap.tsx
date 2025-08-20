@@ -16,51 +16,69 @@ export function GoogleOneTap() {
   const supabase = createClientSupabaseClient();
   const [isLoading, setIsLoading] = useState(false);
   const initialized = useRef(false);
+  const [shouldRender, setShouldRender] = useState(false);
 
   const handleCredentialResponse = async (response: any) => {
     setIsLoading(true);
     toast.loading('Signing in...');
 
     try {
-      // Check for child app auth parameters BEFORE signing in
-      const params = new URLSearchParams(window.location.search);
+      // Get child app auth from cookie if it exists (set by login page)
       let childAppAuth = null;
+      const childAppAuthCookie = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith('child_app_auth='));
 
-      // Check for direct child app params
-      let appId = params.get('app_id');
-      let redirectUri = params.get('redirect_uri');
-      let scope = params.get('scope');
-      let state = params.get('state');
-
-      // If not found directly, check if they're in the redirect parameter
-      const redirectParam = params.get('redirect');
-      if (!appId && redirectParam) {
+      if (childAppAuthCookie) {
         try {
-          const redirectUrl = new URL(decodeURIComponent(redirectParam));
-          const redirectParams = new URLSearchParams(redirectUrl.search);
-          appId = redirectParams.get('app_id');
-          redirectUri = redirectParams.get('redirect_uri');
-          scope = redirectParams.get('scope');
-          state = redirectParams.get('state');
+          childAppAuth = JSON.parse(childAppAuthCookie.split('=')[1]);
+          console.log(
+            '[One Tap] Found child app auth from cookie:',
+            childAppAuth
+          );
         } catch (e) {
-          // Invalid redirect URL, ignore
+          console.error('[One Tap] Failed to parse child app auth cookie:', e);
         }
       }
 
-      if (appId && redirectUri) {
-        childAppAuth = {
-          app_id: appId,
-          redirect_uri: redirectUri,
-          scope: scope || undefined,
-          state: state || undefined
-        };
+      // If no cookie, check URL params as fallback
+      if (!childAppAuth) {
+        const params = new URLSearchParams(window.location.search);
+        let appId = params.get('app_id');
+        let redirectUri = params.get('redirect_uri');
+        let scope = params.get('scope');
+        let state = params.get('state');
 
-        // Store in cookie for callback
-        const isSecure = window.location.protocol === 'https:';
-        document.cookie = `child_app_auth=${JSON.stringify(
-          childAppAuth
-        )}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
-        console.log('[One Tap] Storing child app auth:', childAppAuth);
+        // If not found directly, check if they're in the redirect parameter
+        const redirectParam = params.get('redirect');
+        if (!appId && redirectParam) {
+          try {
+            const redirectUrl = new URL(decodeURIComponent(redirectParam));
+            const redirectParams = new URLSearchParams(redirectUrl.search);
+            appId = redirectParams.get('app_id');
+            redirectUri = redirectParams.get('redirect_uri');
+            scope = redirectParams.get('scope');
+            state = redirectParams.get('state');
+          } catch (e) {
+            // Invalid redirect URL, ignore
+          }
+        }
+
+        if (appId && redirectUri) {
+          childAppAuth = {
+            app_id: appId,
+            redirect_uri: redirectUri,
+            scope: scope || undefined,
+            state: state || undefined
+          };
+
+          // Store in cookie for callback
+          const isSecure = window.location.protocol === 'https:';
+          document.cookie = `child_app_auth=${JSON.stringify(
+            childAppAuth
+          )}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+          console.log('[One Tap] Storing child app auth:', childAppAuth);
+        }
       }
 
       const { error: signInError } = await supabase.auth.signInWithIdToken({
@@ -133,42 +151,67 @@ export function GoogleOneTap() {
     if (initialized.current) return;
 
     // Check for child app auth parameters - if present, skip One Tap
-    const params = new URLSearchParams(window.location.search);
-    let hasChildAppAuth = false;
+    const checkChildAppAuth = () => {
+      const params = new URLSearchParams(window.location.search);
 
-    // Check for direct child app params
-    let appId = params.get('app_id');
-    let redirectUri = params.get('redirect_uri');
+      // Check for direct child app params
+      let appId = params.get('app_id');
+      let redirectUri = params.get('redirect_uri');
 
-    // If not found directly, check if they're in the redirect parameter
-    const redirectParam = params.get('redirect');
-    if (!appId && redirectParam) {
-      try {
-        const redirectUrl = new URL(decodeURIComponent(redirectParam));
-        const redirectParams = new URLSearchParams(redirectUrl.search);
-        appId = redirectParams.get('app_id');
-        redirectUri = redirectParams.get('redirect_uri');
-      } catch (e) {
-        // Invalid redirect URL, ignore
+      // If not found directly, check if they're in the redirect parameter
+      const redirectParam = params.get('redirect');
+      if (!appId && redirectParam) {
+        try {
+          const redirectUrl = new URL(decodeURIComponent(redirectParam));
+          const redirectParams = new URLSearchParams(redirectUrl.search);
+          appId = redirectParams.get('app_id');
+          redirectUri = redirectParams.get('redirect_uri');
+        } catch (e) {
+          // Invalid redirect URL, ignore
+        }
       }
-    }
 
-    // Also check for existing child_app_auth cookie
-    const existingCookie = document.cookie
-      .split('; ')
-      .find((row) => row.startsWith('child_app_auth='));
+      // Also check for existing child_app_auth cookie
+      const existingCookie = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith('child_app_auth='));
 
-    if ((appId && redirectUri) || existingCookie) {
-      hasChildAppAuth = true;
-      console.log(
-        '[One Tap] Child app auth detected, skipping One Tap initialization'
-      );
-    }
+      return (appId && redirectUri) || !!existingCookie;
+    };
 
-    // Skip One Tap if child app auth is present
+    // Check immediately and also after a short delay to catch any late-set cookies
+    const hasChildAppAuth = checkChildAppAuth();
+
     if (hasChildAppAuth) {
+      console.log(
+        '[One Tap] Child app auth detected immediately, skipping One Tap initialization'
+      );
+      initialized.current = true;
       return;
     }
+
+    // Double-check after a short delay
+    const checkTimer = setTimeout(() => {
+      if (checkChildAppAuth()) {
+        console.log(
+          '[One Tap] Child app auth detected after delay, skipping One Tap initialization'
+        );
+        initialized.current = true;
+        return;
+      }
+
+      // If no child app auth, we can safely render
+      setShouldRender(true);
+    }, 100);
+
+    return () => {
+      clearTimeout(checkTimer);
+    };
+  }, []);
+
+  // Separate effect for actually initializing Google One Tap
+  useEffect(() => {
+    if (!shouldRender || initialized.current) return;
 
     // Add a delay to ensure other credential operations have completed
     const timer = setTimeout(() => {
@@ -226,7 +269,7 @@ export function GoogleOneTap() {
     return () => {
       clearTimeout(timer);
     };
-  }, []);
+  }, [shouldRender]);
 
   return null; // This component does not render anything itself
 }

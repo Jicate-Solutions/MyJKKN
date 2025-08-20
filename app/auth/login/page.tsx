@@ -40,12 +40,53 @@ const EducationalHero = () => {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  // Initialize childAppAuth based on URL params immediately
+  const getInitialChildAppAuth = () => {
+    if (typeof window === 'undefined') return null;
+
+    const params = new URLSearchParams(window.location.search);
+    let appId = params.get('app_id');
+    let redirectUri = params.get('redirect_uri');
+    let scope = params.get('scope');
+    let state = params.get('state');
+
+    // Check redirect parameter as fallback
+    if (!appId || !redirectUri) {
+      const redirectParam = params.get('redirect');
+      if (redirectParam) {
+        try {
+          const redirectUrl = new URL(decodeURIComponent(redirectParam));
+          const redirectParams = new URLSearchParams(redirectUrl.search);
+          appId = appId || redirectParams.get('app_id');
+          redirectUri = redirectUri || redirectParams.get('redirect_uri');
+          scope = scope || redirectParams.get('scope');
+          state = state || redirectParams.get('state');
+        } catch (e) {
+          // Invalid redirect URL, ignore
+        }
+      }
+    }
+
+    if (appId && redirectUri) {
+      return {
+        app_id: appId,
+        redirect_uri: redirectUri,
+        scope: scope || undefined,
+        state: state || undefined
+      };
+    }
+
+    return null;
+  };
+
   const [childAppAuth, setChildAppAuth] = useState<{
     app_id: string;
     redirect_uri: string;
     scope?: string;
     state?: string;
-  } | null>(null);
+  } | null>(getInitialChildAppAuth());
+
   const router = useRouter();
 
   // Prevent recreation of client on each render
@@ -255,9 +296,6 @@ export default function LoginPage() {
   return (
     <div className='min-h-screen w-full'>
       <div className='h-screen lg:grid lg:grid-cols-2'>
-        {/* Google One Tap - Only show if NOT child app auth */}
-        {!isCheckingAuth && !childAppAuth && <GoogleOneTap />}
-
         {/* Left Panel - Desktop Only */}
         <div className='hidden lg:flex bg-gradient-to-br from-green-600 via-green-700 to-emerald-700 dark:from-green-800 dark:via-green-900 dark:to-emerald-900 text-white relative overflow-hidden'>
           {/* Background Pattern */}
@@ -386,8 +424,8 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Google One Tap - Only show if NOT child app auth */}
-          {!childAppAuth && <GoogleOneTap />}
+          {/* Google One Tap - Only show if NOT child app auth and not checking auth */}
+          {!isCheckingAuth && !childAppAuth && <GoogleOneTap />}
         </div>
       </div>
     </div>
