@@ -8,6 +8,14 @@ import { GraduationCap, BookOpen, Users, Award, Brain } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BeatLoader } from 'react-spinners';
 import toast from 'react-hot-toast';
+import {
+  childAppDebug,
+  ChildAppDebugPanel
+} from '@/lib/auth/child-app/debug-helper';
+import {
+  AlternativeAuthFlow,
+  useChildAppAuth
+} from '@/lib/auth/child-app/alternative-auth-flow';
 
 // Simple Educational Hero Component
 const EducationalHero = () => {
@@ -40,6 +48,10 @@ const EducationalHero = () => {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const {
+    isChildAppAuth: hasAlternativeAuth,
+    authState: alternativeAuthState
+  } = useChildAppAuth();
 
   // Initialize childAppAuth based on URL params immediately
   const getInitialChildAppAuth = () => {
@@ -92,11 +104,28 @@ export default function LoginPage() {
   // Prevent recreation of client on each render
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
+  // Check if One Tap should be disabled
+  const shouldDisableOneTap = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get('disable_one_tap') === 'true' ||
+      hasAlternativeAuth ||
+      !!childAppAuth
+    );
+  }, [hasAlternativeAuth, childAppAuth]);
+
   // Combined auth check and child app detection
   useEffect(() => {
     let isMounted = true;
 
     const initializeAuth = async () => {
+      // Debug logging
+      childAppDebug.log('login-page', 'Initialize auth', {
+        hasChildAppAuth: !!childAppAuth,
+        hasAlternativeAuth,
+        alternativeAuthState,
+        url: window.location.href
+      });
       const params = new URLSearchParams(window.location.search);
 
       // First, check for child app authentication params directly in URL
@@ -219,7 +248,13 @@ export default function LoginPage() {
     return () => {
       isMounted = false;
     };
-  }, [router, supabase]);
+  }, [
+    router,
+    supabase,
+    alternativeAuthState,
+    childAppAuth,
+    hasAlternativeAuth
+  ]);
 
   // Check for error params
   useEffect(() => {
@@ -241,43 +276,70 @@ export default function LoginPage() {
     try {
       setLoading(true);
 
-      const redirectTo =
-        typeof window !== 'undefined'
-          ? `${window.location.origin}/auth/callback`
-          : '/auth/callback';
+      // Debug logging
+      childAppDebug.log('login-page', 'Google login initiated', {
+        childAppAuth,
+        hasAlternativeAuth,
+        alternativeAuthState,
+        cookies: document.cookie
+      });
 
-      // Build OAuth options with state parameter for child app auth
-      const oauthOptions: any = {
-        redirectTo,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent'
-        }
-      };
+      const { origin } = window.location;
+      let redirectTo: string;
 
-      // If there's child app auth, encode it in the state parameter
-      if (childAppAuth) {
-        // Encode child app auth data in state parameter
+      // Use alternative flow for better state handling
+      if (alternativeAuthState) {
+        // Use the alternative flow's OAuth URL builder
+        redirectTo = AlternativeAuthFlow.buildOAuthUrl('google', origin);
+        childAppDebug.log('login-page', 'Using alternative auth flow', {
+          redirectTo
+        });
+      } else if (childAppAuth) {
+        // Legacy flow with state parameter
         const stateData = {
-          childAppAuth: childAppAuth
+          childAppAuth: childAppAuth,
+          timestamp: Date.now()
         };
-        oauthOptions.queryParams.state = btoa(JSON.stringify(stateData));
-        console.log(
-          '[Login Page] Adding child app auth to OAuth state:',
-          stateData
-        );
+        const encodedState = btoa(JSON.stringify(stateData));
+        redirectTo = `${origin}/auth/callback?state=${encodedState}`;
+        childAppDebug.log('login-page', 'Using legacy auth flow with state', {
+          stateData,
+          redirectTo
+        });
+      } else {
+        // Normal flow
+        redirectTo = `${origin}/auth/callback`;
+        childAppDebug.log('login-page', 'Using normal auth flow', {
+          redirectTo
+        });
       }
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: oauthOptions
+        options: {
+          redirectTo,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent'
+          }
+        }
       });
 
-      if (error) throw error;
+      if (error) {
+        childAppDebug.log('login-page', 'OAuth error', {
+          error: error.message
+        });
+        throw error;
+      }
 
       toast.success('Redirecting to Google...');
+      childAppDebug.log('login-page', 'OAuth initiated successfully');
     } catch (error: any) {
       console.error('Login error:', error);
+      childAppDebug.log('login-page', 'Login error', {
+        error: error?.message || 'Unknown error',
+        stack: error?.stack
+      });
       toast.error(error?.message || 'Failed to sign in with Google');
       setLoading(false);
     }
@@ -425,7 +487,10 @@ export default function LoginPage() {
           </div>
 
           {/* Google One Tap - Only show if NOT child app auth and not checking auth */}
-          {!isCheckingAuth && !childAppAuth && <GoogleOneTap />}
+          {!isCheckingAuth && !shouldDisableOneTap && <GoogleOneTap />}
+
+          {/* Debug Panel - Only shows when debugging is enabled */}
+          <ChildAppDebugPanel />
         </div>
       </div>
     </div>
