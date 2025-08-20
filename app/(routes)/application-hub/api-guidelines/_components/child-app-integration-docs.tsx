@@ -107,6 +107,7 @@ interface UserSession {
     full_name: string;
     role: string;
     institution_id?: string;
+    permissions?: Record<string, boolean>;
   };
   access_token: string;
   refresh_token: string;
@@ -122,7 +123,7 @@ export class ParentAuthService {
     this.config = {
       parentAppUrl: process.env.NEXT_PUBLIC_PARENT_APP_URL || 'https://my.jkkn.ac.in',
       appId: process.env.NEXT_PUBLIC_APP_ID || '',
-      redirectUri: process.env.NEXT_PUBLIC_REDIRECT_URI || window.location.origin + '/auth/callback',
+      redirectUri: process.env.NEXT_PUBLIC_REDIRECT_URI || (typeof window !== 'undefined' ? window.location.origin + '/auth/callback' : '/auth/callback'),
       scopes: ['read', 'write', 'profile']
     };
   }
@@ -134,7 +135,7 @@ export class ParentAuthService {
     return ParentAuthService.instance;
   }
 
-  // Initialize OAuth2 authentication flow
+  // Initialize OAuth2 authentication flow - Updated for better compatibility
   async initiateLogin(state?: string): Promise<void> {
     const authUrl = new URL(\`\${this.config.parentAppUrl}/auth/authorize\`);
     
@@ -151,6 +152,7 @@ export class ParentAuthService {
       sessionStorage.setItem('oauth_state', authUrl.searchParams.get('state')!);
     }
     
+    console.log('[ParentAuth] Initiating login to:', authUrl.toString());
     window.location.href = authUrl.toString();
   }
 
@@ -535,10 +537,18 @@ export function ProtectedRoute({
 # MyJKKN Parent App Configuration
 NEXT_PUBLIC_PARENT_APP_URL=https://my.jkkn.ac.in
 NEXT_PUBLIC_APP_ID=your_app_id_here
+
+# Development redirect URI
 NEXT_PUBLIC_REDIRECT_URI=http://localhost:3000/auth/callback
 
-# For production, update redirect URI:
-# NEXT_PUBLIC_REDIRECT_URI=https://your-app.com/auth/callback`;
+# Production redirect URI (uncomment for production):
+# NEXT_PUBLIC_REDIRECT_URI=https://your-app.com/auth/callback
+
+# Optional: Google OAuth client ID for One Tap (if using)
+# NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id
+
+# Optional: Enable debug logging
+# NEXT_PUBLIC_AUTH_DEBUG=true`;
 
   // Layout integration
   const layoutCode = `// app/layout.tsx
@@ -725,13 +735,14 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
 
       {/* Implementation Tabs */}
       <Tabs defaultValue='overview' className='space-y-4'>
-        <TabsList className='grid w-full grid-cols-6'>
+        <TabsList className='grid w-full grid-cols-7'>
           <TabsTrigger value='overview'>Overview</TabsTrigger>
           <TabsTrigger value='quickstart'>Quick Start</TabsTrigger>
           <TabsTrigger value='implementation'>Code</TabsTrigger>
           <TabsTrigger value='endpoints'>Endpoints</TabsTrigger>
           <TabsTrigger value='testing'>Testing</TabsTrigger>
           <TabsTrigger value='troubleshoot'>Debug</TabsTrigger>
+          <TabsTrigger value='reference'>Reference</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -1179,25 +1190,92 @@ await parentAuthService.logout('https://your-app.com');`}
 
               {/* Testing Checklist */}
               <div className='space-y-4'>
-                <h3 className='text-lg font-semibold'>Testing Checklist</h3>
-                <div className='space-y-3'>
-                  {[
-                    'Environment variables are set correctly',
-                    'App ID matches MyJKKN configuration',
-                    'Redirect URI matches exactly (including protocol)',
-                    'Login button redirects to MyJKKN',
-                    'After login, user returns to your app',
-                    'User data is displayed correctly',
-                    'Access token is stored in cookies',
-                    'Refresh token works before expiry',
-                    'Logout clears all session data',
-                    'Protected routes redirect when not authenticated'
-                  ].map((item, index) => (
-                    <div key={index} className='flex items-center gap-3'>
-                      <div className='h-5 w-5 rounded border-2 border-gray-300' />
-                      <span className='text-sm'>{item}</span>
+                <h3 className='text-lg font-semibold'>
+                  Comprehensive Testing Checklist
+                </h3>
+                <div className='space-y-4'>
+                  <div>
+                    <h4 className='font-medium mb-3'>🔧 Configuration</h4>
+                    <div className='space-y-2'>
+                      {[
+                        'Environment variables are set correctly',
+                        'App ID matches MyJKKN configuration',
+                        'Redirect URI matches exactly (including protocol)',
+                        'Google Client ID is set (if using Google One Tap)'
+                      ].map((item, index) => (
+                        <div key={index} className='flex items-center gap-3'>
+                          <div className='h-4 w-4 rounded border border-gray-300' />
+                          <span className='text-sm'>{item}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+
+                  <div>
+                    <h4 className='font-medium mb-3'>🔐 Authentication Flow</h4>
+                    <div className='space-y-2'>
+                      {[
+                        'Login button redirects to MyJKKN',
+                        'After login, user returns to your app',
+                        'User data is displayed correctly',
+                        'Access token is stored in cookies/localStorage',
+                        'Refresh token works before expiry',
+                        'Logout clears all session data',
+                        'Protected routes redirect when not authenticated'
+                      ].map((item, index) => (
+                        <div key={index} className='flex items-center gap-3'>
+                          <div className='h-4 w-4 rounded border border-gray-300' />
+                          <span className='text-sm'>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className='font-medium mb-3'>
+                      👶 Child App Authentication
+                    </h4>
+                    <div className='space-y-2'>
+                      {[
+                        'Child app parameters are detected from URL',
+                        'Child app auth cookie is set correctly',
+                        'Google One Tap is disabled for child app auth',
+                        'First login redirects to child app consent page',
+                        'After authorization, user returns to child app',
+                        'Child app receives authorization code',
+                        'Token exchange works correctly',
+                        'Child app can access user data'
+                      ].map((item, index) => (
+                        <div key={index} className='flex items-center gap-3'>
+                          <div className='h-4 w-4 rounded border border-gray-300' />
+                          <span className='text-sm'>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className='font-medium mb-3'>
+                      🛡️ Security & Edge Cases
+                    </h4>
+                    <div className='space-y-2'>
+                      {[
+                        'State parameter is validated for CSRF protection',
+                        'Invalid authorization codes are handled',
+                        'Expired tokens trigger refresh flow',
+                        'Network errors are handled gracefully',
+                        'Concurrent login attempts work correctly',
+                        'Browser back/forward navigation works',
+                        'Session persists across browser tabs',
+                        'Cookies work in development and production'
+                      ].map((item, index) => (
+                        <div key={index} className='flex items-center gap-3'>
+                          <div className='h-4 w-4 rounded border border-gray-300' />
+                          <span className='text-sm'>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1208,17 +1286,104 @@ await parentAuthService.logout('https://your-app.com');`}
                   code={`// Check if user is authenticated
 localStorage.getItem('user_data')
 
-// Check cookies (install EditThisCookie extension)
+// Check all cookies
 document.cookie
+
+// Check specific child app auth cookie
+document.cookie.split('; ').find(row => row.startsWith('child_app_auth='))
 
 // Test auth service
 const auth = await import('./lib/auth/parent-auth-service');
 auth.default.isAuthenticated()
-auth.default.getUser()`}
+auth.default.getUser()
+
+// Check current URL parameters
+const params = new URLSearchParams(window.location.search);
+console.log('App ID:', params.get('app_id'));
+console.log('Redirect URI:', params.get('redirect_uri'));
+console.log('Scope:', params.get('scope'));
+console.log('State:', params.get('state'));
+
+// Test child app parameter detection
+const getChildAppAuth = () => {
+  const params = new URLSearchParams(window.location.search);
+  const appId = params.get('app_id');
+  const redirectUri = params.get('redirect_uri');
+  return appId && redirectUri ? { app_id: appId, redirect_uri: redirectUri } : null;
+};
+console.log('Child App Auth:', getChildAppAuth());`}
                   language='javascript'
                   title='Console Commands'
                   id='console-tests'
                 />
+              </div>
+
+              {/* Real-time Debugging */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>Real-time Debugging</h3>
+                <Alert>
+                  <Info className='h-4 w-4' />
+                  <AlertDescription>
+                    <strong>Enable Debug Logging:</strong> Add console logging
+                    to track the authentication flow:
+                  </AlertDescription>
+                </Alert>
+                <CodeBlock
+                  code={`// Add to your components for debugging
+useEffect(() => {
+  console.log('[Debug] Component mounted');
+  console.log('[Debug] Child App Auth:', childAppAuth);
+  console.log('[Debug] Current URL:', window.location.href);
+  console.log('[Debug] Cookies:', document.cookie);
+  
+  // Track parameter changes
+  const params = new URLSearchParams(window.location.search);
+  console.log('[Debug] URL Parameters:', Object.fromEntries(params));
+  
+  return () => {
+    console.log('[Debug] Component unmounting');
+  };
+}, [childAppAuth]);`}
+                  language='typescript'
+                  title='Debug Logging'
+                  id='debug-logging'
+                />
+              </div>
+
+              {/* Common Debug Scenarios */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Common Debug Scenarios
+                </h3>
+                <div className='grid gap-3'>
+                  <Alert className='border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20'>
+                    <AlertCircle className='h-4 w-4 text-yellow-600' />
+                    <AlertDescription>
+                      <strong>Child App Auth Not Detected:</strong> Check
+                      browser console for "[Login Page] Setting child app auth
+                      cookie" message. If missing, URL parameters may not be
+                      parsed correctly.
+                    </AlertDescription>
+                  </Alert>
+                  <Alert className='border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20'>
+                    <AlertCircle className='h-4 w-4 text-yellow-600' />
+                    <AlertDescription>
+                      <strong>Google One Tap Still Appears:</strong> Look for
+                      "[One Tap] Child app auth detected, skipping One Tap
+                      initialization" message. If missing, the component may not
+                      be detecting parameters correctly.
+                    </AlertDescription>
+                  </Alert>
+                  <Alert className='border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20'>
+                    <AlertCircle className='h-4 w-4 text-yellow-600' />
+                    <AlertDescription>
+                      <strong>OAuth Callback Issues:</strong> Check for "[Auth
+                      Callback] Child app auth from state" or "[Auth Callback]
+                      Parsed child app auth from cookie" messages in the
+                      callback page.
+                    </AlertDescription>
+                  </Alert>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1293,6 +1458,29 @@ auth.default.getUser()`}
                     cause: 'Cookies not persisting or being blocked',
                     solution:
                       'For localhost: use secure:false and sameSite:lax. For production: ensure HTTPS. Check browser console for cookie warnings. Verify localStorage is not disabled.'
+                  },
+                  {
+                    issue:
+                      'Child app login redirects to parent app instead of child app after first login',
+                    cause:
+                      'Google One Tap interfering with child app authentication flow',
+                    solution:
+                      'Ensure Google One Tap is disabled when child app parameters are present. Check that childAppAuth state is set immediately on page load, and GoogleOneTap component properly detects these parameters.'
+                  },
+                  {
+                    issue:
+                      'Google One Tap auto-signs user but loses child app context',
+                    cause:
+                      'Race condition between Google One Tap and child app parameter detection',
+                    solution:
+                      'Update login page to initialize child app auth state immediately from URL parameters instead of in useEffect. Ensure Google One Tap component checks for child app parameters before initializing.'
+                  },
+                  {
+                    issue:
+                      'Child app parameters not preserved through OAuth flow',
+                    cause: 'Parameters lost during Google OAuth redirect',
+                    solution:
+                      'Store child app parameters in cookies AND OAuth state parameter. Use both methods as fallback for better reliability.'
                   }
                 ].map((item, index) => (
                   <Alert key={index}>
@@ -1354,7 +1542,378 @@ class ParentAuthService {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Reference Tab */}
+        <TabsContent value='reference' className='space-y-6'>
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <BookOpen className='h-5 w-5' />
+                Quick Reference Guide
+              </CardTitle>
+              <CardDescription>
+                Essential URLs, configurations, and commands for developers
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-6'>
+              {/* Essential URLs */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>🌐 Essential URLs</h3>
+                <div className='grid gap-3'>
+                  <div className='p-3 bg-muted rounded-lg'>
+                    <div className='font-mono text-sm'>
+                      <div className='font-semibold mb-2'>Production:</div>
+                      <div className='space-y-1'>
+                        <div>
+                          Base URL:{' '}
+                          <code className='bg-background px-1 rounded'>
+                            https://my.jkkn.ac.in
+                          </code>
+                        </div>
+                        <div>
+                          Auth URL:{' '}
+                          <code className='bg-background px-1 rounded'>
+                            https://my.jkkn.ac.in/auth/authorize
+                          </code>
+                        </div>
+                        <div>
+                          Token URL:{' '}
+                          <code className='bg-background px-1 rounded'>
+                            https://my.jkkn.ac.in/api/auth/child-app/token
+                          </code>
+                        </div>
+                        <div>
+                          Logout URL:{' '}
+                          <code className='bg-background px-1 rounded'>
+                            https://my.jkkn.ac.in/logout
+                          </code>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Environment Template */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  ⚙️ Environment Template
+                </h3>
+                <CodeBlock
+                  code={`# Required Configuration
+NEXT_PUBLIC_PARENT_APP_URL=https://my.jkkn.ac.in
+NEXT_PUBLIC_APP_ID=your_app_id_from_admin_panel
+
+# Callback URLs (choose one based on environment)
+NEXT_PUBLIC_REDIRECT_URI=http://localhost:3000/auth/callback  # Development
+# NEXT_PUBLIC_REDIRECT_URI=https://your-domain.com/auth/callback  # Production
+
+# Optional: Google One Tap (get from Google Cloud Console)
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id
+
+# Optional: Enable debugging
+NEXT_PUBLIC_AUTH_DEBUG=true`}
+                  language='bash'
+                  title='.env.local Template'
+                  id='env-template'
+                />
+              </div>
+
+              {/* OAuth Parameters */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>🔑 OAuth Parameters</h3>
+                <div className='grid gap-3'>
+                  <Alert>
+                    <Key className='h-4 w-4' />
+                    <AlertDescription>
+                      <strong>Required Parameters:</strong>
+                      <ul className='mt-2 space-y-1 text-sm list-disc list-inside'>
+                        <li>
+                          <code>response_type</code>: Always "code"
+                        </li>
+                        <li>
+                          <code>client_id</code>: Your app ID from MyJKKN admin
+                        </li>
+                        <li>
+                          <code>app_id</code>: Same as client_id (for
+                          compatibility)
+                        </li>
+                        <li>
+                          <code>redirect_uri</code>: Must match registered URI
+                          exactly
+                        </li>
+                        <li>
+                          <code>scope</code>: Space-separated (e.g., "read write
+                          profile")
+                        </li>
+                        <li>
+                          <code>state</code>: Random string for CSRF protection
+                        </li>
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              </div>
+
+              {/* Quick Debug Commands */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  🐛 Quick Debug Commands
+                </h3>
+                <CodeBlock
+                  code={`// Browser Console Quick Checks
+// 1. Check authentication status
+localStorage.getItem('user_data') ? 'Authenticated' : 'Not authenticated'
+
+// 2. Check child app parameters
+new URLSearchParams(location.search).get('app_id') || 'No app_id'
+
+// 3. Check cookies
+document.cookie.includes('child_app_auth') ? 'Child app cookie found' : 'No child app cookie'
+
+// 4. Check current page
+location.pathname
+
+// 5. Test OAuth URL construction
+const buildOAuthUrl = (appId, redirectUri) => {
+  const url = new URL('https://my.jkkn.ac.in/auth/authorize');
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('client_id', appId);
+  url.searchParams.set('app_id', appId);
+  url.searchParams.set('redirect_uri', redirectUri);
+  url.searchParams.set('scope', 'read write profile');
+  url.searchParams.set('state', Math.random().toString(36).slice(2));
+  return url.toString();
+};
+
+// Usage: buildOAuthUrl('your_app_id', 'http://localhost:3000/auth/callback')`}
+                  language='javascript'
+                  title='Browser Console Commands'
+                  id='quick-debug'
+                />
+              </div>
+
+              {/* Common Configurations */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  📋 Common Configurations
+                </h3>
+                <div className='grid gap-3'>
+                  <div className='p-3 border rounded-lg'>
+                    <div className='font-semibold mb-2'>Development Setup:</div>
+                    <ul className='text-sm space-y-1 list-disc list-inside'>
+                      <li>
+                        Use <code>http://localhost:3000</code>
+                      </li>
+                      <li>
+                        Set <code>secure: false</code> for cookies
+                      </li>
+                      <li>
+                        Set <code>sameSite: 'lax'</code> for cookies
+                      </li>
+                      <li>Enable debug logging</li>
+                    </ul>
+                  </div>
+                  <div className='p-3 border rounded-lg'>
+                    <div className='font-semibold mb-2'>Production Setup:</div>
+                    <ul className='text-sm space-y-1 list-disc list-inside'>
+                      <li>
+                        Use <code>https://</code> URLs only
+                      </li>
+                      <li>
+                        Set <code>secure: true</code> for cookies
+                      </li>
+                      <li>
+                        Set <code>sameSite: 'strict'</code> for cookies
+                      </li>
+                      <li>Disable debug logging</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Codes */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>🚦 HTTP Status Codes</h3>
+                <div className='grid gap-2 text-sm'>
+                  <div className='flex justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded'>
+                    <span>200 OK</span>
+                    <span>Token exchange successful</span>
+                  </div>
+                  <div className='flex justify-between p-2 bg-red-50 dark:bg-red-950/20 rounded'>
+                    <span>400 Bad Request</span>
+                    <span>Invalid parameters</span>
+                  </div>
+                  <div className='flex justify-between p-2 bg-red-50 dark:bg-red-950/20 rounded'>
+                    <span>401 Unauthorized</span>
+                    <span>Invalid app_id or expired code</span>
+                  </div>
+                  <div className='flex justify-between p-2 bg-red-50 dark:bg-red-950/20 rounded'>
+                    <span>403 Forbidden</span>
+                    <span>App not authorized or inactive</span>
+                  </div>
+                  <div className='flex justify-between p-2 bg-yellow-50 dark:bg-yellow-950/20 rounded'>
+                    <span>429 Too Many Requests</span>
+                    <span>Rate limit exceeded</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* File Structure */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  📁 Recommended File Structure
+                </h3>
+                <CodeBlock
+                  code={`your-app/
+├── .env.local                          # Environment variables
+├── app/
+│   ├── layout.tsx                      # Root layout with AuthProvider
+│   ├── page.tsx                        # Home page with auth logic
+│   └── auth/
+│       └── callback/
+│           └── route.ts                # OAuth callback handler
+├── lib/
+│   └── auth/
+│       ├── parent-auth-service.ts      # Main auth service
+│       ├── auth-context.tsx            # React context
+│       └── types.ts                    # TypeScript interfaces
+├── components/
+│   ├── protected-route.tsx             # Route protection
+│   └── auth/
+│       └── google-one-tap.tsx          # Google One Tap (optional)
+└── hooks/
+    └── use-auth.ts                     # Custom auth hook`}
+                  language='text'
+                  title='Project Structure'
+                  id='file-structure'
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* Best Practices Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className='flex items-center gap-2'>
+            <Sparkles className='h-5 w-5' />
+            Best Practices & Tips
+          </CardTitle>
+          <CardDescription>
+            Implementation recommendations based on common issues
+          </CardDescription>
+        </CardHeader>
+        <CardContent className='space-y-4'>
+          <div className='space-y-4'>
+            <h3 className='text-lg font-semibold'>Child App Authentication</h3>
+            <div className='space-y-3'>
+              {[
+                {
+                  title: 'Initialize State Immediately',
+                  description:
+                    'Set childAppAuth state from URL parameters during component initialization, not in useEffect',
+                  code: `const [childAppAuth, setChildAppAuth] = useState(getInitialChildAppAuth());`
+                },
+                {
+                  title: 'Disable Google One Tap for Child Apps',
+                  description:
+                    'Always check for child app parameters before initializing Google One Tap',
+                  code: `{!isCheckingAuth && !childAppAuth && <GoogleOneTap />}`
+                },
+                {
+                  title: 'Use Multiple Fallbacks',
+                  description:
+                    'Store child app parameters in both cookies and OAuth state parameter',
+                  code: `document.cookie = \`child_app_auth=\${JSON.stringify(childAppAuth)}\`; oauthOptions.queryParams.state = btoa(JSON.stringify(stateData));`
+                },
+                {
+                  title: 'Handle SSR Safely',
+                  description:
+                    'Always check for window object when accessing browser APIs',
+                  code: `if (typeof window === 'undefined') return null;`
+                }
+              ].map((tip, index) => (
+                <Alert key={index}>
+                  <CheckCircle className='h-4 w-4 text-green-600' />
+                  <AlertDescription>
+                    <strong className='block mb-1'>{tip.title}</strong>
+                    <p className='text-sm mb-2'>{tip.description}</p>
+                    <CodeBlock
+                      code={tip.code}
+                      language='typescript'
+                      id={`tip-${index}`}
+                    />
+                  </AlertDescription>
+                </Alert>
+              ))}
+            </div>
+          </div>
+
+          <div className='space-y-4'>
+            <h3 className='text-lg font-semibold'>Security Considerations</h3>
+            <div className='grid gap-3'>
+              <Alert className='border-blue-200 bg-blue-50 dark:bg-blue-950/20'>
+                <Shield className='h-4 w-4 text-blue-600' />
+                <AlertDescription>
+                  <strong>HTTPS in Production:</strong> Always use HTTPS in
+                  production for secure cookie transmission and OAuth redirects.
+                </AlertDescription>
+              </Alert>
+              <Alert className='border-blue-200 bg-blue-50 dark:bg-blue-950/20'>
+                <Shield className='h-4 w-4 text-blue-600' />
+                <AlertDescription>
+                  <strong>State Parameter:</strong> Always use and validate the
+                  OAuth state parameter to prevent CSRF attacks.
+                </AlertDescription>
+              </Alert>
+              <Alert className='border-blue-200 bg-blue-50 dark:bg-blue-950/20'>
+                <Shield className='h-4 w-4 text-blue-600' />
+                <AlertDescription>
+                  <strong>Token Storage:</strong> Store tokens in httpOnly
+                  cookies when possible, or use secure localStorage with proper
+                  cleanup.
+                </AlertDescription>
+              </Alert>
+            </div>
+          </div>
+
+          <div className='space-y-4'>
+            <h3 className='text-lg font-semibold'>Performance Tips</h3>
+            <div className='grid gap-3'>
+              <div className='flex items-start gap-3 p-3 bg-muted rounded-lg'>
+                <Zap className='h-5 w-5 text-orange-600 mt-0.5' />
+                <div>
+                  <div className='font-medium'>Memoize Supabase Client</div>
+                  <div className='text-sm text-muted-foreground'>
+                    Use useMemo to prevent recreating the client on each render
+                  </div>
+                </div>
+              </div>
+              <div className='flex items-start gap-3 p-3 bg-muted rounded-lg'>
+                <Zap className='h-5 w-5 text-orange-600 mt-0.5' />
+                <div>
+                  <div className='font-medium'>Cleanup Timers</div>
+                  <div className='text-sm text-muted-foreground'>
+                    Always cleanup setTimeout and setInterval in useEffect
+                    cleanup
+                  </div>
+                </div>
+              </div>
+              <div className='flex items-start gap-3 p-3 bg-muted rounded-lg'>
+                <Zap className='h-5 w-5 text-orange-600 mt-0.5' />
+                <div>
+                  <div className='font-medium'>Loading States</div>
+                  <div className='text-sm text-muted-foreground'>
+                    Provide clear loading indicators during authentication flows
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Additional Resources */}
       <Card>
@@ -1425,36 +1984,168 @@ class ParentAuthService {
       {/* Support Section */}
       <Card>
         <CardHeader>
-          <CardTitle>Need Help?</CardTitle>
+          <CardTitle className='flex items-center gap-2'>
+            <Bot className='h-5 w-5' />
+            Getting Help & Support
+          </CardTitle>
           <CardDescription>
-            Contact support for assistance with integration
+            Self-help resources and support options for integration issues
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Alert className='mb-4'>
-            <Info className='h-4 w-4' />
+        <CardContent className='space-y-6'>
+          {/* Self-Help Checklist */}
+          <div>
+            <h3 className='font-semibold mb-3'>📋 Pre-Support Checklist</h3>
+            <Alert className='border-blue-200 bg-blue-50 dark:bg-blue-950/20'>
+              <Info className='h-4 w-4 text-blue-600' />
+              <AlertDescription>
+                <strong>Before contacting support, please verify:</strong>
+                <div className='grid grid-cols-1 md:grid-cols-2 gap-2 mt-2'>
+                  <div className='space-y-1 text-sm'>
+                    <div>✅ App ID is correct and active</div>
+                    <div>✅ Redirect URIs match exactly</div>
+                    <div>✅ Environment variables are set</div>
+                    <div>✅ HTTPS is used in production</div>
+                  </div>
+                  <div className='space-y-1 text-sm'>
+                    <div>✅ Browser console shows no errors</div>
+                    <div>✅ Network tab shows successful requests</div>
+                    <div>✅ Cookies are being set correctly</div>
+                    <div>✅ OAuth flow reaches callback page</div>
+                  </div>
+                </div>
+              </AlertDescription>
+            </Alert>
+          </div>
+
+          {/* Common Issues Quick Fix */}
+          <div>
+            <h3 className='font-semibold mb-3'>
+              ⚡ Quick Fixes for Common Issues
+            </h3>
+            <div className='grid gap-3'>
+              <Alert className='border-green-200 bg-green-50 dark:bg-green-950/20'>
+                <CheckCircle className='h-4 w-4 text-green-600' />
+                <AlertDescription>
+                  <strong>Child App Auth Not Working:</strong> Clear browser
+                  cache, check for child app auth cookie, ensure Google One Tap
+                  is disabled for child app flows.
+                </AlertDescription>
+              </Alert>
+              <Alert className='border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20'>
+                <AlertCircle className='h-4 w-4 text-yellow-600' />
+                <AlertDescription>
+                  <strong>Redirect URI Mismatch:</strong> Ensure redirect URI in
+                  code exactly matches the one registered in MyJKKN admin panel
+                  (including protocol and trailing slashes).
+                </AlertDescription>
+              </Alert>
+              <Alert className='border-red-200 bg-red-50 dark:bg-red-950/20'>
+                <AlertCircle className='h-4 w-4 text-red-600' />
+                <AlertDescription>
+                  <strong>Token Exchange Fails:</strong> Verify app_id in
+                  request body, check that authorization code hasn't expired (5
+                  minutes), ensure proper Content-Type header.
+                </AlertDescription>
+              </Alert>
+            </div>
+          </div>
+
+          {/* Debug Information to Collect */}
+          <div>
+            <h3 className='font-semibold mb-3'>
+              🔍 Information to Collect for Support
+            </h3>
+            <CodeBlock
+              code={`// Run this in browser console and copy results for support
+const debugInfo = {
+  // Environment
+  currentUrl: window.location.href,
+  userAgent: navigator.userAgent,
+  
+  // Authentication State
+  isAuthenticated: !!localStorage.getItem('user_data'),
+  hasChildAppCookie: document.cookie.includes('child_app_auth'),
+  
+  // URL Parameters
+  urlParams: Object.fromEntries(new URLSearchParams(location.search)),
+  
+  // Cookies
+  allCookies: document.cookie.split('; ').reduce((acc, cookie) => {
+    const [name, value] = cookie.split('=');
+    acc[name] = value ? value.substring(0, 20) + '...' : '';
+    return acc;
+  }, {}),
+  
+  // Local Storage
+  localStorage: {
+    userData: !!localStorage.getItem('user_data'),
+    authTimestamp: localStorage.getItem('auth_timestamp')
+  },
+  
+  // Environment Variables (visible ones)
+  env: {
+    parentAppUrl: process.env.NEXT_PUBLIC_PARENT_APP_URL,
+    hasAppId: !!process.env.NEXT_PUBLIC_APP_ID,
+    hasRedirectUri: !!process.env.NEXT_PUBLIC_REDIRECT_URI
+  }
+};
+
+console.log('Debug Info for Support:', JSON.stringify(debugInfo, null, 2));`}
+              language='javascript'
+              title='Debug Information Collection Script'
+              id='debug-info-script'
+            />
+          </div>
+
+          {/* Support Options */}
+          <div className='space-y-4'>
+            <h3 className='font-semibold mb-3'>🎯 Support Options</h3>
+            <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'>
+              <div className='p-4 border rounded-lg hover:bg-muted/50 transition-colors'>
+                <Terminal className='h-8 w-8 text-blue-600 mb-3' />
+                <div className='font-medium mb-2'>Debug Logs</div>
+                <div className='text-sm text-muted-foreground mb-3'>
+                  View real-time authentication logs and errors
+                </div>
+                <Button variant='outline' size='sm' className='w-full'>
+                  Open Debug Console
+                </Button>
+              </div>
+
+              <div className='p-4 border rounded-lg hover:bg-muted/50 transition-colors'>
+                <BookOpen className='h-8 w-8 text-green-600 mb-3' />
+                <div className='font-medium mb-2'>API Documentation</div>
+                <div className='text-sm text-muted-foreground mb-3'>
+                  Complete API reference and examples
+                </div>
+                <Button variant='outline' size='sm' className='w-full'>
+                  View API Docs
+                </Button>
+              </div>
+
+              <div className='p-4 border rounded-lg hover:bg-muted/50 transition-colors'>
+                <Bot className='h-8 w-8 text-purple-600 mb-3' />
+                <div className='font-medium mb-2'>Technical Support</div>
+                <div className='text-sm text-muted-foreground mb-3'>
+                  Get help from our development team
+                </div>
+                <Button size='sm' className='w-full'>
+                  Contact Support
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Emergency Contact */}
+          <Alert className='border-orange-200 bg-orange-50 dark:bg-orange-950/20'>
+            <AlertCircle className='h-4 w-4 text-orange-600' />
             <AlertDescription>
-              <strong>Before contacting support:</strong>
-              <ul className='mt-2 space-y-1 text-sm'>
-                <li>• Check that your App ID is correct</li>
-                <li>• Verify redirect URIs match exactly</li>
-                <li>• Review the troubleshooting guide above</li>
-                <li>• Check browser console for errors</li>
-                <li>• Verify environment variables are set</li>
-              </ul>
+              <strong>Critical Issues:</strong> For production outages or
+              security concerns, include "URGENT" in your support request
+              subject line. Response time: 2-4 hours during business hours.
             </AlertDescription>
           </Alert>
-          <div className='flex flex-col sm:flex-row gap-4'>
-            <Button variant='outline' className='flex-1'>
-              <Terminal className='mr-2 h-4 w-4' />
-              View Integration Logs
-            </Button>
-            <Button variant='outline' className='flex-1'>
-              <BookOpen className='mr-2 h-4 w-4' />
-              API Documentation
-            </Button>
-            <Button className='flex-1'>Contact Support</Button>
-          </div>
         </CardContent>
       </Card>
     </div>
