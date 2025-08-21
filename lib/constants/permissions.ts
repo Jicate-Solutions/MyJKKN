@@ -286,6 +286,14 @@ export const PERMISSION_CATEGORIES = [
       {
         key: 'academic.attendance.dashboard.view',
         label: 'View Attendance Dashboard'
+      },
+      {
+        key: 'academic.attendance.reports.view',
+        label: 'View Attendance Reports'
+      },
+      {
+        key: 'academic.attendance.reports.export',
+        label: 'Export Attendance Reports'
       }
     ]
   },

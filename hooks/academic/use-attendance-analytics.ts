@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   AttendanceAnalyticsService,
   type AnalyticsFilters,
@@ -6,11 +6,14 @@ import {
   type CourseAttendanceStats,
   type StudentAttendanceStats,
   type OverallAttendanceSummary,
-  type FilterOptions
+  type FilterOptions,
+  type AttendanceReportFilters,
+  type AttendanceReportRecord,
+  type AttendanceReportDetails
 } from '@/lib/services/academic/attendance-analytics-service';
 
 // Re-export for convenience
-export type { AnalyticsFilters };
+export type { AnalyticsFilters, AttendanceReportFilters };
 
 export const ATTENDANCE_ANALYTICS_KEYS = {
   all: ['attendance-analytics'] as const,
@@ -22,6 +25,17 @@ export const ATTENDANCE_ANALYTICS_KEYS = {
     [...ATTENDANCE_ANALYTICS_KEYS.all, 'student', filters] as const,
   overallSummary: (filters: AnalyticsFilters) =>
     [...ATTENDANCE_ANALYTICS_KEYS.all, 'summary', filters] as const,
+  attendanceReports: (filters: AttendanceReportFilters) =>
+    [...ATTENDANCE_ANALYTICS_KEYS.all, 'attendance-reports', filters] as const,
+  attendanceReportDetails: (attendanceId: string, periodId?: string) =>
+    [
+      ...ATTENDANCE_ANALYTICS_KEYS.all,
+      'attendance-report-details',
+      attendanceId,
+      periodId
+    ] as const,
+  statistics: (filters?: AttendanceReportFilters) =>
+    [...ATTENDANCE_ANALYTICS_KEYS.all, 'statistics', filters] as const,
   institutions: () =>
     [...ATTENDANCE_ANALYTICS_KEYS.all, 'institutions'] as const,
   degrees: (institutionId: string) =>
@@ -33,7 +47,11 @@ export const ATTENDANCE_ANALYTICS_KEYS = {
   semesters: (programId: string) =>
     [...ATTENDANCE_ANALYTICS_KEYS.all, 'semesters', programId] as const,
   sections: (semesterId: string) =>
-    [...ATTENDANCE_ANALYTICS_KEYS.all, 'sections', semesterId] as const
+    [...ATTENDANCE_ANALYTICS_KEYS.all, 'sections', semesterId] as const,
+  academicYears: () =>
+    [...ATTENDANCE_ANALYTICS_KEYS.all, 'academic-years'] as const,
+  staff: (institutionId?: string) =>
+    [...ATTENDANCE_ANALYTICS_KEYS.all, 'staff', institutionId] as const
 };
 
 /**
@@ -193,5 +211,109 @@ export function useSections(semesterId: string, enabled = true) {
     enabled: enabled && !!semesterId,
     staleTime: 10 * 60 * 1000, // 10 minutes
     retry: 1
+  });
+}
+
+/**
+ * Hook to fetch attendance reports with filtering and pagination
+ */
+export function useAttendanceReports(
+  filters: AttendanceReportFilters,
+  enabled = true
+) {
+  return useQuery<AttendanceReportRecord[]>({
+    queryKey: ATTENDANCE_ANALYTICS_KEYS.attendanceReports(filters),
+    queryFn: () => AttendanceAnalyticsService.getAttendanceReports(filters),
+    enabled,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 1,
+    placeholderData: (previousData) => previousData // Keep previous data when paginating
+  });
+}
+
+/**
+ * Hook to fetch detailed attendance record for a specific session
+ */
+export function useAttendanceReportDetails(
+  attendanceId: string,
+  periodId?: string,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: ATTENDANCE_ANALYTICS_KEYS.attendanceReportDetails(
+      attendanceId,
+      periodId
+    ),
+    queryFn: () =>
+      AttendanceAnalyticsService.getAttendanceReportDetails(
+        attendanceId,
+        periodId
+      ),
+    enabled: enabled && !!attendanceId,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    retry: 1
+  });
+}
+
+/**
+ * Hook to fetch academic years for filter dropdown
+ */
+export function useAcademicYears() {
+  return useQuery({
+    queryKey: ATTENDANCE_ANALYTICS_KEYS.academicYears(),
+    queryFn: () => AttendanceAnalyticsService.getAcademicYears(),
+    staleTime: 15 * 60 * 1000, // 15 minutes
+    retry: 1
+  });
+}
+
+/**
+ * Hook to fetch staff for filter dropdown (for super admin)
+ */
+export function useStaff(institutionId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ATTENDANCE_ANALYTICS_KEYS.staff(institutionId),
+    queryFn: () => AttendanceAnalyticsService.getStaff(institutionId),
+    enabled,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    retry: 1
+  });
+}
+
+/**
+ * Hook to fetch attendance statistics
+ */
+export function useAttendanceStatistics(filters?: AttendanceReportFilters) {
+  return useQuery({
+    queryKey: ATTENDANCE_ANALYTICS_KEYS.statistics(filters),
+    queryFn: () => AttendanceAnalyticsService.getAttendanceStatistics(filters),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 1
+  });
+}
+
+/**
+ * Hook to export attendance report to CSV
+ */
+export function useExportAttendanceReport() {
+  return useMutation({
+    mutationFn: (filters: AttendanceReportFilters) =>
+      AttendanceAnalyticsService.exportAttendanceReportToCSV(filters),
+    onSuccess: (csvContent, filters) => {
+      // Create and download the CSV file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute(
+        'download',
+        `attendance-report-${new Date().toISOString().split('T')[0]}.csv`
+      );
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
   });
 }
