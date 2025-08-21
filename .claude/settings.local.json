@@ -19,7 +19,8 @@
       "Bash(dir:*)",
       "Bash(mkdir:*)",
       "mcp__sequential-thinking__sequentialthinking",
-      "mcp__supabase__list_tables"
+      "mcp__supabase__list_tables",
+      "Bash(mv:*)"
     ],
     "deny": []
   },
