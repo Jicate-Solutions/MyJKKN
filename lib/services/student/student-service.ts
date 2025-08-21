@@ -596,7 +596,7 @@ export class StudentService {
           semester_id,
           section_id,
           academic_year_id,
-          institutions!institution_id (
+          institutions!students_institution_id_fkey (
             id,
             name
           ),
