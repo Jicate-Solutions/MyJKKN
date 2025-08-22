@@ -33,8 +33,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { grant_type, code, app_id, api_key, redirect_uri, refresh_token } =
-      body;
+    const {
+      grant_type,
+      code,
+      app_id,
+      api_key,
+      redirect_uri,
+      refresh_token,
+      state
+    } = body;
 
     // Use service role client for database operations
     const serviceClient = createServiceRoleClient();
@@ -114,6 +121,29 @@ export async function POST(request: NextRequest) {
           {
             error: 'invalid_grant',
             error_description: 'Authorization code already used'
+          },
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      // Validate state parameter if provided by child app
+      // This provides additional CSRF protection
+      if (state && authCode.state && state !== authCode.state) {
+        console.warn('State parameter mismatch detected:', {
+          app_id,
+          user_id: authCode.user_id,
+          provided_state: state,
+          stored_state: authCode.state,
+          ip_address:
+            request.headers.get('x-forwarded-for') ||
+            request.headers.get('x-real-ip'),
+          user_agent: request.headers.get('user-agent')
+        });
+
+        return NextResponse.json(
+          {
+            error: 'invalid_request',
+            error_description: 'State parameter mismatch - possible CSRF attack'
           },
           { status: 400, headers: corsHeaders }
         );

@@ -103,11 +103,11 @@ export async function GET(request: NextRequest) {
     const programId = url.searchParams.get('program_id');
     const isProfileComplete = url.searchParams.get('is_profile_complete');
 
-    // Build query
+    // Build query - specify the foreign key relationship to avoid ambiguity
     let query = supabase.from('students').select(
       `
       *,
-      institution:institutions(id, name),
+      institution:institutions!students_institution_id_fkey(id, name),
       degree:degrees(id, degree_name),
       department:departments(id, department_name),
       program:programs(id, program_name)
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
     // Apply filters
     if (search) {
       query = query.or(
-        `student_name.ilike.%${search}%,student_email.ilike.%${search}%,student_mobile.ilike.%${search}%,roll_number.ilike.%${search}%`
+        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,student_email.ilike.%${search}%,student_mobile.ilike.%${search}%,roll_number.ilike.%${search}%`
       );
     }
 
@@ -155,7 +155,8 @@ export async function GET(request: NextRequest) {
       firstRecord: students?.[0]
         ? {
             id: students[0].id,
-            name: students[0].student_name
+            first_name: students[0].first_name,
+            last_name: students[0].last_name
           }
         : null
     });

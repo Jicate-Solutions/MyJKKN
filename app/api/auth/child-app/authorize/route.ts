@@ -1,6 +1,9 @@
 // app/api/auth/child-app/authorize/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient
+} from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -22,22 +25,31 @@ export async function GET(request: NextRequest) {
 
   try {
     // Check if user is authenticated
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
+
     if (!session || sessionError) {
       // Store child app request in session/cookie
-      const response = NextResponse.redirect(new URL('/auth/login', request.url));
-      response.cookies.set('child_app_auth', JSON.stringify({
-        app_id: appId,
-        redirect_uri: redirectUri,
-        scope,
-        state
-      }), {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 60 * 5 // 5 minutes
-      });
+      const response = NextResponse.redirect(
+        new URL('/auth/login', request.url)
+      );
+      response.cookies.set(
+        'child_app_auth',
+        JSON.stringify({
+          app_id: appId,
+          redirect_uri: redirectUri,
+          scope,
+          state
+        }),
+        {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 60 * 5 // 5 minutes
+        }
+      );
       return response;
     }
 
@@ -69,7 +81,7 @@ export async function GET(request: NextRequest) {
     // Check user role access
     const userRole = session.user.user_metadata?.role || 'user';
     const allowedRoles = app.roles_access || [];
-    
+
     if (allowedRoles.length > 0 && !allowedRoles.includes(userRole)) {
       return NextResponse.json(
         { error: 'User does not have required role' },
@@ -79,7 +91,7 @@ export async function GET(request: NextRequest) {
 
     // Generate authorization code
     const authCode = generateAuthCode();
-    
+
     // Store auth code with session info using service role client
     const serviceClient = createServiceRoleClient();
     const { error: storeError } = await serviceClient
@@ -90,6 +102,7 @@ export async function GET(request: NextRequest) {
         user_id: session.user.id,
         redirect_uri: redirectUri,
         scope,
+        state, // Store state parameter for CSRF protection
         expires_at: new Date(Date.now() + 60000).toISOString() // 1 minute expiry
       });
 
@@ -126,7 +139,10 @@ export async function POST(request: NextRequest) {
     // Validate required parameters
     if (!app_id || !redirect_uri) {
       return NextResponse.json(
-        { error: 'invalid_request', error_description: 'Missing required parameters' },
+        {
+          error: 'invalid_request',
+          error_description: 'Missing required parameters'
+        },
         { status: 400 }
       );
     }
@@ -134,8 +150,11 @@ export async function POST(request: NextRequest) {
     const supabase = await createServerSupabaseClient();
 
     // Check if user is authenticated
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
+
     if (!session || sessionError) {
       return NextResponse.json(
         { error: 'unauthorized', error_description: 'User not authenticated' },
@@ -154,7 +173,10 @@ export async function POST(request: NextRequest) {
 
     if (!app || appError) {
       return NextResponse.json(
-        { error: 'invalid_client', error_description: 'Application not found or not authorized' },
+        {
+          error: 'invalid_client',
+          error_description: 'Application not found or not authorized'
+        },
         { status: 404 }
       );
     }
@@ -163,14 +185,17 @@ export async function POST(request: NextRequest) {
     const allowedUris = app.allowed_redirect_uris || [];
     if (!allowedUris.includes(redirect_uri)) {
       return NextResponse.json(
-        { error: 'invalid_request', error_description: 'Redirect URI not allowed' },
+        {
+          error: 'invalid_request',
+          error_description: 'Redirect URI not allowed'
+        },
         { status: 403 }
       );
     }
 
     // Generate authorization code
     const authCode = generateAuthCode();
-    
+
     // Store auth code with session info using service role client
     const serviceClient = createServiceRoleClient();
     const { error: storeError } = await serviceClient
@@ -181,13 +206,17 @@ export async function POST(request: NextRequest) {
         user_id: session.user.id,
         redirect_uri: redirect_uri,
         scope: scope || 'read',
+        state, // Store state parameter for CSRF protection
         expires_at: new Date(Date.now() + 5 * 60000).toISOString() // 5 minutes expiry
       });
 
     if (storeError) {
       console.error('Error storing auth code:', storeError);
       return NextResponse.json(
-        { error: 'server_error', error_description: 'Failed to generate authorization' },
+        {
+          error: 'server_error',
+          error_description: 'Failed to generate authorization'
+        },
         { status: 500 }
       );
     }
@@ -207,7 +236,8 @@ export async function POST(request: NextRequest) {
 }
 
 function generateAuthCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const chars =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let code = '';
   for (let i = 0; i < 32; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length));

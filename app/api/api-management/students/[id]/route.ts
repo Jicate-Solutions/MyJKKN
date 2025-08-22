@@ -118,13 +118,13 @@ export async function GET(
       );
     }
 
-    // Query to get the student details
+    // Query to get the student details - specify the foreign key relationship to avoid ambiguity
     const { data: student, error } = await supabase
       .from('students')
       .select(
         `
         *,
-        institution:institutions(id, name),
+        institution:institutions!students_institution_id_fkey(id, name),
         degree:degrees(id, degree_name),
         department:departments(id, department_name),
         program:programs(id, program_name)
@@ -136,7 +136,8 @@ export async function GET(
     console.log('[Student Detail API] 5. Query result:', {
       success: !!student,
       error: error?.message,
-      studentName: student?.student_name
+      firstName: student?.first_name,
+      lastName: student?.last_name
     });
 
     if (error) throw error;

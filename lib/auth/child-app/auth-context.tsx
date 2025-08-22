@@ -1,6 +1,13 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode
+} from 'react';
 import { parentAuth, ParentAppUser, AuthSession } from './parent-auth-service';
 
 // Auth context types
@@ -17,7 +24,10 @@ interface AuthContextType {
   hasPermission: (permission: string) => boolean;
   hasRole: (role: string) => boolean;
   hasAnyRole: (roles: string[]) => boolean;
-  handleAuthCallback: (token: string, refreshToken?: string) => Promise<boolean>;
+  handleAuthCallback: (
+    token: string,
+    refreshToken?: string
+  ) => Promise<boolean>;
 }
 
 // Create context
@@ -42,7 +52,7 @@ export function AuthProvider({
   autoRefresh = true,
   refreshInterval = 10 * 60 * 1000, // 10 minutes
   onAuthChange,
-  onSessionExpired,
+  onSessionExpired
 }: AuthProviderProps) {
   const [user, setUser] = useState<ParentAppUser | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -137,21 +147,27 @@ export function AuthProvider({
       const params = new URLSearchParams(window.location.search);
       const token = params.get('token');
       const refreshToken = params.get('refresh_token');
+      const state = params.get('state');
 
       if (token) {
         try {
           setIsLoading(true);
-          const authUser = await parentAuth.handleCallback(token, refreshToken || undefined);
-          
+          const authUser = await parentAuth.handleCallback(
+            token,
+            refreshToken || undefined,
+            state || undefined
+          );
+
           if (authUser) {
             setUser(authUser);
             setSession(parentAuth.getSession());
-            
+
             // Clean up URL
             const url = new URL(window.location.href);
             url.searchParams.delete('token');
             url.searchParams.delete('refresh_token');
             url.searchParams.delete('expires_in');
+            url.searchParams.delete('state');
             window.history.replaceState({}, '', url.toString());
           }
         } catch (err) {
@@ -181,7 +197,7 @@ export function AuthProvider({
     try {
       setError(null);
       const refreshed = await parentAuth.refreshToken();
-      
+
       if (refreshed) {
         const freshUser = parentAuth.getUser();
         const freshSession = parentAuth.getSession();
@@ -189,7 +205,7 @@ export function AuthProvider({
         setSession(freshSession);
         return true;
       }
-      
+
       return false;
     } catch (err) {
       console.error('Session refresh error:', err);
@@ -202,7 +218,7 @@ export function AuthProvider({
     try {
       setError(null);
       const isValid = await parentAuth.validateSession();
-      
+
       if (isValid) {
         const freshUser = parentAuth.getUser();
         const freshSession = parentAuth.getSession();
@@ -210,7 +226,7 @@ export function AuthProvider({
         setSession(freshSession);
         return true;
       }
-      
+
       setUser(null);
       setSession(null);
       return false;
@@ -233,28 +249,31 @@ export function AuthProvider({
     return parentAuth.hasAnyRole(roles);
   }, []);
 
-  const handleAuthCallback = useCallback(async (token: string, refreshToken?: string): Promise<boolean> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const authUser = await parentAuth.handleCallback(token, refreshToken);
-      
-      if (authUser) {
-        setUser(authUser);
-        setSession(parentAuth.getSession());
-        return true;
+  const handleAuthCallback = useCallback(
+    async (token: string, refreshToken?: string): Promise<boolean> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        const authUser = await parentAuth.handleCallback(token, refreshToken);
+
+        if (authUser) {
+          setUser(authUser);
+          setSession(parentAuth.getSession());
+          return true;
+        }
+
+        return false;
+      } catch (err) {
+        console.error('Auth callback error:', err);
+        setError('Failed to process authentication');
+        return false;
+      } finally {
+        setIsLoading(false);
       }
-      
-      return false;
-    } catch (err) {
-      console.error('Auth callback error:', err);
-      setError('Failed to process authentication');
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   const contextValue: AuthContextType = {
     user,
@@ -269,13 +288,11 @@ export function AuthProvider({
     hasPermission,
     hasRole,
     hasAnyRole,
-    handleAuthCallback,
+    handleAuthCallback
   };
 
   return (
-    <AuthContext.Provider value={contextValue}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
   );
 }
 
@@ -284,11 +301,11 @@ export function AuthProvider({
  */
 export function useAuth() {
   const context = useContext(AuthContext);
-  
+
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
-  
+
   return context;
 }
 
@@ -353,18 +370,14 @@ export function useAuthError(): string | null {
  */
 export function useSession() {
   const { session, refreshSession, validateSession } = useAuth();
-  
+
   return {
     session,
     refresh: refreshSession,
     validate: validateSession,
-    isExpired: session ? new Date(session.expires_at) < new Date() : true,
+    isExpired: session ? new Date(session.expires_at) < new Date() : true
   };
 }
 
 // Export everything
-export {
-  AuthContext,
-  type AuthContextType,
-  type AuthProviderProps,
-};
+export { AuthContext, type AuthContextType, type AuthProviderProps };
