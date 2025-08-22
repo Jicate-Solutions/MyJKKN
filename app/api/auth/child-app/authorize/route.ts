@@ -31,26 +31,15 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getSession();
 
     if (!session || sessionError) {
-      // Store child app request in session/cookie
-      const response = NextResponse.redirect(
-        new URL('/auth/login', request.url)
-      );
-      response.cookies.set(
-        'child_app_auth',
-        JSON.stringify({
-          app_id: appId,
-          redirect_uri: redirectUri,
-          scope,
-          state
-        }),
-        {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 5 // 5 minutes
-        }
-      );
-      return response;
+      // Redirect to consent page which will handle login
+      const consentUrl = new URL('/auth/child-app/consent', request.url);
+      consentUrl.searchParams.set('app_id', appId);
+      consentUrl.searchParams.set('redirect_uri', redirectUri);
+      consentUrl.searchParams.set('response_type', responseType);
+      if (scope) consentUrl.searchParams.set('scope', scope);
+      if (state) consentUrl.searchParams.set('state', state);
+      
+      return NextResponse.redirect(consentUrl);
     }
 
     // Verify the app exists and is active using service role client

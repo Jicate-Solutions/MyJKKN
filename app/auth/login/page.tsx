@@ -99,6 +99,16 @@ export default function LoginPage() {
     const initializeAuth = async () => {
       const params = new URLSearchParams(window.location.search);
 
+      // Check if this is a child app authentication request
+      const isChildAppAuth = params.get('child_app_auth') === 'true';
+      const returnTo = params.get('return_to');
+
+      console.log('[Login Page] URL params:', {
+        isChildAppAuth,
+        returnTo,
+        allParams: Array.from(params.entries())
+      });
+
       // First, check for child app authentication params directly in URL
       let appId = params.get('app_id');
       let redirectUri = params.get('redirect_uri');
@@ -165,18 +175,36 @@ export default function LoginPage() {
         if (!isMounted) return;
 
         if (!error && data.user) {
+          console.log('[Login Page] User authenticated, checking redirect:', {
+            isChildAppAuth,
+            hasReturnTo: !!returnTo,
+            returnTo,
+            hasChildAppAuthData: !!childAppAuthData,
+            childAppAuthData
+          });
+
+          // If this is a child app auth request with return_to, redirect there
+          if (isChildAppAuth && returnTo) {
+            console.log('[Login Page] Redirecting to return_to:', returnTo);
+            router.push(returnTo);
+            return;
+          }
+
           // If this is a child app auth request, redirect to consent page
           if (childAppAuthData) {
             const consentParams = new URLSearchParams({
               app_id: childAppAuthData.app_id,
-              redirect_uri: childAppAuthData.redirect_uri
+              redirect_uri: childAppAuthData.redirect_uri,
+              response_type: 'code'
             });
             if (childAppAuthData.scope)
               consentParams.append('scope', childAppAuthData.scope);
             if (childAppAuthData.state)
               consentParams.append('state', childAppAuthData.state);
 
-            router.push(`/auth/child-app/login?${consentParams.toString()}`);
+            const consentUrl = `/auth/child-app/consent?${consentParams.toString()}`;
+            console.log('[Login Page] Redirecting to consent:', consentUrl);
+            router.push(consentUrl);
             return;
           }
 
