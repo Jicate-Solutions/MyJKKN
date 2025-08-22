@@ -162,7 +162,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 interface Student {
   id: string;
-  student_name: string;
+  first_name: string;
+  last_name: string | null;
   roll_number: string;
   student_email: string;
   student_mobile: string;
@@ -337,7 +338,9 @@ export default function StudentsList({ apiKey }: StudentsFilterProps) {
             <Card key={student.id} className="p-4">
               <div className="flex flex-col md:flex-row justify-between gap-4">
                 <div>
-                  <h3 className="font-semibold text-lg">{student.student_name}</h3>
+                  <h3 className="font-semibold text-lg">
+                    {student.first_name} {student.last_name || ''}
+                  </h3>
                   <p className="text-sm text-muted-foreground">
                     {student.roll_number ? \`Roll No: \${student.roll_number}\` : 'No Roll Number'}
                   </p>
@@ -405,7 +408,8 @@ import { Separator } from '@/components/ui/separator';
 
 interface StudentDetails {
   id: string;
-  student_name: string;
+  first_name: string;
+  last_name: string | null;
   roll_number: string;
   student_email: string;
   college_email: string;
@@ -529,7 +533,9 @@ export default function StudentDetails({ apiKey, studentId, onBack }: StudentDet
       </div>
       
       <div>
-        <h1 className="text-2xl font-bold">{student.student_name}</h1>
+        <h1 className="text-2xl font-bold">
+          {student.first_name} {student.last_name || ''}
+        </h1>
         <p className='text-muted-foreground'>
           {student.roll_number
             ? \`Roll No: \${student.roll_number}\`
@@ -684,7 +690,7 @@ export default function StudentDetails({ apiKey, studentId, onBack }: StudentDet
                     </li>
                     <li>
                       <code className='bg-muted px-1'>search</code>: Search by
-                      name, email, mobile, or roll number
+                      first name, last name, email, mobile, or roll number
                     </li>
                     <li>
                       <code className='bg-muted px-1'>institution_id</code>:
@@ -783,7 +789,7 @@ export default function StudentDetails({ apiKey, studentId, onBack }: StudentDet
               onClick={() =>
                 copyToClipboard(
                   aiPromptTemplate(
-                    'id, student_name, roll_number, institution, department, program, is_profile_complete'
+                    'id, first_name, last_name, roll_number, institution, department, program, is_profile_complete'
                   )
                 )
               }
