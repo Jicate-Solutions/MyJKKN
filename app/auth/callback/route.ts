@@ -175,17 +175,25 @@ export async function GET(request: NextRequest) {
       }
 
       // If this is a child app authentication request
+      console.log('[Auth Callback] Checking child app auth:', {
+        hasChildAppAuth: !!childAppAuth,
+        childAppAuth,
+        profileCompleted: existingProfile?.profile_completed
+      });
+      
       if (childAppAuth && childAppAuth.app_id && childAppAuth.redirect_uri) {
         // Clear the cookie
         cookieStore.delete('child_app_auth');
         
-        // Redirect to the child app login consent page
-        const consentUrl = new URL('/auth/child-app/login', origin);
+        // Redirect to the child app consent page
+        const consentUrl = new URL('/auth/child-app/consent', origin);
         consentUrl.searchParams.append('app_id', childAppAuth.app_id);
         consentUrl.searchParams.append('redirect_uri', childAppAuth.redirect_uri);
+        consentUrl.searchParams.append('response_type', 'code');
         if (childAppAuth.scope) consentUrl.searchParams.append('scope', childAppAuth.scope);
         if (childAppAuth.state) consentUrl.searchParams.append('state', childAppAuth.state);
         
+        console.log('[Auth Callback] Redirecting to consent page:', consentUrl.toString());
         return NextResponse.redirect(consentUrl);
       }
 

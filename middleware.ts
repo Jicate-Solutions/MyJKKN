@@ -8,6 +8,8 @@ const PUBLIC_PATHS = [
   '/auth/login',
   '/auth/callback',
   '/auth/complete-profile',
+  '/auth/child-app/consent',  // Add child app consent page
+  '/auth/child-app/authorize', // Add child app authorize page
   '/unauthorized',
   '/students/onboarding' // Add onboarding path for pending students
 ];
