@@ -4,9 +4,8 @@ import {
   verifyToken,
   generateTokenPair,
   hashToken,
-  getTokenExpiryDate,
+  getTokenExpiryDate
 } from '@/lib/auth/jwt-utils';
-import { hashApiKey } from '@/lib/api-keys/api-key-service';
 
 /**
  * POST /api/auth/child-app/refresh
@@ -17,10 +16,7 @@ export async function POST(request: NextRequest) {
     // Validate API key from child app
     const apiKey = request.headers.get('x-api-key');
     if (!apiKey) {
-      return NextResponse.json(
-        { error: 'Missing API key' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Missing API key' }, { status: 401 });
     }
 
     // Parse request body
@@ -37,8 +33,15 @@ export async function POST(request: NextRequest) {
     // Initialize Supabase client
     const supabase = await createClient();
 
-    // Validate child app and API key
-    const hashedApiKey = await hashApiKey(apiKey);
+    // Validate child app and API key using same method as token endpoint
+    const encoder = new TextEncoder();
+    const data = encoder.encode(apiKey);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashedApiKey = hashArray
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
     const { data: childApp, error: appError } = await supabase
       .from('applications')
       .select('*')
@@ -66,8 +69,10 @@ export async function POST(request: NextRequest) {
         p_action: 'token_refresh',
         p_status: 'failed',
         p_error_message: 'Invalid refresh token',
-        p_ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
-        p_user_agent: request.headers.get('user-agent'),
+        p_ip_address:
+          request.headers.get('x-forwarded-for') ||
+          request.headers.get('x-real-ip'),
+        p_user_agent: request.headers.get('user-agent')
       });
 
       return NextResponse.json(
@@ -95,8 +100,10 @@ export async function POST(request: NextRequest) {
         p_action: 'token_refresh',
         p_status: 'failed',
         p_error_message: 'Session not found or inactive',
-        p_ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
-        p_user_agent: request.headers.get('user-agent'),
+        p_ip_address:
+          request.headers.get('x-forwarded-for') ||
+          request.headers.get('x-real-ip'),
+        p_user_agent: request.headers.get('user-agent')
       });
 
       return NextResponse.json(
@@ -110,7 +117,7 @@ export async function POST(request: NextRequest) {
       // Mark session as inactive
       await supabase
         .from('child_app_sessions')
-        .update({ 
+        .update({
           is_active: false,
           revoked_at: new Date().toISOString(),
           revoke_reason: 'Refresh token expired'
@@ -126,13 +133,15 @@ export async function POST(request: NextRequest) {
     // Get user profile with latest data
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select(`
+      .select(
+        `
         *,
         custom_roles (
           role_name,
           permissions
         )
-      `)
+      `
+      )
       .eq('id', decodedToken.user_id)
       .single();
 
@@ -147,7 +156,7 @@ export async function POST(request: NextRequest) {
     if (!profile.is_active) {
       await supabase
         .from('child_app_sessions')
-        .update({ 
+        .update({
           is_active: false,
           revoked_at: new Date().toISOString(),
           revoke_reason: 'User account deactivated'
@@ -164,7 +173,7 @@ export async function POST(request: NextRequest) {
     if (!childApp.allowed_roles.includes(profile.role)) {
       await supabase
         .from('child_app_sessions')
-        .update({ 
+        .update({
           is_active: false,
           revoked_at: new Date().toISOString(),
           revoke_reason: 'User role no longer allowed'
@@ -196,11 +205,11 @@ export async function POST(request: NextRequest) {
       institution_id: profile.institution_id,
       permissions: {
         ...(profile.custom_roles?.permissions || {}),
-        ...(userPermissions?.permissions || {}),
+        ...(userPermissions?.permissions || {})
       },
       scope: childApp.allowed_scopes,
       child_app_id,
-      issued_by: 'myjkkn-parent',
+      issued_by: 'myjkkn-parent'
     });
 
     // Update session with new tokens (token rotation)
@@ -213,8 +222,10 @@ export async function POST(request: NextRequest) {
         expires_at: getTokenExpiryDate(tokenPair.expiresIn),
         refresh_expires_at: getTokenExpiryDate(tokenPair.refreshExpiresIn),
         last_used_at: new Date().toISOString(),
-        ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
-        user_agent: request.headers.get('user-agent'),
+        ip_address:
+          request.headers.get('x-forwarded-for') ||
+          request.headers.get('x-real-ip'),
+        user_agent: request.headers.get('user-agent')
       })
       .eq('id', session.id);
 
@@ -233,9 +244,11 @@ export async function POST(request: NextRequest) {
       p_session_id: session.id,
       p_action: 'token_refresh',
       p_status: 'success',
-      p_ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip'),
+      p_ip_address:
+        request.headers.get('x-forwarded-for') ||
+        request.headers.get('x-real-ip'),
       p_user_agent: request.headers.get('user-agent'),
-      p_metadata: { token_version: newTokenVersion },
+      p_metadata: { token_version: newTokenVersion }
     });
 
     // Return new tokens
@@ -252,9 +265,9 @@ export async function POST(request: NextRequest) {
         institution_id: profile.institution_id,
         permissions: {
           ...(profile.custom_roles?.permissions || {}),
-          ...(userPermissions?.permissions || {}),
-        },
-      },
+          ...(userPermissions?.permissions || {})
+        }
+      }
     });
   } catch (error) {
     console.error('Token refresh error:', error);
@@ -276,7 +289,7 @@ export async function OPTIONS(request: NextRequest) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
-      'Access-Control-Max-Age': '86400',
-    },
+      'Access-Control-Max-Age': '86400'
+    }
   });
 }

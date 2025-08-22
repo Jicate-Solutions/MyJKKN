@@ -53,8 +53,9 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
-    // Verify the app exists and is active
-    const { data: app, error: appError } = await supabase
+    // Verify the app exists and is active using service role client
+    const serviceClient = createServiceRoleClient();
+    const { data: app, error: appError } = await serviceClient
       .from('applications')
       .select('*')
       .eq('app_id', appId)
@@ -78,11 +79,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get user role from profiles table
+    const { data: userProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single();
+
+    if (profileError || !userProfile) {
+      console.error('Error fetching user profile:', profileError);
+      return NextResponse.json(
+        { error: 'Failed to fetch user profile' },
+        { status: 500 }
+      );
+    }
+
     // Check user role access
-    const userRole = session.user.user_metadata?.role || 'user';
+    const userRole = userProfile.role || 'user';
     const allowedRoles = app.roles_access || [];
 
     if (allowedRoles.length > 0 && !allowedRoles.includes(userRole)) {
+      console.log('Role access denied:', { userRole, allowedRoles });
       return NextResponse.json(
         { error: 'User does not have required role' },
         { status: 403 }
@@ -93,7 +110,6 @@ export async function GET(request: NextRequest) {
     const authCode = generateAuthCode();
 
     // Store auth code with session info using service role client
-    const serviceClient = createServiceRoleClient();
     const { error: storeError } = await serviceClient
       .from('child_app_auth_codes')
       .insert({
@@ -162,8 +178,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify the app exists and is active
-    const { data: app, error: appError } = await supabase
+    // Verify the app exists and is active using service role client  
+    const serviceClient = createServiceRoleClient();
+    const { data: app, error: appError } = await serviceClient
       .from('applications')
       .select('*')
       .eq('app_id', app_id)
@@ -197,7 +214,6 @@ export async function POST(request: NextRequest) {
     const authCode = generateAuthCode();
 
     // Store auth code with session info using service role client
-    const serviceClient = createServiceRoleClient();
     const { error: storeError } = await serviceClient
       .from('child_app_auth_codes')
       .insert({

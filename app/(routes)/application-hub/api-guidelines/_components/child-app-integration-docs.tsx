@@ -735,10 +735,12 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
 
       {/* Implementation Tabs */}
       <Tabs defaultValue='overview' className='space-y-4'>
-        <TabsList className='grid w-full grid-cols-7'>
+        <TabsList className='grid w-full grid-cols-9'>
           <TabsTrigger value='overview'>Overview</TabsTrigger>
           <TabsTrigger value='quickstart'>Quick Start</TabsTrigger>
           <TabsTrigger value='implementation'>Code</TabsTrigger>
+          <TabsTrigger value='permissions'>Permissions</TabsTrigger>
+          <TabsTrigger value='supabase'>Supabase</TabsTrigger>
           <TabsTrigger value='endpoints'>Endpoints</TabsTrigger>
           <TabsTrigger value='testing'>Testing</TabsTrigger>
           <TabsTrigger value='troubleshoot'>Debug</TabsTrigger>
@@ -1081,6 +1083,1333 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
                   language='typescript'
                   title='components/protected-route.tsx'
                   id='protected-route'
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Permissions Tab */}
+        <TabsContent value='permissions' className='space-y-6'>
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Shield className='h-5 w-5' />
+                Role-Based Permissions Implementation
+              </CardTitle>
+              <CardDescription>
+                How to implement role-based access control using parent app user
+                roles
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-6'>
+              {/* Understanding User Roles */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Understanding User Roles from Parent App
+                </h3>
+                <Alert>
+                  <Info className='h-4 w-4' />
+                  <AlertDescription>
+                    The parent app (MyJKKN) provides user roles through the
+                    profiles table. Child apps receive these roles in the JWT
+                    token and can use them for access control.
+                  </AlertDescription>
+                </Alert>
+                <CodeBlock
+                  code={`// User object received from parent app authentication
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "full_name": "John Doe",
+  "role": "student", // Role from profiles table
+  "institution_id": "uuid",
+  "is_super_admin": false,
+  "permissions": {
+    // Custom permissions for this child app
+    "can_view_reports": true,
+    "can_edit_content": false,
+    "can_manage_users": false
+  }
+}`}
+                  language='json'
+                  title='User Data Structure'
+                  id='user-data-structure'
+                />
+              </div>
+
+              {/* Available Roles */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Available Roles from Parent App
+                </h3>
+                <div className='grid gap-3'>
+                  <div className='p-3 border rounded-lg'>
+                    <div className='font-semibold mb-2'>Standard Roles:</div>
+                    <ul className='text-sm space-y-1 list-disc list-inside'>
+                      <li>
+                        <code>super_admin</code> - Full system access
+                      </li>
+                      <li>
+                        <code>admin</code> - Institution-level admin
+                      </li>
+                      <li>
+                        <code>faculty</code> - Teaching staff
+                      </li>
+                      <li>
+                        <code>student</code> - Student users
+                      </li>
+                      <li>
+                        <code>parent</code> - Parent/guardian access
+                      </li>
+                      <li>
+                        <code>staff</code> - Non-teaching staff
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* Permission Service Implementation */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Permission Service Implementation
+                </h3>
+                <CodeBlock
+                  code={`// lib/auth/permission-service.ts
+export type UserRole = 'super_admin' | 'admin' | 'faculty' | 'student' | 'parent' | 'staff';
+
+export interface Permission {
+  resource: string;
+  action: string;
+}
+
+export class PermissionService {
+  private static instance: PermissionService;
+  
+  // Define role-based permissions for your child app
+  private rolePermissions: Record<UserRole, Permission[]> = {
+    super_admin: [
+      { resource: '*', action: '*' } // Full access
+    ],
+    admin: [
+      { resource: 'users', action: 'read' },
+      { resource: 'users', action: 'write' },
+      { resource: 'reports', action: 'read' },
+      { resource: 'reports', action: 'write' },
+      { resource: 'settings', action: 'read' },
+      { resource: 'settings', action: 'write' },
+      { resource: 'content', action: '*' }
+    ],
+    faculty: [
+      { resource: 'students', action: 'read' },
+      { resource: 'grades', action: 'write' },
+      { resource: 'attendance', action: 'write' },
+      { resource: 'reports', action: 'read' },
+      { resource: 'content', action: 'read' },
+      { resource: 'content', action: 'write' }
+    ],
+    student: [
+      { resource: 'profile', action: 'read' },
+      { resource: 'profile', action: 'write' },
+      { resource: 'grades', action: 'read' },
+      { resource: 'attendance', action: 'read' },
+      { resource: 'content', action: 'read' }
+    ],
+    parent: [
+      { resource: 'student_profile', action: 'read' },
+      { resource: 'grades', action: 'read' },
+      { resource: 'attendance', action: 'read' },
+      { resource: 'fees', action: 'read' }
+    ],
+    staff: [
+      { resource: 'reports', action: 'read' },
+      { resource: 'content', action: 'read' }
+    ]
+  };
+
+  static getInstance(): PermissionService {
+    if (!PermissionService.instance) {
+      PermissionService.instance = new PermissionService();
+    }
+    return PermissionService.instance;
+  }
+
+  // Check if user has permission for a specific action on a resource
+  hasPermission(
+    userRole: UserRole | undefined,
+    resource: string,
+    action: string
+  ): boolean {
+    if (!userRole) return false;
+    
+    const permissions = this.rolePermissions[userRole] || [];
+    
+    return permissions.some(perm => {
+      const resourceMatch = perm.resource === '*' || perm.resource === resource;
+      const actionMatch = perm.action === '*' || perm.action === action;
+      return resourceMatch && actionMatch;
+    });
+  }
+
+  // Check if user has any of the required roles
+  hasRole(userRole: UserRole | undefined, requiredRoles: UserRole[]): boolean {
+    if (!userRole) return false;
+    return requiredRoles.includes(userRole);
+  }
+
+  // Get all permissions for a role
+  getRolePermissions(role: UserRole): Permission[] {
+    return this.rolePermissions[role] || [];
+  }
+
+  // Check multiple permissions at once
+  hasAllPermissions(
+    userRole: UserRole | undefined,
+    permissions: Permission[]
+  ): boolean {
+    return permissions.every(p => 
+      this.hasPermission(userRole, p.resource, p.action)
+    );
+  }
+
+  // Check if user has at least one of the permissions
+  hasAnyPermission(
+    userRole: UserRole | undefined,
+    permissions: Permission[]
+  ): boolean {
+    return permissions.some(p => 
+      this.hasPermission(userRole, p.resource, p.action)
+    );
+  }
+}
+
+export default PermissionService.getInstance();`}
+                  language='typescript'
+                  title='lib/auth/permission-service.ts'
+                  id='permission-service'
+                />
+              </div>
+
+              {/* Permission Hook */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  React Hook for Permissions
+                </h3>
+                <CodeBlock
+                  code={`// hooks/use-permissions.ts
+import { useAuth } from '@/lib/auth/auth-context';
+import permissionService, { UserRole, Permission } from '@/lib/auth/permission-service';
+
+export function usePermissions() {
+  const { user } = useAuth();
+  const userRole = user?.role as UserRole | undefined;
+
+  return {
+    // Check single permission
+    can: (resource: string, action: string) => 
+      permissionService.hasPermission(userRole, resource, action),
+    
+    // Check if user has role
+    hasRole: (roles: UserRole | UserRole[]) => {
+      const roleArray = Array.isArray(roles) ? roles : [roles];
+      return permissionService.hasRole(userRole, roleArray);
+    },
+    
+    // Check multiple permissions
+    canAll: (permissions: Permission[]) =>
+      permissionService.hasAllPermissions(userRole, permissions),
+    
+    // Check any permission
+    canAny: (permissions: Permission[]) =>
+      permissionService.hasAnyPermission(userRole, permissions),
+    
+    // Get user role
+    role: userRole,
+    
+    // Check if super admin
+    isSuperAdmin: user?.is_super_admin || userRole === 'super_admin',
+    
+    // Get all permissions for current user
+    permissions: userRole ? permissionService.getRolePermissions(userRole) : []
+  };
+}`}
+                  language='typescript'
+                  title='hooks/use-permissions.ts'
+                  id='use-permissions-hook'
+                />
+              </div>
+
+              {/* Permission Guard Component */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Permission Guard Component
+                </h3>
+                <CodeBlock
+                  code={`// components/permission-guard.tsx
+'use client';
+
+import { ReactNode } from 'react';
+import { usePermissions } from '@/hooks/use-permissions';
+import { UserRole } from '@/lib/auth/permission-service';
+
+interface PermissionGuardProps {
+  children: ReactNode;
+  fallback?: ReactNode;
+  resource?: string;
+  action?: string;
+  roles?: UserRole[];
+  requireAll?: boolean;
+}
+
+export function PermissionGuard({
+  children,
+  fallback = null,
+  resource,
+  action,
+  roles,
+  requireAll = false
+}: PermissionGuardProps) {
+  const { can, hasRole } = usePermissions();
+
+  // Check role-based access
+  if (roles && roles.length > 0) {
+    if (!hasRole(roles)) {
+      return <>{fallback}</>;
+    }
+  }
+
+  // Check resource-action based access
+  if (resource && action) {
+    if (!can(resource, action)) {
+      return <>{fallback}</>;
+    }
+  }
+
+  return <>{children}</>;
+}
+
+// Convenience component for showing/hiding UI elements
+export function Can({
+  children,
+  resource,
+  action,
+  fallback = null
+}: {
+  children: ReactNode;
+  resource: string;
+  action: string;
+  fallback?: ReactNode;
+}) {
+  const { can } = usePermissions();
+  
+  if (!can(resource, action)) {
+    return <>{fallback}</>;
+  }
+  
+  return <>{children}</>;
+}`}
+                  language='typescript'
+                  title='components/permission-guard.tsx'
+                  id='permission-guard'
+                />
+              </div>
+
+              {/* Usage Examples */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Usage Examples in Components
+                </h3>
+                <CodeBlock
+                  code={`// Example: Dashboard with role-based features
+'use client';
+
+import { useAuth } from '@/lib/auth/auth-context';
+import { usePermissions } from '@/hooks/use-permissions';
+import { PermissionGuard, Can } from '@/components/permission-guard';
+
+export default function Dashboard() {
+  const { user } = useAuth();
+  const { can, hasRole, isSuperAdmin } = usePermissions();
+
+  return (
+    <div className="p-8">
+      <h1>Welcome, {user?.full_name}</h1>
+      
+      {/* Show admin panel only for admins */}
+      <PermissionGuard roles={['admin', 'super_admin']}>
+        <AdminPanel />
+      </PermissionGuard>
+
+      {/* Show edit button only if user can edit content */}
+      <Can resource="content" action="write">
+        <button className="btn-primary">Edit Content</button>
+      </Can>
+
+      {/* Conditional rendering based on permissions */}
+      {can('reports', 'read') && (
+        <ReportsSection />
+      )}
+
+      {/* Different UI for different roles */}
+      {hasRole('student') && <StudentDashboard />}
+      {hasRole('faculty') && <FacultyDashboard />}
+      {hasRole('admin') && <AdminDashboard />}
+
+      {/* Super admin special features */}
+      {isSuperAdmin && (
+        <SuperAdminTools />
+      )}
+
+      {/* Permission guard with fallback */}
+      <PermissionGuard 
+        resource="settings" 
+        action="write"
+        fallback={<p>You don't have permission to access settings.</p>}
+      >
+        <SettingsPanel />
+      </PermissionGuard>
+    </div>
+  );
+}`}
+                  language='typescript'
+                  title='Dashboard Component Example'
+                  id='dashboard-example'
+                />
+              </div>
+
+              {/* API Route Protection */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>Protecting API Routes</h3>
+                <CodeBlock
+                  code={`// app/api/admin/users/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import parentAuthService from '@/lib/auth/parent-auth-service';
+import permissionService from '@/lib/auth/permission-service';
+
+export async function GET(request: NextRequest) {
+  // Get token from Authorization header
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+
+  const token = authHeader.substring(7);
+  
+  // Validate token with parent app
+  const response = await fetch('https://my.jkkn.ac.in/api/auth/child-app/validate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': process.env.CHILD_APP_API_KEY!
+    },
+    body: JSON.stringify({
+      token,
+      child_app_id: process.env.NEXT_PUBLIC_APP_ID
+    })
+  });
+
+  if (!response.ok) {
+    return NextResponse.json(
+      { error: 'Invalid token' },
+      { status: 401 }
+    );
+  }
+
+  const { valid, user } = await response.json();
+  
+  if (!valid) {
+    return NextResponse.json(
+      { error: 'Token validation failed' },
+      { status: 401 }
+    );
+  }
+
+  // Check permissions
+  if (!permissionService.hasPermission(user.role, 'users', 'read')) {
+    return NextResponse.json(
+      { error: 'Insufficient permissions' },
+      { status: 403 }
+    );
+  }
+
+  // User has permission, proceed with the request
+  const users = await fetchUsers(); // Your logic here
+  
+  return NextResponse.json({ users });
+}`}
+                  language='typescript'
+                  title='API Route with Permission Check'
+                  id='api-route-protection'
+                />
+              </div>
+
+              {/* Middleware for Route Protection */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Middleware for Global Protection
+                </h3>
+                <CodeBlock
+                  code={`// middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+// Define protected routes and their required roles
+const protectedRoutes = {
+  '/admin': ['admin', 'super_admin'],
+  '/faculty': ['faculty', 'admin', 'super_admin'],
+  '/reports': ['faculty', 'admin', 'super_admin', 'staff'],
+  '/settings': ['admin', 'super_admin']
+};
+
+export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  
+  // Check if route needs protection
+  const routeConfig = Object.entries(protectedRoutes).find(([path]) =>
+    pathname.startsWith(path)
+  );
+  
+  if (!routeConfig) {
+    return NextResponse.next();
+  }
+  
+  const [, requiredRoles] = routeConfig;
+  
+  // Get user data from cookie or token
+  const token = request.cookies.get('access_token')?.value;
+  
+  if (!token) {
+    // Redirect to login
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+  
+  // Validate token and get user role
+  // In production, you might want to cache this validation
+  const user = await validateTokenAndGetUser(token);
+  
+  if (!user) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+  
+  // Check if user has required role
+  if (!requiredRoles.includes(user.role)) {
+    return NextResponse.redirect(new URL('/unauthorized', request.url));
+  }
+  
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ['/admin/:path*', '/faculty/:path*', '/reports/:path*', '/settings/:path*']
+};`}
+                  language='typescript'
+                  title='middleware.ts'
+                  id='middleware-protection'
+                />
+              </div>
+
+              {/* Custom Permissions */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Handling Custom App-Specific Permissions
+                </h3>
+                <Alert>
+                  <Info className='h-4 w-4' />
+                  <AlertDescription>
+                    While roles come from the parent app, child apps can define
+                    additional permissions stored in their own database.
+                  </AlertDescription>
+                </Alert>
+                <CodeBlock
+                  code={`// Extended permission service with custom permissions
+class ExtendedPermissionService extends PermissionService {
+  private customPermissions: Map<string, Set<string>> = new Map();
+  
+  // Load custom permissions from your database
+  async loadCustomPermissions(userId: string) {
+    // Fetch from your child app's database
+    const response = await fetch(\`/api/permissions/\${userId}\`);
+    const permissions = await response.json();
+    
+    // Store custom permissions
+    this.customPermissions.set(userId, new Set(permissions));
+  }
+  
+  // Check custom permission
+  hasCustomPermission(userId: string, permission: string): boolean {
+    const userPermissions = this.customPermissions.get(userId);
+    return userPermissions?.has(permission) || false;
+  }
+  
+  // Override hasPermission to include custom permissions
+  hasPermission(
+    userRole: UserRole | undefined,
+    resource: string,
+    action: string,
+    userId?: string
+  ): boolean {
+    // First check role-based permissions
+    if (super.hasPermission(userRole, resource, action)) {
+      return true;
+    }
+    
+    // Then check custom permissions if userId provided
+    if (userId) {
+      const customPermKey = \`\${resource}:\${action}\`;
+      return this.hasCustomPermission(userId, customPermKey);
+    }
+    
+    return false;
+  }
+}`}
+                  language='typescript'
+                  title='Extended Permission Service'
+                  id='extended-permissions'
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Supabase Tab */}
+        <TabsContent value='supabase' className='space-y-6'>
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Database className='h-5 w-5' />
+                Supabase Integration for Child Apps
+              </CardTitle>
+              <CardDescription>
+                How to set up Supabase in your child app to work with parent app
+                authentication
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-6'>
+              {/* Overview */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Understanding the Architecture
+                </h3>
+                <Alert>
+                  <Info className='h-4 w-4' />
+                  <AlertDescription>
+                    Your child app can have its own Supabase project for
+                    app-specific data while using parent app authentication.
+                    Users are authenticated via MyJKKN, and your Supabase RLS
+                    policies use the parent app user IDs.
+                  </AlertDescription>
+                </Alert>
+                <div className='bg-muted p-4 rounded-lg'>
+                  <p className='text-sm font-medium mb-3'>
+                    Architecture Overview:
+                  </p>
+                  <ul className='text-sm space-y-2'>
+                    <li>
+                      • <strong>Authentication:</strong> Handled by MyJKKN
+                      parent app
+                    </li>
+                    <li>
+                      • <strong>User Management:</strong> Users exist in parent
+                      app&apos;s profiles table
+                    </li>
+                    <li>
+                      • <strong>Child App Data:</strong> Stored in child
+                      app&apos;s own Supabase project
+                    </li>
+                    <li>
+                      • <strong>User Linking:</strong> Use parent app user IDs
+                      as foreign keys
+                    </li>
+                    <li>
+                      • <strong>RLS Policies:</strong> Based on parent app user
+                      IDs from JWT
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Supabase Setup */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Setting Up Supabase for Child App
+                </h3>
+                <CodeBlock
+                  code={`# 1. Install Supabase client
+npm install @supabase/supabase-js
+
+# 2. Create your Supabase project at https://supabase.com
+
+# 3. Add environment variables
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key # Server-side only`}
+                  language='bash'
+                  title='Installation'
+                  id='supabase-install'
+                />
+              </div>
+
+              {/* Supabase Client Setup */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Supabase Client with Custom Auth
+                </h3>
+                <CodeBlock
+                  code={`// lib/supabase/client.ts
+import { createClient } from '@supabase/supabase-js';
+import parentAuthService from '@/lib/auth/parent-auth-service';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+// Create Supabase client with custom auth
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    // Disable Supabase's built-in auth
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false
+  },
+  global: {
+    // Add parent app's JWT to all requests
+    headers: {
+      get Authorization() {
+        const session = parentAuthService.getSession();
+        return session ? \`Bearer \${session.access_token}\` : '';
+      }
+    }
+  }
+});
+
+// Helper to get authenticated client
+export function getAuthenticatedClient() {
+  const session = parentAuthService.getSession();
+  
+  if (!session) {
+    throw new Error('User not authenticated');
+  }
+  
+  // Create client with user's token
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: \`Bearer \${session.access_token}\`,
+        'X-User-ID': session.user.id,
+        'X-User-Role': session.user.role
+      }
+    }
+  });
+}`}
+                  language='typescript'
+                  title='lib/supabase/client.ts'
+                  id='supabase-client'
+                />
+              </div>
+
+              {/* Database Schema */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Database Schema for Child App
+                </h3>
+                <CodeBlock
+                  code={`-- Create tables that reference parent app users
+CREATE TABLE app_user_settings (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL, -- Parent app user ID
+  theme TEXT DEFAULT 'light',
+  notifications_enabled BOOLEAN DEFAULT true,
+  preferences JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id)
+);
+
+-- Example: App-specific content table
+CREATE TABLE app_content (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  title TEXT NOT NULL,
+  content TEXT,
+  author_id UUID NOT NULL, -- Parent app user ID
+  institution_id UUID, -- From parent app
+  visibility TEXT DEFAULT 'private',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Example: Activity logs
+CREATE TABLE app_activity_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL, -- Parent app user ID
+  action TEXT NOT NULL,
+  resource_type TEXT,
+  resource_id UUID,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create indexes for better performance
+CREATE INDEX idx_app_user_settings_user_id ON app_user_settings(user_id);
+CREATE INDEX idx_app_content_author_id ON app_content(author_id);
+CREATE INDEX idx_app_content_institution_id ON app_content(institution_id);
+CREATE INDEX idx_app_activity_logs_user_id ON app_activity_logs(user_id);`}
+                  language='sql'
+                  title='Database Schema'
+                  id='database-schema'
+                />
+              </div>
+
+              {/* RLS Policies */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Row Level Security (RLS) Policies
+                </h3>
+                <CodeBlock
+                  code={`-- Enable RLS on all tables
+ALTER TABLE app_user_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_content ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_activity_logs ENABLE ROW LEVEL SECURITY;
+
+-- Function to extract user ID from JWT (from parent app)
+CREATE OR REPLACE FUNCTION auth.user_id() 
+RETURNS UUID AS $$
+BEGIN
+  -- Extract user ID from JWT payload
+  -- The JWT from parent app contains 'sub' field with user ID
+  RETURN COALESCE(
+    current_setting('request.jwt.claims', true)::json->>'sub',
+    current_setting('request.headers', true)::json->>'x-user-id'
+  )::UUID;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get user role from JWT
+CREATE OR REPLACE FUNCTION auth.user_role() 
+RETURNS TEXT AS $$
+BEGIN
+  RETURN COALESCE(
+    current_setting('request.jwt.claims', true)::json->>'role',
+    current_setting('request.headers', true)::json->>'x-user-role',
+    'guest'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- RLS Policies for app_user_settings
+CREATE POLICY "Users can view own settings"
+  ON app_user_settings FOR SELECT
+  USING (user_id = auth.user_id());
+
+CREATE POLICY "Users can update own settings"
+  ON app_user_settings FOR UPDATE
+  USING (user_id = auth.user_id());
+
+CREATE POLICY "Users can insert own settings"
+  ON app_user_settings FOR INSERT
+  WITH CHECK (user_id = auth.user_id());
+
+-- RLS Policies for app_content (role-based)
+CREATE POLICY "Anyone can view public content"
+  ON app_content FOR SELECT
+  USING (visibility = 'public');
+
+CREATE POLICY "Users can view own content"
+  ON app_content FOR SELECT
+  USING (author_id = auth.user_id());
+
+CREATE POLICY "Users can view institution content"
+  ON app_content FOR SELECT
+  USING (
+    visibility = 'institution' 
+    AND institution_id = (
+      SELECT institution_id 
+      FROM app_user_settings 
+      WHERE user_id = auth.user_id()
+    )
+  );
+
+CREATE POLICY "Users can create content"
+  ON app_content FOR INSERT
+  WITH CHECK (author_id = auth.user_id());
+
+CREATE POLICY "Users can update own content"
+  ON app_content FOR UPDATE
+  USING (author_id = auth.user_id());
+
+CREATE POLICY "Admins can manage all content"
+  ON app_content FOR ALL
+  USING (auth.user_role() IN ('admin', 'super_admin'));
+
+-- RLS Policies for activity logs
+CREATE POLICY "Users can view own logs"
+  ON app_activity_logs FOR SELECT
+  USING (user_id = auth.user_id());
+
+CREATE POLICY "System can insert logs"
+  ON app_activity_logs FOR INSERT
+  WITH CHECK (true); -- Allow through API with proper validation`}
+                  language='sql'
+                  title='RLS Policies'
+                  id='rls-policies'
+                />
+              </div>
+
+              {/* Data Service */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Data Service Implementation
+                </h3>
+                <CodeBlock
+                  code={`// lib/services/app-data-service.ts
+import { getAuthenticatedClient } from '@/lib/supabase/client';
+import { useAuth } from '@/lib/auth/auth-context';
+
+export class AppDataService {
+  // Get or create user settings
+  async getUserSettings(userId: string) {
+    const supabase = getAuthenticatedClient();
+    
+    // Try to get existing settings
+    let { data, error } = await supabase
+      .from('app_user_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+    
+    // If no settings exist, create default ones
+    if (error?.code === 'PGRST116') {
+      const { data: newSettings, error: insertError } = await supabase
+        .from('app_user_settings')
+        .insert({
+          user_id: userId,
+          preferences: {}
+        })
+        .select()
+        .single();
+      
+      if (insertError) throw insertError;
+      return newSettings;
+    }
+    
+    if (error) throw error;
+    return data;
+  }
+  
+  // Update user settings
+  async updateUserSettings(userId: string, settings: any) {
+    const supabase = getAuthenticatedClient();
+    
+    const { data, error } = await supabase
+      .from('app_user_settings')
+      .update({
+        ...settings,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  }
+  
+  // Create content with proper user association
+  async createContent(content: {
+    title: string;
+    content: string;
+    visibility: 'private' | 'institution' | 'public';
+  }, userId: string, institutionId?: string) {
+    const supabase = getAuthenticatedClient();
+    
+    const { data, error } = await supabase
+      .from('app_content')
+      .insert({
+        ...content,
+        author_id: userId,
+        institution_id: institutionId
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  }
+  
+  // Get content based on user permissions
+  async getUserContent(userId: string, userRole: string) {
+    const supabase = getAuthenticatedClient();
+    
+    // Build query based on role
+    let query = supabase
+      .from('app_content')
+      .select('*');
+    
+    // Admins see everything
+    if (userRole === 'admin' || userRole === 'super_admin') {
+      // No additional filters needed
+    } else {
+      // Regular users see their own + public + institution content
+      query = query.or(\`author_id.eq.\${userId},visibility.eq.public\`);
+    }
+    
+    const { data, error } = await query
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data;
+  }
+  
+  // Log user activity
+  async logActivity(
+    userId: string,
+    action: string,
+    resourceType?: string,
+    resourceId?: string,
+    metadata?: any
+  ) {
+    const supabase = getAuthenticatedClient();
+    
+    const { error } = await supabase
+      .from('app_activity_logs')
+      .insert({
+        user_id: userId,
+        action,
+        resource_type: resourceType,
+        resource_id: resourceId,
+        metadata
+      });
+    
+    if (error) console.error('Failed to log activity:', error);
+  }
+}
+
+export default new AppDataService();`}
+                  language='typescript'
+                  title='lib/services/app-data-service.ts'
+                  id='data-service'
+                />
+              </div>
+
+              {/* React Query Integration */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  React Query Hooks for Data Fetching
+                </h3>
+                <CodeBlock
+                  code={`// hooks/use-app-data.ts
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/lib/auth/auth-context';
+import appDataService from '@/lib/services/app-data-service';
+
+// Hook to get user settings
+export function useUserSettings() {
+  const { user } = useAuth();
+  
+  return useQuery({
+    queryKey: ['userSettings', user?.id],
+    queryFn: () => appDataService.getUserSettings(user!.id),
+    enabled: !!user?.id
+  });
+}
+
+// Hook to update user settings
+export function useUpdateSettings() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (settings: any) => 
+      appDataService.updateUserSettings(user!.id, settings),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['userSettings', user?.id] });
+    }
+  });
+}
+
+// Hook to get user content
+export function useUserContent() {
+  const { user } = useAuth();
+  
+  return useQuery({
+    queryKey: ['userContent', user?.id, user?.role],
+    queryFn: () => appDataService.getUserContent(user!.id, user!.role),
+    enabled: !!user?.id
+  });
+}
+
+// Hook to create content
+export function useCreateContent() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (content: any) => 
+      appDataService.createContent(
+        content,
+        user!.id,
+        user!.institution_id
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['userContent'] });
+      
+      // Log activity
+      appDataService.logActivity(
+        user!.id,
+        'create_content',
+        'content',
+        undefined,
+        { title: content.title }
+      );
+    }
+  });
+}`}
+                  language='typescript'
+                  title='hooks/use-app-data.ts'
+                  id='react-query-hooks'
+                />
+              </div>
+
+              {/* Realtime Subscriptions */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Realtime Subscriptions
+                </h3>
+                <CodeBlock
+                  code={`// hooks/use-realtime.ts
+import { useEffect } from 'react';
+import { useAuth } from '@/lib/auth/auth-context';
+import { supabase } from '@/lib/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+
+export function useRealtimeContent() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  
+  useEffect(() => {
+    if (!user) return;
+    
+    // Subscribe to content changes
+    const channel = supabase
+      .channel('content-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'app_content',
+          filter: \`author_id=eq.\${user.id}\`
+        },
+        (payload) => {
+          console.log('Content changed:', payload);
+          
+          // Invalidate and refetch content
+          queryClient.invalidateQueries({ 
+            queryKey: ['userContent', user.id] 
+          });
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, queryClient]);
+}
+
+// Subscribe to user settings changes
+export function useRealtimeSettings() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  
+  useEffect(() => {
+    if (!user) return;
+    
+    const channel = supabase
+      .channel('settings-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'app_user_settings',
+          filter: \`user_id=eq.\${user.id}\`
+        },
+        (payload) => {
+          // Update local cache immediately
+          queryClient.setQueryData(
+            ['userSettings', user.id],
+            payload.new
+          );
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, queryClient]);
+}`}
+                  language='typescript'
+                  title='hooks/use-realtime.ts'
+                  id='realtime-subscriptions'
+                />
+              </div>
+
+              {/* Complete Component Example */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Complete Component Example
+                </h3>
+                <CodeBlock
+                  code={`// app/dashboard/page.tsx
+'use client';
+
+import { useAuth } from '@/lib/auth/auth-context';
+import { usePermissions } from '@/hooks/use-permissions';
+import { 
+  useUserSettings, 
+  useUpdateSettings,
+  useUserContent,
+  useCreateContent 
+} from '@/hooks/use-app-data';
+import { useRealtimeContent } from '@/hooks/use-realtime';
+import { PermissionGuard } from '@/components/permission-guard';
+
+export default function Dashboard() {
+  const { user } = useAuth();
+  const { can, hasRole } = usePermissions();
+  
+  // Fetch user settings
+  const { data: settings, isLoading: settingsLoading } = useUserSettings();
+  const updateSettings = useUpdateSettings();
+  
+  // Fetch user content
+  const { data: content, isLoading: contentLoading } = useUserContent();
+  const createContent = useCreateContent();
+  
+  // Enable realtime updates
+  useRealtimeContent();
+  
+  if (settingsLoading || contentLoading) {
+    return <div>Loading...</div>;
+  }
+  
+  return (
+    <div className="p-8">
+      <h1>Welcome, {user?.full_name}</h1>
+      <p>Role: {user?.role}</p>
+      
+      {/* User Settings Section */}
+      <div className="mt-8">
+        <h2>Settings</h2>
+        <div>
+          <label>
+            Theme:
+            <select 
+              value={settings?.theme || 'light'}
+              onChange={(e) => updateSettings.mutate({ theme: e.target.value })}
+            >
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      
+      {/* Content Section */}
+      <div className="mt-8">
+        <h2>Your Content</h2>
+        
+        {/* Only show create button if user has permission */}
+        <PermissionGuard resource="content" action="write">
+          <button
+            onClick={() => {
+              createContent.mutate({
+                title: 'New Content',
+                content: 'Content body',
+                visibility: 'private'
+              });
+            }}
+          >
+            Create Content
+          </button>
+        </PermissionGuard>
+        
+        {/* Display content */}
+        <div className="grid gap-4 mt-4">
+          {content?.map((item) => (
+            <div key={item.id} className="border p-4 rounded">
+              <h3>{item.title}</h3>
+              <p>{item.content}</p>
+              <span className="text-sm text-gray-500">
+                Visibility: {item.visibility}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      {/* Admin Section */}
+      <PermissionGuard roles={['admin', 'super_admin']}>
+        <div className="mt-8">
+          <h2>Admin Tools</h2>
+          <p>Only visible to admins</p>
+        </div>
+      </PermissionGuard>
+    </div>
+  );
+}`}
+                  language='typescript'
+                  title='Complete Dashboard Example'
+                  id='complete-dashboard'
+                />
+              </div>
+
+              {/* Migration Guide */}
+              <div className='space-y-4'>
+                <h3 className='text-lg font-semibold'>
+                  Migrating Existing Supabase Auth to Parent App Auth
+                </h3>
+                <Alert className='border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20'>
+                  <AlertCircle className='h-4 w-4 text-yellow-600' />
+                  <AlertDescription>
+                    If you have an existing Supabase project with its own auth,
+                    follow this migration guide to switch to parent app
+                    authentication.
+                  </AlertDescription>
+                </Alert>
+                <CodeBlock
+                  code={`-- Migration SQL Script
+-- 1. Add parent_user_id column to existing tables
+ALTER TABLE your_existing_table 
+ADD COLUMN parent_user_id UUID;
+
+-- 2. Create mapping table for existing users
+CREATE TABLE user_migration_map (
+  old_user_id UUID REFERENCES auth.users(id),
+  parent_user_id UUID NOT NULL,
+  migrated_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (old_user_id)
+);
+
+-- 3. Update RLS policies to use parent_user_id
+-- Example: Update existing policy
+DROP POLICY IF EXISTS "Users can view own data" ON your_table;
+CREATE POLICY "Users can view own data" ON your_table
+  FOR SELECT
+  USING (
+    parent_user_id = auth.user_id() 
+    OR user_id = auth.uid() -- Keep backward compatibility during migration
+  );
+
+-- 4. After migration, remove old user_id columns
+-- ALTER TABLE your_table DROP COLUMN user_id;`}
+                  language='sql'
+                  title='Migration Script'
+                  id='migration-script'
                 />
               </div>
             </CardContent>
@@ -2098,56 +3427,6 @@ console.log('Debug Info for Support:', JSON.stringify(debugInfo, null, 2));`}
               id='debug-info-script'
             />
           </div>
-
-          {/* Support Options */}
-          <div className='space-y-4'>
-            <h3 className='font-semibold mb-3'>🎯 Support Options</h3>
-            <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'>
-              <div className='p-4 border rounded-lg hover:bg-muted/50 transition-colors'>
-                <Terminal className='h-8 w-8 text-blue-600 mb-3' />
-                <div className='font-medium mb-2'>Debug Logs</div>
-                <div className='text-sm text-muted-foreground mb-3'>
-                  View real-time authentication logs and errors
-                </div>
-                <Button variant='outline' size='sm' className='w-full'>
-                  Open Debug Console
-                </Button>
-              </div>
-
-              <div className='p-4 border rounded-lg hover:bg-muted/50 transition-colors'>
-                <BookOpen className='h-8 w-8 text-green-600 mb-3' />
-                <div className='font-medium mb-2'>API Documentation</div>
-                <div className='text-sm text-muted-foreground mb-3'>
-                  Complete API reference and examples
-                </div>
-                <Button variant='outline' size='sm' className='w-full'>
-                  View API Docs
-                </Button>
-              </div>
-
-              <div className='p-4 border rounded-lg hover:bg-muted/50 transition-colors'>
-                <Bot className='h-8 w-8 text-purple-600 mb-3' />
-                <div className='font-medium mb-2'>Technical Support</div>
-                <div className='text-sm text-muted-foreground mb-3'>
-                  Get help from our development team
-                </div>
-                <Button size='sm' className='w-full'>
-                  Contact Support
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* Emergency Contact */}
-          <Alert className='border-orange-200 bg-orange-50 dark:bg-orange-950/20'>
-            <AlertCircle className='h-4 w-4 text-orange-600' />
-            <AlertDescription>
-              <strong>Critical Issues:</strong> For production outages or
-              security concerns, include &quot;URGENT&quot; in your support
-              request subject line. Response time: 2-4 hours during business
-              hours.
-            </AlertDescription>
-          </Alert>
         </CardContent>
       </Card>
     </div>
