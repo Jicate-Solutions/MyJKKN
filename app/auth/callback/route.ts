@@ -26,16 +26,40 @@ export async function GET(request: NextRequest) {
     
     // First try to get child app auth from state parameter (more reliable)
     let childAppAuth: any = null;
+    let returnTo: string | null = null;
+    let isChildAppAuth = false;
     
     if (state) {
       try {
-        const stateData = JSON.parse(atob(state));
+        // Try to decode our custom state (base64 without padding)
+        const paddedState = state + '='.repeat((4 - state.length % 4) % 4);
+        const stateData = JSON.parse(atob(paddedState));
+        
         if (stateData.childAppAuth) {
           childAppAuth = stateData.childAppAuth;
           console.log('[Auth Callback] Child app auth from state:', childAppAuth);
         }
+        
+        if (stateData.returnTo) {
+          returnTo = stateData.returnTo;
+          console.log('[Auth Callback] Return URL from state:', returnTo);
+        }
+        
+        if (stateData.isChildAppAuth) {
+          isChildAppAuth = true;
+          console.log('[Auth Callback] Is child app auth:', true);
+        }
       } catch (e) {
-        console.log('[Auth Callback] State is not our encoded data, might be from OAuth provider');
+        console.log('[Auth Callback] Could not parse state as our data, trying direct decode');
+        try {
+          // Fallback: try direct base64 decode
+          const stateData = JSON.parse(atob(state));
+          if (stateData.childAppAuth) {
+            childAppAuth = stateData.childAppAuth;
+          }
+        } catch (e2) {
+          console.log('[Auth Callback] State is not our encoded data');
+        }
       }
     }
     
@@ -177,10 +201,22 @@ export async function GET(request: NextRequest) {
       // If this is a child app authentication request
       console.log('[Auth Callback] Checking child app auth:', {
         hasChildAppAuth: !!childAppAuth,
+        hasReturnTo: !!returnTo,
+        isChildAppAuth,
         childAppAuth,
+        returnTo,
         profileCompleted: existingProfile?.profile_completed
       });
       
+      // If we have a return URL (from child app flow), redirect there
+      if (returnTo && isChildAppAuth) {
+        console.log('[Auth Callback] Redirecting to return URL:', returnTo);
+        // Clear the cookie if it exists
+        cookieStore.delete('child_app_auth');
+        return NextResponse.redirect(new URL(returnTo, origin));
+      }
+      
+      // If we have child app auth data, redirect to consent
       if (childAppAuth && childAppAuth.app_id && childAppAuth.redirect_uri) {
         // Clear the cookie
         cookieStore.delete('child_app_auth');
