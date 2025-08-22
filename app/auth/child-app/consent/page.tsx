@@ -98,16 +98,24 @@ function ConsentContent() {
 
         setAppDetails(app);
         
-        // Check if user has already authorized this app
-        const { data: existingSession } = await supabase
+        // Check if user has already authorized this app recently
+        // Look for any session in the last 30 days to determine if re-consent is needed
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        const { data: recentSessions } = await supabase
           .from('child_app_user_sessions')
-          .select('id')
+          .select('id, last_activity_at')
           .eq('user_id', currentUser.id)
           .eq('app_id', appId)
-          .single();
+          .gte('last_activity_at', thirtyDaysAgo.toISOString())
+          .order('last_activity_at', { ascending: false })
+          .limit(1);
         
-        // If already authorized, skip consent and authorize directly
-        if (existingSession) {
+        // If user has authorized recently, skip consent and authorize directly
+        // This provides seamless re-authentication after logout
+        if (recentSessions && recentSessions.length > 0) {
+          console.log('[Consent Page] User previously authorized, auto-approving');
           handleAuthorize(true);
         }
       } else {

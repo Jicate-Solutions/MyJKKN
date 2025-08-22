@@ -51,12 +51,13 @@ export async function GET(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     userId = user?.id || null;
     
-    // Sign out from Supabase
-    if (user) {
-      await supabase.auth.signOut();
-    }
+    // DO NOT sign out from parent app - only clear child app session
+    // This allows seamless re-authentication without Google login
+    // if (user) {
+    //   await supabase.auth.signOut();
+    // }
   } catch (error) {
-    console.log('User already logged out or session expired');
+    console.log('User session not found or expired');
   }
   
   // Invalidate all child app sessions for this user
