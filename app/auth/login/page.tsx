@@ -40,6 +40,8 @@ const EducationalHero = () => {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [isChildAppAuth, setIsChildAppAuth] = useState(false);
+  const [returnTo, setReturnTo] = useState<string | null>(null);
 
   // Initialize childAppAuth based on URL params immediately
   const getInitialChildAppAuth = () => {
@@ -100,12 +102,16 @@ export default function LoginPage() {
       const params = new URLSearchParams(window.location.search);
 
       // Check if this is a child app authentication request
-      const isChildAppAuth = params.get('child_app_auth') === 'true';
-      const returnTo = params.get('return_to');
+      const isChildApp = params.get('child_app_auth') === 'true';
+      const returnUrl = params.get('return_to');
+      
+      // Set state values
+      setIsChildAppAuth(isChildApp);
+      setReturnTo(returnUrl);
 
       console.log('[Login Page] URL params:', {
-        isChildAppAuth,
-        returnTo,
+        isChildAppAuth: isChildApp,
+        returnTo: returnUrl,
         allParams: Array.from(params.entries())
       });
 
@@ -269,10 +275,17 @@ export default function LoginPage() {
     try {
       setLoading(true);
 
-      const redirectTo =
-        typeof window !== 'undefined'
-          ? `${window.location.origin}/auth/callback`
-          : '/auth/callback';
+      // Use the current origin to ensure correct domain
+      // In development, force localhost if we're on localhost
+      let redirectTo = '/auth/callback';
+      if (typeof window !== 'undefined') {
+        const origin = window.location.origin;
+        // Ensure we use the current domain, not production
+        redirectTo = `${origin}/auth/callback`;
+      }
+      
+      console.log('[Login Page] Current origin:', window.location.origin);
+      console.log('[Login Page] OAuth redirect URL:', redirectTo);
 
       // Build OAuth options with state parameter for child app auth
       const oauthOptions: any = {
@@ -284,15 +297,24 @@ export default function LoginPage() {
       };
 
       // If there's child app auth, encode it in the state parameter
-      if (childAppAuth) {
-        // Encode child app auth data in state parameter
+      // Also preserve the return_to URL for after OAuth
+      if (childAppAuth || returnTo || isChildAppAuth) {
+        // Encode child app auth data and return URL in state parameter
         const stateData = {
-          childAppAuth: childAppAuth
+          childAppAuth: childAppAuth || null,
+          returnTo: returnTo || null,
+          isChildAppAuth: isChildAppAuth || false
         };
-        oauthOptions.queryParams.state = btoa(JSON.stringify(stateData));
+        
+        // Use a more robust encoding that survives OAuth
+        const encodedState = btoa(JSON.stringify(stateData)).replace(/=/g, '');
+        oauthOptions.queryParams.state = encodedState;
+        
         console.log(
-          '[Login Page] Adding child app auth to OAuth state:',
-          stateData
+          '[Login Page] Adding to OAuth state:',
+          stateData,
+          'Encoded as:',
+          encodedState
         );
       }
 
