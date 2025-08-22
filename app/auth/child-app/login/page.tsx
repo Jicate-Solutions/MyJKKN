@@ -25,6 +25,7 @@ function ChildAppLoginContent() {
 
   const appId = searchParams?.get('app_id') || null;
   const redirectUri = searchParams?.get('redirect_uri') || null;
+  const state = searchParams?.get('state') || null;
   const scope = searchParams?.get('scope')?.split(',') || ['read'];
 
   useEffect(() => {
@@ -103,7 +104,7 @@ function ChildAppLoginContent() {
     };
 
     validateAndLoadApp();
-  }, [appId, redirectUri, router]);
+  }, [appId, redirectUri, router, searchParams]);
 
   const handleAuthorize = async () => {
     try {
@@ -134,7 +135,8 @@ function ChildAppLoginContent() {
         body: JSON.stringify({
           app_id: appId,
           scope: scope.join(','),
-          redirect_uri: redirectUri
+          redirect_uri: redirectUri,
+          state: state // Include state parameter for CSRF protection
         })
       });
 

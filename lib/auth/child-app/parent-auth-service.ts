@@ -12,6 +12,7 @@ const TOKEN_COOKIE = 'parent_auth_token';
 const REFRESH_TOKEN_COOKIE = 'parent_auth_refresh';
 const USER_COOKIE = 'parent_auth_user';
 const SESSION_COOKIE = 'parent_auth_session';
+const STATE_COOKIE = 'parent_auth_state';
 
 // Types
 export interface ParentAppUser {
@@ -99,15 +100,80 @@ class ParentAuthService {
   }
 
   /**
+   * Generate a random state parameter for CSRF protection
+   */
+  private generateState(): string {
+    // Generate a cryptographically secure random state
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join(
+      ''
+    );
+  }
+
+  /**
+   * Store state parameter temporarily for validation
+   */
+  private storeState(state: string): void {
+    Cookies.set(STATE_COOKIE, state, {
+      expires: 1 / 288, // 5 minutes (1/288 of a day)
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax'
+    });
+  }
+
+  /**
+   * Retrieve and clear stored state parameter
+   */
+  private getAndClearState(): string | null {
+    const state = Cookies.get(STATE_COOKIE);
+    if (state) {
+      Cookies.remove(STATE_COOKIE);
+      return state;
+    }
+    return null;
+  }
+
+  /**
+   * Validate state parameter against stored value
+   */
+  private validateState(receivedState: string | null): boolean {
+    const storedState = this.getAndClearState();
+
+    if (!receivedState || !storedState) {
+      console.warn('CSRF Warning: Missing state parameter in OAuth callback');
+      return false;
+    }
+
+    if (receivedState !== storedState) {
+      console.error('CSRF Error: State parameter mismatch!', {
+        received: receivedState,
+        expected: storedState
+      });
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Initiate login by redirecting to parent app login with child app parameters
    */
   login(redirectUrl?: string): void {
     const currentUrl = redirectUrl || window.location.href;
+
+    // Generate random state for CSRF protection
+    const state = this.generateState();
+
+    // Store state temporarily for validation (expires in 5 minutes)
+    this.storeState(state);
+
     const authUrl =
       `${PARENT_APP_URL}/auth/login?` +
       `app_id=${CHILD_APP_ID}&` +
       `redirect_uri=${encodeURIComponent(currentUrl)}&` +
-      `scope=read,write,profile`;
+      `scope=read,write,profile&` +
+      `state=${encodeURIComponent(state)}`;
 
     window.location.href = authUrl;
   }
@@ -117,8 +183,13 @@ class ParentAuthService {
    */
   async handleCallback(
     token: string,
-    refreshToken?: string
+    refreshToken?: string,
+    state?: string
   ): Promise<ParentAppUser | null> {
+    // Validate state parameter for CSRF protection
+    if (!this.validateState(state || null)) {
+      throw new Error('Invalid state parameter - possible CSRF attack');
+    }
     try {
       // Validate the token first
       const validation = await this.validateToken(token);

@@ -120,30 +120,6 @@ export function AttendanceReportRowActions({
               View Details
             </Link>
           </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem onClick={handleDownloadPDF}>
-            <Download className='mr-2 h-4 w-4' />
-            Download PDF
-          </DropdownMenuItem>
-
-          <DropdownMenuItem onClick={handleShare}>
-            <Share2 className='mr-2 h-4 w-4' />
-            Share Report
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem onClick={handleCopyReportId}>
-            <Copy className='mr-2 h-4 w-4' />
-            Copy Report ID
-          </DropdownMenuItem>
-
-          <DropdownMenuItem onClick={handleCopyReportLink}>
-            <Copy className='mr-2 h-4 w-4' />
-            Copy Link
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -314,11 +290,19 @@ export function AttendanceReportRowActions({
                   View Full Details
                 </Link>
               </Button>
-              <Button variant='outline' onClick={handleDownloadPDF} className='w-full sm:w-auto'>
+              <Button
+                variant='outline'
+                onClick={handleDownloadPDF}
+                className='w-full sm:w-auto'
+              >
                 <Download className='h-4 w-4 mr-2' />
                 Download PDF
               </Button>
-              <Button variant='outline' onClick={handleShare} className='w-full sm:w-auto'>
+              <Button
+                variant='outline'
+                onClick={handleShare}
+                className='w-full sm:w-auto'
+              >
                 <Share2 className='h-4 w-4 mr-2' />
                 Share
               </Button>
