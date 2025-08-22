@@ -147,12 +147,18 @@ export default function LoginPage() {
           state: state || undefined
         };
         setChildAppAuth(childAppAuthData);
-        // Store in cookie for callback - only use Secure on HTTPS
+        // Store in cookie for callback with better settings
         const isSecure = window.location.protocol === 'https:';
-        const cookieString = `child_app_auth=${JSON.stringify(
-          childAppAuthData
-        )}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+        // Use encodeURIComponent to ensure special characters don't break the cookie
+        const encodedData = encodeURIComponent(JSON.stringify(childAppAuthData));
+        const cookieString = `child_app_auth=${encodedData}; path=/; max-age=600; SameSite=Lax${isSecure ? '; Secure' : ''}`;
         document.cookie = cookieString;
+        
+        // Also store return_to separately for better reliability
+        if (returnUrl) {
+          const returnCookie = `child_app_return=${encodeURIComponent(returnUrl)}; path=/; max-age=600; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+          document.cookie = returnCookie;
+        }
 
         // Log for debugging
         console.log(

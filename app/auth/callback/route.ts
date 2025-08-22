@@ -73,10 +73,32 @@ export async function GET(request: NextRequest) {
       
       if (childAppAuthCookie) {
         try {
-          childAppAuth = JSON.parse(childAppAuthCookie.value);
+          // Decode the URL-encoded cookie value
+          const decodedValue = decodeURIComponent(childAppAuthCookie.value);
+          childAppAuth = JSON.parse(decodedValue);
           console.log('[Auth Callback] Parsed child app auth from cookie:', childAppAuth);
         } catch (e) {
           console.error('[Auth Callback] Failed to parse cookie:', e);
+          // Try without decoding as fallback
+          try {
+            childAppAuth = JSON.parse(childAppAuthCookie.value);
+          } catch (e2) {
+            console.error('[Auth Callback] Failed to parse cookie even without decode:', e2);
+          }
+        }
+      }
+    }
+    
+    // Also check for return_to cookie if we don't have it from state
+    if (!returnTo) {
+      const returnCookie = cookieStore.get('child_app_return');
+      if (returnCookie) {
+        try {
+          returnTo = decodeURIComponent(returnCookie.value);
+          isChildAppAuth = true; // If we have a return cookie, it's a child app auth
+          console.log('[Auth Callback] Found return URL from cookie:', returnTo);
+        } catch (e) {
+          console.error('[Auth Callback] Failed to decode return cookie:', e);
         }
       }
     }
@@ -211,15 +233,17 @@ export async function GET(request: NextRequest) {
       // If we have a return URL (from child app flow), redirect there
       if (returnTo && isChildAppAuth) {
         console.log('[Auth Callback] Redirecting to return URL:', returnTo);
-        // Clear the cookie if it exists
+        // Clear the cookies
         cookieStore.delete('child_app_auth');
+        cookieStore.delete('child_app_return');
         return NextResponse.redirect(new URL(returnTo, origin));
       }
       
       // If we have child app auth data, redirect to consent
       if (childAppAuth && childAppAuth.app_id && childAppAuth.redirect_uri) {
-        // Clear the cookie
+        // Clear the cookies
         cookieStore.delete('child_app_auth');
+        cookieStore.delete('child_app_return');
         
         // Redirect to the child app consent page
         const consentUrl = new URL('/auth/child-app/consent', origin);
