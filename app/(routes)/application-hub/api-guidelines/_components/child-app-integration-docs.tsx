@@ -135,9 +135,10 @@ export class ParentAuthService {
     return ParentAuthService.instance;
   }
 
-  // Initialize OAuth2 authentication flow - Updated for better compatibility
+  // Initialize OAuth2 authentication flow - Redirects to consent page
   async initiateLogin(state?: string): Promise<void> {
-    const authUrl = new URL(\`\${this.config.parentAppUrl}/auth/authorize\`);
+    // Use the consent page endpoint for child app authentication
+    const authUrl = new URL(\`\${this.config.parentAppUrl}/auth/child-app/consent\`);
     
     // OAuth2 standard parameters
     authUrl.searchParams.append('response_type', 'code');
@@ -303,20 +304,41 @@ export class ParentAuthService {
     }, refreshIn);
   }
 
-  // Logout user
-  async logout(redirectUri?: string): Promise<void> {
-    // Clear local session
-    this.clearSession();
-    
-    // Redirect to parent app logout
-    const logoutUrl = new URL(\`\${this.config.parentAppUrl}/logout\`);
-    logoutUrl.searchParams.append('app_id', this.config.appId);
-    
-    if (redirectUri) {
-      logoutUrl.searchParams.append('redirect_uri', redirectUri);
+  // Logout user - IMPORTANT: Only clears child app session, NOT parent session
+  async logout(redirectToParent: boolean = false): Promise<void> {
+    try {
+      // Call child app logout endpoint (preserves parent session)
+      const response = await fetch(\`\${this.config.parentAppUrl}/api/auth/child-app/logout\`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          app_id: this.config.appId,
+          session_id: this.getSession()?.session_id,
+          access_token: this.getSession()?.access_token,
+          redirect_uri: redirectToParent ? this.config.parentAppUrl : window.location.origin
+        })
+      });
+
+      // Clear local session data
+      this.clearSession();
+
+      if (redirectToParent && response.ok) {
+        const data = await response.json();
+        if (data.redirect_uri) {
+          window.location.href = data.redirect_uri;
+        }
+      } else {
+        // Redirect to child app login page
+        window.location.href = '/login';
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Even if logout fails, clear local state
+      this.clearSession();
+      window.location.href = '/login';
     }
-    
-    window.location.href = logoutUrl.toString();
   }
 
   // Clear session data
@@ -443,8 +465,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await parentAuthService.initiateLogin();
   };
 
-  const logout = async () => {
-    await parentAuthService.logout(window.location.origin);
+  const logout = async (redirectToParent: boolean = false) => {
+    await parentAuthService.logout(redirectToParent);
     setUser(null);
   };
 
@@ -638,8 +660,8 @@ export default function HomePage() {
   // OAuth flow endpoints
   const oauthEndpoints = `# OAuth 2.0 Endpoints
 
-## Authorization Endpoint
-GET https://my.jkkn.ac.in/auth/authorize
+## Authorization Endpoint (Consent Page)
+GET https://my.jkkn.ac.in/auth/child-app/consent
 Parameters:
 - response_type=code (required)
 - client_id={your_app_id} (required)
@@ -671,18 +693,27 @@ Body:
   "app_id": "{your_app_id}"
 }
 
-## Logout Endpoint
-GET https://my.jkkn.ac.in/logout
-Parameters:
-- app_id={your_app_id} (required)
-- redirect_uri={your_logout_redirect_url} (optional)`;
+## Logout Endpoint (Child App Session Only)
+POST https://my.jkkn.ac.in/api/auth/child-app/logout
+Headers:
+- Content-Type: application/json
+Body:
+{
+  "app_id": "{your_app_id}",
+  "session_id": "{session_id}", (optional)
+  "access_token": "{access_token}", (optional)
+  "redirect_uri": "{your_logout_redirect_url}" (optional)
+}
+
+Note: This endpoint only clears the child app session. 
+The parent app session remains active for seamless re-authentication.`;
 
   // Test endpoints
   const testEndpoints = `# Test Your Integration
 
 ## 1. Test Authorization URL
 Open this in your browser:
-https://my.jkkn.ac.in/auth/authorize?response_type=code&app_id=YOUR_APP_ID&redirect_uri=http://localhost:3000/auth/callback&scope=read write profile&state=test123
+https://my.jkkn.ac.in/auth/child-app/consent?response_type=code&app_id=YOUR_APP_ID&redirect_uri=http://localhost:3000/auth/callback&scope=read write profile&state=test123
 
 ## 2. Test Token Exchange
 curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
@@ -872,8 +903,36 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
                       </div>
                     </div>
                   </div>
+                  <div className='flex items-start gap-3'>
+                    <Sparkles className='h-5 w-5 text-green-600 mt-0.5' />
+                    <div>
+                      <div className='font-medium'>Seamless Re-authentication</div>
+                      <div className='text-sm text-muted-foreground'>
+                        Parent session preserved after logout
+                      </div>
+                    </div>
+                  </div>
+                  <div className='flex items-start gap-3'>
+                    <CheckCircle className='h-5 w-5 text-green-600 mt-0.5' />
+                    <div>
+                      <div className='font-medium'>Auto-Consent</div>
+                      <div className='text-sm text-muted-foreground'>
+                        Skip consent for recently authorized apps (30 days)
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
+
+              {/* Important Implementation Notes */}
+              <Alert className='border-orange-200 bg-orange-50 dark:bg-orange-950/20'>
+                <AlertCircle className='h-4 w-4 text-orange-600' />
+                <AlertDescription>
+                  <strong>Critical Implementation Note:</strong> The logout function must ONLY clear 
+                  the child app session, NOT the parent app session. This prevents the double 
+                  authentication issue and enables seamless re-authentication.
+                </AlertDescription>
+              </Alert>
 
               {/* Security Notes */}
               <Alert>
@@ -2735,16 +2794,28 @@ useEffect(() => {
               <div className='space-y-4'>
                 {[
                   {
-                    issue: 'CORS Error',
-                    cause: 'Cross-origin request blocked',
+                    issue: 'Double Google Authentication After Logout',
+                    cause: 'Logout clears parent app session',
                     solution:
-                      'Ensure your redirect_uri is exactly as configured in MyJKKN, including protocol (http/https)'
+                      'Use /api/auth/child-app/logout endpoint that only clears child app session, NOT parent session. Never call parent app main logout.'
                   },
                   {
-                    issue: '404 Not Found on /auth/authorize',
-                    cause: 'Wrong endpoint URL',
+                    issue: 'CORS Error on Consent Page',
+                    cause: 'Using fetch() for cross-origin authorization',
                     solution:
-                      'Use https://my.jkkn.ac.in/auth/authorize (not /api/auth/authorize)'
+                      'Use window.location.href for navigation instead of fetch() API calls to authorization endpoints'
+                  },
+                  {
+                    issue: 'Lost Child App Context After Google OAuth',
+                    cause: 'Google OAuth overwrites state parameter',
+                    solution:
+                      'Base64 encode state without padding and use URL-encoded cookies as fallback. Check both state and cookies in callback.'
+                  },
+                  {
+                    issue: 'Redirect to Parent App Root Instead of Child App',
+                    cause: 'Wrong authorization endpoint',
+                    solution:
+                      'Use /auth/child-app/consent endpoint, not /auth/authorize. Ensure middleware allows child app paths.'
                   },
                   {
                     issue: 'Invalid redirect URI',
@@ -2759,10 +2830,10 @@ useEffect(() => {
                       'Implement automatic token refresh using the refresh token before expiry'
                   },
                   {
-                    issue: 'User stays logged in after logout',
-                    cause: 'Session not cleared properly',
+                    issue: 'Google One Tap Interferes with Child App Flow',
+                    cause: 'One Tap auto-login bypasses child app context',
                     solution:
-                      'Ensure cookies, localStorage, and sessionStorage are all cleared on logout'
+                      'Disable Google One Tap when child_app_auth=true parameter is detected in login page'
                   },
                   {
                     issue: 'State parameter mismatch',
