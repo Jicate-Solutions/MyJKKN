@@ -5,6 +5,7 @@ import {
 } from '@/lib/supabase/server';
 import { jwtVerify } from 'jose';
 import crypto from 'crypto';
+import { OptimizedSessionManagerService } from '@/lib/services/child-app/optimized-session-manager-service';
 
 /**
  * POST /api/auth/child-app/validate
@@ -163,120 +164,25 @@ export async function POST(request: NextRequest) {
       token_hash_preview: tokenHash.substring(0, 10) + '...'
     });
 
-    // Query the child_app_user_sessions table using service role client
-    const { data: userSession, error: sessionError } = await serviceClient
-      .from('child_app_user_sessions')
-      .select('*')
-      .eq('user_id', decodedToken.sub)
-      .eq('app_id', child_app_id)
-      .maybeSingle(); // Use maybeSingle() instead of single() to avoid PGRST116
+    // Validate session using optimized service
+    const sessionValidation = await OptimizedSessionManagerService.validateSession({
+      userId: decodedToken.sub,
+      appId: child_app_id,
+      accessToken: token
+    });
 
-    if (sessionError) {
-      console.error('💥 [Validate] Session query error:', sessionError);
-      await supabase.rpc('log_child_app_access', {
-        p_child_app_id: child_app_id,
-        p_user_id: decodedToken.sub,
-        p_session_id: null,
-        p_action: 'validate',
-        p_status: 'failed',
-        p_error_message: `Session query failed: ${sessionError.message}`,
-        p_ip_address:
-          request.headers.get('x-forwarded-for') ||
-          request.headers.get('x-real-ip'),
-        p_user_agent: request.headers.get('user-agent')
-      });
-
-      return NextResponse.json(
-        {
-          valid: false,
-          error: 'Failed to query session',
-          details: sessionError.message
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!userSession) {
-      console.log(
-        '❌ [Validate] No session found for user:',
-        decodedToken.sub,
-        'and app:',
-        child_app_id
-      );
-      await supabase.rpc('log_child_app_access', {
-        p_child_app_id: child_app_id,
-        p_user_id: decodedToken.sub,
-        p_session_id: null,
-        p_action: 'validate',
-        p_status: 'failed',
-        p_error_message: 'No active session found',
-        p_ip_address:
-          request.headers.get('x-forwarded-for') ||
-          request.headers.get('x-real-ip'),
-        p_user_agent: request.headers.get('user-agent')
-      });
-
+    if (!sessionValidation.valid || !sessionValidation.sessionData) {
+      console.log('❌ [Validate] No valid session found');
       return NextResponse.json(
         { valid: false, error: 'No active session found' },
         { status: 401 }
       );
     }
 
-    console.log('✅ [Validate] Found user session:', {
-      id: userSession.id,
-      has_session_data: !!userSession.session_data,
-      active_sessions_count:
-        userSession.session_data?.active_sessions?.length || 0
-    });
+    const userSession = sessionValidation.sessionData;
+    const activeSession = sessionValidation.session;
 
-    // Parse the JSON session data
-    const sessionData = userSession.session_data || {};
-    const activeSessions = sessionData.active_sessions || [];
-
-    // Find the matching session by token hash
-    const matchingSession = activeSessions.find((session: any) => {
-      return session.token_hash === tokenHash;
-    });
-
-    if (!matchingSession) {
-      console.log('❌ [Validate] No matching session found for token hash');
-      console.log(
-        'Available session hashes:',
-        activeSessions.map((s: any) =>
-          s.token_hash ? s.token_hash.substring(0, 10) + '...' : 'no hash'
-        )
-      );
-
-      await supabase.rpc('log_child_app_access', {
-        p_child_app_id: child_app_id,
-        p_user_id: decodedToken.sub,
-        p_session_id: null,
-        p_action: 'validate',
-        p_status: 'failed',
-        p_error_message: 'Session token mismatch',
-        p_ip_address:
-          request.headers.get('x-forwarded-for') ||
-          request.headers.get('x-real-ip'),
-        p_user_agent: request.headers.get('user-agent')
-      });
-
-      return NextResponse.json(
-        { valid: false, error: 'Session token mismatch' },
-        { status: 401 }
-      );
-    }
-
-    // Check if session is expired
-    if (new Date(matchingSession.expires_at) < new Date()) {
-      console.log(
-        '⏰ [Validate] Session expired at:',
-        matchingSession.expires_at
-      );
-      return NextResponse.json(
-        { valid: false, error: 'Session expired' },
-        { status: 401 }
-      );
-    }
+    console.log('✅ [Validate] Found valid session');
 
     console.log('🎉 [Validate] Session validation successful!');
 
@@ -317,47 +223,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user-specific permissions for this child app using service role client
-    const { data: userPermissions } = await serviceClient
-      .from('user_child_app_permissions')
-      .select('permissions')
-      .eq('user_id', decodedToken.sub)
-      .eq('child_app_id', child_app_id)
-      .eq('is_active', true)
-      .single();
-
-    // Update last activity and session data with proper JSON structure
-    const updatedSessionData = {
-      ...sessionData,
-      active_sessions: activeSessions.map((s: any) =>
-        s.token_hash === tokenHash
-          ? { ...s, last_used_at: new Date().toISOString() }
-          : s
-      )
-    };
-
-    await serviceClient
-      .from('child_app_user_sessions')
-      .update({
-        last_activity_at: new Date().toISOString(),
-        session_data: updatedSessionData
-      })
-      .eq('id', userSession.id);
-
-    console.log('📝 [Validate] Updated session activity');
-
-    // Log successful validation
-    await supabase.rpc('log_child_app_access', {
-      p_child_app_id: child_app_id,
-      p_user_id: decodedToken.sub,
-      p_session_id: userSession.id,
-      p_action: 'validate',
-      p_status: 'success',
-      p_ip_address:
-        request.headers.get('x-forwarded-for') ||
-        request.headers.get('x-real-ip'),
-      p_user_agent: request.headers.get('user-agent')
-    });
+    console.log('📝 [Validate] Session validated successfully');
 
     // Return validation response with updated user data
     console.log('✨ [Validate] Returning successful validation response');
@@ -371,20 +237,15 @@ export async function POST(request: NextRequest) {
         role: profile.role,
         institution_id: profile.institution_id,
         is_super_admin: profile.is_super_admin,
-        permissions: {
-          ...(userPermissions?.permissions || {}),
-          ...(userSession.permissions || {})
-        },
+        permissions: userSession.permissions || {},
         profile_completed: profile.profile_completed,
         avatar_url: profile.avatar_url,
         last_login: profile.last_login
       },
       session: {
-        id: userSession.id,
-        expires_at: matchingSession.expires_at,
-        created_at: matchingSession.created_at,
-        last_used_at:
-          matchingSession.last_used_at || userSession.last_activity_at
+        expires_at: activeSession?.expires_at,
+        created_at: activeSession?.created_at,
+        last_used_at: activeSession?.last_used_at || userSession.last_activity_at
       }
     });
   } catch (error) {

@@ -1,4 +1,6 @@
-// app/api/auth/child-app/token/route.ts
+// app/api/auth/child-app/token-optimized/route.ts
+// Optimized version using unified session storage
+
 import { NextRequest, NextResponse } from 'next/server';
 import {
   createServerSupabaseClient,
@@ -6,9 +8,9 @@ import {
 } from '@/lib/supabase/server';
 import { SignJWT, jwtVerify } from 'jose';
 import crypto from 'crypto';
-import { ChildAppSessionManagerService } from '@/lib/services/child-app/session-manager-service';
+import { OptimizedSessionManagerService } from '@/lib/services/child-app/optimized-session-manager-service';
+import { OptimizedAuthCodesService } from '@/lib/services/child-app/optimized-auth-codes-service';
 import { ChildAppAnalyticsService } from '@/lib/services/child-app/analytics-service';
-import { AuthCodesCleanupService } from '@/lib/services/child-app/auth-codes-cleanup-service';
 
 // Add OPTIONS handler for CORS preflight
 export async function OPTIONS(request: NextRequest) {
@@ -85,59 +87,32 @@ export async function POST(request: NextRequest) {
     }
 
     if (grant_type === 'authorization_code') {
-      // Exchange authorization code for tokens
-      const { data: authCode, error: codeError } = await serviceClient
-        .from('child_app_auth_codes')
-        .select('*')
-        .eq('code', code)
-        .eq('app_id', app_id)
-        .eq('redirect_uri', redirect_uri)
-        .single();
+      // Validate and use the authorization code
+      const validationResult = await OptimizedAuthCodesService.validateAuthCode({
+        code,
+        appId: app_id,
+        redirectUri: redirect_uri
+      });
 
-      if (!authCode || codeError) {
+      if (!validationResult.valid || !validationResult.codeData) {
         return NextResponse.json(
           {
             error: 'invalid_grant',
-            error_description: 'Invalid authorization code'
+            error_description: validationResult.error || 'Invalid authorization code'
           },
           { status: 400, headers: corsHeaders }
         );
       }
 
-      // Check if code is expired
-      if (new Date(authCode.expires_at) < new Date()) {
-        return NextResponse.json(
-          {
-            error: 'invalid_grant',
-            error_description: 'Authorization code expired'
-          },
-          { status: 400, headers: corsHeaders }
-        );
-      }
+      const authCode = validationResult.codeData;
 
-      // Check if code was already used
-      if (authCode.used_at) {
-        return NextResponse.json(
-          {
-            error: 'invalid_grant',
-            error_description: 'Authorization code already used'
-          },
-          { status: 400, headers: corsHeaders }
-        );
-      }
-
-      // Validate state parameter if provided by child app
-      // This provides additional CSRF protection
+      // Validate state parameter if provided
       if (state && authCode.state && state !== authCode.state) {
         console.warn('State parameter mismatch detected:', {
           app_id,
           user_id: authCode.user_id,
           provided_state: state,
-          stored_state: authCode.state,
-          ip_address:
-            request.headers.get('x-forwarded-for') ||
-            request.headers.get('x-real-ip'),
-          user_agent: request.headers.get('user-agent')
+          stored_state: authCode.state
         });
 
         return NextResponse.json(
@@ -148,12 +123,6 @@ export async function POST(request: NextRequest) {
           { status: 400, headers: corsHeaders }
         );
       }
-
-      // Mark code as used
-      await serviceClient
-        .from('child_app_auth_codes')
-        .update({ used_at: new Date().toISOString() })
-        .eq('code', code);
 
       // Get user profile
       const { data: profile, error: profileError } = await serviceClient
@@ -200,21 +169,20 @@ export async function POST(request: NextRequest) {
         .setExpirationTime('30d')
         .sign(secret);
 
-      // Create user session in new JSON structure
-      const sessionResult =
-        await ChildAppSessionManagerService.createUserSession({
-          userId: authCode.user_id,
-          appId: app_id,
-          accessToken,
-          refreshToken: refreshTokenValue,
-          expiresIn: 3600,
-          scopes: (authCode.scope || 'read write profile').split(' '),
-          ipAddress:
-            request.headers.get('x-forwarded-for') ||
-            request.headers.get('x-real-ip') ||
-            undefined,
-          userAgent: request.headers.get('user-agent') || undefined
-        });
+      // Create user session using optimized service
+      const sessionResult = await OptimizedSessionManagerService.createUserSession({
+        userId: authCode.user_id,
+        appId: app_id,
+        accessToken,
+        refreshToken: refreshTokenValue,
+        expiresIn: 3600,
+        scopes: (authCode.scope || 'read write profile').split(' '),
+        ipAddress:
+          request.headers.get('x-forwarded-for') ||
+          request.headers.get('x-real-ip') ||
+          undefined,
+        userAgent: request.headers.get('user-agent') || undefined
+      });
 
       if (!sessionResult.success) {
         console.warn('Failed to create session:', sessionResult.error);
@@ -239,10 +207,10 @@ export async function POST(request: NextRequest) {
         .update({ last_auth_activity: new Date().toISOString() })
         .eq('id', app.id);
 
-      // Cleanup old auth codes in the background (don't wait for it)
-      AuthCodesCleanupService.autoCleanupIfNeeded().catch((error) => {
-        console.warn('Auth codes cleanup failed:', error);
-      });
+      // Trigger cleanup if needed (async, don't wait)
+      OptimizedAuthCodesService.autoCleanupIfNeeded().catch(console.error);
+
+      console.log(`[Optimized] Token generated for user ${authCode.user_id} on app ${app_id}`);
 
       return NextResponse.json(
         {
@@ -285,6 +253,17 @@ export async function POST(request: NextRequest) {
           throw new Error('Invalid refresh token');
         }
 
+        // Validate session exists using optimized service
+        const sessionValidation = await OptimizedSessionManagerService.validateSession({
+          userId: payload.sub as string,
+          appId: app_id,
+          accessToken: refresh_token // Using refresh token for validation
+        });
+
+        if (!sessionValidation.valid) {
+          throw new Error('Session not found or expired');
+        }
+
         // Get user profile
         const { data: profile, error: profileError } = await serviceClient
           .from('profiles')
@@ -322,20 +301,19 @@ export async function POST(request: NextRequest) {
           .sign(secret);
 
         // Update session with new access token
-        const sessionResult =
-          await ChildAppSessionManagerService.createUserSession({
-            userId: payload.sub as string,
-            appId: app_id,
-            accessToken,
-            refreshToken: refresh_token,
-            expiresIn: 3600,
-            scopes: ['read', 'write', 'profile'],
-            ipAddress:
-              request.headers.get('x-forwarded-for') ||
-              request.headers.get('x-real-ip') ||
-              undefined,
-            userAgent: request.headers.get('user-agent') || undefined
-          });
+        const sessionResult = await OptimizedSessionManagerService.createUserSession({
+          userId: payload.sub as string,
+          appId: app_id,
+          accessToken,
+          refreshToken: refresh_token,
+          expiresIn: 3600,
+          scopes: ['read', 'write', 'profile'],
+          ipAddress:
+            request.headers.get('x-forwarded-for') ||
+            request.headers.get('x-real-ip') ||
+            undefined,
+          userAgent: request.headers.get('user-agent') || undefined
+        });
 
         if (!sessionResult.success) {
           console.warn('Failed to update session:', sessionResult.error);
