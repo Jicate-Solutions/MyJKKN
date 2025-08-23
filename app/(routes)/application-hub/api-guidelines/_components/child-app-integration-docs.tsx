@@ -821,19 +821,48 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
         </AlertDescription>
       </Alert>
 
-      {/* Implementation Tabs */}
+      {/* Implementation Tabs - Responsive Design */}
       <Tabs defaultValue='overview' className='space-y-4'>
-        <TabsList className='grid w-full grid-cols-9'>
-          <TabsTrigger value='overview'>Overview</TabsTrigger>
-          <TabsTrigger value='quickstart'>Quick Start</TabsTrigger>
-          <TabsTrigger value='implementation'>Code</TabsTrigger>
-          <TabsTrigger value='permissions'>Permissions</TabsTrigger>
-          <TabsTrigger value='supabase'>Supabase</TabsTrigger>
-          <TabsTrigger value='endpoints'>Endpoints</TabsTrigger>
-          <TabsTrigger value='testing'>Testing</TabsTrigger>
-          <TabsTrigger value='troubleshoot'>Debug</TabsTrigger>
-          <TabsTrigger value='reference'>Reference</TabsTrigger>
-        </TabsList>
+        <div className='w-full overflow-x-auto pb-2'>
+          <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 md:grid md:grid-cols-9 md:gap-0'>
+            <TabsTrigger value='overview' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+              <span className='hidden sm:inline'>Overview</span>
+              <span className='sm:hidden'>Overview</span>
+            </TabsTrigger>
+            <TabsTrigger value='quickstart' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+              <span className='hidden sm:inline'>Quick Start</span>
+              <span className='sm:hidden'>Start</span>
+            </TabsTrigger>
+            <TabsTrigger value='implementation' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+              <span className='hidden sm:inline'>Code</span>
+              <span className='sm:hidden'>Code</span>
+            </TabsTrigger>
+            <TabsTrigger value='permissions' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+              <span className='hidden sm:inline'>Permissions</span>
+              <span className='sm:hidden'>Perms</span>
+            </TabsTrigger>
+            <TabsTrigger value='supabase' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+              <span className='hidden sm:inline'>Supabase</span>
+              <span className='sm:hidden'>DB</span>
+            </TabsTrigger>
+            <TabsTrigger value='endpoints' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+              <span className='hidden sm:inline'>Endpoints</span>
+              <span className='sm:hidden'>API</span>
+            </TabsTrigger>
+            <TabsTrigger value='testing' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+              <span className='hidden sm:inline'>Testing</span>
+              <span className='sm:hidden'>Test</span>
+            </TabsTrigger>
+            <TabsTrigger value='troubleshoot' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+              <span className='hidden sm:inline'>Debug</span>
+              <span className='sm:hidden'>Debug</span>
+            </TabsTrigger>
+            <TabsTrigger value='reference' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+              <span className='hidden sm:inline'>Reference</span>
+              <span className='sm:hidden'>Ref</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Overview Tab */}
         <TabsContent value='overview' className='space-y-6'>

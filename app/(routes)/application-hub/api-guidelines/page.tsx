@@ -52,7 +52,7 @@ export default function ApiGuidelinesPage() {
         <ApiNav />
 
         <Tabs defaultValue='basic'>
-          <TabsList>
+          <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 lg:grid lg:grid-cols-6 lg:gap-0'>
             <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
             <TabsTrigger value='child-app'>Child App Integration</TabsTrigger>
             <TabsTrigger value='organization'>Organizations API</TabsTrigger>
