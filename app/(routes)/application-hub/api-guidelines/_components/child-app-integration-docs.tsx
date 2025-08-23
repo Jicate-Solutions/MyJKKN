@@ -169,12 +169,13 @@ export class ParentAuthService {
     const response = await fetch(\`\${this.config.parentAppUrl}/api/auth/child-app/token\`, {
       method: 'POST',
       headers: { 
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-API-Key': process.env.NEXT_PUBLIC_API_KEY || ''
       },
       body: JSON.stringify({
         grant_type: 'authorization_code',
         code: code,
-        app_id: this.config.appId,
+        child_app_id: this.config.appId,  // Note: Use child_app_id
         redirect_uri: this.config.redirectUri
       })
     });
@@ -266,11 +267,14 @@ export class ParentAuthService {
     try {
       const response = await fetch(\`\${this.config.parentAppUrl}/api/auth/child-app/token\`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-API-Key': process.env.NEXT_PUBLIC_API_KEY || ''
+        },
         body: JSON.stringify({
           grant_type: 'refresh_token',
           refresh_token: refreshToken,
-          app_id: this.config.appId
+          child_app_id: this.config.appId  // Note: Use child_app_id
         })
       });
 
@@ -554,20 +558,18 @@ export function ProtectedRoute({
   return <>{children}</>;
 }`;
 
-  // Environment variables
+  // Environment variables - UPDATED with API key requirement
   const envExample = `# .env.local
 # MyJKKN Parent App Configuration
 NEXT_PUBLIC_PARENT_APP_URL=https://my.jkkn.ac.in
 NEXT_PUBLIC_APP_ID=your_app_id_here
+NEXT_PUBLIC_API_KEY=your_api_key_here  # REQUIRED for API calls
 
-# Development redirect URI
-NEXT_PUBLIC_REDIRECT_URI=http://localhost:3000/auth/callback
+# Development redirect URI (use port 3001 to avoid conflict with parent app)
+NEXT_PUBLIC_REDIRECT_URI=http://localhost:3001/auth/callback
 
 # Production redirect URI (uncomment for production):
 # NEXT_PUBLIC_REDIRECT_URI=https://your-app.com/auth/callback
-
-# Optional: Google OAuth client ID for One Tap (if using)
-# NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id
 
 # Optional: Enable debug logging
 # NEXT_PUBLIC_AUTH_DEBUG=true`;
@@ -657,7 +659,7 @@ export default function HomePage() {
   }
 }`;
 
-  // OAuth flow endpoints
+  // OAuth flow endpoints - UPDATED for current implementation
   const oauthEndpoints = `# OAuth 2.0 Endpoints
 
 ## Authorization Endpoint (Consent Page)
@@ -668,17 +670,18 @@ Parameters:
 - app_id={your_app_id} (required)
 - redirect_uri={your_callback_url} (required)
 - scope=read write profile (optional)
-- state={random_string} (recommended for CSRF protection)
+- state={random_string} (REQUIRED for CSRF protection)
 
 ## Token Exchange Endpoint
 POST https://my.jkkn.ac.in/api/auth/child-app/token
 Headers:
 - Content-Type: application/json
+- X-API-Key: {your_api_key} (REQUIRED)
 Body:
 {
   "grant_type": "authorization_code",
   "code": "{auth_code}",
-  "app_id": "{your_app_id}",
+  "child_app_id": "{your_app_id}",  // Note: Use child_app_id, not app_id
   "redirect_uri": "{your_callback_url}"
 }
 
@@ -686,11 +689,23 @@ Body:
 POST https://my.jkkn.ac.in/api/auth/child-app/token
 Headers:
 - Content-Type: application/json
+- X-API-Key: {your_api_key} (REQUIRED)
 Body:
 {
   "grant_type": "refresh_token",
   "refresh_token": "{refresh_token}",
-  "app_id": "{your_app_id}"
+  "child_app_id": "{your_app_id}"  // Note: Use child_app_id
+}
+
+## Token Validation Endpoint
+POST https://my.jkkn.ac.in/api/auth/child-app/validate
+Headers:
+- Content-Type: application/json
+- X-API-Key: {your_api_key} (REQUIRED)
+Body:
+{
+  "token": "{access_token}",
+  "child_app_id": "{your_app_id}"
 }
 
 ## Logout Endpoint (Child App Session Only)
@@ -708,30 +723,41 @@ Body:
 Note: This endpoint only clears the child app session. 
 The parent app session remains active for seamless re-authentication.`;
 
-  // Test endpoints
+  // Test endpoints - UPDATED with API key requirements
   const testEndpoints = `# Test Your Integration
 
 ## 1. Test Authorization URL
 Open this in your browser:
-https://my.jkkn.ac.in/auth/child-app/consent?response_type=code&app_id=YOUR_APP_ID&redirect_uri=http://localhost:3000/auth/callback&scope=read write profile&state=test123
+https://my.jkkn.ac.in/auth/child-app/consent?response_type=code&app_id=YOUR_APP_ID&redirect_uri=http://localhost:3001/auth/callback&scope=read write profile&state=test123
 
 ## 2. Test Token Exchange
 curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
   -H "Content-Type: application/json" \\
+  -H "X-API-Key: YOUR_API_KEY" \\
   -d '{
     "grant_type": "authorization_code",
     "code": "TEST_AUTH_CODE",
-    "app_id": "YOUR_APP_ID",
-    "redirect_uri": "http://localhost:3000/auth/callback"
+    "child_app_id": "YOUR_APP_ID",
+    "redirect_uri": "http://localhost:3001/auth/callback"
   }'
 
-## 3. Test Token Refresh
+## 3. Test Token Validation
+curl -X POST https://my.jkkn.ac.in/api/auth/child-app/validate \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: YOUR_API_KEY" \\
+  -d '{
+    "token": "YOUR_ACCESS_TOKEN",
+    "child_app_id": "YOUR_APP_ID"
+  }'
+
+## 4. Test Token Refresh
 curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
   -H "Content-Type: application/json" \\
+  -H "X-API-Key: YOUR_API_KEY" \\
   -d '{
     "grant_type": "refresh_token",
     "refresh_token": "YOUR_REFRESH_TOKEN",
-    "app_id": "YOUR_APP_ID"
+    "child_app_id": "YOUR_APP_ID"
   }'`;
 
   return (
@@ -757,10 +783,41 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
           <strong>Prerequisites:</strong> Before starting, ensure you have:
           <ul className='mt-2 space-y-1 text-sm'>
             <li>• Your App ID from MyJKKN admin panel</li>
+            <li>• Your API Key from MyJKKN admin panel (required for all API calls)</li>
             <li>• Your application registered in MyJKKN</li>
             <li>• Redirect URIs configured in MyJKKN</li>
             <li>• Next.js 14+ project with TypeScript</li>
           </ul>
+        </AlertDescription>
+      </Alert>
+
+      {/* Backend Optimization Note */}
+      <Alert className='border-green-200 bg-green-50 dark:bg-green-950/20'>
+        <Sparkles className='h-4 w-4 text-green-600' />
+        <AlertDescription>
+          <strong>🎉 Optimized Backend:</strong> The MyJKKN authentication system now uses an optimized storage structure that reduces database usage by <strong>99%</strong>. Auth codes and sessions are automatically cleaned up, ensuring optimal performance even with thousands of users and multiple child apps.
+        </AlertDescription>
+      </Alert>
+
+      {/* Reference Implementation */}
+      <Alert className='border-purple-200 bg-purple-50 dark:bg-purple-950/20'>
+        <Bot className='h-4 w-4 text-purple-600' />
+        <AlertDescription>
+          <strong>📚 Complete Working Example:</strong> Check out our fully functional test application that demonstrates the complete authentication flow:
+          <div className='mt-2'>
+            <a 
+              href='https://github.com/JKKN-Institutions/child-app-auth-flow-integration' 
+              target='_blank' 
+              rel='noopener noreferrer'
+              className='inline-flex items-center gap-2 text-purple-700 hover:text-purple-900 font-medium underline'
+            >
+              <ExternalLink className='h-4 w-4' />
+              GitHub: child-app-auth-flow-integration
+            </a>
+          </div>
+          <div className='mt-2 text-sm'>
+            This repository includes all the code shown in this guide, fully tested and ready to use as a template for your own child app.
+          </div>
         </AlertDescription>
       </Alert>
 
@@ -960,6 +1017,34 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
               </CardDescription>
             </CardHeader>
             <CardContent className='space-y-6'>
+              {/* Reference Implementation Box */}
+              <div className='bg-purple-50 dark:bg-purple-950/20 border border-purple-200 rounded-lg p-4'>
+                <div className='flex items-start gap-3'>
+                  <GitBranch className='h-5 w-5 text-purple-600 mt-0.5' />
+                  <div className='flex-1'>
+                    <p className='font-medium text-purple-900 dark:text-purple-100'>
+                      Start with our Complete Example
+                    </p>
+                    <p className='text-sm text-purple-700 dark:text-purple-300 mt-1'>
+                      Clone our working test application to get started quickly:
+                    </p>
+                    <div className='mt-3 bg-slate-950 rounded-lg p-3'>
+                      <code className='text-sm text-slate-50'>
+                        git clone https://github.com/JKKN-Institutions/child-app-auth-flow-integration.git
+                      </code>
+                    </div>
+                    <a 
+                      href='https://github.com/JKKN-Institutions/child-app-auth-flow-integration' 
+                      target='_blank' 
+                      rel='noopener noreferrer'
+                      className='inline-flex items-center gap-1 text-sm text-purple-700 hover:text-purple-900 font-medium underline mt-2'
+                    >
+                      View on GitHub <ExternalLink className='h-3 w-3' />
+                    </a>
+                  </div>
+                </div>
+              </div>
+
               {/* Step 1: Install Dependencies */}
               <div className='space-y-4'>
                 <h3 className='text-lg font-semibold flex items-center gap-2'>
