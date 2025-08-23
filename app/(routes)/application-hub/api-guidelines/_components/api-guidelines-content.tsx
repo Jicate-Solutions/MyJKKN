@@ -680,7 +680,7 @@ export default function CoursesList() {
       </Alert>
 
       <Tabs defaultValue='institutions' onValueChange={setActiveModule}>
-        <TabsList className='grid w-full grid-cols-5'>
+        <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 md:grid md:grid-cols-5 md:gap-0'>
           <TabsTrigger value='institutions'>Institutions</TabsTrigger>
           <TabsTrigger value='departments'>Departments</TabsTrigger>
           <TabsTrigger value='programs'>Programs</TabsTrigger>
@@ -695,7 +695,7 @@ export default function CoursesList() {
               <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
                 <div className='md:col-span-2'>
                   <Tabs defaultValue='usage'>
-                    <TabsList className='grid w-full grid-cols-4'>
+                    <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 md:grid md:grid-cols-4 md:gap-0'>
                       <TabsTrigger value='usage'>Basic Usage</TabsTrigger>
                       <TabsTrigger value='components'>Components</TabsTrigger>
                       <TabsTrigger value='examples'>Examples</TabsTrigger>

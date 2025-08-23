@@ -218,7 +218,7 @@ echo "API Tests Completed!"`;
       </Alert>
 
       <Tabs defaultValue='students' className='w-full'>
-        <TabsList className='grid w-full grid-cols-4'>
+        <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 md:grid md:grid-cols-4 md:gap-0'>
           <TabsTrigger value='students'>Students API</TabsTrigger>
           <TabsTrigger value='staff'>Staff API</TabsTrigger>
           <TabsTrigger value='organizations'>Organizations</TabsTrigger>
