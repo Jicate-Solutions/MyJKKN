@@ -3,7 +3,7 @@
  * Manages analytics and logging using consolidated JSON structure
  */
 
-import { createAdminClient } from '@/lib/supabase/client';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export interface HourlyStats {
   hour: number;
@@ -64,7 +64,7 @@ export class ChildAppAnalyticsService {
     details?: Record<string, any>;
   }): Promise<void> {
     try {
-      const supabase = createAdminClient();
+      const supabase = createServiceRoleClient();
       const now = new Date();
       const today = now.toISOString().split('T')[0];
       const hour = now.getHours();
@@ -161,7 +161,7 @@ export class ChildAppAnalyticsService {
     avgErrorRate: number;
   }> {
     try {
-      const supabase = createAdminClient();
+      const supabase = createServiceRoleClient();
 
       const { data, error } = await supabase
         .from('child_app_analytics')
@@ -224,7 +224,7 @@ export class ChildAppAnalyticsService {
     peakHour: { hour: number; users: number } | null;
   }> {
     try {
-      const supabase = createAdminClient();
+      const supabase = createServiceRoleClient();
       const today = new Date().toISOString().split('T')[0];
 
       const { data, error } = await supabase
@@ -303,7 +303,7 @@ export class ChildAppAnalyticsService {
     topErrorEndpoints: Array<{ endpoint: string; errorCount: number }>;
   }> {
     try {
-      const supabase = createAdminClient();
+      const supabase = createServiceRoleClient();
 
       const { data, error } = await supabase
         .from('child_app_analytics')
@@ -393,7 +393,7 @@ export class ChildAppAnalyticsService {
     retentionDays: number = 90
   ): Promise<{ deletedRecords: number }> {
     try {
-      const supabase = createAdminClient();
+      const supabase = createServiceRoleClient();
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
       const cutoffDateString = cutoffDate.toISOString().split('T')[0];
