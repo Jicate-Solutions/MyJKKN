@@ -63,7 +63,7 @@ export function UserDetails({ user }: UserDetailsProps) {
                 <Badge variant='secondary'>
                   {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
                 </Badge>
-                {user.last_login ? (
+                {user.is_active ? (
                   <Badge variant='success'>Active</Badge>
                 ) : (
                   <Badge variant='destructive'>Inactive</Badge>

@@ -3,6 +3,15 @@ import { useState, useCallback, useRef } from 'react';
 interface EmailValidationResult {
   available: boolean;
   message: string;
+  existingUser?: {
+    id: string;
+    email: string;
+    fullName: string;
+    role: string;
+    isActive: boolean;
+    createdAt: string;
+  } | null;
+  suggestion?: string | null;
 }
 
 interface UseEmailValidationReturn {
@@ -34,7 +43,7 @@ export function useEmailValidation(): UseEmailValidationReturn {
   };
 
   // Custom debounce function
-  const debounce = (func: Function, delay: number) => {
+  const debounce = (func: (...args: any[]) => void, delay: number) => {
     return (...args: any[]) => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);

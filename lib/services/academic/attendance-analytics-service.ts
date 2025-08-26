@@ -1109,7 +1109,7 @@ export class AttendanceAnalyticsService {
   static async getStaff(
     institutionId?: string
   ): Promise<
-    Array<{ id: string; name: string; email: string; designation: string; profile_id?: string }>
+    Array<{ id: string; name: string; email: string; institution_email: string; designation: string; profile_id?: string }>
   > {
     try {
       const supabase = this.getSupabase();
@@ -1132,7 +1132,8 @@ export class AttendanceAnalyticsService {
       return (data || []).map((item) => ({
         id: item.id,
         name: `${item.first_name} ${item.last_name}`,
-        email: item.email || item.institution_email,
+        email: item.email,
+        institution_email: item.institution_email,
         designation: item.designation,
         profile_id: item.profile_id
       }));

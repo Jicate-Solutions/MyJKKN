@@ -51,6 +51,7 @@ export const columns: ColumnDef<Institution>[] = [
         aria-label='Select row'
       />
     ),
+    maxSize: 50,
     enableSorting: false,
     enableHiding: false
   },
@@ -59,7 +60,8 @@ export const columns: ColumnDef<Institution>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Code' />
     ),
-    cell: ({ row }) => <CounsellingCodeCell row={row} />
+    cell: ({ row }) => <CounsellingCodeCell row={row} />,
+    maxSize: 50
   },
   {
     accessorKey: 'name',
@@ -75,7 +77,9 @@ export const columns: ColumnDef<Institution>[] = [
           {row.original.name}
         </Link>
       );
-    }
+    },
+    size: 800,
+    minSize: 600
   },
   {
     accessorKey: 'email',

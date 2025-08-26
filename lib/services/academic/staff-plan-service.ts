@@ -14,6 +14,47 @@ import type {
 export class StaffPlanService {
   private static supabase = createClientSupabaseClient();
 
+  // Get courses by institution for filter dropdown - only courses with staff plans
+  static async getCoursesByInstitution(institutionId: string): Promise<{
+    id: string;
+    course_code: string;
+    course_name: string;
+  }[]> {
+    try {
+      // First get all course IDs that have staff plans for this institution
+      const { data: staffPlanCourses, error: spError } = await this.supabase
+        .from('staff_plan_courses')
+        .select(`
+          course_id,
+          staff_plans!inner(institution_id)
+        `)
+        .eq('staff_plans.institution_id', institutionId);
+
+      if (spError) throw spError;
+
+      if (!staffPlanCourses || staffPlanCourses.length === 0) {
+        return [];
+      }
+
+      // Get unique course IDs
+      const courseIds = [...new Set(staffPlanCourses.map(spc => spc.course_id))];
+
+      // Now get the course details
+      const { data: courses, error } = await this.supabase
+        .from('courses')
+        .select('id, course_code, course_name')
+        .in('id', courseIds)
+        .eq('is_active', true)
+        .order('course_name');
+
+      if (error) throw error;
+      return courses || [];
+    } catch (error) {
+      console.error('Error fetching courses by institution:', error);
+      return [];
+    }
+  }
+
   static async createStaffPlan(data: CreateStaffPlanDto): Promise<StaffPlan> {
     try {
       const { courses, ...staffPlanData } = data;
@@ -222,25 +263,56 @@ export class StaffPlanService {
         query = query.eq('is_active', filters.isActive);
       }
 
-      // Apply text search across relevant fields
-      if (filters.search) {
-        query = query.or(`
-          institution.name.ilike.%${filters.search}%,
-          degree.degree_name.ilike.%${filters.search}%,
-          program.program_name.ilike.%${filters.search}%,
-          department.department_name.ilike.%${filters.search}%,
-          semester.semester_name.ilike.%${filters.search}%,
-          academic_year.academic_year_name.ilike.%${filters.search}%
-        `);
+      // Apply course filter by joining with staff_plan_courses
+      if (filters.course_id) {
+        // We need to filter staff plans that have assignments for the specific course
+        // This requires a different approach since we need to check the relationship table
+        const { data: staffPlanIds, error: courseFilterError } = await this.supabase
+          .from('staff_plan_courses')
+          .select('staff_plan_id')
+          .eq('course_id', filters.course_id);
+
+        if (courseFilterError) {
+          console.warn('Error filtering by course:', courseFilterError);
+        } else if (staffPlanIds && staffPlanIds.length > 0) {
+          const planIds = staffPlanIds.map(sp => sp.staff_plan_id);
+          query = query.in('id', planIds);
+        } else {
+          // No staff plans found for this course, return empty result
+          return {
+            data: [],
+            metadata: {
+              total: 0,
+              page: 1,
+              limit: filters.limit || 10,
+              totalPages: 0
+            }
+          };
+        }
       }
 
-      // Apply pagination
+      // Apply text search - PostgREST doesn't support direct nested field search in or() clause
+      // We'll fetch all records and filter client-side for search functionality
+      // This is a limitation when searching across related tables
+      if (filters.search) {
+        // For now, we'll skip the text search in the query and handle it client-side
+        // after getting the data with all related fields populated
+        console.log(`Search term: ${filters.search} - will be applied client-side`);
+      }
+
+      // Store pagination params for later use
       const page = filters.page || 1;
       const limit = filters.limit || 10;
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
-
-      query = query.range(from, to).order('created_at', { ascending: false });
+      
+      // If we have a search term, we need to fetch ALL records to filter client-side
+      // Otherwise, apply pagination at database level for better performance
+      if (filters.search && filters.search.trim()) {
+        query = query.order('created_at', { ascending: false });
+      } else {
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+        query = query.range(from, to).order('created_at', { ascending: false });
+      }
 
       const { data: plans, error, count } = await query;
 
@@ -311,13 +383,45 @@ export class StaffPlanService {
         finalPlans = await this.consolidateDuplicatePlans(finalPlans);
       }
 
+      // Apply client-side search filtering if search term exists
+      let totalCount = count || 0;
+      if (filters.search && filters.search.trim()) {
+        const searchTerm = filters.search.toLowerCase().trim();
+        finalPlans = finalPlans.filter((plan) => {
+          // Search across all related fields
+          const searchableFields = [
+            plan.institution?.name,
+            plan.degree?.degree_name,
+            plan.program?.program_name,
+            plan.department?.department_name,
+            plan.semester?.semester_name,
+            plan.academic_year?.academic_year_name
+          ];
+          
+          return searchableFields.some((field) =>
+            field && field.toLowerCase().includes(searchTerm)
+          );
+        });
+        
+        // Update total count after filtering
+        totalCount = finalPlans.length;
+        
+        // Apply client-side pagination after filtering
+        const from = (page - 1) * limit;
+        const to = from + limit;
+        finalPlans = finalPlans.slice(from, to);
+      }
+
+      // Calculate pagination metadata
+      const totalPages = Math.ceil(totalCount / limit);
+
       return {
         data: finalPlans,
         metadata: {
-          total: count || 0,
+          total: totalCount,
           page,
           limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
+          totalPages
         }
       };
     } catch (error) {

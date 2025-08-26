@@ -4,11 +4,23 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { DegreesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon } from 'lucide-react';
+import { Plus, TrashIcon, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { Degree } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useState } from 'react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { toast } from 'sonner';
 
 interface DegreesDataTableProps {
   search: DegreesSearchParams;
@@ -16,8 +28,11 @@ interface DegreesDataTableProps {
 
 export function DegreesDataTable({ search }: DegreesDataTableProps) {
   const router = useRouter();
-
   const { canAccess, isSuperAdmin } = usePermissions();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<Degree[]>([]);
+  const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.institutions', 'create');
@@ -68,27 +83,48 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
   ) => {
     if (selectedRows.length === 0) return;
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedRows.length} degree${
-        selectedRows.length > 1 ? 's' : ''
-      }? This action cannot be undone.`
-    );
+    setSelectedForDelete(selectedRows);
+    setDeleteResetFn(() => resetSelection);
+    setShowDeleteDialog(true);
+  };
 
-    if (!confirmed) return;
+  const confirmDelete = async () => {
+    if (selectedForDelete.length === 0) return;
 
+    setIsDeleting(true);
     try {
-      // Delete all selected degrees
-      await Promise.all(
-        selectedRows.map((degree: Degree) =>
+      const results = await Promise.allSettled(
+        selectedForDelete.map((degree: Degree) =>
           DegreeService.deleteDegree(degree.id)
         )
       );
 
-      // Reset selection and refresh data
-      resetSelection();
-      // The DataTable will automatically refetch data after this
+      const successful = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected').length;
+
+      if (successful > 0) {
+        toast.success(`Successfully deleted ${successful} degree${successful > 1 ? 's' : ''}`);
+      }
+      
+      if (failed > 0) {
+        toast.error(`Failed to delete ${failed} degree${failed > 1 ? 's' : ''}`);
+      }
+
+      if (deleteResetFn) {
+        deleteResetFn();
+      }
+      
+      // Refresh the table
+      router.refresh();
+      
+      setShowDeleteDialog(false);
+      setSelectedForDelete([]);
+      setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting degrees:', error);
+      toast.error('An error occurred while deleting degrees');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -130,23 +166,75 @@ export function DegreesDataTable({ search }: DegreesDataTableProps) {
   );
 
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      exportConfig={{
-        entityName: 'degrees',
-        columnMapping: {},
-        columnWidths: [],
-        headers: []
-      }}
-      idField='id'
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: false,
-        enableRowSelection: true
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <>
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        exportConfig={{
+          entityName: 'degrees',
+          columnMapping: {},
+          columnWidths: [],
+          headers: []
+        }}
+        idField='id'
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: false,
+          enableRowSelection: true
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selectedForDelete.length > 1
+                ? `Delete ${selectedForDelete.length} Degrees`
+                : `Delete Degree: ${selectedForDelete[0]?.name}`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the degree{selectedForDelete.length > 1 ? 's' : ''} and all related data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {/* List degrees to be deleted */}
+          {selectedForDelete.length > 0 && (
+            <div className="my-4 p-3 bg-muted rounded-lg">
+              <div className="text-sm font-medium mb-2">
+                Degree{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {selectedForDelete.map((degree) => (
+                  <div key={degree.id} className="text-sm">
+                    • {degree.name} ({degree.abbreviation})
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} Degrees` : 'Degree'}`
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

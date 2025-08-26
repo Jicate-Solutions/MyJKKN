@@ -47,10 +47,25 @@ export function useDashboard() {
 
       // If no configurations exist, create a default one
       if (configs.length === 0) {
-        const defaultConfig =
-          await DashboardService.createDefaultConfiguration();
-        setConfigurations([defaultConfig]);
-        setCurrentConfiguration(defaultConfig);
+        try {
+          const defaultConfig =
+            await DashboardService.createDefaultConfiguration();
+          setConfigurations([defaultConfig]);
+          setCurrentConfiguration(defaultConfig);
+        } catch (createError) {
+          // If creation fails due to duplicate, try to fetch again
+          console.warn('Failed to create default config, attempting to refetch:', createError);
+          const retryConfigs = await DashboardService.getUserDashboardConfigurations();
+          if (retryConfigs.length > 0) {
+            setConfigurations(retryConfigs);
+            const defaultConfig =
+              retryConfigs.find((c) => c.is_default) || retryConfigs[0];
+            setCurrentConfiguration(defaultConfig);
+          } else {
+            // If still no configs and creation failed, throw the error
+            throw createError;
+          }
+        }
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);

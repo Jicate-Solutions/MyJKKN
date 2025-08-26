@@ -209,7 +209,7 @@ export class TimetableService {
         throw error;
       }
 
-      toast.success('✅ Timetable configuration saved successfully!', {
+      toast.success('Timetable configuration saved successfully!', {
         duration: 3000,
         position: 'top-center',
         style: {

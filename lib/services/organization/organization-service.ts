@@ -184,6 +184,147 @@ export class OrganizationService {
     }
   }
 
+  static async getInstitutionRelatedDataCount(id: string): Promise<{
+    degrees: number;
+    programs: number;
+    departments: number;
+    staff: number;
+    students: number;
+    bills: number;
+    academic_years: number;
+    sections: number;
+    courses: number;
+    timetables: number;
+  }> {
+    try {
+      // Count related data
+      const [
+        degreesResult,
+        programsResult,
+        departmentsResult,
+        staffResult,
+        studentsResult,
+        billsResult,
+        academicYearsResult,
+        sectionsResult,
+        coursesResult,
+        timetablesResult
+      ] = await Promise.all([
+        this.supabase.from('degrees').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('programs').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('departments').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('staff').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('students').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('billing_student_bills').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('academic_years').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('sections').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('courses').select('id', { count: 'exact', head: true }).eq('institution_id', id),
+        this.supabase.from('timetables').select('id', { count: 'exact', head: true }).eq('institution_id', id)
+      ]);
+
+      return {
+        degrees: degreesResult.count || 0,
+        programs: programsResult.count || 0,
+        departments: departmentsResult.count || 0,
+        staff: staffResult.count || 0,
+        students: studentsResult.count || 0,
+        bills: billsResult.count || 0,
+        academic_years: academicYearsResult.count || 0,
+        sections: sectionsResult.count || 0,
+        courses: coursesResult.count || 0,
+        timetables: timetablesResult.count || 0
+      };
+    } catch (error) {
+      console.error('Error counting related data:', error);
+      return {
+        degrees: 0,
+        programs: 0,
+        departments: 0,
+        staff: 0,
+        students: 0,
+        bills: 0,
+        academic_years: 0,
+        sections: 0,
+        courses: 0,
+        timetables: 0
+      };
+    }
+  }
+
+  static async deleteInstitutionWithCascade(id: string): Promise<void> {
+    try {
+      // Get institution logo URL first
+      const { data: institution } = await this.supabase
+        .from('institutions')
+        .select('logo_url')
+        .eq('id', id)
+        .single();
+
+      // Delete the logo if exists
+      if (institution?.logo_url) {
+        await StorageService.deleteInstitutionLogo(id);
+      }
+
+      // Delete related data in order to handle foreign key constraints
+      // Start with the most dependent tables and work backwards
+      await Promise.all([
+        this.supabase.from('billing_receipts').delete().eq('institution_id', id),
+        this.supabase.from('billing_invoices').delete().eq('institution_id', id),
+        this.supabase.from('student_attendance').delete().eq('institution_id', id),
+        this.supabase.from('timetables').delete().eq('institution_id', id),
+        this.supabase.from('staff_plans').delete().eq('institution_id', id),
+        this.supabase.from('course_mappings').delete().eq('institution_id', id),
+        this.supabase.from('user_activity_logs').delete().eq('institution_id', id),
+        this.supabase.from('user_institution_access').delete().eq('institution_id', id),
+        this.supabase.from('resources').delete().eq('institution_id', id),
+        this.supabase.from('bug_reports').delete().eq('institution_id', id)
+      ]);
+
+      // Delete billing related data
+      await Promise.all([
+        this.supabase.from('billing_student_bills').delete().eq('institution_id', id),
+        this.supabase.from('billing_sub_categories').delete().eq('institution_id', id),
+        this.supabase.from('billing_item_categories').delete().eq('institution_id', id),
+        this.supabase.from('billing_parent_categories').delete().eq('institution_id', id)
+      ]);
+
+      // Delete academic structure
+      await Promise.all([
+        this.supabase.from('students').delete().eq('institution_id', id),
+        this.supabase.from('staff').delete().eq('institution_id', id),
+        this.supabase.from('admissions').delete().eq('institution_id', id),
+        this.supabase.from('sections').delete().eq('institution_id', id),
+        this.supabase.from('semesters').delete().eq('institution_id', id),
+        this.supabase.from('courses').delete().eq('institution_id', id),
+        this.supabase.from('periods').delete().eq('institution_id', id)
+      ]);
+
+      // Delete programs and degrees
+      await Promise.all([
+        this.supabase.from('programs').delete().eq('institution_id', id),
+        this.supabase.from('degrees').delete().eq('institution_id', id),
+        this.supabase.from('departments').delete().eq('institution_id', id),
+        this.supabase.from('academic_years').delete().eq('institution_id', id)
+      ]);
+
+      // Delete institution departments
+      await this.supabase.from('institution_departments').delete().eq('institution_id', id);
+
+      // Finally delete the institution itself
+      const { error } = await this.supabase
+        .from('institutions')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      return;
+    } catch (error) {
+      console.error('Error deleting institution with cascade:', error);
+      throw error;
+    }
+  }
+
   static async deleteInstitution(id: string): Promise<void> {
     try {
       // Get institution logo URL first

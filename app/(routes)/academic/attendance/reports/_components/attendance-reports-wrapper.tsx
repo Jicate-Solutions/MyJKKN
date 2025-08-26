@@ -57,17 +57,19 @@ export function AttendanceReportsWrapper() {
         // For faculty, we need staff data to be loaded
         // If still loading, don't set staff_id yet
         if (!staffLoading && staffData) {
-          // Find staff record by matching profile_id first, then fallback to email
+          // Find staff record by matching profile_id first, then fallback to institution_email
           const staffRecord = staffData.find((staff: any) => {
             // First try to match by profile_id (most accurate)
             if (staff.profile_id && staff.profile_id === profile.id) {
               return true;
             }
 
-            // Fallback to email matching (case-insensitive)
-            const staffEmail = staff.email?.toLowerCase();
+            // Fallback to institution_email matching (case-insensitive)
+            // Only use institution_email for authentication, not personal email
+            const staffInstitutionEmail = staff.institution_email?.toLowerCase();
             const profileEmail = profile.email?.toLowerCase();
-            return staffEmail === profileEmail;
+            
+            return staffInstitutionEmail === profileEmail;
           });
 
           if (staffRecord) {

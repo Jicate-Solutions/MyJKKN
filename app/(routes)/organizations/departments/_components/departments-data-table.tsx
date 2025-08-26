@@ -4,11 +4,23 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { DepartmentsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon } from 'lucide-react';
+import { Plus, TrashIcon, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { Department } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useState } from 'react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { toast } from 'sonner';
 
 interface DepartmentsDataTableProps {
   search: DepartmentsSearchParams;
@@ -17,6 +29,10 @@ interface DepartmentsDataTableProps {
 export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<Department[]>([]);
+  const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.institutions', 'create');
@@ -69,27 +85,48 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   ) => {
     if (selectedRows.length === 0) return;
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedRows.length} department${
-        selectedRows.length > 1 ? 's' : ''
-      }? This action cannot be undone.`
-    );
+    setSelectedForDelete(selectedRows);
+    setDeleteResetFn(() => resetSelection);
+    setShowDeleteDialog(true);
+  };
 
-    if (!confirmed) return;
+  const confirmDelete = async () => {
+    if (selectedForDelete.length === 0) return;
 
+    setIsDeleting(true);
     try {
-      // Delete all selected departments
-      await Promise.all(
-        selectedRows.map((department: Department) =>
+      const results = await Promise.allSettled(
+        selectedForDelete.map((department: Department) =>
           DepartmentService.deleteDepartment(department.id)
         )
       );
 
-      // Reset selection and refresh data
-      resetSelection();
-      // The DataTable will automatically refetch data after this
+      const successful = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected').length;
+
+      if (successful > 0) {
+        toast.success(`Successfully deleted ${successful} department${successful > 1 ? 's' : ''}`);
+      }
+      
+      if (failed > 0) {
+        toast.error(`Failed to delete ${failed} department${failed > 1 ? 's' : ''}`);
+      }
+
+      if (deleteResetFn) {
+        deleteResetFn();
+      }
+      
+      // Refresh the table
+      router.refresh();
+      
+      setShowDeleteDialog(false);
+      setSelectedForDelete([]);
+      setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting departments:', error);
+      toast.error('An error occurred while deleting departments');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -131,23 +168,75 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   );
 
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      exportConfig={{
-        entityName: 'departments',
-        columnMapping: {},
-        columnWidths: [],
-        headers: []
-      }}
-      idField='id'
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: false,
-        enableRowSelection: true
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <>
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        exportConfig={{
+          entityName: 'departments',
+          columnMapping: {},
+          columnWidths: [],
+          headers: []
+        }}
+        idField='id'
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: false,
+          enableRowSelection: true
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selectedForDelete.length > 1
+                ? `Delete ${selectedForDelete.length} Departments`
+                : `Delete Department: ${selectedForDelete[0]?.name}`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the department{selectedForDelete.length > 1 ? 's' : ''} and all related data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {/* List departments to be deleted */}
+          {selectedForDelete.length > 0 && (
+            <div className="my-4 p-3 bg-muted rounded-lg">
+              <div className="text-sm font-medium mb-2">
+                Department{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {selectedForDelete.map((department) => (
+                  <div key={department.id} className="text-sm">
+                    • {department.name} ({department.abbreviation})
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} Departments` : 'Department'}`
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

@@ -125,6 +125,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/students/onboarding': 'students.onboarding.view',
   '/students/onboarding/edit': 'students.onboarding.edit',
   '/students/promotion': 'students.promotion.view',
+  '/admin/students/sync-profiles': 'super_admin', // Super admin only
 
   // Staff Management
   '/staff/category': 'staff.categories.view',
@@ -413,6 +414,14 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/students/promotion',
           icon: GraduationCap,
           submenus: []
+        },
+        {
+          href: '/admin/students/sync-profiles',
+          label: 'Sync Profiles (Admin)',
+          active: pathname === '/admin/students/sync-profiles',
+          icon: Users,
+          submenus: [],
+          requiresSuperAdmin: true
         }
       ]
     },
@@ -793,6 +802,11 @@ export function GetRoleBasedPages(
         .filter((menu) => {
           // Dashboard is always visible
           if (menu.href === '/') return true;
+
+          // Check if menu requires super admin
+          if ((menu as any).requiresSuperAdmin) {
+            return false; // Hide from non-super admin users
+          }
 
           // Special handling for parent menus with submenus
           if (menu.submenus.length > 0) {

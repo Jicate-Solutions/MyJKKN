@@ -4,11 +4,23 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { ProgramsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon } from 'lucide-react';
+import { Plus, TrashIcon, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { Program } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useState } from 'react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { toast } from 'sonner';
 
 interface ProgramsDataTableProps {
   search: ProgramsSearchParams;
@@ -17,6 +29,10 @@ interface ProgramsDataTableProps {
 export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<Program[]>([]);
+  const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.institutions', 'create');
@@ -68,27 +84,48 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
   ) => {
     if (selectedRows.length === 0) return;
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedRows.length} program${
-        selectedRows.length > 1 ? 's' : ''
-      }? This action cannot be undone.`
-    );
+    setSelectedForDelete(selectedRows);
+    setDeleteResetFn(() => resetSelection);
+    setShowDeleteDialog(true);
+  };
 
-    if (!confirmed) return;
+  const confirmDelete = async () => {
+    if (selectedForDelete.length === 0) return;
 
+    setIsDeleting(true);
     try {
-      // Delete all selected programs
-      await Promise.all(
-        selectedRows.map((program: Program) =>
+      const results = await Promise.allSettled(
+        selectedForDelete.map((program: Program) =>
           ProgramService.deleteProgram(program.id)
         )
       );
 
-      // Reset selection and refresh data
-      resetSelection();
-      // The DataTable will automatically refetch data after this
+      const successful = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected').length;
+
+      if (successful > 0) {
+        toast.success(`Successfully deleted ${successful} program${successful > 1 ? 's' : ''}`);
+      }
+      
+      if (failed > 0) {
+        toast.error(`Failed to delete ${failed} program${failed > 1 ? 's' : ''}`);
+      }
+
+      if (deleteResetFn) {
+        deleteResetFn();
+      }
+      
+      // Refresh the table
+      router.refresh();
+      
+      setShowDeleteDialog(false);
+      setSelectedForDelete([]);
+      setDeleteResetFn(null);
     } catch (error) {
       console.error('Error deleting programs:', error);
+      toast.error('An error occurred while deleting programs');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -130,23 +167,75 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
   );
 
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      exportConfig={{
-        entityName: 'programs',
-        columnMapping: {},
-        columnWidths: [],
-        headers: []
-      }}
-      idField='id'
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: false,
-        enableRowSelection: true
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <>
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        exportConfig={{
+          entityName: 'programs',
+          columnMapping: {},
+          columnWidths: [],
+          headers: []
+        }}
+        idField='id'
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: false,
+          enableRowSelection: true
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selectedForDelete.length > 1
+                ? `Delete ${selectedForDelete.length} Programs`
+                : `Delete Program: ${selectedForDelete[0]?.name}`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the program{selectedForDelete.length > 1 ? 's' : ''} and all related data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {/* List programs to be deleted */}
+          {selectedForDelete.length > 0 && (
+            <div className="my-4 p-3 bg-muted rounded-lg">
+              <div className="text-sm font-medium mb-2">
+                Program{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {selectedForDelete.map((program) => (
+                  <div key={program.id} className="text-sm">
+                    • {program.name} ({program.abbreviation})
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} Programs` : 'Program'}`
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
