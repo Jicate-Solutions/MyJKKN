@@ -9,12 +9,18 @@ import { UserService } from '@/lib/services/users/user-service';
 import { StudentService } from '@/lib/services/student/student-service';
 import { LearnerProfileSummaryCard } from './_components/learner-profile-summary-card';
 import { LearnerProfileDetails } from './_components/learner-profile-details';
+import { LearnerProfilePending } from './_components/learner-profile-pending';
 import { LearnerPageHeader } from '@/components/layout/learner-page-header';
 
 export default function LearnerProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [student, setStudent] = useState<Student | null>(null);
+  const [profileData, setProfileData] = useState<{
+    email?: string;
+    fullName?: string;
+  } | null>(null);
+  const [isPending, setIsPending] = useState(false);
 
   useEffect(() => {
     async function fetchLearnerProfile() {
@@ -31,8 +37,24 @@ export default function LearnerProfilePage() {
           );
         }
 
-        if (profile.role !== 'student' || !profile.student_id) {
+        if (profile.role !== 'student') {
           throw new Error('This profile does not belong to a student.');
+        }
+
+        // Store profile data for pending state
+        setProfileData({
+          email: profile.email,
+          fullName: profile.full_name || ''
+        });
+
+        // Check if student_id exists
+        if (!profile.student_id) {
+          // This is a valid state - student profile exists but no student record yet
+          console.info(
+            'Student profile exists but no student record found. This may be a pending setup.'
+          );
+          setIsPending(true);
+          return;
         }
 
         const studentDetails = await StudentService.getStudent(
@@ -78,6 +100,24 @@ export default function LearnerProfilePage() {
             Could Not Load Profile
           </h2>
           <p className='text-red-600'>{error}</p>
+        </div>
+      </LearnerLayout>
+    );
+  }
+
+  // Show pending state if profile exists but no student record
+  if (isPending) {
+    return (
+      <LearnerLayout>
+        <LearnerPageHeader
+          title='My Profile'
+          subtitle='Your student profile is being set up.'
+        />
+        <div className='p-4 md:p-6'>
+          <LearnerProfilePending
+            email={profileData?.email}
+            fullName={profileData?.fullName}
+          />
         </div>
       </LearnerLayout>
     );

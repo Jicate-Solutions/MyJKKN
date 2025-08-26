@@ -9,8 +9,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { BarChart3, UserCheck } from 'lucide-react';
+import { BarChart3, UserCheck, Users2 } from 'lucide-react';
 import { CanView, CanCreate } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 
 export default function StudentsPage() {
   const router = useRouter();
@@ -71,6 +72,14 @@ export default function StudentsPage() {
             </p>
           </div>
           <div className='flex items-center gap-2'>
+            <SuperAdminOnly>
+              <Link href='/admin/students/sync-profiles'>
+                <Button variant='outline' size='sm'>
+                  <Users2 className='h-4 w-4 mr-2' />
+                  Sync Profiles
+                </Button>
+              </Link>
+            </SuperAdminOnly>
             <CanView module='students.analytics'>
               <Link href='/students/dashboard'>
                 <Button variant='outline' size='sm'>

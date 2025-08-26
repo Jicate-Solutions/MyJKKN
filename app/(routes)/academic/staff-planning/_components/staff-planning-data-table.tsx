@@ -110,6 +110,7 @@ export function StaffPlanningDataTable({
         program_id: search.program_id || undefined,
         semester_id: search.semester_id || undefined,
         academic_year_id: search.academic_year_id || undefined,
+        course_id: search.course_id || undefined,
         isActive:
           search.isActive === 'true'
             ? true
@@ -243,24 +244,24 @@ export function StaffPlanningDataTable({
               Are you sure you want to delete {selectedRowsForDelete.length}{' '}
               staff plan{selectedRowsForDelete.length !== 1 ? 's' : ''}? This
               action cannot be undone.
-              {selectedRowsForDelete.length > 0 && (
-                <div className='mt-3 p-3 bg-muted rounded-md'>
-                  <div className='text-sm font-medium mb-2'>
-                    Staff plans to be deleted:
-                  </div>
-                  <ul className='text-sm space-y-1 max-h-40 overflow-y-auto'>
-                    {selectedRowsForDelete.map((plan) => (
-                      <li key={plan.id} className='truncate'>
-                        • {plan.institution?.name} -{' '}
-                        {plan.program?.program_name} -{' '}
-                        {plan.semester?.semester_name}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {selectedRowsForDelete.length > 0 && (
+            <div className='mt-3 p-3 bg-muted rounded-md'>
+              <div className='text-sm font-medium mb-2'>
+                Staff plans to be deleted:
+              </div>
+              <ul className='text-sm space-y-1 max-h-40 overflow-y-auto'>
+                {selectedRowsForDelete.map((plan) => (
+                  <li key={plan.id} className='truncate'>
+                    • {plan.institution?.name} -{' '}
+                    {plan.program?.program_name} -{' '}
+                    {plan.semester?.semester_name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>
               Cancel

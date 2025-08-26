@@ -12,6 +12,7 @@ export const staffPlanningSearchParamsSchema = z.object({
   program_id: z.string().optional(),
   semester_id: z.string().optional(),
   academic_year_id: z.string().optional(),
+  course_id: z.string().optional(),
   isActive: z.enum(['true', 'false']).optional(),
   dateRange: z
     .string()

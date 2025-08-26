@@ -16,6 +16,7 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
+import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { StaffPlanningSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -47,6 +48,9 @@ export function StaffPlanFilters({
   >([]);
   const [academicYears, setAcademicYears] = useState<
     Array<{ id: string; academic_year_name: string }>
+  >([]);
+  const [courses, setCourses] = useState<
+    Array<{ id: string; course_code: string; course_name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
   const { isSuperAdmin, userProfile } = usePermissions();
@@ -174,6 +178,24 @@ export function StaffPlanFilters({
     loadAcademicYears();
   }, [searchParams.institution_id]);
 
+  useEffect(() => {
+    async function loadCourses() {
+      if (searchParams.institution_id) {
+        try {
+          const data = await StaffPlanService.getCoursesByInstitution(
+            searchParams.institution_id
+          );
+          setCourses(data);
+        } catch (error) {
+          console.error('Error loading courses:', error);
+        }
+      } else {
+        setCourses([]);
+      }
+    }
+    loadCourses();
+  }, [searchParams.institution_id]);
+
   const hasActiveFilters = !!(
     searchParams.institution_id ||
     searchParams.degree_id ||
@@ -181,6 +203,7 @@ export function StaffPlanFilters({
     searchParams.program_id ||
     searchParams.semester_id ||
     searchParams.academic_year_id ||
+    searchParams.course_id ||
     searchParams.isActive
   );
 
@@ -201,6 +224,7 @@ export function StaffPlanFilters({
                   onFilterChange('program_id', undefined);
                   onFilterChange('semester_id', undefined);
                   onFilterChange('academic_year_id', undefined);
+                  onFilterChange('course_id', undefined);
                 }
               }}
             >
@@ -340,6 +364,26 @@ export function StaffPlanFilters({
             {academicYears.map((year) => (
               <SelectItem key={year.id} value={year.id}>
                 {year.academic_year_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.course_id || 'all'}
+          onValueChange={(value) => {
+            onFilterChange('course_id', value === 'all' ? undefined : value);
+          }}
+          disabled={!searchParams.institution_id}
+        >
+          <SelectTrigger className='w-full sm:w-[200px]'>
+            <SelectValue placeholder='Select course' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Courses</SelectItem>
+            {courses.map((course) => (
+              <SelectItem key={course.id} value={course.id}>
+                {course.course_code} - {course.course_name}
               </SelectItem>
             ))}
           </SelectContent>

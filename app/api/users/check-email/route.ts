@@ -31,44 +31,61 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Check both auth.users and profiles table
-    const [authListResult, profileResult] = await Promise.all([
-      supabaseAdmin.auth.admin.listUsers(),
-      supabaseAdmin.from('profiles').select('id').eq('email', email).single()
-    ]);
-
-    const authUser = authListResult.data.users.find(
-      (user) => user.email === email
-    );
-
-    console.log('Auth check result:', {
-      data: authUser ? 'User found' : 'No user',
-      error: authListResult.error?.message || 'No error'
-    });
+    // For OAuth-only system, only check profiles table (including pre-registered)
+    const { data: profileData, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, full_name, role, is_active, created_at, is_pre_registered')
+      .eq('email', email)
+      .single();
 
     console.log('Profile check result:', {
-      data: profileResult.data ? 'Profile found' : 'No profile',
-      error: profileResult.error?.message || 'No error'
+      data: profileData ? 'Profile found' : 'No profile',
+      isPreRegistered: profileData?.is_pre_registered,
+      error: profileError?.message || 'No error'
     });
 
-    // Check if email exists in either table
-    const emailExistsInAuth = authUser !== undefined;
-    const emailExistsInProfile = profileResult.data !== null;
-
-    console.log('Email exists in auth:', emailExistsInAuth);
-    console.log('Email exists in profile:', emailExistsInProfile);
-    console.log('Profile error code:', profileResult.error?.code);
-
-    const emailExists = emailExistsInAuth || emailExistsInProfile;
+    const emailExists = profileData !== null;
 
     console.log('Final result - Email exists:', emailExists);
     console.log('=== END EMAIL CHECK DEBUG ===');
 
+    // Prepare user details for better UX
+    let existingUserDetails = null;
+    let isPreRegistered = false;
+    
+    if (emailExists && profileData) {
+      isPreRegistered = profileData.is_pre_registered || false;
+      existingUserDetails = {
+        id: profileData.id,
+        email: profileData.email,
+        fullName: profileData.full_name,
+        role: profileData.role,
+        isActive: profileData.is_active,
+        isPreRegistered: isPreRegistered,
+        createdAt: profileData.created_at
+      };
+    }
+
+    // Different messages based on registration status
+    let message = 'Email is available';
+    let suggestion = null;
+    
+    if (emailExists) {
+      if (isPreRegistered) {
+        message = 'This email is pre-registered and pending Google login';
+        suggestion = 'The user can login with Google using this email address.';
+      } else {
+        message = 'This email is already registered with an active account';
+        suggestion = 'Please use a different email address or check if you meant to update the existing user.';
+      }
+    }
+
     return NextResponse.json({
       available: !emailExists,
-      message: emailExists
-        ? 'This email is already registered'
-        : 'Email is available'
+      message,
+      existingUser: existingUserDetails,
+      isPreRegistered,
+      suggestion
     });
   } catch (error) {
     console.error('Email check error:', error);

@@ -20,7 +20,8 @@
       "Bash(mkdir:*)",
       "mcp__sequential-thinking__sequentialthinking",
       "mcp__supabase__list_tables",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "mcp__supabase__get_logs"
     ],
     "deny": []
   },

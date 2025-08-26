@@ -67,19 +67,58 @@ export function UserList({
 
   // Handle bulk delete
   const handleBulkDelete = async (selectedRows: Profile[]) => {
+    const successes: string[] = [];
+    const failures: { user: Profile; error: string }[] = [];
+
     try {
-      // Process deletions sequentially
-      for (const user of selectedRows) {
-        await UserService.deleteUser(user.id);
+      // Process deletions sequentially with delay to avoid rate limiting
+      for (let i = 0; i < selectedRows.length; i++) {
+        const user = selectedRows[i];
+        try {
+          await UserService.deleteUser(user.id);
+          successes.push(user.full_name || user.email);
+          
+          // Add delay between deletions to avoid rate limiting (except for last item)
+          if (i < selectedRows.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (error) {
+          failures.push({
+            user,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
       }
 
-      toast.success(`${selectedRows.length} users deleted successfully`);
+      // Show results
+      if (successes.length > 0) {
+        toast.success(`${successes.length} user(s) deleted successfully`);
+      }
+      
+      if (failures.length > 0) {
+        const failureMessages = failures
+          .map(f => `${f.user.full_name || f.user.email}: ${f.error}`)
+          .join('\n');
+        toast.error(
+          `Failed to delete ${failures.length} user(s):\n${failureMessages}`,
+          { duration: 8000 }
+        );
+      }
+
       onRefresh();
+
+      // If all failed, throw error to let DataTable handle it
+      if (failures.length === selectedRows.length) {
+        throw new Error('All deletions failed');
+      }
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to delete users'
-      );
-      throw error; // Re-throw to let DataTable handle the error state
+      // Only throw if we haven't handled partial failures above
+      if (failures.length === 0) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to delete users'
+        );
+        throw error;
+      }
     }
   };
 

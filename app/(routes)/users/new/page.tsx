@@ -43,7 +43,6 @@ import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 const formSchema = z.object({
   email: z.string().email('Invalid email address').min(1, 'Email is required'),
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
   role: z.string().min(1, 'Please select a role'),
   phone_number: z.string().nullable()
 });
@@ -63,7 +62,6 @@ export default function NewUserPage() {
     defaultValues: {
       email: '',
       full_name: '',
-      password: '',
       role: '',
       phone_number: ''
     }
@@ -97,7 +95,7 @@ export default function NewUserPage() {
     try {
       const result = await createUser(data);
       if (result.error) throw result.error;
-      toast.success('User created successfully');
+      toast.success('User pre-registered successfully. They can now login with Google.');
       clearValidation(); // Clear validation state
       router.push('/users');
     } catch (error) {
@@ -145,7 +143,7 @@ export default function NewUserPage() {
         <div>
           <h1 className='text-2xl font-bold py-1'>New User</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Create a new user
+            Pre-register a new user for Google OAuth login
           </p>
         </div>
         <Card>
@@ -200,15 +198,49 @@ export default function NewUserPage() {
                       </FormControl>
                       <FormMessage />
                       {validationResult && (
-                        <p
+                        <div
                           className={`text-sm ${
                             validationResult.available
                               ? 'text-green-600'
                               : 'text-red-600'
                           }`}
                         >
-                          {validationResult.message}
-                        </p>
+                          <p>{validationResult.message}</p>
+                          {!validationResult.available &&
+                            validationResult.existingUser && (
+                              <div className='mt-2 p-3 bg-red-50 border border-red-200 rounded-md'>
+                                <p className='font-medium text-red-800 mb-1'>
+                                  Existing User Details:
+                                </p>
+                                <div className='text-xs text-red-700 space-y-1'>
+                                  <p>
+                                    • Name:{' '}
+                                    {validationResult.existingUser.fullName}
+                                  </p>
+                                  <p>
+                                    • Role: {validationResult.existingUser.role}
+                                  </p>
+                                  <p>
+                                    • Status:{' '}
+                                    {validationResult.existingUser.isActive
+                                      ? 'Active'
+                                      : 'Inactive'}
+                                  </p>
+                                  <p>
+                                    • Created:{' '}
+                                    {new Date(
+                                      validationResult.existingUser.createdAt
+                                    ).toLocaleDateString()}
+                                  </p>
+                                </div>
+                                {validationResult.suggestion && (
+                                  <p className='mt-2 text-xs text-red-600 italic'>
+                                    {validationResult.suggestion}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                        </div>
                       )}
                     </FormItem>
                   )}
@@ -228,23 +260,6 @@ export default function NewUserPage() {
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name='password'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='password'
-                          placeholder='Enter password'
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
 
                 <FormField
                   control={form.control}

@@ -73,12 +73,13 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { StaffMember, ConsolidatedAttendanceData } from '@/types/attendance';
+import { StaffMember, ConsolidatedAttendanceData, AttendancePeriodOption } from '@/types/attendance';
 import {
   findPeriodBySlotId,
   hasAvailablePeriods
 } from '@/utils/attendance-helpers';
 import { convertTo12HourFormat, formatTimeRange } from '@/utils/time-format';
+import { AttendanceViewSelector } from './_components/attendance-view-selector';
 
 export default function AttendancePage() {
   const {
@@ -196,6 +197,10 @@ export default function AttendancePage() {
 
   const canViewAttendance =
     isSuperAdmin || canAccess('academic.attendance', 'view');
+  
+  // Determine user role for appropriate view
+  const isFaculty = profile?.role === 'faculty';
+  const isAdmin = profile?.role === 'administrator' || profile?.role === 'principal' || isSuperAdmin;
   const canMarkAttendance =
     isSuperAdmin || canAccess('academic.attendance', 'mark');
 
@@ -759,7 +764,8 @@ export default function AttendancePage() {
   });
 
   // Handle period selection - Load students and check for existing attendance
-  const handlePeriodSelection = async (periodId: string) => {
+  const handlePeriodSelection = async (periodOrId: string | AttendancePeriodOption) => {
+    const periodId = typeof periodOrId === 'string' ? periodOrId : periodOrId.timetable_slot_id;
     setSelectedPeriod(periodId);
     setLoadingPeriodData(true);
     setShowStudents(true);
@@ -1119,424 +1125,21 @@ export default function AttendancePage() {
           </span>
         </div>
 
-        {/* Search Criteria Form */}
+        {/* Attendance View Selector - Shows Quick View for Faculty or Search for Admin */}
         <Card>
           <CardContent className='p-6'>
-            <h3 className='text-lg font-medium mb-6'>Search Criteria</h3>
-
-            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6'>
-              {/* Institution */}
-              <div className='space-y-2'>
-                <Label htmlFor='institution'>
-                  Institution <span className='text-red-500'>*</span>
-                </Label>
-                <Select
-                  value={searchContext.institution_id || ''}
-                  onValueChange={async (value) => {
-                    await updateSearchContext({
-                      institution_id: value,
-                      academic_year_id: null,
-                      degree_id: null,
-                      program_id: null,
-                      department_id: null,
-                      semester_id: null,
-                      section_id: null
-                    });
-                  }}
-                  disabled={!isSuperAdmin && !userProfile?.institution_id}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !isSuperAdmin && !userProfile?.institution_id
-                          ? 'No institution access'
-                          : 'Select institution'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(isSuperAdmin
-                      ? institutions
-                      : institutions.filter(
-                          (inst: { id: string | null | undefined }) =>
-                            inst.id === userProfile?.institution_id
-                        )
-                    ).map(
-                      (institution: {
-                        id: string;
-                        name: import('react').ReactNode;
-                      }) => (
-                        <SelectItem key={institution.id} value={institution.id}>
-                          {institution.name}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Academic Year */}
-              <div className='space-y-2'>
-                <Label htmlFor='academic-year'>
-                  Academic Year <span className='text-red-500'>*</span>
-                </Label>
-                <Select
-                  value={searchContext.academic_year_id || ''}
-                  onValueChange={async (value) => {
-                    await updateSearchContext({
-                      academic_year_id: value,
-                      degree_id: null,
-                      department_id: null,
-                      program_id: null,
-                      semester_id: null,
-                      section_id: null
-                    });
-                  }}
-                  disabled={!searchContext.institution_id}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !searchContext.institution_id
-                          ? 'First select an institution'
-                          : 'Select academic year'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {academicYears.map(
-                      (year: {
-                        id: string;
-                        academic_year_name: import('react').ReactNode;
-                      }) => (
-                        <SelectItem key={year.id} value={year.id}>
-                          {year.academic_year_name}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Degree */}
-              <div className='space-y-2'>
-                <Label htmlFor='degree'>
-                  Degree <span className='text-red-500'>*</span>
-                </Label>
-                <Select
-                  value={searchContext.degree_id || ''}
-                  onValueChange={async (value) => {
-                    await updateSearchContext({
-                      degree_id: value,
-                      department_id: null,
-                      program_id: null,
-                      semester_id: null,
-                      section_id: null
-                    });
-                  }}
-                  disabled={
-                    !searchContext.institution_id ||
-                    !searchContext.academic_year_id
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !searchContext.institution_id
-                          ? 'First select an institution'
-                          : !searchContext.academic_year_id
-                          ? 'First select academic year'
-                          : 'Select degree'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {degrees.map(
-                      (degree: {
-                        id: string;
-                        degree_name: import('react').ReactNode;
-                      }) => (
-                        <SelectItem key={degree.id} value={degree.id}>
-                          {degree.degree_name}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Department */}
-              <div className='space-y-2'>
-                <Label htmlFor='department'>
-                  Department <span className='text-red-500'>*</span>
-                </Label>
-                <Select
-                  value={searchContext.department_id || ''}
-                  onValueChange={async (value) => {
-                    await updateSearchContext({
-                      department_id: value,
-                      program_id: null,
-                      semester_id: null,
-                      section_id: null
-                    });
-                  }}
-                  disabled={!searchContext.degree_id}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !searchContext.degree_id
-                          ? 'First select a degree'
-                          : 'Select department'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.map(
-                      (department: {
-                        id: string;
-                        department_name: import('react').ReactNode;
-                      }) => (
-                        <SelectItem key={department.id} value={department.id}>
-                          {department.department_name}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Program */}
-              <div className='space-y-2'>
-                <Label htmlFor='program'>
-                  Program <span className='text-red-500'>*</span>
-                </Label>
-                <Select
-                  value={searchContext.program_id || ''}
-                  onValueChange={async (value) => {
-                    await updateSearchContext({
-                      program_id: value,
-                      semester_id: null,
-                      section_id: null
-                    });
-                  }}
-                  disabled={!searchContext.department_id}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !searchContext.department_id
-                          ? 'First select a department'
-                          : 'Select program'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {programs.map(
-                      (program: {
-                        id: string;
-                        program_name: import('react').ReactNode;
-                      }) => (
-                        <SelectItem key={program.id} value={program.id}>
-                          {program.program_name}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Semester */}
-              <div className='space-y-2'>
-                <Label htmlFor='semester'>
-                  Semester <span className='text-red-500'>*</span>
-                </Label>
-                <Select
-                  value={searchContext.semester_id || ''}
-                  onValueChange={async (value) => {
-                    await updateSearchContext({
-                      semester_id: value,
-                      section_id: null
-                    });
-                  }}
-                  disabled={!searchContext.program_id}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !searchContext.program_id
-                          ? 'First select a program'
-                          : 'Select semester'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {semesters.map(
-                      (semester: {
-                        id: string;
-                        semester_name: import('react').ReactNode;
-                      }) => (
-                        <SelectItem key={semester.id} value={semester.id}>
-                          {semester.semester_name}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Section */}
-              <div className='space-y-2'>
-                <Label htmlFor='section'>
-                  Section <span className='text-red-500'>*</span>
-                </Label>
-                <Select
-                  value={searchContext.section_id || ''}
-                  onValueChange={async (value) =>
-                    await updateSearchContext({ section_id: value })
-                  }
-                  disabled={!searchContext.semester_id}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !searchContext.semester_id
-                          ? 'First select a semester'
-                          : 'Select section'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sections.map(
-                      (section: {
-                        id: string;
-                        section_name: import('react').ReactNode;
-                      }) => (
-                        <SelectItem key={section.id} value={section.id}>
-                          {section.section_name}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Attendance Date */}
-              <div className='space-y-2'>
-                <Label htmlFor='date'>
-                  Attendance date <span className='text-red-500'>*</span>
-                </Label>
-                <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant='outline'
-                      className={cn(
-                        'w-full justify-start text-left font-normal',
-                        !searchContext.attendance_date &&
-                          'text-muted-foreground'
-                      )}
-                    >
-                      <Calendar className='mr-2 h-4 w-4' />
-                      {searchContext.attendance_date ? (
-                        format(
-                          new Date(searchContext.attendance_date + 'T00:00:00'),
-                          'dd-MM-yyyy'
-                        )
-                      ) : (
-                        <span>Pick a date</span>
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className='w-auto p-0' align='start'>
-                    <CalendarComponent
-                      mode='single'
-                      selected={
-                        searchContext.attendance_date
-                          ? new Date(
-                              searchContext.attendance_date + 'T00:00:00'
-                            )
-                          : undefined
-                      }
-                      onSelect={handleDateSelect}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
-
-            {/* Helper Text */}
-            {!isSearchFormValid && (
-              <div className='text-sm text-muted-foreground mb-2 dark:text-gray-400'>
-                <AlertTriangle className='inline-block h-4 w-4 mr-1 text-orange-500' />
-                Please fill in all required fields to enable search
-              </div>
-            )}
-
-            {isSearchFormValid && !showResults && (
-              <div className='text-sm text-green-600 dark:text-green-400 mb-2 flex items-center gap-2'>
-                <Check className='h-4 w-4' />
-                All fields filled! Click Search to find available periods.
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className='flex gap-3'>
-              <Button
-                onClick={handleSearch}
-                disabled={
-                  loading ||
-                  loadingStudents ||
-                  loadingPeriods ||
-                  isResetting ||
-                  !isSearchFormValid
-                }
-                className={cn(
-                  'flex items-center gap-2',
-                  isSearchFormValid &&
-                    !showResults &&
-                    !loadingPeriods &&
-                    'animate-pulse'
-                )}
-              >
-                {loadingPeriods ? (
-                  <>
-                    <Loader2 className='h-4 w-4 animate-spin' />
-                    Searching...
-                  </>
-                ) : (
-                  <>
-                    <Search className='h-4 w-4' />
-                    Search
-                  </>
-                )}
-              </Button>
-              <Button
-                variant='outline'
-                onClick={handleReset}
-                disabled={loading || loadingStudents || isResetting}
-                className='flex items-center gap-2'
-              >
-                <RotateCcw className='h-4 w-4' />
-                {isResetting ? 'Resetting...' : 'Reset'}
-              </Button>
-              <Button
-                variant='ghost'
-                className='flex items-center gap-2'
-                onClick={() => {
-                  setShowResults(false);
-                  setShowStudents(false);
-                  setSelectedPeriod(null);
-                  setStudentsForSection([]);
-                  setAttendanceCompleted({ isCompleted: false, details: null });
-                }}
-              >
-                <X className='h-4 w-4' />
-                Cancel
-              </Button>
-            </div>
+            <AttendanceViewSelector
+              searchContext={searchContext}
+              onContextChange={updateSearchContext}
+              availablePeriods={availablePeriods}
+              selectedPeriod={selectedPeriod}
+              onPeriodSelect={handlePeriodSelection}
+              loading={loading || loadingPeriods}
+              onSearch={handleSearch}
+            />
           </CardContent>
         </Card>
+
 
         {/* Results Section */}
         {showResults && (

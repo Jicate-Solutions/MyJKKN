@@ -401,7 +401,27 @@ export async function DELETE(
       );
     }
 
-    // First delete from profiles table (otherwise foreign key constraints might fail)
+    // First delete from auth.users table (this will cascade to profiles if properly configured)
+    const { error: authDeleteError } =
+      await supabaseAdmin.auth.admin.deleteUser(id);
+
+    if (authDeleteError) {
+      console.error('Error deleting auth user:', authDeleteError);
+      // Check if the user doesn't exist in auth (might already be deleted)
+      if (authDeleteError.message.includes('User not found')) {
+        console.log('User not found in auth system, continuing with profile deletion');
+      } else {
+        return NextResponse.json(
+          {
+            error: 'Failed to delete user authentication data',
+            details: authDeleteError.message
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Then delete from profiles table (in case auth deletion didn't cascade properly)
     const { error: profileDeleteError } = await supabaseAdmin
       .from('profiles')
       .delete()
@@ -409,28 +429,17 @@ export async function DELETE(
 
     if (profileDeleteError) {
       console.error('Error deleting profile:', profileDeleteError);
-      return NextResponse.json(
-        {
-          error: 'Failed to delete user profile',
-          details: profileDeleteError.message
-        },
-        { status: 500 }
-      );
-    }
-
-    // Then delete from auth.users table
-    const { error: authDeleteError } =
-      await supabaseAdmin.auth.admin.deleteUser(id);
-
-    if (authDeleteError) {
-      console.error('Error deleting auth user:', authDeleteError);
-      return NextResponse.json(
-        {
-          error: 'Failed to delete user authentication data',
-          details: authDeleteError.message
-        },
-        { status: 500 }
-      );
+      // Only return error if it's not a "row not found" error
+      if (!profileDeleteError.message.includes('No rows found') && 
+          !profileDeleteError.message.includes('0 rows affected')) {
+        return NextResponse.json(
+          {
+            error: 'Failed to delete user profile',
+            details: profileDeleteError.message
+          },
+          { status: 500 }
+        );
+      }
     }
 
     // Log the user deletion activity

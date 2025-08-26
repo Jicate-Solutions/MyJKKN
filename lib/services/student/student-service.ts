@@ -368,6 +368,109 @@ export class StudentService {
           processedUpdateData.last_name.toUpperCase();
       }
 
+      // Handle email change and profile synchronization
+      if (
+        processedUpdateData.college_email &&
+        processedUpdateData.college_email !== currentStudent.college_email
+      ) {
+        const newEmail = processedUpdateData.college_email;
+        const oldEmail = currentStudent.college_email;
+
+        console.log(`Email change detected: ${oldEmail} -> ${newEmail}`);
+
+        // Check if a profile exists with the new email
+        const { data: existingProfileWithNewEmail } = await this.supabase
+          .from('profiles')
+          .select('id, email, role')
+          .eq('email', newEmail)
+          .maybeSingle();
+
+        if (existingProfileWithNewEmail) {
+          // Check if there's a student record already using this email
+          const { data: otherStudent } = await this.supabase
+            .from('students')
+            .select('id, first_name, last_name')
+            .eq('college_email', newEmail)
+            .neq('id', id)
+            .maybeSingle();
+
+          if (otherStudent) {
+            throw new Error(
+              `Email ${newEmail} is already assigned to another student: ${otherStudent.first_name} ${otherStudent.last_name}`
+            );
+          }
+
+          // If profile exists but no other student uses it, we can proceed
+          console.log(
+            `Profile exists for ${newEmail}, will link to this student`
+          );
+
+          // Update the existing profile's institution_id to match student's
+          if (currentStudent.institution_id) {
+            const { error: profileUpdateError } = await this.supabase
+              .from('profiles')
+              .update({
+                institution_id: currentStudent.institution_id,
+                full_name: `${
+                  processedUpdateData.first_name || currentStudent.first_name
+                } ${
+                  processedUpdateData.last_name ||
+                  currentStudent.last_name ||
+                  ''
+                }`.trim(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('email', newEmail);
+
+            if (profileUpdateError) {
+              console.error(
+                'Failed to update profile institution:',
+                profileUpdateError
+              );
+            }
+          }
+        }
+
+        // Check if old email has a profile that needs to be updated
+        if (oldEmail) {
+          const { data: oldProfile } = await this.supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', oldEmail)
+            .maybeSingle();
+
+          if (oldProfile && !existingProfileWithNewEmail) {
+            // Update the old profile's email to the new one
+            console.log(
+              `Updating profile email from ${oldEmail} to ${newEmail}`
+            );
+
+            const { error: emailUpdateError } = await this.supabase
+              .from('profiles')
+              .update({
+                email: newEmail,
+                full_name: `${
+                  processedUpdateData.first_name || currentStudent.first_name
+                } ${
+                  processedUpdateData.last_name ||
+                  currentStudent.last_name ||
+                  ''
+                }`.trim(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', oldProfile.id);
+
+            if (emailUpdateError) {
+              console.error(
+                'Failed to update profile email:',
+                emailUpdateError
+              );
+              toast.error('Student updated but profile email sync failed');
+            }
+          }
+        }
+      }
+
       // Merge current data with updates for profile completeness check
       const mergedData = { ...currentStudent, ...processedUpdateData };
 

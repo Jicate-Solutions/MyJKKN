@@ -24,15 +24,16 @@ export class PeriodService {
         .single();
 
       if (error) {
-        if (error.code === '23505') {
-          throw new Error(
-            'A period with this name already exists for the selected institution.'
-          );
-        }
-        throw error;
+        console.error('Database error:', error);
+        // Preserve the error code for proper handling in the UI
+        const enhancedError: any = new Error(
+          error.message || 'Failed to create period'
+        );
+        enhancedError.code = error.code;
+        enhancedError.details = error.details;
+        throw enhancedError;
       }
 
-      toast.success('Period created successfully');
       return period;
     } catch (error) {
       console.error('Error creating period:', error);
@@ -56,15 +57,16 @@ export class PeriodService {
         .single();
 
       if (error) {
-        if (error.code === '23505') {
-          throw new Error(
-            'A period with this name already exists for the selected institution.'
-          );
-        }
-        throw error;
+        console.error('Database error:', error);
+        // Preserve the error code for proper handling in the UI
+        const enhancedError: any = new Error(
+          error.message || 'Failed to update period'
+        );
+        enhancedError.code = error.code;
+        enhancedError.details = error.details;
+        throw enhancedError;
       }
 
-      toast.success('Period updated successfully');
       return period;
     } catch (error) {
       console.error('Error updating period:', error);

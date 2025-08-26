@@ -62,26 +62,24 @@ export default function FacultyCalendarPage() {
   // Redirect non-faculty users to admin view if they have permission
   if (profile && !isFaculty && !isSuperAdmin) {
     return (
-      <ContentLayout title='Access Denied'>
-        <div className='flex items-center justify-center min-h-[400px]'>
-          <Card className='w-full max-w-md'>
-            <CardContent className='p-6 text-center'>
-              <AlertCircle className='h-12 w-12 text-red-500 mx-auto mb-4' />
-              <h2 className='text-lg font-semibold mb-2'>Access Denied</h2>
-              <p className='text-gray-600 mb-4'>
-                You need to be a faculty member or administrator to access the
-                faculty calendar.
-              </p>
-              <Button
-                variant='outline'
-                onClick={() => router.push('/academic/timetables')}
-              >
-                Back to Timetables
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </ContentLayout>
+      <div className='flex items-center justify-center min-h-[400px]'>
+        <Card className='w-full max-w-md'>
+          <CardContent className='p-6 text-center'>
+            <AlertCircle className='h-12 w-12 text-red-500 mx-auto mb-4' />
+            <h2 className='text-lg font-semibold mb-2'>Access Denied</h2>
+            <p className='text-gray-600 mb-4'>
+              You need to be a faculty member or administrator to access the
+              faculty calendar.
+            </p>
+            <Button
+              variant='outline'
+              onClick={() => router.push('/academic/timetables')}
+            >
+              Back to Timetables
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 

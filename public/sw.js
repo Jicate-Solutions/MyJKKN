@@ -1,9 +1,17 @@
 // Service Worker for Push Notifications
 const CACHE_NAME = 'myjkkn-notifications-v1';
+const isDevelopment = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 
 // Install event
 self.addEventListener('install', (event) => {
   console.log('Service Worker: Install');
+  
+  // Skip caching in development to avoid network issues
+  if (isDevelopment) {
+    console.log('Service Worker: Skipping cache in development');
+    return;
+  }
+  
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('Service Worker: Caching essential files');
@@ -135,6 +143,22 @@ self.addEventListener('notificationclick', (event) => {
           });
         }
       })
+  );
+});
+
+// Fetch event handler - bypass cache in development
+self.addEventListener('fetch', (event) => {
+  // In development, always fetch from network to avoid offline issues
+  if (isDevelopment) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+  
+  // In production, use normal caching strategy
+  event.respondWith(
+    caches.match(event.request).then((response) => {
+      return response || fetch(event.request);
+    })
   );
 });
 

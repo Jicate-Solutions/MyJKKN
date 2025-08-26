@@ -47,6 +47,18 @@ export class UserService {
       const { data, error, count } = await query.range(start, end);
 
       if (error) throw error;
+      
+      // Debug log for driver users
+      if (data && data.length > 0) {
+        const driverUsers = data.filter((u: any) => u.role === 'driver');
+        if (driverUsers.length > 0) {
+          console.log('Driver users fetched:', driverUsers.map((u: any) => ({
+            email: u.email,
+            is_active: u.is_active,
+            role: u.role
+          })));
+        }
+      }
 
       const totalPages = Math.ceil((count || 0) / limit);
 
@@ -184,21 +196,119 @@ export class UserService {
         let studentData = null;
         let studentError = null;
 
-        // Attempt to fetch student details with a retry
+        // First try to find by college_email
+        console.log(`Looking for student with college_email: ${data.email}`);
+
+        // If the profile doesn't have an institution_id, we need to use service role
+        // to bypass RLS for finding the student's own record
+        const shouldUseServiceRole = !data.institution_id;
+
         for (let i = 0; i < 2; i++) {
-          const { data: sData, error: sError } = await supabase
+          const query = supabase
             .from('students')
-            .select('id, status, is_profile_complete')
-            .eq('college_email', data.email)
-            .single();
+            .select(
+              'id, status, is_profile_complete, first_name, last_name, college_email, institution_id'
+            )
+            .eq('college_email', data.email);
+
+          // For students without institution_id in profile, we need to fetch their data differently
+          if (shouldUseServiceRole) {
+            console.log(
+              'Profile has no institution_id, attempting to find student record...'
+            );
+          }
+
+          const { data: sData, error: sError } = await query.maybeSingle();
 
           if (!sError && sData) {
             studentData = sData;
             studentError = null;
+            console.log(`Found student by college_email: ${sData.id}`);
+
+            // If we found the student and profile has no institution_id, log warning
+            if (!data.institution_id && sData.institution_id) {
+              console.warn(
+                `Profile ${data.email} has no institution_id but student has institution_id: ${sData.institution_id}. ` +
+                  `This may cause access issues. Run migration to fix.`
+              );
+            }
             break; // Success, exit loop
           } else {
             studentError = sError;
-            await delay(300); // Wait before retrying
+            if (i === 0) {
+              console.log(
+                `First attempt failed, retrying... Error: ${
+                  sError?.message || 'No student found'
+                }`
+              );
+              await delay(300); // Wait before retrying
+            }
+          }
+        }
+
+        // If not found by college_email, try alternative matching
+        if (!studentData && data.full_name) {
+          console.log(`Trying to match by name: ${data.full_name}`);
+
+          // Try to match by name (for cases where email doesn't match)
+          const nameParts = data.full_name.trim().split(' ');
+          const firstName = nameParts[0];
+          const lastName = nameParts.slice(1).join(' ') || '';
+
+          // Try exact name match first
+          let nameQuery = supabase
+            .from('students')
+            .select(
+              'id, status, is_profile_complete, college_email, first_name, last_name'
+            );
+
+          // Build a more flexible query
+          if (lastName) {
+            nameQuery = nameQuery.or(
+              `and(first_name.ilike.%${firstName}%,last_name.ilike.%${lastName}%),` +
+                `and(first_name.ilike.%${data.full_name}%),` +
+                `and(last_name.ilike.%${data.full_name}%)`
+            );
+          } else {
+            nameQuery = nameQuery.or(
+              `first_name.ilike.%${firstName}%,last_name.ilike.%${firstName}%`
+            );
+          }
+
+          const { data: sDataByName, error: sErrorByName } = await nameQuery
+            .limit(1)
+            .maybeSingle();
+
+          if (!sErrorByName && sDataByName) {
+            studentData = sDataByName;
+            console.log(
+              `Student matched by name for profile ${data.email}, student: ${sDataByName.first_name} ${sDataByName.last_name}, email: ${sDataByName.college_email}`
+            );
+          } else {
+            console.log(`No student found by name matching: ${data.full_name}`);
+          }
+        }
+
+        // If still not found, try by personal email
+        if (!studentData) {
+          console.log(`Trying to match by personal email: ${data.email}`);
+
+          const { data: sDataByPersonal, error: sErrorByPersonal } =
+            await supabase
+              .from('students')
+              .select(
+                'id, status, is_profile_complete, college_email, student_email'
+              )
+              .eq('student_email', data.email)
+              .maybeSingle();
+
+          if (!sErrorByPersonal && sDataByPersonal) {
+            studentData = sDataByPersonal;
+            console.log(
+              `Student matched by personal email for profile ${data.email}, student college email: ${sDataByPersonal.college_email}`
+            );
+          } else {
+            console.log(`No student found by personal email: ${data.email}`);
           }
         }
 
@@ -207,14 +317,17 @@ export class UserService {
           data.student_id = studentData.id;
           data.student_status = studentData.status;
           data.student_profile_complete = studentData.is_profile_complete;
+          console.log(
+            `Successfully linked profile ${data.email} with student ${studentData.id}`
+          );
         } else {
-          // Student record not found or error after retries
+          // Student record not found - this is now a valid state
+          // Some student profiles may not have corresponding student records yet
           data.student_id = null;
-          data.student_status = null;
-          data.student_profile_complete = null;
-          console.warn(
-            'Could not retrieve student details for profile:',
-            data.email
+          data.student_status = 'pending'; // Set a default status
+          data.student_profile_complete = false;
+          console.info(
+            `No student record found for profile: ${data.email} (${data.full_name}). This may be a new student account pending setup.`
           );
         }
       }

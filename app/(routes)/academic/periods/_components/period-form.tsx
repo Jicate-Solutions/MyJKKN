@@ -170,14 +170,34 @@ function TimeSelector({ value, onChange, placeholder }: TimeSelectorProps) {
   );
 }
 
-// Validation schema
+// Validation schema with time comparison
 const formSchema = z.object({
   period_name: z.string().min(1, 'Period name is required'),
   start_time: z.string().min(1, 'Start time is required'),
   end_time: z.string().min(1, 'End time is required'),
   is_break: z.boolean().default(false),
   institution_id: z.string().optional()
-});
+}).refine(
+  (data) => {
+    if (!data.start_time || !data.end_time) return true; // Skip if times not set
+    
+    // Parse times for comparison (convert to minutes since midnight)
+    const parseTime = (timeStr: string) => {
+      const [hours, minutes] = timeStr.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+    
+    const startMinutes = parseTime(data.start_time);
+    const endMinutes = parseTime(data.end_time);
+    
+    // End time must be after start time
+    return endMinutes > startMinutes;
+  },
+  {
+    message: 'End time must be after start time',
+    path: ['end_time'] // Show error on end_time field
+  }
+);
 
 type PeriodFormValues = z.infer<typeof formSchema>;
 

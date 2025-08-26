@@ -142,12 +142,65 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      // Get or create profile
+      // First check if a profile exists with this Google user ID
       const { data: existingProfile } = await supabase
         .from('profiles')
         .select('profile_completed, full_name, role, institution_id, is_active')
         .eq('id', user.id)
         .single();
+      
+      // If no profile with this ID, check if one exists with this email (for driver users migrating to Google)
+      let migratedProfile = null;
+      if (!existingProfile && user.email) {
+        const { data: emailProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('email', user.email)
+          .single();
+        
+        if (emailProfile) {
+          console.log(`Found existing profile by email for ${user.email}, migrating to Google auth`);
+          
+          // Create a new profile with the Google auth user ID, copying data from the old profile
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: user.id,
+              email: emailProfile.email,
+              full_name: emailProfile.full_name,
+              role: emailProfile.role,
+              phone_number: emailProfile.phone_number,
+              institution_id: emailProfile.institution_id,
+              profile_completed: emailProfile.profile_completed,
+              is_active: emailProfile.is_active,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+          
+          if (!insertError) {
+            // Delete the old profile (with the old auth user ID)
+            const { error: deleteProfileError } = await supabase
+              .from('profiles')
+              .delete()
+              .eq('id', emailProfile.id);
+            
+            if (deleteProfileError) {
+              console.error(`Failed to delete old profile:`, deleteProfileError);
+            }
+            
+            migratedProfile = {
+              ...emailProfile,
+              id: user.id
+            };
+            
+            console.log(`Successfully migrated profile for ${user.email} to Google auth`);
+          } else {
+            console.error(`Failed to migrate profile for ${user.email}:`, insertError);
+          }
+        }
+      }
+      
+      const actualProfile = existingProfile || migratedProfile;
 
       // Helper function to log login activity
       const logLoginActivity = async (profile: any) => {
@@ -166,7 +219,7 @@ export async function GET(request: NextRequest) {
               user_email: user.email,
               user_role: profile?.role || 'unknown',
               profile_completed: profile?.profile_completed || false,
-              first_login: !existingProfile
+              first_login: !actualProfile
             },
             institutionId: profile?.institution_id,
             statusCode: 200
@@ -177,7 +230,7 @@ export async function GET(request: NextRequest) {
       };
 
       // If no profile exists, create one
-      if (!existingProfile) {
+      if (!actualProfile) {
         const newProfile = {
           id: user.id,
           email: user.email,
@@ -198,7 +251,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Check if user account is active
-      if (existingProfile.is_active === false) {
+      if (actualProfile.is_active === false) {
         // Sign out the user immediately
         await supabase.auth.signOut();
 
@@ -209,10 +262,10 @@ export async function GET(request: NextRequest) {
       }
 
       // Log login activity for existing user
-      await logLoginActivity(existingProfile);
+      await logLoginActivity(actualProfile);
 
       // If profile exists but not completed
-      if (!existingProfile.profile_completed) {
+      if (!actualProfile.profile_completed) {
         // Clear child app auth cookie if present
         if (childAppAuth) {
           cookieStore.delete('child_app_auth');

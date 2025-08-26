@@ -37,17 +37,46 @@ export function useUsers(initialFilters: UserFilters = {}) {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to create user');
+        // Handle different types of errors with more context
+        if (response.status === 409 && data.existingUser) {
+          const existingUser = data.existingUser;
+          const errorMessage = `${
+            data.error
+          }\n\nExisting user details:\n• Name: ${
+            existingUser.fullName
+          }\n• Role: ${existingUser.role}\n• Status: ${
+            existingUser.isActive ? 'Active' : 'Inactive'
+          }\n• Created: ${new Date(
+            existingUser.createdAt
+          ).toLocaleDateString()}\n\n${data.suggestion}`;
+          throw new Error(errorMessage);
+        }
+        console.error('User creation error response:', data);
+        const errorMessage = data.error || 'Failed to create user';
+        const errorDetails = data.details ? `\nDetails: ${data.details}` : '';
+        const errorCode = data.code ? `\nCode: ${data.code}` : '';
+        throw new Error(`${errorMessage}${errorDetails}${errorCode}`);
       }
 
-      toast.success('User created successfully');
       router.refresh();
       return { data: data.data, error: null };
     } catch (error) {
       console.error('Error creating user:', error);
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to create user'
-      );
+
+      // Show more detailed error message for user conflicts
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to create user';
+
+      // For long error messages (like user conflicts), show a more user-friendly toast
+      if (errorMessage.includes('Existing user details:')) {
+        toast.error('Email already exists! Check console for details.', {
+          duration: 5000
+        });
+        console.error('Detailed error:', errorMessage);
+      } else {
+        toast.error(errorMessage);
+      }
+
       return { data: null, error };
     } finally {
       setLoading(false);

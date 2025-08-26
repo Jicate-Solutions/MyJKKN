@@ -20,6 +20,7 @@ import { Period, UpdatePeriodDto } from '@/types/academics';
 import Loading from '@/components/Loading/Loading';
 import { BeatLoader } from 'react-spinners';
 import { Card, CardContent } from '@/components/ui/card';
+import toast from 'react-hot-toast';
 
 interface EditPeriodPageProps {
   params: Promise<{
@@ -57,9 +58,32 @@ export default function EditPeriodPage({ params }: EditPeriodPageProps) {
     setIsSubmitting(true);
     try {
       await PeriodService.updatePeriod(id, data);
+      toast.success('Period updated successfully!');
       router.push('/academic/periods');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating period:', err);
+
+      // Check for specific database constraint errors
+      if (
+        err?.code === '23514' ||
+        err?.message?.includes('period_start_before_end')
+      ) {
+        toast.error(
+          'End time must be after start time. Please check your time selection.'
+        );
+      } else if (err?.code === '23505' || err?.message?.includes('duplicate')) {
+        toast.error(
+          'A period with this name already exists for this institution.'
+        );
+      } else if (err?.message?.includes('violates check constraint')) {
+        toast.error('Invalid period configuration. Please check your inputs.');
+      } else {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : 'Failed to update period. Please try again.'
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }

@@ -634,11 +634,33 @@ export class DashboardService {
     const widgetTypes = await this.getAvailableWidgetTypes();
 
     try {
-      // Create configuration
-      const config = await this.createDashboardConfiguration({
-        configuration_name: 'Default Dashboard',
-        is_default: true
-      });
+      // Try to create configuration with a unique name
+      const configName = 'Default Dashboard';
+      let config;
+      let attempts = 0;
+
+      while (attempts < 3) {
+        try {
+          config = await this.createDashboardConfiguration({
+            configuration_name:
+              attempts === 0 ? configName : `${configName} ${attempts + 1}`,
+            is_default: true
+          });
+          break; // Success, exit loop
+        } catch (createError: any) {
+          if (createError?.message?.includes('duplicate key') && attempts < 2) {
+            attempts++;
+            continue; // Try with a different name
+          }
+          throw createError; // Rethrow if not a duplicate key error or max attempts reached
+        }
+      }
+
+      if (!config) {
+        throw new Error(
+          'Failed to create default dashboard configuration after multiple attempts'
+        );
+      }
 
       // Add default widgets
       for (const widgetDef of defaultWidgets) {

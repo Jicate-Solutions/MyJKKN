@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { usePeriods } from '@/hooks/academic/use-periods';
 import { useToast } from '@/hooks/use-toast';
+import { toast as hotToast } from 'react-hot-toast';
 import { PeriodForm } from '../_components/period-form';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
@@ -89,21 +90,37 @@ export default function NewPeriodPage() {
       };
 
       await createPeriod(payload);
-      toast({
-        title: 'Period created',
-        description: 'The period has been created successfully.'
-      });
+
       router.push('/academic/periods');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating period:', error);
-      toast({
-        title: 'Error',
-        description:
+
+      // Check for specific database constraint errors
+      if (
+        error?.code === '23514' ||
+        error?.message?.includes('period_start_before_end')
+      ) {
+        hotToast.error(
+          'End time must be after start time. Please check your time selection.'
+        );
+      } else if (
+        error?.code === '23505' ||
+        error?.message?.includes('duplicate')
+      ) {
+        hotToast.error(
+          'A period with this name already exists for this institution.'
+        );
+      } else if (error?.message?.includes('violates check constraint')) {
+        hotToast.error(
+          'Invalid period configuration. Please check your inputs.'
+        );
+      } else {
+        hotToast.error(
           error instanceof Error
             ? error.message
-            : 'Failed to create period. Please try again.',
-        variant: 'destructive'
-      });
+            : 'Failed to create period. Please try again.'
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }

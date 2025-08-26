@@ -103,6 +103,7 @@ export interface StaffPlanFilters {
   department_id?: string;
   semester_id?: string;
   academic_year_id?: string;
+  course_id?: string; // Course-wise filter
   isActive?: boolean;
   page?: number;
   limit?: number;

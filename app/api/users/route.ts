@@ -11,7 +11,7 @@ import { RESOURCE_TYPES } from '@/types/activity';
 
 export const dynamic = 'force-dynamic';
 
-// Create admin client for user management
+// Create admin client for database operations
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -73,77 +73,27 @@ export async function POST(request: Request) {
     );
 
     const json = await request.json();
-    const { email, full_name, role, phone_number, password, institution_id } =
+    const { email, full_name, role, phone_number, institution_id } =
       json as CreateUserRequest;
 
-    // Validate required fields
-    if (!email || !full_name || !role || !password) {
+    // Validate required fields (no password needed for OAuth-only system)
+    if (!email || !full_name || !role) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    // Handle existing vs new auth users
-    let userId: string;
-    let existingAuthUser = false;
-
-    // First check if email exists in auth
-    const {
-      data: { users: existingAuthUsers }
-    } = await supabaseAdmin.auth.admin.listUsers();
-    const foundAuthUser = existingAuthUsers.find(
-      (user) => user.email === email
-    );
-
-    if (foundAuthUser) {
-      console.log(
-        `Auth user with email ${email} already exists. Using existing user ID.`
-      );
-      userId = foundAuthUser.id;
-      existingAuthUser = true;
-    } else {
-      // Only create a new auth user if one doesn't already exist
-      const { data: authCreationResponse, error: authCreationError } =
-        await supabaseAdmin.auth.admin.createUser({
-          email,
-          password,
-          email_confirm: true,
-          user_metadata: {
-            full_name,
-            role
-          }
-        });
-
-      if (authCreationError) {
-        // If there's an error here, it's a real problem
-        return NextResponse.json(
-          { error: authCreationError.message },
-          { status: 500 }
-        );
-      }
-      userId = authCreationResponse.user.id;
-    }
-
-    // Check if email exists in profiles table
-    const { data: existingProfile, error: profileCheckError } =
-      await supabaseAdmin
-        .from('profiles')
-        .select('id')
-        .eq('email', email)
-        .maybeSingle(); // Use maybeSingle to avoid error when no row is found
-
-    if (existingProfile) {
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
       return NextResponse.json(
-        {
-          error: `User with email ${email} already exists in profiles.`,
-          details: 'A profile with this email already exists in the system.'
-        },
-        { status: 409 }
+        { error: 'Invalid email format' },
+        { status: 400 }
       );
     }
 
-    // First check if the current user is an admin
+    // First check if the current user is authorized to create users
     const {
       data: { session },
       error: sessionError
@@ -210,7 +160,12 @@ export async function POST(request: Request) {
         'super_admin',
         'administrator',
         'faculty',
-        'student'
+        'student',
+        'driver',  // Added driver role
+        'accounts',  // Added accounts role
+        'guest',  // Added guest role
+        'staff',  // Added staff role
+        'test'  // Added test role
       ];
       if (!basicValidRoles.includes(role)) {
         return NextResponse.json(
@@ -241,72 +196,102 @@ export async function POST(request: Request) {
     }
 
     // Additional permission checks for system roles
+    // Only restrict if it's a system role AND the current user is not super_admin
+    // Allow administrators to create users with custom roles (is_system_role = false)
     if (validRole.is_system_role && currentUser?.role !== 'super_admin') {
+      console.log(`User ${currentUser.role} attempted to assign system role ${role}`);
       return NextResponse.json(
         { error: 'Only super admins can assign system roles' },
         { status: 403 }
       );
     }
+    
+    // Log successful role validation for custom roles
+    if (!validRole.is_system_role) {
+      console.log(`Allowing ${currentUser.role} to create user with custom role: ${role}`);
+    }
 
-    // Now, call the RPC function to create the profile
-    const { data: profileData, error: rpcError } = await supabaseAdmin.rpc(
-      'create_user_profile',
-      {
-        user_id: userId,
-        user_email: email,
-        user_full_name: full_name,
-        user_role: role,
-        user_phone_number: phone_number,
-        user_institution_id: institution_id
-      }
-    );
+    // For Google OAuth only system, we pre-register profiles
+    // The profile will be linked to Google auth when the user logs in
 
-    if (rpcError) {
-      console.error('Error creating profile via RPC:', rpcError);
-      // If the profile creation fails, we need to clean up the auth user we might have just created
-      if (!existingAuthUser && userId) {
-        await supabaseAdmin.auth.admin.deleteUser(userId);
-      }
+    // Check if a profile with this email already exists
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email')
+      .eq('email', email)
+      .single();
+    
+    if (existingProfile) {
+      return NextResponse.json(
+        {
+          error: `A user with email ${email} already exists.`,
+          details: 'This email is already registered in the system.'
+        },
+        { status: 409 }
+      );
+    }
 
-      // Check for specific foreign key violation error (institution_id)
-      if (
-        rpcError.message.includes('foreign key constraint') &&
-        rpcError.message.includes('profiles_institution_id_fkey')
-      ) {
+    // Generate a proper UUID for pre-registration
+    // We'll use crypto.randomUUID() to create a valid UUID
+    const placeholderId = crypto.randomUUID();
+
+    console.log('Creating pre-registered profile for Google OAuth:', {
+      placeholder_id: placeholderId,
+      email: email,
+      full_name: full_name,
+      role: role
+    });
+
+    // Create the pre-registered profile with metadata to track it's pre-registered
+    const { data: newProfile, error: createError } = await supabaseAdmin
+      .from('profiles')
+      .insert({
+        id: placeholderId,
+        email: email,
+        full_name: full_name,
+        role: role,
+        phone_number: phone_number,
+        institution_id: institution_id,
+        profile_completed: true,
+        is_active: true,
+        is_pre_registered: true, // Flag to indicate this is a pre-registered user
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      console.error('Error creating pre-registered profile:', createError);
+      
+      // Check for specific errors
+      if (createError.message.includes('duplicate key')) {
         return NextResponse.json(
           {
-            error: 'Invalid institution ID provided.',
-            details: rpcError.message
-          },
-          { status: 400 }
-        );
-      }
-
-      // Check for unique constraint violation or custom profile exists error
-      if (
-        rpcError.message.includes('unique constraint') ||
-        rpcError.message.includes('Profile with email') ||
-        rpcError.code === '23505' || // unique_violation error code
-        rpcError.message.includes('profiles_pkey') ||
-        rpcError.message.includes('profiles_email_key')
-      ) {
-        return NextResponse.json(
-          {
-            error: `A user with this email address has already been registered`,
-            details: rpcError.message
+            error: 'A user with this email already exists',
+            details: createError.message
           },
           { status: 409 }
         );
       }
-
+      
+      if (createError.message.includes('foreign key constraint') && 
+          createError.message.includes('institution_id')) {
+        return NextResponse.json(
+          {
+            error: 'Invalid institution ID provided',
+            details: createError.message
+          },
+          { status: 400 }
+        );
+      }
+      
       return NextResponse.json(
         {
-          error: rpcError.message,
-          details: rpcError.details,
-          code: rpcError.code,
-          hint: rpcError.hint
+          error: 'Failed to create user profile',
+          details: createError.message
         },
-        { status: 500 } // Use 500 for other RPC errors
+        { status: 500 }
       );
     }
 
@@ -321,23 +306,31 @@ export async function POST(request: Request) {
       userId: session.user.id,
       actionType: template.actionType,
       resourceType: template.resourceType,
-      resourceId: userId,
+      resourceId: placeholderId,
       resourceName: full_name,
       description: template.description,
       request: request as NextRequest,
       metadata: {
-        target_user_id: userId,
+        target_user_id: placeholderId,
         target_email: email,
         target_role: role,
-        created_by_role: currentUser?.role
+        created_by_role: currentUser?.role,
+        pre_registered: true,
+        auth_method: 'google_oauth_pending'
       },
       institutionId: currentUser?.institution_id,
       statusCode: 201
     });
 
     return NextResponse.json({
-      message: 'User and profile created successfully',
-      userId: userId
+      message: 'User pre-registered successfully. They can now login with Google using this email.',
+      data: {
+        id: placeholderId,
+        email: email,
+        full_name: full_name,
+        role: role,
+        status: 'pending_google_login'
+      }
     });
   } catch (error) {
     console.error('Error in POST /api/users:', error);
@@ -401,8 +394,11 @@ export async function GET(request: NextRequest) {
     const institution = url.searchParams.get('institution');
     const search = url.searchParams.get('search');
 
-    // Build query
-    let query = supabase.from('profiles').select('*', { count: 'exact' });
+    // Build query - exclude pre-registered pending users from the list
+    let query = supabase
+      .from('profiles')
+      .select('*', { count: 'exact' })
+      .eq('is_pre_registered', false); // Exclude pre-registered users
 
     // Faculty users can only see profiles from their own institution
     if (profile.role === 'faculty' && profile.institution_id) {

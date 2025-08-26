@@ -238,6 +238,7 @@ export interface AttendancePeriodOption {
   end_time: string;
   timetable_slot_id: string;
   timetable_id: string; // Add timetable_id
+  period_type?: string;
   course?: {
     id: string;
     course_name: string;
@@ -249,4 +250,11 @@ export interface AttendancePeriodOption {
   }[];
   staff?: StaffMember; // Legacy single staff member
   staff_members?: StaffMember[]; // Array of assigned staff members
+  
+  // Additional display fields (optional)
+  degree_name?: string;
+  program_name?: string;
+  department_name?: string;
+  semester_name?: string;
+  section_name?: string;
 }
