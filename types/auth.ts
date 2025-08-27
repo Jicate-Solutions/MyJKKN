@@ -8,7 +8,8 @@ export const SYSTEM_ROLES = {
   FACULTY: 'faculty',
   STUDENT: 'student',
   STAFF: 'staff',
-  GUEST: 'guest'
+  GUEST: 'guest',
+  DRIVER: 'driver'
 } as const;
 
 export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';

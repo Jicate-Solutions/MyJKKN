@@ -248,6 +248,14 @@ export async function middleware(request: NextRequest) {
       ) {
         return NextResponse.redirect(new URL('/guest', request.url));
       }
+    } else if (profile.role === 'driver') {
+      // Driver users can only access the driver page
+      if (
+        !currentPath.startsWith('/driver') &&
+        !currentPath.startsWith('/auth')
+      ) {
+        return NextResponse.redirect(new URL('/driver', request.url));
+      }
     } else if (profile.role === 'student') {
       // If student is trying to access admin routes, redirect to learner dashboard
       if (
@@ -273,8 +281,8 @@ export async function middleware(request: NextRequest) {
       if (currentPath.startsWith('/learner')) {
         return NextResponse.redirect(new URL('/', request.url));
       }
-      // Admin users trying to access guest page should be redirected to dashboard
-      if (currentPath.startsWith('/guest')) {
+      // Admin users trying to access guest or driver pages should be redirected to dashboard
+      if (currentPath.startsWith('/guest') || currentPath.startsWith('/driver')) {
         return NextResponse.redirect(new URL('/', request.url));
       }
     }
@@ -319,6 +327,7 @@ export const config = {
     '/learner/:path*',
     '/students/:path*',
     '/guest/:path*',
+    '/driver/:path*',
     // Match all paths except public ones
     '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile).*)'
   ]
