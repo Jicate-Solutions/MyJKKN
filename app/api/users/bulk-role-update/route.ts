@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/supabase';
@@ -30,10 +30,10 @@ export async function PATCH(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    if (!profile || profile.role !== 'super_admin') {
+    if (!profile || (profile.role !== 'super_admin' && profile.role !== 'administrator')) {
       return NextResponse.json(
         {
-          error: 'Insufficient permissions. Only super admins can update roles.'
+          error: 'Insufficient permissions. Only super admins and administrators can update roles.'
         },
         { status: 403 }
       );
@@ -72,6 +72,9 @@ export async function PATCH(request: NextRequest) {
 
     const success: string[] = [];
     const failed: Array<{ userId: string; error: string }> = [];
+    
+    // Use service role client for admin operations to bypass RLS
+    const serviceClient = createServiceRoleClient();
 
     // Process each user individually for better error handling
     for (const targetUser of targetUsers) {
@@ -85,8 +88,8 @@ export async function PATCH(request: NextRequest) {
           continue;
         }
 
-        // Update the user's role
-        const { error: updateError } = await supabase
+        // Update the user's role using service role client
+        const { error: updateError } = await serviceClient
           .from('profiles')
           .update({
             role,
