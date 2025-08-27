@@ -6,6 +6,7 @@ import type { NextRequest } from 'next/server';
 import { Database, SYSTEM_ROLES } from '@/types/auth';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { RESOURCE_TYPES } from '@/types/activity';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export async function PATCH(
   request: NextRequest,
@@ -66,12 +67,22 @@ export async function PATCH(
       .select('role, full_name, institution_id')
       .eq('id', user.id)
       .single();
-
-    if (currentUserError || currentUser.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+    
+    if (currentUserError) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Only super admins can update roles'
+          error: 'Failed to verify user permissions'
+        },
+        { status: 500 }
+      );
+    }
+    
+    if (currentUser.role !== SYSTEM_ROLES.SUPER_ADMIN && currentUser.role !== SYSTEM_ROLES.ADMINISTRATOR) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Only super admins and administrators can update roles'
         },
         { status: 403 }
       );
@@ -88,7 +99,7 @@ export async function PATCH(
       return NextResponse.json(
         {
           success: false,
-          error: 'Invalid role'
+          error: `Invalid role: ${role}`
         },
         { status: 400 }
       );
@@ -125,8 +136,11 @@ export async function PATCH(
       );
     }
 
-    // Update the user's role
-    const { data: updatedUser, error: updateError } = await supabase
+    // Update the user's role using service role client to bypass RLS
+    // Use service role client for admin operations to bypass RLS
+    const serviceClient = createServiceRoleClient();
+    
+    const { data: updatedUser, error: updateError } = await serviceClient
       .from('profiles')
       .update({
         role,
@@ -140,7 +154,7 @@ export async function PATCH(
       return NextResponse.json(
         {
           success: false,
-          error: 'Failed to update role'
+          error: `Failed to update role: ${updateError.message}`
         },
         { status: 500 }
       );
