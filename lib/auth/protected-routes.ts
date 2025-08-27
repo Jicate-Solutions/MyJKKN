@@ -27,6 +27,10 @@ export const PROTECTED_ROUTES: Record<string, RouteConfig> = {
   GUEST_ONLY: {
     paths: ['/guest'],
     roles: [SYSTEM_ROLES.GUEST]
+  },
+  DRIVER_ONLY: {
+    paths: ['/driver'],
+    roles: [SYSTEM_ROLES.DRIVER]
   }
   //   STAFF_ONLY: {
   //     paths: ['/reports', '/analytics'],

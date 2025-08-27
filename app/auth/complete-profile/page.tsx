@@ -116,6 +116,8 @@ export default function CompleteProfile() {
               router.push('/guest');
             } else if (profile.role === 'student') {
               router.push('/learner');
+            } else if (profile.role === 'driver') {
+              router.push('/driver');
             } else {
               router.push('/');
             }
@@ -184,6 +186,8 @@ export default function CompleteProfile() {
         router.push('/guest');
       } else if (updatedProfile?.role === 'student') {
         router.push('/learner');
+      } else if (updatedProfile?.role === 'driver') {
+        router.push('/driver');
       } else {
         router.push('/');
       }
