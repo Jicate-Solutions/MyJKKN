@@ -163,7 +163,7 @@ export async function GET(request: NextRequest) {
         .eq('id', user.id)
         .single();
 
-      // If no profile with this ID, check if one exists with this email (for driver users migrating to Google)
+      // If no profile with this ID, check if one exists with this email (for pre-registered or migrating users)
       let migratedProfile = null;
       if (!existingProfile && user.email) {
         const { data: emailProfile } = await supabase
@@ -173,57 +173,124 @@ export async function GET(request: NextRequest) {
           .single();
 
         if (emailProfile) {
-          console.log(
-            `Found existing profile by email for ${user.email}, migrating to Google auth`
-          );
+          // Check if this is a pre-registered profile
+          if (emailProfile.is_pre_registered) {
+            console.log(
+              `Found pre-registered profile for ${user.email}, linking to Google auth`
+            );
 
-          // Create a new profile with the Google auth user ID, copying data from the old profile
-          const { error: insertError } = await supabase
-            .from('profiles')
-            .insert({
-              id: user.id,
-              email: emailProfile.email,
-              full_name: emailProfile.full_name,
-              role: emailProfile.role,
-              phone_number: emailProfile.phone_number,
-              institution_id: emailProfile.institution_id,
-              profile_completed: emailProfile.profile_completed,
-              is_active: emailProfile.is_active,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            });
-
-          if (!insertError) {
-            // Instead of deleting, mark the old profile as inactive
-            // This prevents foreign key constraint issues
-            const { error: updateOldProfileError } = await supabase
+            // Update the pre-registered profile with the Google auth user ID
+            const { error: updateError } = await supabase
               .from('profiles')
-              .update({ 
-                is_active: false,
+              .update({
+                id: user.id,
+                is_pre_registered: false,
+                profile_completed: true,
                 updated_at: new Date().toISOString()
               })
               .eq('id', emailProfile.id);
 
-            if (updateOldProfileError) {
+            if (!updateError) {
+              // Delete the old placeholder profile
+              await supabase
+                .from('profiles')
+                .delete()
+                .eq('id', emailProfile.id);
+
+              // Create the profile with correct Google auth ID
+              const { error: insertError } = await supabase
+                .from('profiles')
+                .insert({
+                  id: user.id,
+                  email: emailProfile.email,
+                  full_name: emailProfile.full_name,
+                  role: emailProfile.role,
+                  phone_number: emailProfile.phone_number,
+                  institution_id: emailProfile.institution_id,
+                  profile_completed: true,
+                  is_active: emailProfile.is_active,
+                  is_pre_registered: false,
+                  created_at: emailProfile.created_at,
+                  updated_at: new Date().toISOString()
+                });
+
+              if (!insertError) {
+                migratedProfile = {
+                  ...emailProfile,
+                  id: user.id,
+                  is_pre_registered: false
+                };
+
+                console.log(
+                  `Successfully linked pre-registered profile for ${user.email} to Google auth`
+                );
+              } else {
+                console.error(
+                  `Failed to create Google-linked profile for ${user.email}:`,
+                  insertError
+                );
+              }
+            } else {
               console.error(
-                `Failed to deactivate old profile:`,
-                updateOldProfileError
+                `Failed to update pre-registered profile for ${user.email}:`,
+                updateError
               );
             }
-
-            migratedProfile = {
-              ...emailProfile,
-              id: user.id
-            };
-
-            console.log(
-              `Successfully migrated profile for ${user.email} to Google auth`
-            );
           } else {
-            console.error(
-              `Failed to migrate profile for ${user.email}:`,
-              insertError
+            // This is a legacy profile that needs migration
+            console.log(
+              `Found existing profile by email for ${user.email}, migrating to Google auth`
             );
+
+            // Create a new profile with the Google auth user ID, copying data from the old profile
+            const { error: insertError } = await supabase
+              .from('profiles')
+              .insert({
+                id: user.id,
+                email: emailProfile.email,
+                full_name: emailProfile.full_name,
+                role: emailProfile.role,
+                phone_number: emailProfile.phone_number,
+                institution_id: emailProfile.institution_id,
+                profile_completed: emailProfile.profile_completed,
+                is_active: emailProfile.is_active,
+                is_pre_registered: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              });
+
+            if (!insertError) {
+              // Instead of deleting, mark the old profile as inactive
+              // This prevents foreign key constraint issues
+              const { error: updateOldProfileError } = await supabase
+                .from('profiles')
+                .update({ 
+                  is_active: false,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', emailProfile.id);
+
+              if (updateOldProfileError) {
+                console.error(
+                  `Failed to deactivate old profile:`,
+                  updateOldProfileError
+                );
+              }
+
+              migratedProfile = {
+                ...emailProfile,
+                id: user.id
+              };
+
+              console.log(
+                `Successfully migrated profile for ${user.email} to Google auth`
+              );
+            } else {
+              console.error(
+                `Failed to migrate profile for ${user.email}:`,
+                insertError
+              );
+            }
           }
         }
       }
