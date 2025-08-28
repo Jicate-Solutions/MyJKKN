@@ -28,6 +28,13 @@
       "env": {
         "MEMORY_STORE_PATH": "D:\\MyJKKN\\.claude\\memory"
       }
+    },
+    "vercel": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@vercel/mcp@latest"],
+      "env": {
+        "VERCEL_ACCESS_TOKEN": "opQt0rUtRZu3aZ3eNNqArnPD"
+      }
     }
   }
 }
