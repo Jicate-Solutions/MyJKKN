@@ -21,12 +21,12 @@
       "mcp__sequential-thinking__sequentialthinking",
       "mcp__supabase__list_tables",
       "Bash(mv:*)",
-      "mcp__supabase__get_logs"
+      "mcp__supabase__get_logs",
+      "mcp__vercel__list_projects"
     ],
     "deny": []
   },
   "enableAllProjectMcpServers": true,
-
   "enabledMcpjsonServers": [
     "supabase"
   ]
