@@ -5,6 +5,7 @@ import { PROTECTED_ROUTES } from './lib/auth/protected-routes';
 
 // Define public paths
 const PUBLIC_PATHS = [
+  '/', // Allow root path to avoid ERR_FAILED issues
   '/auth/login',
   '/auth/callback',
   '/auth/complete-profile',
