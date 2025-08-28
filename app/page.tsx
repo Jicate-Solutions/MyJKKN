@@ -7,7 +7,7 @@ export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Client-side navigation to avoid server-side redirect issues
+    // Client-side navigation to avoid ERR_FAILED on refresh
     router.push('/dashboard');
   }, [router]);
 
