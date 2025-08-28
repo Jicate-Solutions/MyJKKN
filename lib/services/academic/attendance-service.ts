@@ -50,66 +50,89 @@ export class AttendanceService {
     section_id: string,
     attendance_date: string
   ): Promise<ConsolidatedStudentAttendance | null> {
-    try {
-      console.log('getConsolidatedAttendance called with:', {
-        timetable_id,
-        section_id,
-        attendance_date
-      });
+    let resolvedSectionId = section_id;
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-      const { data, error } = await this.supabase
-        .from('student_attendance')
-        .select(
-          `
-          id,
-          timetable_id,
-          section_id,
-          attendance_date,
-          attendance_data,
-          marked_by,
-          institution_id,
-          created_at,
-          updated_at,
-          marked_by_profile:profiles!marked_by(
-            id,
-            email,
-            full_name
-          )
-        `
-        )
-        .eq('timetable_id', timetable_id)
-        .eq('section_id', section_id)
-        .eq('attendance_date', attendance_date)
+    if (resolvedSectionId && !uuidRegex.test(resolvedSectionId)) {
+      // Not a UUID, assume it's a name and try to resolve it
+      const { data: timetableData, error: timetableError } = await this.supabase
+        .from('timetables')
+        .select('program_id')
+        .eq('id', timetable_id)
         .single();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // No record found
-          console.log('No attendance record found for the given criteria');
-          return null;
-        }
-        console.error('Error fetching consolidated attendance:', error);
-        throw error;
+      if (timetableError || !timetableData) {
+        console.error(
+          `Error fetching timetable ${timetable_id} to resolve section name`,
+          timetableError
+        );
+        return null;
       }
 
-      console.log('Found consolidated attendance record:', {
-        id: data.id,
-        hasAttendanceData: !!data.attendance_data,
-        attendanceDataKeys: data.attendance_data
-          ? Object.keys(data.attendance_data)
-          : []
-      });
+      const { data: sectionData, error: sectionError } = await this.supabase
+        .from('sections')
+        .select('id')
+        .eq('program_id', timetableData.program_id)
+        .eq('section_name', resolvedSectionId)
+        .limit(1)
+        .single();
 
-      return {
-        ...data,
-        marked_by_profile: Array.isArray(data.marked_by_profile)
-          ? data.marked_by_profile[0]
-          : data.marked_by_profile
-      } as unknown as ConsolidatedStudentAttendance;
-    } catch (error) {
+      if (sectionError || !sectionData) {
+        console.error(
+          `Could not resolve section name "${resolvedSectionId}" to an ID for program ${timetableData.program_id}`,
+          sectionError
+        );
+        return null; // Return null to avoid crash
+      }
+
+      resolvedSectionId = sectionData.id;
+    }
+
+    if (!resolvedSectionId) {
+      return null;
+    }
+
+    const { data, error } = await this.supabase
+      .from('student_attendance')
+      .select(
+        `
+        id,
+        timetable_id,
+        section_id,
+        attendance_date,
+        attendance_data,
+        marked_by,
+        institution_id,
+        created_at,
+        updated_at,
+        marked_by_profile:profiles!marked_by(id, email, full_name)
+      `
+      )
+      .eq('timetable_id', timetable_id)
+      .eq('section_id', resolvedSectionId)
+      .eq('attendance_date', attendance_date)
+      .maybeSingle();
+
+    // Debugging logs to understand what's being passed
+    console.log('Fetching consolidated attendance with:', {
+      timetable_id,
+      section_id: resolvedSectionId,
+      attendance_date
+    });
+
+    if (error) {
       console.error('Error fetching consolidated attendance:', error);
       throw error;
     }
+
+    if (data) {
+      console.log('Found consolidated attendance:', data);
+    } else {
+      console.log('No consolidated attendance found.');
+    }
+
+    return data as ConsolidatedStudentAttendance | null;
   }
 
   // Get consolidated attendance records by section and date (regardless of timetable_id)
@@ -243,7 +266,6 @@ export class AttendanceService {
     }
   }
 
-  // Get attendance for a slot including all its historical versions
   static async getSlotAttendanceWithHistory(
     slot_id: string,
     section_id: string,
@@ -251,123 +273,119 @@ export class AttendanceService {
     end_date?: string
   ): Promise<any[]> {
     try {
-      // Try to get related slots from the continuity table
+      const timetableId = await this.getTimetableIdFromSlot(slot_id);
+      if (!timetableId) {
+        throw new Error(`Could not find timetable for slot_id: ${slot_id}`);
+      }
+
+      let resolvedSectionId = section_id;
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      if (resolvedSectionId && !uuidRegex.test(resolvedSectionId)) {
+        const { data: timetableData, error: timetableError } =
+          await this.supabase
+            .from('timetables')
+            .select('program_id')
+            .eq('id', timetableId)
+            .single();
+
+        if (timetableError || !timetableData) {
+          throw new Error(
+            `Error fetching timetable ${timetableId} to resolve section name`
+          );
+        }
+
+        const { data: sectionData, error: sectionError } = await this.supabase
+          .from('sections')
+          .select('id')
+          .eq('program_id', timetableData.program_id)
+          .eq('section_name', resolvedSectionId)
+          .limit(1)
+          .single();
+
+        if (sectionError || !sectionData) {
+          console.error(
+            `Could not resolve section name "${resolvedSectionId}" to an ID for program ${timetableData.program_id}`,
+            sectionError
+          );
+          return []; // Return empty to avoid crash
+        }
+        resolvedSectionId = sectionData.id;
+      }
+
+      if (!resolvedSectionId) {
+        return [];
+      }
+
+      console.log('Checking for slot versions with slot_id:', slot_id);
+
+      // Check if this slot has versions by querying the continuity table directly
+      // Since the RPC function has a bug, we'll implement the logic here
       const { data: continuityData, error: continuityError } =
         await this.supabase
           .from('timetable_slot_continuity')
           .select('continuity_group_id')
-          .eq('slot_id', slot_id)
+          .eq('timetable_slot_id', slot_id)
+          .limit(1)
           .single();
 
-      let relatedSlotIds = [slot_id];
+      let hasVersions = false;
 
       if (!continuityError && continuityData?.continuity_group_id) {
-        // Get all slots in the same continuity group
-        const { data: relatedSlots, error: relatedError } = await this.supabase
+        // Check if there are multiple slots in this continuity group
+        const { data: groupSlots, error: groupError } = await this.supabase
           .from('timetable_slot_continuity')
-          .select('slot_id')
-          .eq('continuity_group_id', continuityData.continuity_group_id)
-          .order('version_number', { ascending: true });
+          .select('id')
+          .eq('continuity_group_id', continuityData.continuity_group_id);
 
-        if (!relatedError && relatedSlots) {
-          relatedSlotIds = relatedSlots.map((r: any) => r.slot_id);
-          console.log('Found related slot versions:', relatedSlotIds);
+        if (!groupError && groupSlots && groupSlots.length > 1) {
+          hasVersions = true;
         }
       }
 
-      // For consolidated attendance, we need to check the JSONB data
-      // The attendance_data column contains slot IDs as keys
-      let query = this.supabase
-        .from('student_attendance')
-        .select(
-          `
-          *,
-          marked_by_profile:profiles!marked_by(
-            id,
-            email,
-            full_name
+      console.log('Slot has versions:', hasVersions);
+
+      if (hasVersions) {
+        // Logic for versioned slots - get timetable_id from slot
+        const timetableId = await this.getTimetableIdFromSlot(slot_id);
+        if (!timetableId) {
+          console.error('Could not get timetable_id for slot:', slot_id);
+          return this.getSlotAttendanceDirectly(
+            slot_id,
+            resolvedSectionId,
+            start_date,
+            end_date
+          );
+        }
+
+        const { data, error } = await this.supabase
+          .from('student_attendance')
+          .select(
+            '*, marked_by_profile:profiles!marked_by(id, email, full_name)'
           )
-        `
-        )
-        .eq('section_id', section_id);
-
-      if (start_date && end_date) {
-        query = query
+          .eq('timetable_id', timetableId)
+          .eq('section_id', resolvedSectionId)
           .gte('attendance_date', start_date)
-          .lte('attendance_date', end_date);
-      } else if (start_date) {
-        query = query.eq('attendance_date', start_date);
-      }
+          .lte('attendance_date', end_date)
+          .order('attendance_date', { ascending: false });
 
-      const { data: attendanceRecords, error: attendanceError } =
-        await query.order('attendance_date', { ascending: false });
-
-      if (attendanceError) {
-        console.error(
-          'Error fetching attendance with versions:',
-          attendanceError
-        );
-        // Fallback to direct method
-        return this.getSlotAttendanceDirectly(
-          slot_id,
-          section_id,
-          start_date,
-          end_date
-        );
-      }
-
-      // Process the attendance records to extract data for related slots
-      const attendanceData: any[] = [];
-
-      if (attendanceRecords && attendanceRecords.length > 0) {
-        for (const record of attendanceRecords) {
-          if (
-            record.attendance_data &&
-            typeof record.attendance_data === 'object'
-          ) {
-            // Check each slot in the attendance data
-            for (const [slotId, slotData] of Object.entries(
-              record.attendance_data
-            )) {
-              // Check if this slot ID is in our related slots
-              if (relatedSlotIds.includes(slotId)) {
-                // Extract student attendance from this slot
-                if (
-                  slotData &&
-                  typeof slotData === 'object' &&
-                  'students' in slotData
-                ) {
-                  const slotAttendance = slotData as any;
-                  if (Array.isArray(slotAttendance.students)) {
-                    for (const student of slotAttendance.students) {
-                      attendanceData.push({
-                        id: `${record.id}_${slotId}_${student.student_id}`,
-                        student_id: student.student_id,
-                        timetable_slot_id: slotId,
-                        attendance_date: record.attendance_date,
-                        status: student.status,
-                        marked_by: record.marked_by,
-                        marked_at: student.marked_at || record.updated_at,
-                        section_id: record.section_id,
-                        timetable_id: record.timetable_id,
-                        marked_by_profile: Array.isArray(
-                          record.marked_by_profile
-                        )
-                          ? record.marked_by_profile[0]
-                          : record.marked_by_profile
-                      });
-                    }
-                  }
-                }
-              }
-            }
-          }
+        if (error) {
+          console.error('Error fetching attendance with versions:', error);
+          throw error;
         }
+        return data || [];
       }
 
-      return attendanceData;
+      // Fallback for non-versioned slots or if RPC returns no data
+      return this.getSlotAttendanceDirectly(
+        slot_id,
+        resolvedSectionId,
+        start_date,
+        end_date
+      );
     } catch (error) {
-      console.error('Error fetching slot attendance with history:', error);
+      console.error('Error in getSlotAttendanceWithHistory:', error);
       return [];
     }
   }
@@ -380,6 +398,13 @@ export class AttendanceService {
     end_date?: string
   ): Promise<any[]> {
     try {
+      console.log('getSlotAttendanceDirectly called with:', {
+        slot_id,
+        section_id,
+        start_date,
+        end_date
+      });
+
       let query = this.supabase
         .from('student_attendance')
         .select(
@@ -398,6 +423,14 @@ export class AttendanceService {
         `
         )
         .eq('section_id', section_id);
+
+      // Add timetable_id filter if available (get from slot_id)
+      if (slot_id) {
+        const timetableId = await this.getTimetableIdFromSlot(slot_id);
+        if (timetableId) {
+          query = query.eq('timetable_id', timetableId);
+        }
+      }
 
       if (start_date) {
         query = query.gte('attendance_date', start_date);
@@ -1219,8 +1252,36 @@ export class AttendanceService {
     }
   ): Promise<AttendanceRosterData> {
     try {
-      // Get the timetable slot details with sections
-      const { data: slotData, error: slotError } = await this.supabase
+      let resolvedSectionId = studentFilters.section_id;
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      // Resolve section name to ID if needed
+      if (
+        resolvedSectionId &&
+        !uuidRegex.test(resolvedSectionId) &&
+        studentFilters.program_id
+      ) {
+        const { data: sectionData, error: sectionError } = await this.supabase
+          .from('sections')
+          .select('id')
+          .eq('program_id', studentFilters.program_id)
+          .eq('section_name', resolvedSectionId)
+          .limit(1)
+          .single();
+
+        if (sectionError || !sectionData) {
+          console.error(
+            `Could not resolve section name "${resolvedSectionId}" to an ID for program ${studentFilters.program_id}`,
+            sectionError
+          );
+          // Proceed with original (likely incorrect) ID, or could throw error
+        } else {
+          resolvedSectionId = sectionData.id;
+        }
+      }
+
+      const { data: slot, error: slotError } = await this.supabase
         .from('timetable_slots')
         .select(
           `
@@ -1284,7 +1345,7 @@ export class AttendanceService {
           );
         } else {
           // Add staff_members array to slot (cast to any to avoid TypeScript error)
-          (slotData as any).staff_members =
+          (slot as any).staff_members =
             staffAssignments?.map((sa: any) => sa.staff).filter(Boolean) || [];
         }
       } catch (error) {
@@ -1293,8 +1354,7 @@ export class AttendanceService {
 
       // Get section IDs assigned to this slot
       const sectionIds =
-        slotData.timetable_slot_sections?.map((tss: any) => tss.section_id) ||
-        [];
+        slot.timetable_slot_sections?.map((tss: any) => tss.section_id) || [];
 
       if (sectionIds.length === 0) {
         console.warn(
@@ -1304,7 +1364,7 @@ export class AttendanceService {
         return {
           students: [],
           timetable_slot: {
-            ...slotData,
+            ...slot,
             timetable_slot_sections: undefined // Remove from final output
           } as unknown as AttendanceRosterData['timetable_slot'],
           attendance_date
@@ -1396,7 +1456,7 @@ export class AttendanceService {
       return {
         students: rosterStudents,
         timetable_slot: {
-          ...slotData,
+          ...slot,
           timetable_slot_sections: undefined // Remove from final output
         } as unknown as AttendanceRosterData['timetable_slot'],
         attendance_date

@@ -1,5 +1,6 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { Database } from '@/types/supabase';
+import { format } from 'date-fns';
 
 export interface AnalyticsFilters {
   institution_id: string;
@@ -478,110 +479,115 @@ export class AttendanceAnalyticsService {
   static async getAttendanceStatistics(filters?: AttendanceReportFilters) {
     try {
       const supabase = this.getSupabase();
-      
+
       console.log('getAttendanceStatistics called with filters:', filters);
-      
+
       // Get today's date
       const today = new Date().toISOString().split('T')[0];
-      
+
       // For faculty users with staff_id filter, we need to use the reports API
       // which properly filters by staff assignments
       if (filters?.staff_id) {
         console.log('Faculty mode: Using staff_id filter:', filters.staff_id);
         // Use the attendance reports API to get proper counts for faculty
-        const { data: reportData, error: reportError } = await supabase.rpc('get_attendance_report_list', {
-          p_institution_id: filters.institution_id || null,
-          p_staff_id: filters.staff_id,
-          p_start_date: filters.start_date || null,
-          p_end_date: filters.end_date || null,
-          p_page: 1,
-          p_limit: 1000, // Get a large batch to calculate statistics
-          p_sort_by: 'attendance_date',
-          p_sort_order: 'desc'
-        });
+        const { data: reportData, error: reportError } = await supabase.rpc(
+          'get_attendance_report_list',
+          {
+            p_institution_id: filters.institution_id || null,
+            p_staff_id: filters.staff_id,
+            p_start_date: filters.start_date || null,
+            p_end_date: filters.end_date || null,
+            p_page: 1,
+            p_limit: 1000, // Get a large batch to calculate statistics
+            p_sort_by: 'attendance_date',
+            p_sort_order: 'desc'
+          }
+        );
 
         if (reportError) throw reportError;
 
         // Calculate statistics from the faculty's actual records
         const facultyRecords = reportData || [];
         const totalSessions = facultyRecords.length;
-        
+
         // Get today's records for this faculty
         const todayRecords = facultyRecords.filter(
-          record => record.attendance_date === today
+          (record: any) => record.attendance_date === today
         );
-        
+
         let presentToday = 0;
         let absentToday = 0;
-        todayRecords.forEach(record => {
+        todayRecords.forEach((record: any) => {
           presentToday += record.present_count || 0;
           absentToday += record.absent_count || 0;
         });
-        
+
         // Calculate averages from faculty's records
         let totalPresent = 0;
         let totalStudents = 0;
         let excellentCount = 0;
         let poorCount = 0;
-        
-        facultyRecords.forEach(record => {
+
+        facultyRecords.forEach((record: any) => {
           const presentCount = record.present_count || 0;
           const totalCount = record.total_students || 0;
           const percentage = record.attendance_percentage || 0;
-          
+
           totalPresent += presentCount;
           totalStudents += totalCount;
-          
+
           if (percentage >= 90) excellentCount++;
           if (percentage < 50) poorCount++;
         });
-        
-        const averageAttendance = totalStudents > 0 
-          ? (totalPresent / totalStudents) * 100 
-          : 0;
-        
+
+        const averageAttendance =
+          totalStudents > 0 ? (totalPresent / totalStudents) * 100 : 0;
+
         // Calculate trend for faculty
         const lastWeekStart = new Date();
         lastWeekStart.setDate(lastWeekStart.getDate() - 14);
         const thisWeekStart = new Date();
         thisWeekStart.setDate(thisWeekStart.getDate() - 7);
-        
-        const lastWeekRecords = facultyRecords.filter(record => {
+
+        const lastWeekRecords = facultyRecords.filter((record: any) => {
           const recordDate = new Date(record.attendance_date);
           return recordDate >= lastWeekStart && recordDate < thisWeekStart;
         });
-        
-        const thisWeekRecords = facultyRecords.filter(record => {
+
+        const thisWeekRecords = facultyRecords.filter((record: any) => {
           const recordDate = new Date(record.attendance_date);
           return recordDate >= thisWeekStart;
         });
-        
+
         // Calculate weekly averages
         let lastWeekAvg = 0;
         if (lastWeekRecords.length > 0) {
           const lastWeekSum = lastWeekRecords.reduce(
-            (sum, r) => sum + (r.attendance_percentage || 0), 0
+            (sum: number, r: any) => sum + (r.attendance_percentage || 0),
+            0
           );
           lastWeekAvg = lastWeekSum / lastWeekRecords.length;
         }
-        
+
         let thisWeekAvg = 0;
         if (thisWeekRecords.length > 0) {
           const thisWeekSum = thisWeekRecords.reduce(
-            (sum, r) => sum + (r.attendance_percentage || 0), 0
+            (sum: number, r: any) => sum + (r.attendance_percentage || 0),
+            0
           );
           thisWeekAvg = thisWeekSum / thisWeekRecords.length;
         }
-        
+
         const trendDiff = thisWeekAvg - lastWeekAvg;
-        const attendanceTrend: 'up' | 'down' | 'stable' = trendDiff > 1 ? 'up' : trendDiff < -1 ? 'down' : 'stable';
-        
+        const attendanceTrend: 'up' | 'down' | 'stable' =
+          trendDiff > 1 ? 'up' : trendDiff < -1 ? 'down' : 'stable';
+
         // Get unique students count from faculty's records
         const uniqueStudents = new Set<number>();
-        facultyRecords.forEach(record => {
+        facultyRecords.forEach((record: any) => {
           uniqueStudents.add(record.total_students || 0);
         });
-        
+
         return {
           totalSessions,
           totalStudents: Math.max(...Array.from(uniqueStudents), 0),
@@ -594,11 +600,13 @@ export class AttendanceAnalyticsService {
           trendPercentage: Math.abs(trendDiff).toFixed(1)
         };
       }
-      
+
       // For non-faculty users, use the existing logic
       // Build filter conditions
-      let query = supabase.from('student_attendance').select('*', { count: 'exact' });
-      
+      let query = supabase
+        .from('student_attendance')
+        .select('*', { count: 'exact' });
+
       if (filters?.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
       }
@@ -611,16 +619,16 @@ export class AttendanceAnalyticsService {
       if (filters?.end_date) {
         query = query.lte('attendance_date', filters.end_date);
       }
-      
+
       // Get total sessions count
       const { count: totalSessions } = await query;
-      
+
       // Get today's attendance - fetch ALL records for today
       let todayQuery = supabase
         .from('student_attendance')
         .select('attendance_data')
         .eq('attendance_date', today);
-      
+
       // Apply filters to today's data as well
       if (filters?.institution_id) {
         todayQuery = todayQuery.eq('institution_id', filters.institution_id);
@@ -628,12 +636,12 @@ export class AttendanceAnalyticsService {
       if (filters?.section_id) {
         todayQuery = todayQuery.eq('section_id', filters.section_id);
       }
-      
+
       const { data: todayRecords } = await todayQuery;
-      
+
       let presentToday = 0;
       let absentToday = 0;
-      
+
       // Aggregate all today's records
       (todayRecords || []).forEach((record) => {
         if (record.attendance_data) {
@@ -647,14 +655,14 @@ export class AttendanceAnalyticsService {
           });
         }
       });
-      
+
       // Calculate average attendance from recent records
       let recentQuery = supabase
         .from('student_attendance')
         .select('attendance_data')
         .order('attendance_date', { ascending: false })
         .limit(100);
-      
+
       // Apply filters to recent records
       if (filters?.institution_id) {
         recentQuery = recentQuery.eq('institution_id', filters.institution_id);
@@ -668,67 +676,77 @@ export class AttendanceAnalyticsService {
       if (filters?.end_date) {
         recentQuery = recentQuery.lte('attendance_date', filters.end_date);
       }
-      
+
       const { data: recentRecords } = await recentQuery;
-      
+
       let totalPresent = 0;
       let totalCount = 0;
       let excellentCount = 0;
       let poorCount = 0;
-      
+
       (recentRecords || []).forEach((record) => {
         if (record.attendance_data) {
           Object.values(record.attendance_data).forEach((period: any) => {
             if (period.students && Array.isArray(period.students)) {
-              const presentInPeriod = period.students.filter((s: any) => s.status === 'Present').length;
+              const presentInPeriod = period.students.filter(
+                (s: any) => s.status === 'Present'
+              ).length;
               const totalInPeriod = period.students.length;
-              
+
               totalPresent += presentInPeriod;
               totalCount += totalInPeriod;
-              
-              const percentage = totalInPeriod > 0 ? (presentInPeriod / totalInPeriod) * 100 : 0;
+
+              const percentage =
+                totalInPeriod > 0 ? (presentInPeriod / totalInPeriod) * 100 : 0;
               if (percentage >= 90) excellentCount++;
               if (percentage < 50) poorCount++;
             }
           });
         }
       });
-      
-      const averageAttendance = totalCount > 0 ? (totalPresent / totalCount) * 100 : 0;
-      
+
+      const averageAttendance =
+        totalCount > 0 ? (totalPresent / totalCount) * 100 : 0;
+
       // Calculate trend (comparing this week to last week)
       const lastWeekStart = new Date();
       lastWeekStart.setDate(lastWeekStart.getDate() - 14);
       const thisWeekStart = new Date();
       thisWeekStart.setDate(thisWeekStart.getDate() - 7);
-      
+
       let lastWeekQuery = supabase
         .from('student_attendance')
         .select('attendance_data')
         .gte('attendance_date', lastWeekStart.toISOString().split('T')[0])
         .lt('attendance_date', thisWeekStart.toISOString().split('T')[0]);
-      
+
       let thisWeekQuery = supabase
         .from('student_attendance')
         .select('attendance_data')
         .gte('attendance_date', thisWeekStart.toISOString().split('T')[0]);
-      
+
       // Apply filters to trend queries
       if (filters?.institution_id) {
-        lastWeekQuery = lastWeekQuery.eq('institution_id', filters.institution_id);
-        thisWeekQuery = thisWeekQuery.eq('institution_id', filters.institution_id);
+        lastWeekQuery = lastWeekQuery.eq(
+          'institution_id',
+          filters.institution_id
+        );
+        thisWeekQuery = thisWeekQuery.eq(
+          'institution_id',
+          filters.institution_id
+        );
       }
       if (filters?.section_id) {
         lastWeekQuery = lastWeekQuery.eq('section_id', filters.section_id);
         thisWeekQuery = thisWeekQuery.eq('section_id', filters.section_id);
       }
-      
+
       const { data: lastWeekData } = await lastWeekQuery;
       const { data: thisWeekData } = await thisWeekQuery;
-      
+
       let lastWeekAvg = 0;
       let thisWeekAvg = 0;
-      
+
       // Calculate last week average
       let lastWeekPresent = 0;
       let lastWeekTotal = 0;
@@ -736,14 +754,17 @@ export class AttendanceAnalyticsService {
         if (record.attendance_data) {
           Object.values(record.attendance_data).forEach((period: any) => {
             if (period.students && Array.isArray(period.students)) {
-              lastWeekPresent += period.students.filter((s: any) => s.status === 'Present').length;
+              lastWeekPresent += period.students.filter(
+                (s: any) => s.status === 'Present'
+              ).length;
               lastWeekTotal += period.students.length;
             }
           });
         }
       });
-      lastWeekAvg = lastWeekTotal > 0 ? (lastWeekPresent / lastWeekTotal) * 100 : 0;
-      
+      lastWeekAvg =
+        lastWeekTotal > 0 ? (lastWeekPresent / lastWeekTotal) * 100 : 0;
+
       // Calculate this week average
       let thisWeekPresent = 0;
       let thisWeekTotal = 0;
@@ -751,17 +772,21 @@ export class AttendanceAnalyticsService {
         if (record.attendance_data) {
           Object.values(record.attendance_data).forEach((period: any) => {
             if (period.students && Array.isArray(period.students)) {
-              thisWeekPresent += period.students.filter((s: any) => s.status === 'Present').length;
+              thisWeekPresent += period.students.filter(
+                (s: any) => s.status === 'Present'
+              ).length;
               thisWeekTotal += period.students.length;
             }
           });
         }
       });
-      thisWeekAvg = thisWeekTotal > 0 ? (thisWeekPresent / thisWeekTotal) * 100 : 0;
-      
+      thisWeekAvg =
+        thisWeekTotal > 0 ? (thisWeekPresent / thisWeekTotal) * 100 : 0;
+
       const trendDiff = thisWeekAvg - lastWeekAvg;
-      const attendanceTrend: 'up' | 'down' | 'stable' = trendDiff > 1 ? 'up' : trendDiff < -1 ? 'down' : 'stable';
-      
+      const attendanceTrend: 'up' | 'down' | 'stable' =
+        trendDiff > 1 ? 'up' : trendDiff < -1 ? 'down' : 'stable';
+
       // Get unique students count
       const studentIds = new Set<string>();
       (recentRecords || []).forEach((record) => {
@@ -775,7 +800,7 @@ export class AttendanceAnalyticsService {
           });
         }
       });
-      
+
       return {
         totalSessions: totalSessions || 0,
         totalStudents: studentIds.size,
@@ -794,7 +819,7 @@ export class AttendanceAnalyticsService {
   }
 
   // ... rest of the methods continue unchanged
-  
+
   /**
    * Get attendance reports list
    */
@@ -824,8 +849,13 @@ export class AttendanceAnalyticsService {
       if (error) {
         // Provide more specific error message for common issues
         if (error.code === '42702') {
-          console.error('Database column ambiguity error. Please ensure the SQL function has properly qualified column names.', error);
-          throw new Error('Database configuration error. Please contact support if this persists.');
+          console.error(
+            'Database column ambiguity error. Please ensure the SQL function has properly qualified column names.',
+            error
+          );
+          throw new Error(
+            'Database configuration error. Please contact support if this persists.'
+          );
         }
         throw error;
       }
@@ -858,8 +888,13 @@ export class AttendanceAnalyticsService {
       if (error) {
         // Provide more specific error messages
         if (error.code === '42703') {
-          console.error('Database column error in attendance details. This has been fixed in the latest migration.', error);
-          throw new Error('Database schema error. Please contact support to apply the latest updates.');
+          console.error(
+            'Database column error in attendance details. This has been fixed in the latest migration.',
+            error
+          );
+          throw new Error(
+            'Database schema error. Please contact support to apply the latest updates.'
+          );
         }
         if (error.message?.includes('Access denied')) {
           throw new Error(error.message);
@@ -888,14 +923,16 @@ export class AttendanceAnalyticsService {
   > {
     try {
       const supabase = this.getSupabase();
-      
+
       // Get user's institution ID if not super admin
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData?.user?.id;
-      
+
       let query = supabase
         .from('academic_years')
-        .select('id, academic_year_name, start_date, end_date, is_active, institution_id')
+        .select(
+          'id, academic_year_name, start_date, end_date, is_active, institution_id'
+        )
         .eq('is_active', true);
 
       // If user exists, check their role and institution
@@ -905,20 +942,26 @@ export class AttendanceAnalyticsService {
           .select('role, institution_id')
           .eq('id', userId)
           .single();
-        
+
         // Apply institution filter for non-super admin users
-        if (profile && profile.role !== 'super_admin' && profile.institution_id) {
+        if (
+          profile &&
+          profile.role !== 'super_admin' &&
+          profile.institution_id
+        ) {
           query = query.eq('institution_id', profile.institution_id);
         }
       }
 
-      const { data, error } = await query.order('academic_year_name', { ascending: false });
+      const { data, error } = await query.order('academic_year_name', {
+        ascending: false
+      });
 
       if (error) throw error;
 
       // Use TRIM to remove any whitespace and ensure uniqueness
       const uniqueYears = new Map();
-      (data || []).forEach(item => {
+      (data || []).forEach((item) => {
         const trimmedName = item.academic_year_name.trim();
         if (!uniqueYears.has(trimmedName)) {
           uniqueYears.set(trimmedName, {
@@ -941,9 +984,7 @@ export class AttendanceAnalyticsService {
   /**
    * Get institutions for filter dropdown (for super admin)
    */
-  static async getInstitutions(): Promise<
-    Array<{ id: string; name: string }>
-  > {
+  static async getInstitutions(): Promise<Array<{ id: string; name: string }>> {
     try {
       const supabase = this.getSupabase();
       const { data, error } = await supabase
@@ -962,7 +1003,7 @@ export class AttendanceAnalyticsService {
   }
 
   // Continue with rest of the filter methods...
-  
+
   /**
    * Get degrees for filter dropdown
    */
@@ -1109,7 +1150,14 @@ export class AttendanceAnalyticsService {
   static async getStaff(
     institutionId?: string
   ): Promise<
-    Array<{ id: string; name: string; email: string; institution_email: string; designation: string; profile_id?: string }>
+    Array<{
+      id: string;
+      name: string;
+      email: string;
+      institution_email: string;
+      designation: string;
+      profile_id?: string;
+    }>
   > {
     try {
       const supabase = this.getSupabase();
@@ -1156,9 +1204,9 @@ export class AttendanceAnalyticsService {
         page: 1,
         limit: 10000 // Get all records for export
       };
-      
+
       const records = await this.getAttendanceReports(exportFilters);
-      
+
       if (!records || records.length === 0) {
         throw new Error('No records found to export');
       }
@@ -1166,7 +1214,7 @@ export class AttendanceAnalyticsService {
       // Create CSV header
       const headers = [
         'Date',
-        'Course Name', 
+        'Course Name',
         'Course Code',
         'Period',
         'Time',
@@ -1185,7 +1233,7 @@ export class AttendanceAnalyticsService {
       ];
 
       // Create CSV rows
-      const rows = records.map(record => [
+      const rows = records.map((record: any) => [
         format(new Date(record.attendance_date), 'yyyy-MM-dd'),
         record.course_name,
         record.course_code,
@@ -1208,7 +1256,7 @@ export class AttendanceAnalyticsService {
       // Combine headers and rows
       const csvContent = [
         headers.join(','),
-        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+        ...rows.map((row) => row.map((cell) => `"${cell}"`).join(','))
       ].join('\n');
 
       return csvContent;
