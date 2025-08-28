@@ -73,7 +73,11 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { StaffMember, ConsolidatedAttendanceData, AttendancePeriodOption } from '@/types/attendance';
+import {
+  StaffMember,
+  ConsolidatedAttendanceData,
+  AttendancePeriodOption
+} from '@/types/attendance';
 import {
   findPeriodBySlotId,
   hasAvailablePeriods
@@ -197,10 +201,13 @@ export default function AttendancePage() {
 
   const canViewAttendance =
     isSuperAdmin || canAccess('academic.attendance', 'view');
-  
+
   // Determine user role for appropriate view
   const isFaculty = profile?.role === 'faculty';
-  const isAdmin = profile?.role === 'administrator' || profile?.role === 'principal' || isSuperAdmin;
+  const isAdmin =
+    profile?.role === 'administrator' ||
+    profile?.role === 'principal' ||
+    isSuperAdmin;
   const canMarkAttendance =
     isSuperAdmin || canAccess('academic.attendance', 'mark');
 
@@ -764,8 +771,13 @@ export default function AttendancePage() {
   });
 
   // Handle period selection - Load students and check for existing attendance
-  const handlePeriodSelection = async (periodOrId: string | AttendancePeriodOption) => {
-    const periodId = typeof periodOrId === 'string' ? periodOrId : periodOrId.timetable_slot_id;
+  const handlePeriodSelection = async (
+    periodOrId: string | AttendancePeriodOption
+  ) => {
+    const periodId =
+      typeof periodOrId === 'string'
+        ? periodOrId
+        : periodOrId.timetable_slot_id;
     setSelectedPeriod(periodId);
     setLoadingPeriodData(true);
     setShowStudents(true);
@@ -788,13 +800,96 @@ export default function AttendancePage() {
           '@/lib/services/academic/attendance-service'
         );
 
+        // Validate and resolve section_id if it's not a valid UUID or is missing
+        let resolvedSectionId = searchContext.section_id;
+        
+        // First check if we have a section from the period itself
+        const periodInfo = findPeriodBySlotId(availablePeriods, periodId);
+        if (!resolvedSectionId && periodInfo?.sections?.[0]?.id) {
+          resolvedSectionId = periodInfo.sections[0].id;
+          console.log(`Using section from period: ${resolvedSectionId}`);
+        }
+        
+        // For faculty, section might be optional if teaching multiple sections
+        // or if section data is stored differently in timetables
+        if (!resolvedSectionId && isFaculty) {
+          console.log('Faculty attendance without specific section - will show all students');
+          // Don't return here for faculty - they might be teaching a combined class
+        } else if (!resolvedSectionId) {
+          console.error('No section_id found in searchContext or period');
+          toast.error('Unable to determine section for attendance');
+          setLoadingPeriodData(false);
+          return;
+        }
+
+        // Check if section_id is not a UUID (i.e., it's a section name like "A")
+        // Skip this check if resolvedSectionId is null/undefined for faculty
+        const uuidRegex =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (resolvedSectionId && !uuidRegex.test(resolvedSectionId)) {
+          console.warn(
+            `Section ID "${resolvedSectionId}" is not a UUID, attempting to resolve...`
+          );
+
+          // Import Supabase client
+          const { createClientSupabaseClient } = await import(
+            '@/lib/supabase/client'
+          );
+          const supabase = createClientSupabaseClient();
+
+          // Build query with optional constraints
+          let query = supabase
+            .from('sections')
+            .select('id')
+            .eq('institution_id', searchContext.institution_id)
+            .eq('section_name', resolvedSectionId)
+            .eq('is_active', true);
+          
+          // Add optional constraints if available
+          if (searchContext.degree_id) {
+            query = query.eq('degree_id', searchContext.degree_id);
+          }
+          if (searchContext.program_id) {
+            query = query.eq('program_id', searchContext.program_id);
+          }
+          if (searchContext.department_id) {
+            query = query.eq('department_id', searchContext.department_id);
+          }
+          
+          const { data: sectionData, error: sectionError } = await query.maybeSingle();
+
+          if (!sectionError && sectionData) {
+            resolvedSectionId = sectionData.id;
+            console.log(
+              `Resolved section name "${periodInfo?.sections?.[0]?.name || resolvedSectionId}" to UUID: ${resolvedSectionId}`
+            );
+          } else {
+            // For faculty, if we can't resolve the section, we can still proceed
+            // They might be teaching a combined class or the section mapping is incomplete
+            if (isFaculty) {
+              console.warn(
+                `Could not resolve section "${resolvedSectionId}" to UUID. Proceeding without specific section filter.`
+              );
+              resolvedSectionId = ''; // Clear it so we fetch all students
+            } else {
+              console.error(
+                'Failed to resolve section name to UUID:',
+                sectionError
+              );
+              toast.error(`Unable to resolve section "${resolvedSectionId}"`);
+              setLoadingPeriodData(false);
+              return;
+            }
+          }
+        }
+
         const students = await AttendanceService.getStudentsForAttendance({
           institution_id: searchContext.institution_id!,
           degree_id: searchContext.degree_id || undefined,
           program_id: searchContext.program_id || undefined,
           department_id: searchContext.department_id || undefined,
           semester_id: searchContext.semester_id!,
-          section_id: searchContext.section_id!
+          section_id: resolvedSectionId || undefined
         });
 
         if (existingRecords.length > 0) {
@@ -1139,7 +1234,6 @@ export default function AttendancePage() {
             />
           </CardContent>
         </Card>
-
 
         {/* Results Section */}
         {showResults && (

@@ -40,7 +40,10 @@ export function FacultyQuickAttendance({
   const [markedPeriods, setMarkedPeriods] = useState<Set<string>>(new Set());
 
   const targetDate = selectedDate || format(new Date(), 'yyyy-MM-dd');
-  const displayDate = format(new Date(targetDate + 'T00:00:00'), 'EEEE, MMMM d, yyyy');
+  const displayDate = format(
+    new Date(targetDate + 'T00:00:00'),
+    'EEEE, MMMM d, yyyy'
+  );
 
   useEffect(() => {
     fetchFacultyPeriods();
@@ -53,7 +56,7 @@ export function FacultyQuickAttendance({
         staffId,
         targetDate
       );
-      
+
       setPeriods(result.periods);
       setSearchContext(result.searchContext);
 
@@ -68,25 +71,32 @@ export function FacultyQuickAttendance({
 
   const handlePeriodClick = (period: AttendancePeriodOption) => {
     setSelectedPeriodId(period.timetable_slot_id);
-    
+
     // Pass the period and auto-filled context to parent
+    // For faculty, the searchContext should already be properly populated
+    // from the faculty service, so we mainly just need to add the date
     const fullContext = {
       ...searchContext,
       attendance_date: targetDate,
-      // Override with period-specific values if different
-      section_id: period.sections?.[0]?.id || searchContext.section_id
+      // Use searchContext section_id if available, otherwise try period sections
+      ...(searchContext.section_id
+        ? {}
+        : period.sections?.[0]?.id && {
+            section_id: period.sections[0].id
+          })
     };
-    
+
+    console.log('Faculty period clicked with context:', fullContext);
     onPeriodSelect(period, fullContext);
   };
 
   const getTimeStatus = (startTime: string) => {
     if (!startTime) return 'upcoming';
-    
+
     const now = new Date();
     const [time, period] = startTime.split(' ');
     const [hours, minutes] = time.split(':').map(Number);
-    
+
     const periodTime = new Date();
     periodTime.setHours(
       period === 'PM' && hours !== 12 ? hours + 12 : hours,
@@ -103,9 +113,9 @@ export function FacultyQuickAttendance({
   if (loading) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <span className="ml-2">Loading your schedule...</span>
+        <CardContent className='flex items-center justify-center py-12'>
+          <Loader2 className='h-8 w-8 animate-spin text-primary' />
+          <span className='ml-2'>Loading your schedule...</span>
         </CardContent>
       </Card>
     );
@@ -115,16 +125,17 @@ export function FacultyQuickAttendance({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
+          <CardTitle className='flex items-center gap-2'>
+            <Calendar className='h-5 w-5' />
             Your Schedule - {displayDate}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
-            <AlertCircle className="h-4 w-4" />
+            <AlertCircle className='h-4 w-4' />
             <AlertDescription>
-              No classes scheduled for today. You can use the search criteria below to mark attendance for other sections if needed.
+              No classes scheduled for today. You can use the search criteria
+              below to mark attendance for other sections if needed.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -135,23 +146,21 @@ export function FacultyQuickAttendance({
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-start justify-between">
+        <div className='flex items-start justify-between'>
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
+            <CardTitle className='flex items-center gap-2'>
+              <Calendar className='h-5 w-5' />
               Your Schedule
             </CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              {displayDate}
-            </p>
+            <p className='text-sm text-muted-foreground mt-1'>{displayDate}</p>
           </div>
-          <Badge variant="secondary" className="ml-auto">
+          <Badge variant='secondary' className='ml-auto'>
             {periods.length} {periods.length === 1 ? 'Class' : 'Classes'} Today
           </Badge>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-3">
+        <div className='grid gap-3'>
           {periods.map((period) => {
             const timeStatus = getTimeStatus(period.start_time);
             const isSelected = selectedPeriodId === period.timetable_slot_id;
@@ -168,49 +177,53 @@ export function FacultyQuickAttendance({
                 )}
                 onClick={() => handlePeriodClick(period)}
               >
-                <div className="flex-1 space-y-2">
+                <div className='flex-1 space-y-2'>
                   {/* Time and Period Info */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">
+                  <div className='flex items-center justify-between'>
+                    <div className='flex items-center gap-3'>
+                      <div className='flex items-center gap-2'>
+                        <Clock className='h-4 w-4 text-muted-foreground' />
+                        <span className='font-medium'>
                           {period.start_time} - {period.end_time}
                         </span>
                       </div>
-                      <Badge 
+                      <Badge
                         variant={
-                          timeStatus === 'current' ? 'default' :
-                          timeStatus === 'past' ? 'secondary' : 'outline'
+                          timeStatus === 'current'
+                            ? 'default'
+                            : timeStatus === 'past'
+                            ? 'secondary'
+                            : 'outline'
                         }
-                        className="text-xs"
+                        className='text-xs'
                       >
                         {period.period_name}
                       </Badge>
                     </div>
                     {isMarked && (
-                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      <CheckCircle className='h-5 w-5 text-green-600' />
                     )}
                   </div>
 
                   {/* Course Info */}
                   {period.course && (
-                    <div className="flex items-center gap-2">
-                      <BookOpen className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">
-                        {period.course.course_code} - {period.course.course_name}
+                    <div className='flex items-center gap-2'>
+                      <BookOpen className='h-4 w-4 text-muted-foreground' />
+                      <span className='font-medium'>
+                        {period.course.course_code} -{' '}
+                        {period.course.course_name}
                       </span>
                     </div>
                   )}
 
                   {/* Class Details */}
-                  <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                  <div className='flex flex-wrap gap-4 text-sm text-muted-foreground'>
                     <span>{period.degree_name}</span>
                     <span>{period.program_name}</span>
                     <span>{period.semester_name}</span>
                     {period.section_name && (
-                      <div className="flex items-center gap-1">
-                        <Users className="h-3 w-3" />
+                      <div className='flex items-center gap-1'>
+                        <Users className='h-3 w-3' />
                         <span>Section {period.section_name}</span>
                       </div>
                     )}
@@ -218,9 +231,9 @@ export function FacultyQuickAttendance({
 
                   {/* Action Indicator */}
                   {!isMarked && (
-                    <div className="flex items-center gap-1 text-xs font-medium text-primary">
+                    <div className='flex items-center gap-1 text-xs font-medium text-primary'>
                       <span>Click to mark attendance</span>
-                      <ChevronRight className="h-3 w-3" />
+                      <ChevronRight className='h-3 w-3' />
                     </div>
                   )}
                 </div>
@@ -230,10 +243,11 @@ export function FacultyQuickAttendance({
         </div>
 
         {/* Help Text */}
-        <div className="mt-4 p-3 bg-muted/50 rounded-lg">
-          <p className="text-sm text-muted-foreground">
-            <strong>Quick Tip:</strong> Click on any class to quickly mark attendance. 
-            Your schedule is automatically loaded based on your timetable assignments.
+        <div className='mt-4 p-3 bg-muted/50 rounded-lg'>
+          <p className='text-sm text-muted-foreground'>
+            <strong>Quick Tip:</strong> Click on any class to quickly mark
+            attendance. Your schedule is automatically loaded based on your
+            timetable assignments.
           </p>
         </div>
       </CardContent>

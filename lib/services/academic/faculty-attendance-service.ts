@@ -6,6 +6,30 @@ export class FacultyAttendanceService {
   private static supabase = createClientSupabaseClient();
 
   /**
+   * Convert 24-hour time format to 12-hour format with AM/PM
+   */
+  private static formatTo12Hour(time24: string): string {
+    if (!time24) return '';
+    
+    // Handle time that might already be in 12-hour format
+    if (time24.includes('AM') || time24.includes('PM')) {
+      return time24;
+    }
+    
+    // Parse time in format "HH:MM:SS" or "HH:MM"
+    const [hourStr, minuteStr] = time24.split(':');
+    let hour = parseInt(hourStr, 10);
+    const minute = minuteStr || '00';
+    
+    if (isNaN(hour)) return time24;
+    
+    const period = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12 || 12; // Convert 0 to 12 for midnight, 13-23 to 1-11
+    
+    return `${hour}:${minute} ${period}`;
+  }
+
+  /**
    * Get staff ID from user institution email
    */
   static async getStaffIdByEmail(email: string): Promise<string | null> {
@@ -133,6 +157,13 @@ export class FacultyAttendanceService {
         attendance_date: targetDate
       };
 
+      // Create maps to resolve semester and section names to UUIDs
+      const semesterNameToIdMap = new Map<string, string>();
+      const sectionNameToIdMap = new Map<string, string>();
+      
+      // Create a map to cache course details
+      const courseDetailsMap = new Map<string, { course_code: string; course_name: string }>();
+
       for (const timetable of timetables) {
         // Use timetable_data which contains the actual day-wise assignments
         const timetableData = timetable.timetable_data;
@@ -163,23 +194,88 @@ export class FacultyAttendanceService {
               // Create a unique ID for this period slot
               const timetableSlotId = slot.slot_id || `${timetable.id}_${dayOfWeek}_${periodId}`;
               
+              // Resolve section name to UUID for this period
+              let sectionUuid = null;
+              if (timetable.section) {
+                const cacheKey = `${timetable.section}_${timetable.degree_id}_${timetable.program_id}_${timetable.department_id}`;
+                if (sectionNameToIdMap.has(cacheKey)) {
+                  sectionUuid = sectionNameToIdMap.get(cacheKey);
+                } else {
+                  try {
+                    const { data: sectionData, error: sectionError } = await this.supabase
+                      .from('sections')
+                      .select('id')
+                      .eq('institution_id', staffData.institution_id)
+                      .eq('section_name', timetable.section)
+                      .eq('degree_id', timetable.degree_id)
+                      .eq('program_id', timetable.program_id)
+                      .eq('department_id', timetable.department_id)
+                      .eq('is_active', true)
+                      .maybeSingle(); // Use maybeSingle to handle cases where no match is found
+
+                    if (!sectionError && sectionData) {
+                      sectionUuid = sectionData.id;
+                      sectionNameToIdMap.set(`${timetable.section}_${timetable.degree_id}_${timetable.program_id}_${timetable.department_id}`, sectionUuid);
+                    }
+                  } catch (error) {
+                    console.error('Error resolving section name to UUID for period:', error);
+                  }
+                }
+              }
+              
+              // If section resolution failed, log it but still include the period
+              // We'll use the section name as a fallback identifier
+              if (!sectionUuid && timetable.section) {
+                console.warn(`Failed to resolve section "${timetable.section}" to UUID for timetable ${timetable.id}`);
+                // Try to use the section name as a temporary identifier
+                // The attendance page will handle this appropriately
+              }
+              
+              // Fetch course details if we have a course_id
+              let courseDetails = { course_code: '', course_name: '' };
+              if (slot.course_id) {
+                // Check cache first
+                if (courseDetailsMap.has(slot.course_id)) {
+                  courseDetails = courseDetailsMap.get(slot.course_id)!;
+                } else {
+                  // Fetch from database
+                  try {
+                    const { data: courseData, error: courseError } = await this.supabase
+                      .from('courses')
+                      .select('course_code, course_name')
+                      .eq('id', slot.course_id)
+                      .single();
+                    
+                    if (!courseError && courseData) {
+                      courseDetails = {
+                        course_code: courseData.course_code,
+                        course_name: courseData.course_name
+                      };
+                      courseDetailsMap.set(slot.course_id, courseDetails);
+                    }
+                  } catch (error) {
+                    console.error('Error fetching course details:', error);
+                  }
+                }
+              }
+              
               facultyPeriods.push({
                 id: timetableSlotId,
                 timetable_slot_id: timetableSlotId,
                 timetable_id: timetable.id,
                 period_name: periodDef?.period_name || `Period ${periodId}`,
-                start_time: periodDef?.start_time || '',
-                end_time: periodDef?.end_time || '',
+                start_time: this.formatTo12Hour(periodDef?.start_time || ''),
+                end_time: this.formatTo12Hour(periodDef?.end_time || ''),
                 period_type: 'regular',
                 course: slot.course_id ? {
                   id: slot.course_id,
-                  course_code: '',
-                  course_name: ''
+                  course_code: courseDetails.course_code,
+                  course_name: courseDetails.course_name
                 } : undefined,
-                sections: [{
-                  id: timetable.section || '',
-                  name: timetable.section || ''
-                }],
+                sections: timetable.section ? [{
+                  id: sectionUuid || timetable.section, // Use section name as fallback if UUID not found
+                  name: timetable.section
+                }] : [],
                 staff: {
                   id: staffId,
                   first_name: staffData.first_name || '',
@@ -195,12 +291,71 @@ export class FacultyAttendanceService {
 
               // Set search context from the first period found
               if (!contextSet) {
+                // Resolve semester name to semester UUID
+                let semesterId = null;
+                if (timetable.semester) {
+                  // Check if we already have the mapping
+                  if (semesterNameToIdMap.has(timetable.semester)) {
+                    semesterId = semesterNameToIdMap.get(timetable.semester);
+                  } else {
+                    // Fetch semester UUID from semester name
+                    try {
+                      const { data: semesterData, error: semesterError } = await this.supabase
+                        .from('semesters')
+                        .select('id')
+                        .eq('institution_id', staffData.institution_id)
+                        .eq('semester_name', timetable.semester)
+                        .eq('is_active', true)
+                        .single();
+
+                      if (!semesterError && semesterData) {
+                        semesterId = semesterData.id;
+                        semesterNameToIdMap.set(timetable.semester, semesterId);
+                      }
+                    } catch (error) {
+                      console.error('Error resolving semester name to ID:', error);
+                    }
+                  }
+                }
+
+                // Resolve section name to section UUID
+                let sectionId = null;
+                if (timetable.section) {
+                  // Check if we already have the mapping
+                  const cacheKey = `${timetable.section}_${timetable.degree_id}_${timetable.program_id}_${timetable.department_id}`;
+                  if (sectionNameToIdMap.has(cacheKey)) {
+                    sectionId = sectionNameToIdMap.get(cacheKey);
+                  } else {
+                    // Fetch section UUID from section name with additional constraints
+                    try {
+                      const { data: sectionData, error: sectionError } = await this.supabase
+                        .from('sections')
+                        .select('id')
+                        .eq('institution_id', staffData.institution_id)
+                        .eq('section_name', timetable.section)
+                        .eq('degree_id', timetable.degree_id)
+                        .eq('program_id', timetable.program_id)
+                        .eq('department_id', timetable.department_id)
+                        .eq('is_active', true)
+                        .maybeSingle(); // Use maybeSingle to handle cases where no match is found
+
+                      if (!sectionError && sectionData) {
+                        sectionId = sectionData.id;
+                        sectionNameToIdMap.set(cacheKey, sectionId);
+                      }
+                    } catch (error) {
+                      console.error('Error resolving section name to ID:', error);
+                    }
+                  }
+                }
+
                 searchContext = {
                   ...searchContext,
                   degree_id: timetable.degree_id,
                   program_id: timetable.program_id,
-                  department_id: timetable.department_id
-                  // Note: semester and section are text fields, not IDs
+                  department_id: timetable.department_id,
+                  semester_id: semesterId, // Use resolved semester UUID
+                  section_id: sectionId // Use resolved section UUID
                 };
                 contextSet = true;
               }
@@ -299,6 +454,9 @@ export class FacultyAttendanceService {
         friday: [],
         saturday: []
       };
+      
+      // Create a map to cache course details
+      const courseDetailsMap = new Map<string, { course_code: string; course_name: string }>();
 
       if (timetables) {
         for (const timetable of timetables) {
@@ -326,18 +484,46 @@ export class FacultyAttendanceService {
                   
                   const timetableSlotId = slot.slot_id || `${timetable.id}_${day}_${periodId}`;
                   
+                  // Fetch course details if we have a course_id
+                  let courseDetails = { course_code: '', course_name: '' };
+                  if (slot.course_id) {
+                    // Check cache first
+                    if (courseDetailsMap.has(slot.course_id)) {
+                      courseDetails = courseDetailsMap.get(slot.course_id)!;
+                    } else {
+                      // Fetch from database
+                      try {
+                        const { data: courseData, error: courseError } = await this.supabase
+                          .from('courses')
+                          .select('course_code, course_name')
+                          .eq('id', slot.course_id)
+                          .single();
+                        
+                        if (!courseError && courseData) {
+                          courseDetails = {
+                            course_code: courseData.course_code,
+                            course_name: courseData.course_name
+                          };
+                          courseDetailsMap.set(slot.course_id, courseDetails);
+                        }
+                      } catch (error) {
+                        console.error('Error fetching course details:', error);
+                      }
+                    }
+                  }
+                  
                   periodsByDay[day].push({
                     id: timetableSlotId,
                     timetable_slot_id: timetableSlotId,
                     timetable_id: timetable.id,
                     period_name: periodDef?.period_name || `Period ${periodId}`,
-                    start_time: periodDef?.start_time || '',
-                    end_time: periodDef?.end_time || '',
+                    start_time: this.formatTo12Hour(periodDef?.start_time || ''),
+                    end_time: this.formatTo12Hour(periodDef?.end_time || ''),
                     period_type: 'regular',
                     course: slot.course_id ? {
                       id: slot.course_id,
-                      course_code: '',
-                      course_name: ''
+                      course_code: courseDetails.course_code,
+                      course_name: courseDetails.course_name
                     } : undefined,
                     sections: [{
                       id: timetable.section || '',
@@ -365,11 +551,44 @@ export class FacultyAttendanceService {
         });
       });
 
+      // Resolve semester names to UUIDs for searchContext
+      const allSemesterNames = new Set<string>();
+      Object.values(periodsByDay).forEach(periods => {
+        periods.forEach(period => {
+          const semesterName = period.semester_name;
+          if (semesterName) {
+            allSemesterNames.add(semesterName);
+          }
+        });
+      });
+
+      // If we have semester names, resolve the first one to UUID for searchContext
+      let semesterId = null;
+      if (allSemesterNames.size > 0) {
+        const firstSemesterName = Array.from(allSemesterNames)[0];
+        try {
+          const { data: semesterData, error: semesterError } = await this.supabase
+            .from('semesters')
+            .select('id')
+            .eq('institution_id', staffData.institution_id)
+            .eq('semester_name', firstSemesterName)
+            .eq('is_active', true)
+            .single();
+
+          if (!semesterError && semesterData) {
+            semesterId = semesterData.id;
+          }
+        } catch (error) {
+          console.error('Error resolving semester name to ID for searchContext:', error);
+        }
+      }
+
       return {
         periodsByDay,
         searchContext: {
           institution_id: staffData.institution_id,
-          academic_year_id: academicYear.id
+          academic_year_id: academicYear.id,
+          semester_id: semesterId // Include resolved semester UUID
         }
       };
     } catch (error) {
