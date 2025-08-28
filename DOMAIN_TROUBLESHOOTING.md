@@ -226,9 +226,45 @@ curl -v https://my.jkkn.ac.in/
 - Security Team: Review security headers quarterly
 - Infrastructure Team: DNS and domain management
 
+## Status 0 Error Fix
+
+### Problem
+Chrome DevTools showing Status 0 with connection failure (55.98ms duration).
+
+### Root Cause
+1. **Overly restrictive security headers** blocking connections
+2. **HSTS with preload** causing TLS handshake issues  
+3. **Catch-all rewrite rule** interfering with routing
+4. **Strict Permissions-Policy** blocking browser features
+
+### Solution Applied
+1. **Removed problematic headers:**
+   - Removed HSTS header completely (was causing TLS issues)
+   - Removed XSS-Protection (deprecated)
+   - Removed strict Permissions-Policy
+   - Changed X-Frame-Options from DENY to SAMEORIGIN
+   - Changed Referrer-Policy to no-referrer-when-downgrade
+
+2. **Removed routing interference:**
+   - Removed catch-all rewrite rule
+   - Removed function configuration
+   - Removed region specification
+   - Removed cleanUrls and trailingSlash settings
+
+3. **Added proper caching:**
+   - API routes: no-store
+   - Static assets: immutable with long cache
+
 ## Change Log
 
-### 2025-01-28
+### 2025-01-28 (Update 2)
+- Fixed Status 0 connection errors
+- Removed overly strict security headers
+- Removed problematic rewrite rules
+- Added proper cache control for different file types
+- Simplified configuration for better compatibility
+
+### 2025-01-28 (Update 1)
 - Updated vercel.json with improved security headers
 - Added CORS support for cross-origin requests
 - Removed HSTS preload directive
