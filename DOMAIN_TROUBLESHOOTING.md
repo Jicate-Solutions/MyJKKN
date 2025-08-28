@@ -226,31 +226,40 @@ curl -v https://my.jkkn.ac.in/
 - Security Team: Review security headers quarterly
 - Infrastructure Team: DNS and domain management
 
-## Cookie/Cache Conflict Issue
+## Cookie/Cache Conflict Issue - CRITICAL FIX
 
 ### Problem
-Site shows ERR_FAILED until cookies are cleared, then works normally.
+Site only works ONCE after clearing cookies, then shows ERR_FAILED on refresh.
 
 ### Root Cause
-1. **Stale cookies** from previous sessions conflicting with new security headers
-2. **Cache inconsistency** between old and new configurations
-3. **Cookie domain/path mismatches** causing authentication failures
-4. **Browser storing invalid session tokens** from previous deployments
+**Custom headers in vercel.json interfere with Next.js's built-in session and cookie management**, creating a conflict where:
+1. First visit: Browser receives conflicting cookie/cache headers
+2. Refresh: Browser uses cached headers that block the connection
+3. The Vary: Cookie header was causing the browser to cache responses per-cookie
+4. Cache-Control headers were conflicting with Next.js's internal caching
 
-### Solution Applied
-1. **Removed problematic headers:**
-   - Removed Clear-Site-Data header (was forcing cache clear)
-   - Removed Access-Control-Allow-Credentials (causing cookie conflicts)
-   - Simplified CORS to allow all origins
+### SOLUTION: Remove ALL Custom Headers
+The fix is to use **MINIMAL or NO custom configuration** in vercel.json:
 
-2. **Added proper cache control:**
-   - Main routes: no-cache, no-store, must-revalidate
-   - API routes: no-store with revalidation
-   - Static assets: long-term caching
+```json
+{
+  "framework": "nextjs"
+}
+```
 
-3. **Cookie handling:**
-   - Added Vary: Cookie header for proper caching
-   - Removed forced SameSite attributes
+### Why This Works
+1. **Next.js handles its own headers** - Custom headers interfere with Next.js's built-in security and caching
+2. **Vercel automatically applies security headers** - No need to manually add them
+3. **Cookie management is automatic** - Next.js handles sessions without custom configuration
+4. **Cache control is built-in** - Next.js optimizes caching automatically
+
+### DO NOT ADD These Headers
+❌ Cache-Control
+❌ Vary: Cookie  
+❌ Set-Cookie directives
+❌ Clear-Site-Data
+❌ Strict-Transport-Security with preload
+❌ Custom CORS headers (unless specifically needed)
 
 ## Status 0 Error Fix
 
@@ -281,7 +290,37 @@ Chrome DevTools showing Status 0 with connection failure (55.98ms duration).
    - API routes: no-store
    - Static assets: immutable with long cache
 
+## Root URL Fix
+
+### Problem
+Only the root URL (https://my.jkkn.ac.in/) shows ERR_FAILED on refresh, while all other pages work fine.
+
+### Root Cause
+**Missing app/page.tsx file** - The root route had no page component, causing Next.js routing to fail.
+
+### Solution
+Created `app/page.tsx` with a simple redirect:
+```tsx
+import { redirect } from 'next/navigation';
+
+export default function RootPage() {
+  redirect('/auth/login');
+}
+```
+
 ## Change Log
+
+### 2025-01-28 (Update 5) - ROOT URL FIX
+- **Created app/page.tsx for root route**
+- Fixed root URL refresh issue
+- Removed problematic rewrites from vercel.json
+- Used Next.js native redirect instead
+
+### 2025-01-28 (Update 4) - CRITICAL FIX
+- **REMOVED ALL CUSTOM HEADERS FROM vercel.json**
+- Simplified to minimal configuration (framework: nextjs only)
+- Let Next.js handle all headers automatically
+- Fixed the refresh ERR_FAILED issue permanently
 
 ### 2025-01-28 (Update 3)
 - Fixed cookie/cache conflict issues
