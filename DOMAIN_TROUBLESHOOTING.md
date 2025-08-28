@@ -226,6 +226,32 @@ curl -v https://my.jkkn.ac.in/
 - Security Team: Review security headers quarterly
 - Infrastructure Team: DNS and domain management
 
+## Cookie/Cache Conflict Issue
+
+### Problem
+Site shows ERR_FAILED until cookies are cleared, then works normally.
+
+### Root Cause
+1. **Stale cookies** from previous sessions conflicting with new security headers
+2. **Cache inconsistency** between old and new configurations
+3. **Cookie domain/path mismatches** causing authentication failures
+4. **Browser storing invalid session tokens** from previous deployments
+
+### Solution Applied
+1. **Removed problematic headers:**
+   - Removed Clear-Site-Data header (was forcing cache clear)
+   - Removed Access-Control-Allow-Credentials (causing cookie conflicts)
+   - Simplified CORS to allow all origins
+
+2. **Added proper cache control:**
+   - Main routes: no-cache, no-store, must-revalidate
+   - API routes: no-store with revalidation
+   - Static assets: long-term caching
+
+3. **Cookie handling:**
+   - Added Vary: Cookie header for proper caching
+   - Removed forced SameSite attributes
+
 ## Status 0 Error Fix
 
 ### Problem
@@ -256,6 +282,13 @@ Chrome DevTools showing Status 0 with connection failure (55.98ms duration).
    - Static assets: immutable with long cache
 
 ## Change Log
+
+### 2025-01-28 (Update 3)
+- Fixed cookie/cache conflict issues
+- Removed Clear-Site-Data header
+- Added proper cache control headers
+- Fixed Vary header for cookie handling
+- Simplified CORS configuration
 
 ### 2025-01-28 (Update 2)
 - Fixed Status 0 connection errors
