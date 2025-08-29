@@ -272,8 +272,8 @@ export class FacultyAttendanceService {
                   course_code: courseDetails.course_code,
                   course_name: courseDetails.course_name
                 } : undefined,
-                sections: timetable.section ? [{
-                  id: sectionUuid || timetable.section, // Use section name as fallback if UUID not found
+                sections: timetable.section && sectionUuid ? [{
+                  id: sectionUuid, // Only use UUID, never use section name as ID
                   name: timetable.section
                 }] : [],
                 staff: {

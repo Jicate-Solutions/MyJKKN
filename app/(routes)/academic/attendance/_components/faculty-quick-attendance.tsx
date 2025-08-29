@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,7 @@ export function FacultyQuickAttendance({
   onPeriodSelect,
   selectedDate
 }: FacultyQuickAttendanceProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [periods, setPeriods] = useState<AttendancePeriodOption[]>([]);
   const [searchContext, setSearchContext] = useState<any>({});
@@ -72,22 +74,20 @@ export function FacultyQuickAttendance({
   const handlePeriodClick = (period: AttendancePeriodOption) => {
     setSelectedPeriodId(period.timetable_slot_id);
 
-    // Pass the period and auto-filled context to parent
-    // For faculty, the searchContext should already be properly populated
-    // from the faculty service, so we mainly just need to add the date
-    const fullContext = {
-      ...searchContext,
-      attendance_date: targetDate,
-      // Use searchContext section_id if available, otherwise try period sections
-      ...(searchContext.section_id
-        ? {}
-        : period.sections?.[0]?.id && {
-            section_id: period.sections[0].id
-          })
-    };
+    // Navigate to separate attendance marking page
+    const params = new URLSearchParams({
+      periodId: period.timetable_slot_id,
+      timetableId: period.timetable_id,
+      sectionId: period.sections?.[0]?.id || searchContext.section_id || '',
+      date: targetDate,
+      periodName: period.period_name,
+      courseName: period.course?.course_name || 'Unknown Course',
+      startTime: period.start_time,
+      endTime: period.end_time
+    });
 
-    console.log('Faculty period clicked with context:', fullContext);
-    onPeriodSelect(period, fullContext);
+    // Navigate to attendance marking page
+    router.push(`/academic/attendance/mark?${params.toString()}`);
   };
 
   const getTimeStatus = (startTime: string) => {

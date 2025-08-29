@@ -22,7 +22,10 @@
       "mcp__supabase__list_tables",
       "Bash(mv:*)",
       "mcp__supabase__get_logs",
-      "mcp__vercel__list_projects"
+      "mcp__vercel__list_projects",
+      "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
+      "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
+      "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)"
     ],
     "deny": []
   },
