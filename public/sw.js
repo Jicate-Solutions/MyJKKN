@@ -1,21 +1,24 @@
 // Service Worker for Push Notifications
-const CACHE_NAME = 'myjkkn-notifications-v1';
+const CACHE_VERSION = 'v2'; // Increment this to force cache clear
+const CACHE_NAME = `myjkkn-notifications-${CACHE_VERSION}`;
 const isDevelopment = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 
 // Install event
 self.addEventListener('install', (event) => {
   console.log('Service Worker: Install');
   
-  // Skip caching in development to avoid network issues
-  if (isDevelopment) {
-    console.log('Service Worker: Skipping cache in development');
-    return;
-  }
+  // Force immediate activation
+  self.skipWaiting();
   
+  // Clear all caches on install to prevent stale data
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('Service Worker: Caching essential files');
-      return cache.addAll(['/', '/favicon.ico']);
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          console.log('Service Worker: Clearing cache:', cacheName);
+          return caches.delete(cacheName);
+        })
+      );
     })
   );
 });
@@ -23,17 +26,24 @@ self.addEventListener('install', (event) => {
 // Activate event
 self.addEventListener('activate', (event) => {
   console.log('Service Worker: Activate');
+  
+  // Take control of all pages immediately
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log('Service Worker: Clearing old cache');
-            return caches.delete(cache);
-          }
-        })
-      );
-    })
+    Promise.all([
+      // Clear all old caches
+      caches.keys().then((cacheNames) => {
+        return Promise.all(
+          cacheNames.map((cache) => {
+            if (cache !== CACHE_NAME) {
+              console.log('Service Worker: Clearing old cache:', cache);
+              return caches.delete(cache);
+            }
+          })
+        );
+      }),
+      // Take control of all clients
+      self.clients.claim()
+    ])
   );
 });
 
