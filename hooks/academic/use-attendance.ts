@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import type {
   StudentAttendance,
   AttendanceFilters,
@@ -107,6 +108,21 @@ export function useAttendanceRoster() {
     section_id: null,
     attendance_date: null
   });
+
+  const checkStaffPermissions = useCallback(
+    async (timetableSlotId: string): Promise<boolean> => {
+      try {
+        return await AttendanceService.canMarkAttendanceForSlot(
+          timetableSlotId,
+          false
+        );
+      } catch (error) {
+        console.error('Error checking staff permissions:', error);
+        return false;
+      }
+    },
+    []
+  );
 
   const fetchAvailablePeriods = useCallback(
     async (
@@ -232,8 +248,10 @@ export function useAttendanceRoster() {
 
         // Use consolidated approach instead of the old method
         // First, get the slot details including timetable_id, period, and course
-        const slotDetails = await AttendanceService.getSlotDetails(timetableSlotId);
-        
+        const slotDetails = await AttendanceService.getSlotDetails(
+          timetableSlotId
+        );
+
         if (!slotDetails || !slotDetails.timetable_id) {
           throw new Error('Failed to get slot details');
         }
@@ -264,7 +282,9 @@ export function useAttendanceRoster() {
           },
           attendance_date: attendanceDate,
           // Include the consolidated_record if it exists
-          ...(roster.consolidated_record && { consolidated_record: roster.consolidated_record })
+          ...(roster.consolidated_record && {
+            consolidated_record: roster.consolidated_record
+          })
         } as AttendanceRosterData);
       } catch (err) {
         console.error('Error fetching attendance roster:', err);
@@ -354,7 +374,8 @@ export function useAttendanceRoster() {
     updateSearchContext,
     fetchAvailablePeriods,
     fetchAttendanceRoster,
-    saveAttendance
+    saveAttendance,
+    checkStaffPermissions
   };
 }
 
@@ -620,5 +641,84 @@ export function useAttendanceSummary() {
     loading,
     error,
     fetchAttendanceSummary
+  };
+}
+
+/**
+ * Hook for fetching available periods for attendance marking
+ */
+export function useAttendancePeriods(
+  searchContext: AttendanceSearchContext,
+  enabled: boolean = true
+) {
+  const [periods, setPeriods] = useState<AttendancePeriodOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Get super admin status
+  const { isSuperAdmin } = usePermissions();
+
+  const fetchPeriods = useCallback(
+    async (context: AttendanceSearchContext) => {
+      if (
+        !enabled ||
+        !context.institution_id ||
+        !context.academic_year_id ||
+        !context.degree_id ||
+        !context.program_id ||
+        !context.department_id ||
+        !context.semester_id ||
+        !context.attendance_date
+      ) {
+        setPeriods([]);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        const periods = await AttendanceService.getAvailablePeriodsForDate(
+          {
+            institution_id: context.institution_id,
+            academic_year_id: context.academic_year_id,
+            degree_id: context.degree_id,
+            program_id: context.program_id,
+            department_id: context.department_id,
+            semester: context.semester_id,
+            section: context.section_id || undefined
+          },
+          context.attendance_date,
+          {
+            filterByStaffAssignment: !isSuperAdmin, // Super admin should see all periods
+            isSuperAdmin: isSuperAdmin
+          }
+        );
+
+        setPeriods(periods);
+      } catch (err) {
+        console.error('Error fetching periods:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+        setPeriods([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [enabled, isSuperAdmin]
+  );
+
+  const refetch = useCallback(() => {
+    fetchPeriods(searchContext);
+  }, [fetchPeriods, searchContext]);
+
+  useEffect(() => {
+    fetchPeriods(searchContext);
+  }, [fetchPeriods, searchContext]);
+
+  return {
+    periods,
+    loading,
+    error,
+    refetch
   };
 }

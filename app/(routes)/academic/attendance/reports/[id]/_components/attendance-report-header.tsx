@@ -249,7 +249,9 @@ export function AttendanceReportHeader({
                   Attendance Marked By
                 </p>
                 <p className='font-medium text-gray-900 dark:text-gray-100'>
-                  {report.marked_by}
+                  {typeof report.marked_by === 'object' && report.marked_by 
+                    ? report.marked_by.full_name || report.marked_by.email || 'Unknown'
+                    : report.marked_by || 'Unknown'}
                 </p>
               </div>
             </div>

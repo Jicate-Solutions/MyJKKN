@@ -128,7 +128,11 @@ export interface AttendanceReportDetails {
   present_count: number;
   absent_count: number;
   attendance_percentage: number;
-  marked_by: string;
+  marked_by: string | {
+    id: string;
+    email: string;
+    full_name: string;
+  };
   marked_at: string;
   students_data: Array<{
     student_id: string;

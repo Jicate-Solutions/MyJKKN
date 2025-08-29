@@ -485,13 +485,56 @@ export class AttendanceService {
     data: UpsertConsolidatedAttendanceDto
   ): Promise<ConsolidatedStudentAttendance> {
     try {
+      // Validate section_id is a valid UUID
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      
+      let resolvedSectionId = data.section_id;
+      
+      // If section_id is not a valid UUID, try to resolve it
+      if (resolvedSectionId && !uuidRegex.test(resolvedSectionId)) {
+        console.error(`Invalid section_id provided: "${resolvedSectionId}". Section ID must be a valid UUID.`);
+        
+        // Try to resolve section name to UUID
+        const { data: timetableData } = await this.supabase
+          .from('timetables')
+          .select('program_id, department_id, degree_id')
+          .eq('id', data.timetable_id)
+          .single();
+          
+        if (timetableData) {
+          const { data: sectionData } = await this.supabase
+            .from('sections')
+            .select('id')
+            .eq('institution_id', data.institution_id)
+            .eq('section_name', resolvedSectionId)
+            .eq('program_id', timetableData.program_id)
+            .eq('department_id', timetableData.department_id)
+            .eq('degree_id', timetableData.degree_id)
+            .eq('is_active', true)
+            .maybeSingle();
+            
+          if (sectionData) {
+            console.log(`Resolved section name "${resolvedSectionId}" to UUID: ${sectionData.id}`);
+            resolvedSectionId = sectionData.id;
+          } else {
+            throw new Error(`Cannot resolve section name "${resolvedSectionId}" to a valid UUID`);
+          }
+        } else {
+          throw new Error(`Cannot resolve section without timetable data`);
+        }
+      }
+      
+      if (!resolvedSectionId) {
+        throw new Error('Section ID is required for attendance');
+      }
+      
       // First, try to find existing consolidated record
       const { data: existingRecord, error: findError } = await this.supabase
         .from('student_attendance')
         .select('id')
         .eq('institution_id', data.institution_id)
         .eq('timetable_id', data.timetable_id)
-        .eq('section_id', data.section_id)
+        .eq('section_id', resolvedSectionId)
         .eq('attendance_date', data.attendance_date)
         .maybeSingle();
 
@@ -534,7 +577,7 @@ export class AttendanceService {
           .from('student_attendance')
           .insert({
             timetable_id: data.timetable_id,
-            section_id: data.section_id,
+            section_id: resolvedSectionId,
             attendance_date: data.attendance_date,
             attendance_data: data.attendance_data,
             marked_by: data.marked_by,

@@ -248,9 +248,10 @@ export interface AttendancePeriodOption {
     id: string;
     name: string;
   }[];
+  section_ids?: string[]; // Add section_ids array from timetable data
   staff?: StaffMember; // Legacy single staff member
   staff_members?: StaffMember[]; // Array of assigned staff members
-  
+
   // Additional display fields (optional)
   degree_name?: string;
   program_name?: string;

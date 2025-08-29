@@ -9,8 +9,17 @@ import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attend
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, CalendarDays, Loader2, Info, AlertTriangle } from 'lucide-react';
-import type { AttendanceSearchContext, AttendancePeriodOption } from '@/types/attendance';
+import {
+  Search,
+  CalendarDays,
+  Loader2,
+  Info,
+  AlertTriangle
+} from 'lucide-react';
+import type {
+  AttendanceSearchContext,
+  AttendancePeriodOption
+} from '@/types/attendance';
 
 interface AttendanceViewSelectorProps {
   searchContext: AttendanceSearchContext;
@@ -34,12 +43,13 @@ export function AttendanceViewSelector({
   const { isSuperAdmin, userProfile } = usePermissions();
   const { profile } = useAuth();
   const [staffId, setStaffId] = useState<string | null>(null);
-  
+
   // Determine initial loading state based on role
   const isFaculty = profile?.role === 'faculty';
-  const isAdmin = profile?.role === 'administrator' || profile?.role === 'principal';
+  const isAdmin =
+    profile?.role === 'administrator' || profile?.role === 'principal';
   const shouldCheckStaff = isFaculty && !isSuperAdmin;
-  
+
   const [loadingStaffId, setLoadingStaffId] = useState(shouldCheckStaff);
   const [activeTab, setActiveTab] = useState<string>('quick');
 
@@ -59,7 +69,9 @@ export function AttendanceViewSelector({
 
       try {
         setLoadingStaffId(true);
-        const id = await FacultyAttendanceService.getStaffIdByEmail(profile.email);
+        const id = await FacultyAttendanceService.getStaffIdByEmail(
+          profile.email
+        );
         setStaffId(id);
       } catch (error) {
         console.error('Error checking faculty status:', error);
@@ -72,10 +84,13 @@ export function AttendanceViewSelector({
   }, [profile?.email, isSuperAdmin, isAdmin, isFaculty]);
 
   // Handle quick attendance period selection
-  const handleQuickPeriodSelect = (period: AttendancePeriodOption, context: any) => {
+  const handleQuickPeriodSelect = (
+    period: AttendancePeriodOption,
+    context: any
+  ) => {
     // Update the search context with the auto-filled values
     onContextChange(context);
-    
+
     // Select the period
     onPeriodSelect(period);
   };
@@ -83,8 +98,8 @@ export function AttendanceViewSelector({
   // Loading state
   if (loadingStaffId) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin mr-2" />
+      <div className='flex items-center justify-center py-8'>
+        <Loader2 className='h-6 w-6 animate-spin mr-2' />
         <span>Loading attendance view...</span>
       </div>
     );
@@ -93,32 +108,29 @@ export function AttendanceViewSelector({
   // For super admins and administrators, show the full search interface
   if (isSuperAdmin || isAdmin) {
     return (
-      <div className="space-y-6">
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertDescription>
-            {isSuperAdmin 
-              ? "As a super admin, you have access to all attendance records. Use the search criteria below to find and mark attendance for any class."
-              : "As an administrator, you can manage attendance records for your institution. Use the search criteria below to find and mark attendance."}
+      <div className='space-y-6 flex flex-col gap-4'>
+        <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
+          <AlertDescription className='flex items-center gap-2'>
+            <Info className='h-4 w-4' />
+            {isSuperAdmin
+              ? 'As a super admin, you have access to all attendance records. Use the search criteria below to find and mark attendance for any class.'
+              : 'As an administrator, you can manage attendance records for your institution. Use the search criteria below to find and mark attendance.'}
           </AlertDescription>
         </Alert>
-        
+
         <AttendanceFilters
           searchContext={searchContext}
           onContextChange={onContextChange}
-          availablePeriods={availablePeriods}
-          selectedPeriod={selectedPeriod}
-          onPeriodSelect={onPeriodSelect}
           loading={loading}
         />
-        
+
         {/* Search button for admins */}
-        <div className="flex justify-end">
-          <Button 
+        <div className='flex justify-end'>
+          <Button
             onClick={onSearch}
             disabled={loading || !searchContext.attendance_date}
           >
-            <Search className="h-4 w-4 mr-2" />
+            <Search className='h-4 w-4 mr-2' />
             Search Periods
           </Button>
         </div>
@@ -129,19 +141,23 @@ export function AttendanceViewSelector({
   // For faculty members, show tabbed interface
   if (staffId) {
     return (
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="quick" className="flex items-center gap-2">
-            <CalendarDays className="h-4 w-4" />
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className='space-y-4'
+      >
+        <TabsList className='grid w-full max-w-md grid-cols-2'>
+          <TabsTrigger value='quick' className='flex items-center gap-2'>
+            <CalendarDays className='h-4 w-4' />
             My Classes
           </TabsTrigger>
-          <TabsTrigger value="search" className="flex items-center gap-2">
-            <Search className="h-4 w-4" />
+          <TabsTrigger value='search' className='flex items-center gap-2'>
+            <Search className='h-4 w-4' />
             Search Classes
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="quick" className="space-y-4">
+        <TabsContent value='quick' className='space-y-4'>
           <FacultyQuickAttendance
             staffId={staffId}
             staffName={profile?.full_name || 'Faculty'}
@@ -150,29 +166,27 @@ export function AttendanceViewSelector({
           />
         </TabsContent>
 
-        <TabsContent value="search" className="space-y-4">
+        <TabsContent value='search' className='space-y-4'>
           <Alert>
-            <Info className="h-4 w-4" />
+            <Info className='h-4 w-4' />
             <AlertDescription>
-              Use this search to mark attendance for classes outside your regular schedule or for substitute classes.
+              Use this search to mark attendance for classes outside your
+              regular schedule or for substitute classes.
             </AlertDescription>
           </Alert>
-          
+
           <AttendanceFilters
             searchContext={searchContext}
             onContextChange={onContextChange}
-            availablePeriods={availablePeriods}
-            selectedPeriod={selectedPeriod}
-            onPeriodSelect={onPeriodSelect}
             loading={loading}
           />
-          
-          <div className="flex justify-end">
-            <Button 
+
+          <div className='flex justify-end'>
+            <Button
               onClick={onSearch}
               disabled={loading || !searchContext.attendance_date}
             >
-              <Search className="h-4 w-4 mr-2" />
+              <Search className='h-4 w-4 mr-2' />
               Search Periods
             </Button>
           </div>
@@ -184,33 +198,36 @@ export function AttendanceViewSelector({
   // For faculty without staff record or other users
   if (isFaculty && !staffId) {
     return (
-      <div className="space-y-6">
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
+      <div className='space-y-6'>
+        <Alert variant='destructive'>
+          <AlertTriangle className='h-4 w-4' />
           <AlertDescription>
-            Your faculty account is not linked to a staff record. Please contact the administrator to link your email ({profile?.email}) to your staff profile.
+            Your faculty account is not linked to a staff record. Please contact
+            the administrator to link your email ({profile?.email}) to your
+            staff profile.
           </AlertDescription>
         </Alert>
       </div>
     );
   }
-  
+
   // For other users (students, etc.), show limited message
   return (
-    <div className="space-y-6">
+    <div className='space-y-6'>
       <Alert>
-        <Info className="h-4 w-4" />
+        <Info className='h-4 w-4' />
         <AlertDescription>
-          You don&apos;t have permission to mark attendance. If you believe this is an error, please contact the administration.
+          You don&apos;t have permission to mark attendance. If you believe this
+          is an error, please contact the administration.
         </AlertDescription>
       </Alert>
-      
-      <div className="flex justify-end">
-        <Button 
+
+      <div className='flex justify-end'>
+        <Button
           onClick={onSearch}
           disabled={loading || !searchContext.attendance_date}
         >
-          <Search className="h-4 w-4 mr-2" />
+          <Search className='h-4 w-4 mr-2' />
           Search Periods
         </Button>
       </div>
