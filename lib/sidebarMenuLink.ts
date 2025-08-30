@@ -414,14 +414,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/students/promotion',
           icon: GraduationCap,
           submenus: []
-        },
-        {
-          href: '/admin/students/sync-profiles',
-          label: 'Sync Profiles (Admin)',
-          active: pathname === '/admin/students/sync-profiles',
-          icon: Users,
-          submenus: [],
-          requiresSuperAdmin: true
         }
       ]
     },
