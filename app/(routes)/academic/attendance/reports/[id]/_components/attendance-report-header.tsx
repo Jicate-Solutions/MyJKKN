@@ -26,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { AttendanceReportDetails } from '@/lib/services/academic/attendance-analytics-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { formatTimeRange } from '@/utils/time-format';
 
 interface AttendanceReportHeaderProps {
   report?: AttendanceReportDetails;
@@ -230,7 +231,7 @@ export function AttendanceReportHeader({
                 <div className='flex items-center gap-1.5'>
                   <Clock className='h-4 w-4 text-blue-600' />
                   <span className='font-medium'>
-                    {report.start_time} - {report.end_time}
+                    {formatTimeRange(report.start_time, report.end_time)}
                   </span>
                 </div>
               </div>
@@ -475,7 +476,7 @@ export function AttendanceReportHeader({
                   Marked On
                 </p>
                 <p className='font-medium text-gray-900 dark:text-gray-100'>
-                  {format(new Date(report.marked_at), 'dd MMM yyyy, HH:mm')}
+                  {format(new Date(report.marked_at), 'dd MMM yyyy, hh:mm a')}
                 </p>
               </div>
             </div>

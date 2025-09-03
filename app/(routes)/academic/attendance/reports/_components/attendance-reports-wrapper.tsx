@@ -24,7 +24,7 @@ export function AttendanceReportsWrapper() {
 
   // Get staff info if user is faculty
   const { data: staffData, isLoading: staffLoading } = useStaff(
-    profile?.institution_id || undefined,
+    profile?.institution_id || '',
     profile?.role === 'faculty'
   );
 
@@ -44,14 +44,14 @@ export function AttendanceReportsWrapper() {
       case 'principal':
         // Principal/Admin can only see their institution's data
         if (profile.institution_id && profile.institution_id.trim() !== '') {
-          baseFilters.institution_id = profile.institution_id;
+          baseFilters.institution_id = profile.institution_id.trim();
         }
         break;
 
       case 'faculty':
         // Faculty can only see their own data
         if (profile.institution_id && profile.institution_id.trim() !== '') {
-          baseFilters.institution_id = profile.institution_id;
+          baseFilters.institution_id = profile.institution_id.trim();
         }
 
         // For faculty, we need staff data to be loaded
@@ -109,17 +109,25 @@ export function AttendanceReportsWrapper() {
         // Students shouldn't see attendance reports
         // But if they do, limit to their institution
         if (profile.institution_id && profile.institution_id.trim() !== '') {
-          baseFilters.institution_id = profile.institution_id;
+          baseFilters.institution_id = profile.institution_id.trim();
         }
         break;
 
       default:
         // Default to institution-based filtering
         if (profile.institution_id && profile.institution_id.trim() !== '') {
-          baseFilters.institution_id = profile.institution_id;
+          baseFilters.institution_id = profile.institution_id.trim();
         }
         break;
     }
+
+    console.log('🔍 Role-based filters calculation:', {
+      profile_role: profile?.role,
+      profile_institution_id: profile?.institution_id,
+      staff_loading: staffLoading,
+      staff_data: staffData,
+      base_filters: baseFilters
+    });
 
     return baseFilters;
   }, [profile, staffData, staffLoading]);
@@ -135,7 +143,11 @@ export function AttendanceReportsWrapper() {
         console.log(
           'Filters updated for role:',
           profile.role,
-          'Filters:',
+          'Profile institution_id:',
+          profile.institution_id,
+          'Role-based filters:',
+          roleBasedFilters,
+          'Final filters:',
           newFilters
         );
         return newFilters;
@@ -175,7 +187,7 @@ export function AttendanceReportsWrapper() {
       if (profile?.role !== 'super_admin') {
         // Keep institution filter for non-super admins
         if (profile?.institution_id && profile.institution_id.trim() !== '') {
-          updatedFilters.institution_id = profile.institution_id;
+          updatedFilters.institution_id = profile.institution_id.trim();
         }
 
         // Keep staff filter for faculty

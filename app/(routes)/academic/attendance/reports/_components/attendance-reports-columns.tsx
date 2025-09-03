@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { AttendanceReportRecord } from '@/lib/services/academic/attendance-analytics-service';
 import { AttendanceReportRowActions } from './attendance-report-row-actions';
+import { formatTimeRange } from '@/utils/time-format';
 
 const getAttendanceBadge = (percentage: number) => {
   const safePercentage =
@@ -21,15 +22,6 @@ const getAttendanceBadge = (percentage: number) => {
   return <Badge className='bg-red-100 text-red-800'>Poor</Badge>;
 };
 
-const formatTime12Hour = (time: string) => {
-  if (!time) return '';
-
-  const [hours, minutes] = time.split(':').map(Number);
-  const period = hours >= 12 ? 'PM' : 'AM';
-  const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-
-  return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
-};
 
 export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
   // Note: The selection column is automatically added by DataTable when onBulkAction is provided
@@ -80,7 +72,7 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
         <div>
           <div className='font-medium'>{periodName}</div>
           <div className='text-sm text-muted-foreground'>
-            {formatTime12Hour(startTime)} - {formatTime12Hour(endTime)}
+            {formatTimeRange(startTime, endTime)}
           </div>
         </div>
       );

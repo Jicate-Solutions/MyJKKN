@@ -844,10 +844,13 @@ export class AttendanceAnalyticsService {
 
       // Helper function to convert empty strings to null
       const sanitizeParam = (value: string | undefined): string | null => {
-        return value && value.trim() !== '' ? value : null;
+        if (!value || value.trim() === '' || value === 'undefined') {
+          return null;
+        }
+        return value;
       };
 
-      const { data, error } = await supabase.rpc('get_attendance_report_list', {
+      const rpcParams = {
         p_institution_id: sanitizeParam(filters.institution_id),
         p_degree_id: sanitizeParam(filters.degree_id),
         p_department_id: sanitizeParam(filters.department_id),
@@ -862,7 +865,14 @@ export class AttendanceAnalyticsService {
         p_limit: filters.limit || 10,
         p_sort_by: filters.sort_by || 'attendance_date',
         p_sort_order: filters.sort_order || 'desc'
-      });
+      };
+
+      console.log('🔍 Sending RPC params:', rpcParams);
+
+      const { data, error } = await supabase.rpc(
+        'get_attendance_report_list',
+        rpcParams
+      );
 
       if (error) {
         // Provide more specific error message for common issues
@@ -1029,6 +1039,11 @@ export class AttendanceAnalyticsService {
     institutionId: string
   ): Promise<Array<{ id: string; name: string; short_name: string }>> {
     try {
+      // Sanitize parameter - don't query if empty string
+      if (!institutionId || institutionId.trim() === '') {
+        return [];
+      }
+
       const supabase = this.getSupabase();
       const { data, error } = await supabase
         .from('degrees')
@@ -1057,6 +1072,11 @@ export class AttendanceAnalyticsService {
     degreeId: string
   ): Promise<Array<{ id: string; name: string; code: string }>> {
     try {
+      // Sanitize parameter - don't query if empty string
+      if (!degreeId || degreeId.trim() === '') {
+        return [];
+      }
+
       const supabase = this.getSupabase();
       const { data, error } = await supabase
         .from('departments')
@@ -1085,6 +1105,11 @@ export class AttendanceAnalyticsService {
     departmentId: string
   ): Promise<Array<{ id: string; name: string; code: string }>> {
     try {
+      // Sanitize parameter - don't query if empty string
+      if (!departmentId || departmentId.trim() === '') {
+        return [];
+      }
+
       const supabase = this.getSupabase();
       const { data, error } = await supabase
         .from('programs')
@@ -1113,6 +1138,11 @@ export class AttendanceAnalyticsService {
     programId: string
   ): Promise<Array<{ id: string; name: string; number: number }>> {
     try {
+      // Sanitize parameter - don't query if empty string
+      if (!programId || programId.trim() === '') {
+        return [];
+      }
+
       const supabase = this.getSupabase();
       const { data, error } = await supabase
         .from('semesters')
@@ -1141,6 +1171,11 @@ export class AttendanceAnalyticsService {
     semesterId: string
   ): Promise<Array<{ id: string; name: string; code: string }>> {
     try {
+      // Sanitize parameter - don't query if empty string
+      if (!semesterId || semesterId.trim() === '') {
+        return [];
+      }
+
       const supabase = this.getSupabase();
       const { data, error } = await supabase
         .from('sections')
@@ -1185,7 +1220,7 @@ export class AttendanceAnalyticsService {
         )
         .eq('is_active', true);
 
-      if (institutionId) {
+      if (institutionId && institutionId.trim() !== '') {
         query = query.eq('institution_id', institutionId);
       }
 
