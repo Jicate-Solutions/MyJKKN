@@ -115,11 +115,7 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
       const displayName =
         facultyName && facultyName !== 'Unknown Faculty'
           ? facultyName
-          : typeof markedBy === 'object' && markedBy?.full_name
-          ? markedBy.full_name
-          : typeof markedBy === 'string' && !markedBy.includes('-')
-          ? markedBy
-          : 'Unknown Faculty';
+          : markedBy || 'Unknown Faculty';
 
       return <div className='font-medium'>{displayName}</div>;
     }

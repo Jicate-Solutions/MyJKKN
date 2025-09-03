@@ -128,11 +128,13 @@ export interface AttendanceReportDetails {
   present_count: number;
   absent_count: number;
   attendance_percentage: number;
-  marked_by: string | {
-    id: string;
-    email: string;
-    full_name: string;
-  };
+  marked_by:
+    | string
+    | {
+        id: string;
+        email: string;
+        full_name: string;
+      };
   marked_at: string;
   students_data: Array<{
     student_id: string;
@@ -495,14 +497,19 @@ export class AttendanceAnalyticsService {
       // which properly filters by staff assignments
       if (filters?.staff_id) {
         console.log('Faculty mode: Using staff_id filter:', filters.staff_id);
+        // Helper function to convert empty strings to null
+        const sanitizeParam = (value: string | undefined): string | null => {
+          return value && value.trim() !== '' ? value : null;
+        };
+
         // Use the attendance reports API to get proper counts for faculty
         const { data: reportData, error: reportError } = await supabase.rpc(
           'get_attendance_report_list',
           {
-            p_institution_id: filters.institution_id || null,
-            p_staff_id: filters.staff_id,
-            p_start_date: filters.start_date || null,
-            p_end_date: filters.end_date || null,
+            p_institution_id: sanitizeParam(filters.institution_id),
+            p_staff_id: sanitizeParam(filters.staff_id),
+            p_start_date: sanitizeParam(filters.start_date),
+            p_end_date: sanitizeParam(filters.end_date),
             p_page: 1,
             p_limit: 1000, // Get a large batch to calculate statistics
             p_sort_by: 'attendance_date',
@@ -835,17 +842,22 @@ export class AttendanceAnalyticsService {
     try {
       const supabase = this.getSupabase();
 
+      // Helper function to convert empty strings to null
+      const sanitizeParam = (value: string | undefined): string | null => {
+        return value && value.trim() !== '' ? value : null;
+      };
+
       const { data, error } = await supabase.rpc('get_attendance_report_list', {
-        p_institution_id: filters.institution_id || null,
-        p_degree_id: filters.degree_id || null,
-        p_department_id: filters.department_id || null,
-        p_program_id: filters.program_id || null,
-        p_semester_id: filters.semester_id || null,
-        p_section_id: filters.section_id || null,
-        p_academic_year_id: filters.academic_year_id || null,
-        p_staff_id: filters.staff_id || null,
-        p_start_date: filters.start_date || null,
-        p_end_date: filters.end_date || null,
+        p_institution_id: sanitizeParam(filters.institution_id),
+        p_degree_id: sanitizeParam(filters.degree_id),
+        p_department_id: sanitizeParam(filters.department_id),
+        p_program_id: sanitizeParam(filters.program_id),
+        p_semester_id: sanitizeParam(filters.semester_id),
+        p_section_id: sanitizeParam(filters.section_id),
+        p_academic_year_id: sanitizeParam(filters.academic_year_id),
+        p_staff_id: sanitizeParam(filters.staff_id),
+        p_start_date: sanitizeParam(filters.start_date),
+        p_end_date: sanitizeParam(filters.end_date),
         p_page: filters.page || 1,
         p_limit: filters.limit || 10,
         p_sort_by: filters.sort_by || 'attendance_date',
@@ -1153,9 +1165,7 @@ export class AttendanceAnalyticsService {
   /**
    * Get staff/faculty for filter dropdown (for super admin)
    */
-  static async getStaff(
-    institutionId?: string
-  ): Promise<
+  static async getStaff(institutionId?: string): Promise<
     Array<{
       id: string;
       name: string;

@@ -48,7 +48,8 @@ export class AttendanceService {
   static async getConsolidatedAttendance(
     timetable_id: string,
     section_id: string,
-    attendance_date: string
+    attendance_date: string,
+    period_id?: string
   ): Promise<ConsolidatedStudentAttendance | null> {
     let resolvedSectionId = section_id;
     const uuidRegex =
@@ -128,6 +129,28 @@ export class AttendanceService {
 
     if (data) {
       console.log('Found consolidated attendance:', data);
+
+      // If period_id is provided, check if this specific period has already been marked
+      if (period_id && data.attendance_data) {
+        const periodData = data.attendance_data[period_id];
+        if (
+          periodData &&
+          periodData.students &&
+          periodData.students.length > 0
+        ) {
+          console.log(
+            `Period ${period_id} has already been marked in this record`
+          );
+          return data as ConsolidatedStudentAttendance;
+        } else {
+          console.log(
+            `Period ${period_id} has not been marked yet in this record`
+          );
+          // Return null to indicate this specific period hasn't been marked
+          // This allows the system to add this period to the existing record
+          return null;
+        }
+      }
     } else {
       console.log('No consolidated attendance found.');
     }
@@ -486,21 +509,24 @@ export class AttendanceService {
   ): Promise<ConsolidatedStudentAttendance> {
     try {
       // Validate section_id is a valid UUID
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
       let resolvedSectionId = data.section_id;
-      
+
       // If section_id is not a valid UUID, try to resolve it
       if (resolvedSectionId && !uuidRegex.test(resolvedSectionId)) {
-        console.error(`Invalid section_id provided: "${resolvedSectionId}". Section ID must be a valid UUID.`);
-        
+        console.error(
+          `Invalid section_id provided: "${resolvedSectionId}". Section ID must be a valid UUID.`
+        );
+
         // Try to resolve section name to UUID
         const { data: timetableData } = await this.supabase
           .from('timetables')
           .select('program_id, department_id, degree_id')
           .eq('id', data.timetable_id)
           .single();
-          
+
         if (timetableData) {
           const { data: sectionData } = await this.supabase
             .from('sections')
@@ -512,22 +538,26 @@ export class AttendanceService {
             .eq('degree_id', timetableData.degree_id)
             .eq('is_active', true)
             .maybeSingle();
-            
+
           if (sectionData) {
-            console.log(`Resolved section name "${resolvedSectionId}" to UUID: ${sectionData.id}`);
+            console.log(
+              `Resolved section name "${resolvedSectionId}" to UUID: ${sectionData.id}`
+            );
             resolvedSectionId = sectionData.id;
           } else {
-            throw new Error(`Cannot resolve section name "${resolvedSectionId}" to a valid UUID`);
+            throw new Error(
+              `Cannot resolve section name "${resolvedSectionId}" to a valid UUID`
+            );
           }
         } else {
           throw new Error(`Cannot resolve section without timetable data`);
         }
       }
-      
+
       if (!resolvedSectionId) {
         throw new Error('Section ID is required for attendance');
       }
-      
+
       // First, try to find existing consolidated record
       const { data: existingRecord, error: findError } = await this.supabase
         .from('student_attendance')

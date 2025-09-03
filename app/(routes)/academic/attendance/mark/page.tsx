@@ -554,14 +554,16 @@ export default function AttendanceMarkPage() {
         console.log('🔍 Checking for existing attendance...', {
           timetable_id: timetableId,
           section_id: contextData.section_id,
-          attendance_date: date
+          attendance_date: date,
+          period_id: periodId
         });
 
         const existingRecord =
           await AttendanceService.getConsolidatedAttendance(
             timetableId,
             contextData.section_id,
-            date
+            date,
+            periodId || undefined
           );
 
         if (existingRecord) {
@@ -1052,6 +1054,57 @@ export default function AttendanceMarkPage() {
                 <Users className='h-5 w-5 text-blue-600 dark:text-blue-500' />
                 Class Details
               </h3>
+
+              {/* Timetable and Semester Information */}
+              {(contextData?.timetable_data?.timetable_name ||
+                contextData?.timetable_data?.semester ||
+                contextData?.degree_name) && (
+                <div className='mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg border border-blue-200 dark:border-blue-800'>
+                  <div className='flex items-center gap-2 mb-3'>
+                    <BookOpen className='h-4 w-4 text-blue-600 dark:text-blue-500' />
+                    <h4 className='text-sm font-semibold text-blue-800 dark:text-blue-300'>
+                      Timetable Information
+                    </h4>
+                  </div>
+                  <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm'>
+                    {contextData?.timetable_data?.timetable_name && (
+                      <div className='flex flex-col gap-1'>
+                        <span className='text-blue-600 dark:text-blue-400 font-medium'>
+                          Timetable:
+                        </span>
+                        <span className='text-blue-900 dark:text-blue-100 font-semibold'>
+                          {contextData.timetable_data.timetable_name}
+                        </span>
+                      </div>
+                    )}
+
+                    {contextData?.timetable_data?.semester && (
+                      <div className='flex flex-col gap-1'>
+                        <span className='text-blue-600 dark:text-blue-400 font-medium'>
+                          Semester:
+                        </span>
+                        <span className='text-blue-900 dark:text-blue-100 font-semibold'>
+                          {contextData.timetable_data.semester}
+                        </span>
+                      </div>
+                    )}
+
+                    {(contextData?.timetable_data?.section ||
+                      contextData?.section_name) && (
+                      <div className='flex flex-col gap-1'>
+                        <span className='text-blue-600 dark:text-blue-400 font-medium'>
+                          Section:
+                        </span>
+                        <span className='text-blue-900 dark:text-blue-100 font-semibold'>
+                          Section{' '}
+                          {contextData.timetable_data?.section ||
+                            contextData.section_name}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm'>
                 <div className='flex flex-col items-start gap-2'>
                   <span className='text-gray-600 dark:text-gray-400 font-medium'>
