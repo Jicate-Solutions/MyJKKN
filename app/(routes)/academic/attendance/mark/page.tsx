@@ -13,7 +13,13 @@ import {
   X,
   User,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Search,
+  UserCheck,
+  UserX,
+  GraduationCap,
+  Building2,
+  MapPin
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +45,7 @@ import {
   useConsolidatedAttendance
 } from '@/hooks/academic/use-attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { cn } from '@/lib/utils';
 
 export default function AttendanceMarkPage() {
@@ -82,6 +89,7 @@ export default function AttendanceMarkPage() {
   const [loadingExistingAttendance, setLoadingExistingAttendance] =
     useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
 
   const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
@@ -417,7 +425,7 @@ export default function AttendanceMarkPage() {
     };
 
     loadContextData();
-  }, [timetableId, profile?.institution_id, sectionId, isSuperAdmin]);
+  }, [timetableId, profile?.institution_id, profile, sectionId, isSuperAdmin]);
 
   // Load students using the resolved context
   useEffect(() => {
@@ -637,8 +645,9 @@ export default function AttendanceMarkPage() {
     setAttendanceData(newData);
   };
 
-  // Save attendance
+  // Show summary modal before saving
   const handleSaveAttendance = async () => {
+    // Basic validation first
     if (!profile?.id) {
       toast.error('User profile not loaded. Please refresh the page.');
       return;
@@ -646,22 +655,95 @@ export default function AttendanceMarkPage() {
 
     // For non-super admins, we need institution_id
     if (!isSuperAdmin && !profile?.institution_id) {
-      toast.error('Institution information not found. Please refresh the page.');
+      toast.error(
+        'Institution information not found. Please refresh the page.'
+      );
       return;
     }
+
+    // Validate required parameters
+    if (!timetableId) {
+      toast.error('Missing timetable information. Please try again.');
+      return;
+    }
+
+    if (!contextData?.section_id && !sectionId) {
+      toast.error('Missing section information. Please try again.');
+      return;
+    }
+
+    if (!date) {
+      toast.error('Missing attendance date. Please try again.');
+      return;
+    }
+
+    const institutionId =
+      contextData?.institution_id || profile?.institution_id;
+    if (!institutionId) {
+      toast.error('Missing institution information. Please try again.');
+      return;
+    }
+
+    // Show summary modal
+    setShowSummaryModal(true);
+  };
+
+  // Actual save logic
+  const performSaveAttendance = async () => {
+    const institutionId =
+      contextData?.institution_id || profile?.institution_id;
 
     try {
       setSavingAttendance(true);
 
+      // Get current user's staff information for better faculty details
+      let facultyName = profile?.full_name || 'Unknown Faculty';
+      let facultyEmail = profile?.email || null;
+
+      // Try to get staff details if user is faculty
+      if (profile?.role === 'faculty' && profile?.email) {
+        try {
+          const { createClientSupabaseClient } = await import(
+            '@/lib/supabase/client'
+          );
+          const supabase = createClientSupabaseClient();
+
+          const { data: staffData } = await supabase
+            .from('staff')
+            .select('first_name, last_name, email, institution_email')
+            .or(
+              `email.eq.${profile.email},institution_email.eq.${profile.email}`
+            )
+            .eq('is_active', true)
+            .single();
+
+          if (staffData) {
+            facultyName =
+              `${staffData.first_name || ''} ${
+                staffData.last_name || ''
+              }`.trim() || facultyName;
+            facultyEmail =
+              staffData.email || staffData.institution_email || facultyEmail;
+          }
+        } catch (error) {
+          console.warn(
+            'Could not fetch staff details, using profile data:',
+            error
+          );
+        }
+      }
+
       // Prepare attendance data
       const attendancePayload = {
-        [periodId || '']: {
-          period_id: periodId || '',
-          period_name: periodName || '',
-          course_id: '',
-          course_name: courseName || '',
+        [periodId || 'default']: {
+          period_id: periodId || 'default',
+          period_name: periodName || 'Unknown Period',
+          course_id: contextData?.timetable_data?.course?.id || null,
+          course_name: courseName || 'Unknown Course',
           start_time: startTime || '',
           end_time: endTime || '',
+          faculty_name: facultyName,
+          faculty_email: facultyEmail,
           students: students.map((student) => ({
             student_id: student.id,
             status: attendanceData[student.id] || 'Present',
@@ -670,14 +752,14 @@ export default function AttendanceMarkPage() {
         }
       };
 
-      // Save attendance - use institution_id from context (timetable) for consistency
+      // Save attendance - use validated institution_id
       const result = await saveConsolidatedAttendance({
-        timetable_id: timetableId!,
-        section_id: contextData?.section_id || sectionId!,
-        attendance_date: date!,
+        timetable_id: timetableId,
+        section_id: contextData?.section_id || sectionId,
+        attendance_date: date,
         attendance_data: attendancePayload,
-        marked_by: profile.id,
-        institution_id: contextData?.institution_id || profile?.institution_id || ''
+        marked_by: profile?.id || '',
+        institution_id: institutionId
       });
 
       if (result) {
@@ -685,6 +767,9 @@ export default function AttendanceMarkPage() {
           ? 'Attendance updated successfully!'
           : 'Attendance saved successfully!';
         toast.success(successMessage);
+
+        // Close the summary modal
+        setShowSummaryModal(false);
 
         // Redirect to report page after delay
         setTimeout(() => {
@@ -869,41 +954,47 @@ export default function AttendanceMarkPage() {
             )}
         </div>
 
-        {/* Header with Back Button */}
-        <div className='flex items-center justify-between'>
-          <Button
-            variant='outline'
-            onClick={() => router.push('/academic/attendance')}
-          >
-            <ArrowLeft className='h-4 w-4 mr-2' />
-            Back to Attendance
-          </Button>
+        {/* Modern Header with Gradient Background */}
+        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-6 text-white shadow-lg'>
+          <div className='absolute inset-0 bg-black/20'></div>
+          <div className='relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4'>
+            <div className='flex items-center gap-4'>
+              <Button
+                variant='secondary'
+                size='sm'
+                onClick={() => router.push('/academic/attendance')}
+                className='bg-white/20 hover:bg-white/30 text-white border-white/30'
+              >
+                <ArrowLeft className='h-4 w-4' />
+              </Button>
 
-          <div className='flex items-center gap-2'>
-            <Badge variant='outline'>
-              <Calendar className='h-3 w-3 mr-1' />
-              {date ? format(new Date(date), 'dd MMM yyyy') : 'No date'}
-            </Badge>
-            <Badge variant='outline'>
-              <Clock className='h-3 w-3 mr-1' />
-              {startTime} - {endTime}
-            </Badge>
+              <div className='flex flex-col'>
+                <h1 className='text-xl lg:text-2xl font-bold flex items-center gap-2'>
+                  <GraduationCap className='h-6 w-6' />
+                  Mark Attendance
+                </h1>
+                <p className='text-blue-100 text-sm'>
+                  {courseName || 'Unknown Course'} • {periodName}
+                </p>
+              </div>
+            </div>
+
+            <div className='flex flex-wrap items-center gap-2'>
+              <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30'>
+                <Calendar className='h-3 w-3 mr-1' />
+                {date ? format(new Date(date), 'dd MMM yyyy') : 'No date'}
+              </Badge>
+              <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30'>
+                <Clock className='h-3 w-3 mr-1' />
+                {startTime} - {endTime}
+              </Badge>
+              <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30'>
+                <Building2 className='h-3 w-3 mr-1' />
+                Section {contextData?.section_name || sectionId || 'Unknown'}
+              </Badge>
+            </div>
           </div>
         </div>
-
-        {/* Class Information Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className='flex items-center gap-2'>
-              <BookOpen className='h-5 w-5' />
-              {courseName || 'Unknown Course'}
-            </CardTitle>
-            <p className='text-sm text-muted-foreground'>
-              {periodName} • Section{' '}
-              {contextData?.section_name || sectionId || 'Unknown'}
-            </p>
-          </CardHeader>
-        </Card>
 
         {/* Context Information Card */}
         {contextData && (
@@ -1045,96 +1136,131 @@ export default function AttendanceMarkPage() {
           </Card>
         )}
 
-        {/* Quick Stats */}
-        <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
-          <Card>
-            <CardContent className='p-4'>
+        {/* Colorful Stats Cards */}
+        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4'>
+          <Card className='border-0 shadow-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white'>
+            <CardContent className='p-6'>
               <div className='flex items-center justify-between'>
                 <div>
-                  <p className='text-sm text-muted-foreground'>
+                  <p className='text-blue-100 text-sm font-medium'>
                     Total Students
                   </p>
-                  <p className='text-2xl font-bold'>{students.length}</p>
+                  <p className='text-3xl font-bold mt-1'>{students.length}</p>
                 </div>
-                <Users className='h-8 w-8 text-muted-foreground' />
+                <div className='bg-white/20 p-3 rounded-full'>
+                  <Users className='h-6 w-6' />
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardContent className='p-4'>
+          <Card className='border-0 shadow-lg bg-gradient-to-br from-green-500 to-green-600 text-white'>
+            <CardContent className='p-6'>
               <div className='flex items-center justify-between'>
                 <div>
-                  <p className='text-sm text-muted-foreground'>Present</p>
-                  <p className='text-2xl font-bold text-green-600'>
-                    {presentCount}
+                  <p className='text-green-100 text-sm font-medium'>Present</p>
+                  <p className='text-3xl font-bold mt-1'>{presentCount}</p>
+                </div>
+                <div className='bg-white/20 p-3 rounded-full'>
+                  <UserCheck className='h-6 w-6' />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className='border-0 shadow-lg bg-gradient-to-br from-red-500 to-red-600 text-white'>
+            <CardContent className='p-6'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <p className='text-red-100 text-sm font-medium'>Absent</p>
+                  <p className='text-3xl font-bold mt-1'>{absentCount}</p>
+                </div>
+                <div className='bg-white/20 p-3 rounded-full'>
+                  <UserX className='h-6 w-6' />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card
+            className={cn(
+              'border-0 shadow-lg text-white',
+              attendancePercentage >= 75
+                ? 'bg-gradient-to-br from-emerald-500 to-emerald-600'
+                : attendancePercentage >= 50
+                ? 'bg-gradient-to-br from-yellow-500 to-orange-500'
+                : 'bg-gradient-to-br from-red-500 to-red-600'
+            )}
+          >
+            <CardContent className='p-6'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <p
+                    className={cn(
+                      'text-sm font-medium',
+                      attendancePercentage >= 75
+                        ? 'text-emerald-100'
+                        : attendancePercentage >= 50
+                        ? 'text-yellow-100'
+                        : 'text-red-100'
+                    )}
+                  >
+                    Attendance Rate
+                  </p>
+                  <p className='text-3xl font-bold mt-1'>
+                    {attendancePercentage}%
                   </p>
                 </div>
-                <Check className='h-8 w-8 text-green-600' />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className='p-4'>
-              <div className='flex items-center justify-between'>
-                <div>
-                  <p className='text-sm text-muted-foreground'>Absent</p>
-                  <p className='text-2xl font-bold text-red-600'>
-                    {absentCount}
-                  </p>
+                <div className='bg-white/20 p-3 rounded-full'>
+                  <div
+                    className={cn(
+                      'h-6 w-6 rounded-full border-2 border-white flex items-center justify-center',
+                      attendancePercentage >= 75
+                        ? 'bg-white text-emerald-600'
+                        : 'bg-transparent'
+                    )}
+                  >
+                    {attendancePercentage >= 75 && (
+                      <Check className='h-4 w-4' />
+                    )}
+                  </div>
                 </div>
-                <X className='h-8 w-8 text-red-600' />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className='p-4'>
-              <div className='flex items-center justify-between'>
-                <div>
-                  <p className='text-sm text-muted-foreground'>Attendance %</p>
-                  <p className='text-2xl font-bold'>{attendancePercentage}%</p>
-                </div>
-                <div
-                  className={cn(
-                    'h-8 w-8 rounded-full',
-                    attendancePercentage >= 75 ? 'bg-green-100' : 'bg-red-100'
-                  )}
-                />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Actions Bar */}
-        <Card>
-          <CardContent className='p-4'>
-            <div className='flex flex-col md:flex-row gap-4 items-center justify-between'>
-              <div className='flex gap-2 w-full md:w-auto'>
+        {/* Modern Actions Bar */}
+        <Card className='border-0 shadow-lg bg-gradient-to-r from-slate-50 to-gray-50 dark:from-gray-800 dark:to-gray-900'>
+          <CardContent className='p-6'>
+            <div className='flex flex-col lg:flex-row gap-4 items-center justify-between'>
+              <div className='relative w-full lg:w-96'>
+                <Search className='absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4' />
                 <Input
-                  placeholder='Search students...'
+                  placeholder='Search by name, roll number, or email...'
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className='w-full md:w-64'
+                  className='pl-10 h-12 border-0 bg-white dark:bg-gray-800 shadow-md focus:ring-2 focus:ring-blue-500'
                 />
               </div>
 
-              <div className='flex gap-2 w-full md:w-auto'>
+              <div className='flex gap-3 w-full lg:w-auto'>
                 <Button
                   variant='outline'
                   onClick={() => markAll('Present')}
-                  className='flex-1 md:flex-initial'
+                  className='flex-1 lg:flex-initial h-12 bg-green-50 hover:bg-green-100 text-green-700 border-green-200 hover:border-green-300 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/30'
                   disabled={existingAttendance && !isEditMode}
                 >
+                  <UserCheck className='h-4 w-4 mr-2' />
                   Mark All Present
                 </Button>
                 <Button
                   variant='outline'
                   onClick={() => markAll('Absent')}
-                  className='flex-1 md:flex-initial'
+                  className='flex-1 lg:flex-initial h-12 bg-red-50 hover:bg-red-100 text-red-700 border-red-200 hover:border-red-300 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/30'
                   disabled={existingAttendance && !isEditMode}
                 >
+                  <UserX className='h-4 w-4 mr-2' />
                   Mark All Absent
                 </Button>
               </div>
@@ -1142,144 +1268,273 @@ export default function AttendanceMarkPage() {
           </CardContent>
         </Card>
 
-        {/* Students List */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Students</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loadingStudents ? (
-              <div className='flex flex-col items-center justify-center py-12 space-y-4'>
-                <div className='flex items-center space-x-2'>
-                  <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-500'></div>
-                  <span className='text-gray-600 dark:text-gray-400 font-medium'>
-                    Loading students...
-                  </span>
+        {/* Modern Student Grid */}
+        <div className='space-y-6'>
+          <div className='flex items-center justify-between'>
+            <h2 className='text-xl font-semibold flex items-center gap-2'>
+              <Users className='h-5 w-5 text-blue-600' />
+              Student Roster
+              <Badge variant='secondary' className='ml-2'>
+                {filteredStudents.length}{' '}
+                {filteredStudents.length === 1 ? 'Student' : 'Students'}
+              </Badge>
+            </h2>
+          </div>
+
+          {loadingStudents ? (
+            <Card className='border-0 shadow-lg'>
+              <CardContent className='p-12'>
+                <div className='flex flex-col items-center justify-center space-y-4'>
+                  <div className='relative'>
+                    <div className='animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-600'></div>
+                  </div>
+                  <div className='text-center'>
+                    <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+                      Loading Students
+                    </h3>
+                    <p className='text-sm text-gray-500 dark:text-gray-400 mt-1'>
+                      Please wait while we fetch the student roster for this
+                      section...
+                    </p>
+                  </div>
                 </div>
-                <p className='text-sm text-gray-500 dark:text-gray-500 text-center'>
-                  Please wait while we fetch the student roster for this
-                  section.
-                </p>
-              </div>
-            ) : filteredStudents.length === 0 ? (
-              <Alert>
-                <AlertTriangle className='h-4 w-4' />
-                <AlertDescription>
-                  {searchTerm
-                    ? 'No students found matching your search.'
-                    : 'No students found in this section.'}
-                </AlertDescription>
-              </Alert>
-            ) : (
-              <div className='space-y-2'>
-                {filteredStudents.map((student) => (
-                  <div
-                    key={student.id}
-                    className={cn(
-                      'flex items-center justify-between p-3 rounded-lg border transition-colors',
-                      attendanceData[student.id] === 'Present'
-                        ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
-                        : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
-                    )}
-                  >
-                    <div className='flex items-center gap-3'>
-                      <Avatar>
-                        <AvatarImage src={student.avatar_url} />
-                        <AvatarFallback>
-                          {student.first_name?.[0]}
-                          {student.last_name?.[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className='font-medium'>
+              </CardContent>
+            </Card>
+          ) : filteredStudents.length === 0 ? (
+            <Card className='border-0 shadow-lg border-l-4 border-l-amber-500'>
+              <CardContent className='p-8'>
+                <div className='flex items-center space-x-4'>
+                  <div className='bg-amber-100 p-3 rounded-full'>
+                    <AlertTriangle className='h-6 w-6 text-amber-600' />
+                  </div>
+                  <div>
+                    <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+                      {searchTerm
+                        ? 'No Matching Students'
+                        : 'No Students Found'}
+                    </h3>
+                    <p className='text-gray-600 dark:text-gray-400'>
+                      {searchTerm
+                        ? 'Try adjusting your search terms to find students.'
+                        : 'No students are enrolled in this section yet.'}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'>
+              {filteredStudents.map((student) => (
+                <Card
+                  key={student.id}
+                  className={cn(
+                    'border-0 shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1 cursor-pointer',
+                    attendanceData[student.id] === 'Present'
+                      ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-l-4 border-l-green-500 dark:from-green-900/20 dark:to-emerald-900/20'
+                      : 'bg-gradient-to-br from-red-50 to-rose-50 border-l-4 border-l-red-500 dark:from-red-900/20 dark:to-rose-900/20'
+                  )}
+                  onClick={() =>
+                    !existingAttendance || isEditMode
+                      ? toggleAttendance(student.id)
+                      : null
+                  }
+                >
+                  <CardContent className='p-4'>
+                    <div className='flex flex-col items-center text-center space-y-3'>
+                      {/* Student Image */}
+                      <div className='relative'>
+                        <Avatar className='h-16 w-16 ring-4 ring-white shadow-lg'>
+                          <AvatarImage
+                            src={student.avatar_url}
+                            alt={`${student.first_name} ${student.last_name}`}
+                          />
+                          <AvatarFallback className='bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold text-lg'>
+                            {student.first_name?.[0]?.toUpperCase()}
+                            {student.last_name?.[0]?.toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        {/* Status Indicator */}
+                        <div
+                          className={cn(
+                            'absolute -bottom-1 -right-1 h-6 w-6 rounded-full border-2 border-white flex items-center justify-center shadow-md',
+                            attendanceData[student.id] === 'Present'
+                              ? 'bg-green-500'
+                              : 'bg-red-500'
+                          )}
+                        >
+                          {attendanceData[student.id] === 'Present' ? (
+                            <Check className='h-3 w-3 text-white' />
+                          ) : (
+                            <X className='h-3 w-3 text-white' />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Student Info */}
+                      <div className='w-full'>
+                        <h3 className='font-semibold text-gray-900 dark:text-gray-100 text-sm leading-tight'>
                           {student.first_name} {student.last_name}
-                        </p>
-                        <p className='text-sm text-muted-foreground'>
-                          {student.roll_number} • {student.student_email}
+                        </h3>
+                        <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 font-medium'>
+                          Roll: {student.roll_number || 'N/A'}
                         </p>
                       </div>
+
+                      {/* Attendance Status */}
+                      <Button
+                        variant={
+                          attendanceData[student.id] === 'Present'
+                            ? 'default'
+                            : 'destructive'
+                        }
+                        size='sm'
+                        className={cn(
+                          'w-full h-8 text-xs font-medium transition-all duration-200',
+                          attendanceData[student.id] === 'Present'
+                            ? 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200'
+                            : 'bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200',
+                          existingAttendance &&
+                            !isEditMode &&
+                            'opacity-60 cursor-not-allowed'
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!existingAttendance || isEditMode) {
+                            toggleAttendance(student.id);
+                          }
+                        }}
+                        disabled={existingAttendance && !isEditMode}
+                      >
+                        {attendanceData[student.id] === 'Present' ? (
+                          <>
+                            <UserCheck className='h-3 w-3 mr-1' />
+                            Present
+                          </>
+                        ) : (
+                          <>
+                            <UserX className='h-3 w-3 mr-1' />
+                            Absent
+                          </>
+                        )}
+                      </Button>
                     </div>
-
-                    <Button
-                      variant={
-                        attendanceData[student.id] === 'Present'
-                          ? 'default'
-                          : 'destructive'
-                      }
-                      size='sm'
-                      onClick={() => toggleAttendance(student.id)}
-                      disabled={existingAttendance && !isEditMode}
-                    >
-                      {attendanceData[student.id] === 'Present' ? (
-                        <>
-                          <Check className='h-4 w-4 mr-1' />
-                          Present
-                        </>
-                      ) : (
-                        <>
-                          <X className='h-4 w-4 mr-1' />
-                          Absent
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Save Button - Only show if no existing attendance OR in edit mode */}
-        {(!existingAttendance || isEditMode) && (
-          <div className='flex justify-end gap-2'>
-            <Button
-              variant='outline'
-              onClick={() => {
-                if (isEditMode) {
-                  setIsEditMode(false);
-                } else {
-                  router.push('/academic/attendance');
-                }
-              }}
-              disabled={savingAttendance}
-            >
-              {isEditMode ? 'Cancel Edit' : 'Cancel'}
-            </Button>
-            <Button
-              onClick={handleSaveAttendance}
-              disabled={savingAttendance || students.length === 0}
-            >
-              {savingAttendance ? (
-                <>
-                  <Loader2 className='h-4 w-4 mr-2 animate-spin' />
-                  {existingAttendance ? 'Updating...' : 'Saving...'}
-                </>
-              ) : (
-                <>
-                  <Check className='h-4 w-4 mr-2' />
-                  {existingAttendance ? 'Update Attendance' : 'Save Attendance'}
-                </>
-              )}
-            </Button>
-          </div>
-        )}
-
-        {/* Read-only message for non-super admins */}
-        {existingAttendance && !isEditMode && !isSuperAdmin && (
-          <div className='flex justify-center'>
-            <div className='text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg'>
-              <p className='text-gray-600 dark:text-gray-400 text-sm mb-2'>
-                📋 This attendance record is view-only
-              </p>
-              <Button
-                variant='outline'
-                onClick={() => router.push('/academic/attendance')}
-              >
-                ← Back to Attendance
-              </Button>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </div>
+          )}
+        </div>
+
+        {/* Modern Save Actions */}
+        {(!existingAttendance || isEditMode) && (
+          <Card className='border-0 shadow-lg bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20'>
+            <CardContent className='p-6'>
+              <div className='flex flex-col sm:flex-row justify-between items-center gap-4'>
+                <div className='flex items-center gap-3'>
+                  <div className='bg-blue-100 dark:bg-blue-900/50 p-2 rounded-full'>
+                    <Check className='h-5 w-5 text-blue-600 dark:text-blue-400' />
+                  </div>
+                  <div>
+                    <h3 className='font-semibold text-gray-900 dark:text-gray-100'>
+                      {existingAttendance
+                        ? 'Update Attendance'
+                        : 'Save Attendance'}
+                    </h3>
+                    <p className='text-sm text-gray-600 dark:text-gray-400'>
+                      {existingAttendance
+                        ? 'Save changes to the attendance record'
+                        : `Mark attendance for ${students.length} students`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className='flex gap-3 w-full sm:w-auto'>
+                  <Button
+                    variant='outline'
+                    onClick={() => {
+                      if (isEditMode) {
+                        setIsEditMode(false);
+                      } else {
+                        router.push('/academic/attendance');
+                      }
+                    }}
+                    disabled={savingAttendance}
+                    className='flex-1 sm:flex-initial h-11 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  >
+                    {isEditMode ? 'Cancel Edit' : 'Cancel'}
+                  </Button>
+                  <Button
+                    onClick={handleSaveAttendance}
+                    disabled={savingAttendance || students.length === 0}
+                    className='flex-1 sm:flex-initial h-11 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-200 dark:shadow-blue-900/50'
+                  >
+                    {savingAttendance ? (
+                      <>
+                        <Loader2 className='h-4 w-4 mr-2 animate-spin' />
+                        {existingAttendance ? 'Updating...' : 'Saving...'}
+                      </>
+                    ) : (
+                      <>
+                        <Check className='h-4 w-4 mr-2' />
+                        {existingAttendance
+                          ? 'Update Attendance'
+                          : 'Save Attendance'}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
+
+        {/* Modern Read-only Message */}
+        {existingAttendance && !isEditMode && !isSuperAdmin && (
+          <Card className='border-0 shadow-lg bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-800 dark:to-gray-900'>
+            <CardContent className='p-8'>
+              <div className='flex flex-col items-center text-center space-y-4'>
+                <div className='bg-gray-100 dark:bg-gray-700 p-4 rounded-full'>
+                  <AlertTriangle className='h-8 w-8 text-gray-600 dark:text-gray-400' />
+                </div>
+                <div>
+                  <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2'>
+                    📋 View-Only Mode
+                  </h3>
+                  <p className='text-gray-600 dark:text-gray-400 mb-4'>
+                    This attendance record has already been marked and is in
+                    read-only mode. Contact an administrator if changes are
+                    needed.
+                  </p>
+                  <Button
+                    variant='outline'
+                    onClick={() => router.push('/academic/attendance')}
+                    className='bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  >
+                    <ArrowLeft className='h-4 w-4 mr-2' />
+                    Back to Attendance
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Attendance Summary Modal */}
+        <AttendanceSummaryModal
+          open={showSummaryModal}
+          onOpenChange={setShowSummaryModal}
+          onConfirm={performSaveAttendance}
+          loading={savingAttendance}
+          students={students}
+          attendanceData={attendanceData}
+          contextData={contextData}
+          courseName={courseName || undefined}
+          periodName={periodName || undefined}
+          date={date || undefined}
+          startTime={startTime || undefined}
+          endTime={endTime || undefined}
+          existingAttendance={existingAttendance}
+        />
       </div>
     </ContentLayout>
   );

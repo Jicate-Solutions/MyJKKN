@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,31 +12,29 @@ import {
   Users,
   BookOpen,
   Loader2,
-  AlertCircle,
+  AlertTriangle,
   CheckCircle
 } from 'lucide-react';
-import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attendance-service';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { cn } from '@/lib/utils';
 
-interface FacultyQuickAttendanceProps {
-  staffId: string;
-  staffName: string;
-  onPeriodSelect: (period: AttendancePeriodOption, context: any) => void;
+interface AvailablePeriodsCardsProps {
+  periods: AttendancePeriodOption[];
+  onPeriodSelect: (period: AttendancePeriodOption) => void;
+  loading: boolean;
   selectedDate?: string;
+  attendancePermissions: Map<string, boolean>;
+  isSuperAdmin: boolean;
 }
 
-export function FacultyQuickAttendance({
-  staffId,
-  staffName,
+export function AvailablePeriodsCards({
+  periods,
   onPeriodSelect,
-  selectedDate
-}: FacultyQuickAttendanceProps) {
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [periods, setPeriods] = useState<AttendancePeriodOption[]>([]);
-  const [searchContext, setSearchContext] = useState<any>({});
-
+  loading,
+  selectedDate,
+  attendancePermissions,
+  isSuperAdmin
+}: AvailablePeriodsCardsProps) {
   const [markedPeriods, setMarkedPeriods] = useState<Set<string>>(new Set());
 
   const targetDate = selectedDate || format(new Date(), 'yyyy-MM-dd');
@@ -45,47 +42,6 @@ export function FacultyQuickAttendance({
     new Date(targetDate + 'T00:00:00'),
     'EEEE, MMMM d, yyyy'
   );
-
-  useEffect(() => {
-    fetchFacultyPeriods();
-  }, [staffId, targetDate]);
-
-  const fetchFacultyPeriods = async () => {
-    try {
-      setLoading(true);
-      const result = await FacultyAttendanceService.getFacultyTodayPeriods(
-        staffId,
-        targetDate
-      );
-
-      setPeriods(result.periods);
-      setSearchContext(result.searchContext);
-
-      // TODO: Check which periods already have attendance marked
-      // This would require another service call to check existing attendance
-    } catch (error) {
-      console.error('Error fetching faculty periods:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePeriodClick = (period: AttendancePeriodOption) => {
-    // Navigate to separate attendance marking page
-    const params = new URLSearchParams({
-      periodId: period.timetable_slot_id,
-      timetableId: period.timetable_id,
-      sectionId: period.sections?.[0]?.id || searchContext.section_id || '',
-      date: targetDate,
-      periodName: period.period_name,
-      courseName: period.course?.course_name || 'Unknown Course',
-      startTime: period.start_time,
-      endTime: period.end_time
-    });
-
-    // Navigate to attendance marking page
-    router.push(`/academic/attendance/mark?${params.toString()}`);
-  };
 
   const getTimeStatus = (startTime: string) => {
     if (!startTime) return 'upcoming';
@@ -107,32 +63,44 @@ export function FacultyQuickAttendance({
     return 'current';
   };
 
+  const handlePeriodClick = (period: AttendancePeriodOption) => {
+    onPeriodSelect(period);
+  };
+
+  // Filter periods based on permissions
+  const filteredPeriods = periods.filter(
+    (period: AttendancePeriodOption) =>
+      isSuperAdmin ||
+      attendancePermissions.get(period.timetable_slot_id) === true
+  );
+
   if (loading) {
     return (
       <Card>
         <CardContent className='flex items-center justify-center py-12'>
           <Loader2 className='h-8 w-8 animate-spin text-primary' />
-          <span className='ml-2'>Loading your schedule...</span>
+          <span className='ml-2'>Loading available periods...</span>
         </CardContent>
       </Card>
     );
   }
 
-  if (periods.length === 0) {
+  if (filteredPeriods.length === 0) {
     return (
       <Card>
         <CardHeader>
           <CardTitle className='flex items-center gap-2'>
             <Calendar className='h-5 w-5' />
-            Your Schedule - {displayDate}
+            Available Periods - {displayDate}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
-            <AlertCircle className='h-4 w-4' />
+            <AlertTriangle className='h-4 w-4' />
             <AlertDescription>
-              No classes scheduled for today. You can use the search criteria
-              below to mark attendance for other sections if needed.
+              {periods.length === 0
+                ? 'No periods found for the selected criteria. Please adjust your search filters and try again.'
+                : 'No periods available - You are not assigned to teach any periods for this class on the selected date.'}
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -147,18 +115,19 @@ export function FacultyQuickAttendance({
           <div>
             <CardTitle className='flex items-center gap-2'>
               <Calendar className='h-5 w-5' />
-              Your Schedule
+              Available Periods
             </CardTitle>
             <p className='text-sm text-muted-foreground mt-1'>{displayDate}</p>
           </div>
           <Badge variant='secondary' className='ml-auto'>
-            {periods.length} {periods.length === 1 ? 'Class' : 'Classes'} Today
+            {filteredPeriods.length}{' '}
+            {filteredPeriods.length === 1 ? 'Period' : 'Periods'} Found
           </Badge>
         </div>
       </CardHeader>
       <CardContent>
         <div className='grid gap-4'>
-          {periods.map((period) => {
+          {filteredPeriods.map((period) => {
             const timeStatus = getTimeStatus(period.start_time);
             const isMarked = markedPeriods.has(period.timetable_slot_id);
 
@@ -218,9 +187,13 @@ export function FacultyQuickAttendance({
 
                     {/* Class Details */}
                     <div className='flex flex-wrap gap-4 text-sm text-muted-foreground'>
-                      <span>{period.degree_name}</span>
-                      <span>{period.program_name}</span>
-                      <span>{period.semester_name}</span>
+                      {period.degree_name && <span>{period.degree_name}</span>}
+                      {period.program_name && (
+                        <span>{period.program_name}</span>
+                      )}
+                      {period.semester_name && (
+                        <span>{period.semester_name}</span>
+                      )}
                       {period.section_name && (
                         <div className='flex items-center gap-1'>
                           <Users className='h-3 w-3' />
@@ -260,9 +233,9 @@ export function FacultyQuickAttendance({
         {/* Help Text */}
         <div className='mt-4 p-3 bg-muted/50 rounded-lg'>
           <p className='text-sm text-muted-foreground'>
-            <strong>Quick Tip:</strong> Click the "Mark Attendance" button for
-            any class to record student attendance. Your schedule is
-            automatically loaded based on your timetable assignments.
+            <strong>Search Results:</strong> Click the "Mark Attendance" button
+            for any period to record student attendance. These periods match
+            your search criteria and permission levels.
           </p>
         </div>
       </CardContent>
