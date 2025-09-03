@@ -23,11 +23,11 @@ const getAttendanceBadge = (percentage: number) => {
 
 const formatTime12Hour = (time: string) => {
   if (!time) return '';
-  
+
   const [hours, minutes] = time.split(':').map(Number);
   const period = hours >= 12 ? 'PM' : 'AM';
   const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-  
+
   return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
 };
 
@@ -108,7 +108,20 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
       <DataTableColumnHeader column={column} title='Faculty' />
     ),
     cell: ({ row }) => {
-      return <div className='font-medium'>{row.getValue('faculty_name')}</div>;
+      const facultyName = row.getValue('faculty_name') as string;
+      const markedBy = row.original.marked_by;
+
+      // Determine the best faculty name to display
+      const displayName =
+        facultyName && facultyName !== 'Unknown Faculty'
+          ? facultyName
+          : typeof markedBy === 'object' && markedBy?.full_name
+          ? markedBy.full_name
+          : typeof markedBy === 'string' && !markedBy.includes('-')
+          ? markedBy
+          : 'Unknown Faculty';
+
+      return <div className='font-medium'>{displayName}</div>;
     }
   },
   {

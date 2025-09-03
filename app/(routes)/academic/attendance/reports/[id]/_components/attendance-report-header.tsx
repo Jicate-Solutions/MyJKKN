@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import {
   Calendar,
@@ -21,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { AttendanceReportDetails } from '@/lib/services/academic/attendance-analytics-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface AttendanceReportHeaderProps {
   report?: AttendanceReportDetails;
@@ -31,6 +33,126 @@ export function AttendanceReportHeader({
   report,
   isLoading
 }: AttendanceReportHeaderProps) {
+  const [facultyInfo, setFacultyInfo] = useState({
+    name: 'Unknown Faculty',
+    email: 'N/A'
+  });
+  const [fetchingFaculty, setFetchingFaculty] = useState(false);
+
+  // Fetch faculty information when report is available
+  useEffect(() => {
+    const getFacultyInfo = async () => {
+      if (!report) return;
+
+      // If we have proper faculty information from attendance_data, use it
+      if (
+        report.faculty_name &&
+        report.faculty_name !== 'Unknown Faculty' &&
+        report.faculty_name.trim()
+      ) {
+        setFacultyInfo({
+          name: report.faculty_name,
+          email: report.faculty_email || 'N/A'
+        });
+        return;
+      }
+
+      // Fallback to marked_by information if available
+      if (typeof report.marked_by === 'object' && report.marked_by) {
+        setFacultyInfo({
+          name: report.marked_by.full_name || 'Unknown Faculty',
+          email: report.marked_by.email || 'N/A'
+        });
+        return;
+      }
+
+      // If marked_by is a UUID, try to fetch the profile and staff information
+      if (
+        typeof report.marked_by === 'string' &&
+        report.marked_by &&
+        report.marked_by.includes('-')
+      ) {
+        setFetchingFaculty(true);
+        try {
+          const supabase = createClientSupabaseClient();
+
+          // First try to get profile information
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', report.marked_by)
+            .single();
+
+          if (profile) {
+            let facultyName = profile.full_name || 'Unknown Faculty';
+            let facultyEmail = profile.email || 'N/A';
+
+            // Try to get staff information for better details
+            try {
+              const { data: staffData } = await supabase
+                .from('staff')
+                .select('first_name, last_name, email, institution_email')
+                .or(
+                  `email.eq.${profile.email},institution_email.eq.${profile.email}`
+                )
+                .eq('is_active', true)
+                .single();
+
+              if (staffData) {
+                const staffFullName = `${staffData.first_name || ''} ${
+                  staffData.last_name || ''
+                }`.trim();
+                if (staffFullName) {
+                  facultyName = staffFullName;
+                }
+                facultyEmail =
+                  staffData.email ||
+                  staffData.institution_email ||
+                  facultyEmail;
+              }
+            } catch (staffError) {
+              console.warn(
+                'Could not fetch staff details, using profile data:',
+                staffError
+              );
+            }
+
+            setFacultyInfo({
+              name: facultyName,
+              email: facultyEmail
+            });
+            return;
+          }
+        } catch (error) {
+          console.error('Error fetching faculty information:', error);
+        } finally {
+          setFetchingFaculty(false);
+        }
+      }
+
+      // Fallback to marked_by string if it looks like a name (not a UUID)
+      if (
+        typeof report.marked_by === 'string' &&
+        report.marked_by &&
+        !report.marked_by.includes('-')
+      ) {
+        setFacultyInfo({
+          name: report.marked_by,
+          email: 'N/A'
+        });
+        return;
+      }
+
+      // Final fallback
+      setFacultyInfo({
+        name: 'Unknown Faculty',
+        email: 'N/A'
+      });
+    };
+
+    getFacultyInfo();
+  }, [report]);
+
   if (isLoading || !report) {
     return (
       <div className='space-y-6'>
@@ -96,7 +218,10 @@ export function AttendanceReportHeader({
                 <div className='flex items-center gap-1.5'>
                   <Calendar className='h-4 w-4 text-blue-600' />
                   <span className='font-medium'>
-                    {format(new Date(report.attendance_date), 'EEEE, dd MMMM yyyy')}
+                    {format(
+                      new Date(report.attendance_date),
+                      'EEEE, dd MMMM yyyy'
+                    )}
                   </span>
                 </div>
                 <div className='flex items-center gap-1.5'>
@@ -139,18 +264,28 @@ export function AttendanceReportHeader({
             <div className='space-y-3'>
               <div>
                 <p className='text-sm text-gray-500 dark:text-gray-400'>Name</p>
-                <p className='font-medium text-gray-900 dark:text-gray-100'>
-                  {report.faculty_name}
-                </p>
+                {fetchingFaculty ? (
+                  <Skeleton className='h-5 w-32' />
+                ) : (
+                  <p className='font-medium text-gray-900 dark:text-gray-100'>
+                    {facultyInfo.name}
+                  </p>
+                )}
               </div>
               <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>Email</p>
-                <div className='flex items-center gap-1'>
-                  <Mail className='h-3 w-3 text-gray-400' />
-                  <p className='text-sm font-medium text-gray-700 dark:text-gray-300 break-all'>
-                    {report.faculty_email}
-                  </p>
-                </div>
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Email
+                </p>
+                {fetchingFaculty ? (
+                  <Skeleton className='h-4 w-40' />
+                ) : (
+                  <div className='flex items-center gap-1'>
+                    <Mail className='h-3 w-3 text-gray-400' />
+                    <p className='text-sm font-medium text-gray-700 dark:text-gray-300 break-all'>
+                      {facultyInfo.email}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
@@ -169,19 +304,25 @@ export function AttendanceReportHeader({
             </div>
             <div className='space-y-3'>
               <div className='flex items-center justify-between'>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>Program</p>
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Program
+                </p>
                 <p className='font-medium text-gray-900 dark:text-gray-100'>
                   {report.program_name}
                 </p>
               </div>
               <div className='flex items-center justify-between'>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>Department</p>
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Department
+                </p>
                 <p className='font-medium text-gray-900 dark:text-gray-100'>
                   {report.department_name || 'N/A'}
                 </p>
               </div>
               <div className='flex items-center justify-between'>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>Semester</p>
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Semester
+                </p>
                 <Badge variant='secondary'>{report.semester_name}</Badge>
               </div>
             </div>
@@ -201,20 +342,25 @@ export function AttendanceReportHeader({
             </div>
             <div className='space-y-3'>
               <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>Section</p>
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Section
+                </p>
                 <div className='flex items-center gap-2'>
                   <p className='font-medium text-gray-900 dark:text-gray-100'>
                     {report.section_name}
                   </p>
-                  {report.section_code && report.section_code !== report.section_name && (
-                    <Badge variant='outline' className='text-xs'>
-                      {report.section_code}
-                    </Badge>
-                  )}
+                  {report.section_code &&
+                    report.section_code !== report.section_name && (
+                      <Badge variant='outline' className='text-xs'>
+                        {report.section_code}
+                      </Badge>
+                    )}
                 </div>
               </div>
               <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>Institution</p>
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Institution
+                </p>
                 <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
                   {report.institution_name}
                 </p>
@@ -249,8 +395,10 @@ export function AttendanceReportHeader({
                   Attendance Marked By
                 </p>
                 <p className='font-medium text-gray-900 dark:text-gray-100'>
-                  {typeof report.marked_by === 'object' && report.marked_by 
-                    ? report.marked_by.full_name || report.marked_by.email || 'Unknown'
+                  {typeof report.marked_by === 'object' && report.marked_by
+                    ? report.marked_by.full_name ||
+                      report.marked_by.email ||
+                      'Unknown'
                     : report.marked_by || 'Unknown'}
                 </p>
               </div>

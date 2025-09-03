@@ -5,6 +5,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { FacultyQuickAttendance } from './faculty-quick-attendance';
 import { AttendanceFilters } from './attendance-filters';
+import { AvailablePeriodsCards } from './available-periods-cards';
 import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attendance-service';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -29,6 +30,9 @@ interface AttendanceViewSelectorProps {
   onPeriodSelect: (period: AttendancePeriodOption) => void;
   loading: boolean;
   onSearch: () => void;
+  showResults?: boolean;
+  attendancePermissions?: Map<string, boolean>;
+  isSuperAdmin?: boolean;
 }
 
 export function AttendanceViewSelector({
@@ -38,9 +42,12 @@ export function AttendanceViewSelector({
   selectedPeriod,
   onPeriodSelect,
   loading,
-  onSearch
+  onSearch,
+  showResults = false,
+  attendancePermissions = new Map(),
+  isSuperAdmin = false
 }: AttendanceViewSelectorProps) {
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const { isSuperAdmin: isUserSuperAdmin, userProfile } = usePermissions();
   const { profile } = useAuth();
   const [staffId, setStaffId] = useState<string | null>(null);
 
@@ -48,7 +55,7 @@ export function AttendanceViewSelector({
   const isFaculty = profile?.role === 'faculty';
   const isAdmin =
     profile?.role === 'administrator' || profile?.role === 'principal';
-  const shouldCheckStaff = isFaculty && !isSuperAdmin;
+  const shouldCheckStaff = isFaculty && !isUserSuperAdmin;
 
   const [loadingStaffId, setLoadingStaffId] = useState(shouldCheckStaff);
   const [activeTab, setActiveTab] = useState<string>('quick');
@@ -57,7 +64,7 @@ export function AttendanceViewSelector({
   useEffect(() => {
     const checkIfFaculty = async () => {
       // Skip faculty check for super admins and other admin roles
-      if (isSuperAdmin || isAdmin || !isFaculty) {
+      if (isUserSuperAdmin || isAdmin || !isFaculty) {
         setLoadingStaffId(false);
         return;
       }
@@ -81,7 +88,7 @@ export function AttendanceViewSelector({
     };
 
     checkIfFaculty();
-  }, [profile?.email, isSuperAdmin, isAdmin, isFaculty]);
+  }, [profile?.email, isUserSuperAdmin, isAdmin, isFaculty]);
 
   // Handle quick attendance period selection
   const handleQuickPeriodSelect = (
@@ -106,13 +113,13 @@ export function AttendanceViewSelector({
   }
 
   // For super admins and administrators, show the full search interface
-  if (isSuperAdmin || isAdmin) {
+  if (isUserSuperAdmin || isAdmin) {
     return (
       <div className='space-y-6 flex flex-col gap-4'>
         <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
           <AlertDescription className='flex items-center gap-2'>
             <Info className='h-4 w-4' />
-            {isSuperAdmin
+            {isUserSuperAdmin
               ? 'As a super admin, you have access to all attendance records. Use the search criteria below to find and mark attendance for any class.'
               : 'As an administrator, you can manage attendance records for your institution. Use the search criteria below to find and mark attendance.'}
           </AlertDescription>
@@ -134,6 +141,20 @@ export function AttendanceViewSelector({
             Search Periods
           </Button>
         </div>
+
+        {/* Show search results for admins */}
+        {showResults && (
+          <div className='mt-6'>
+            <AvailablePeriodsCards
+              periods={availablePeriods}
+              onPeriodSelect={onPeriodSelect}
+              loading={loading}
+              selectedDate={searchContext.attendance_date}
+              attendancePermissions={attendancePermissions}
+              isSuperAdmin={isSuperAdmin}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -190,6 +211,20 @@ export function AttendanceViewSelector({
               Search Periods
             </Button>
           </div>
+
+          {/* Show search results in card format only when activeTab is 'search' */}
+          {showResults && activeTab === 'search' && (
+            <div className='mt-6'>
+              <AvailablePeriodsCards
+                periods={availablePeriods}
+                onPeriodSelect={onPeriodSelect}
+                loading={loading}
+                selectedDate={searchContext.attendance_date}
+                attendancePermissions={attendancePermissions}
+                isSuperAdmin={isSuperAdmin}
+              />
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     );

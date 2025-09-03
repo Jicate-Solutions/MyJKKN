@@ -257,7 +257,18 @@ export function AttendanceReportRowActions({
                   <span className='text-sm text-muted-foreground'>
                     Faculty:
                   </span>
-                  <div className='font-medium'>{report.faculty_name}</div>
+                  <div className='font-medium'>
+                    {report.faculty_name &&
+                    report.faculty_name !== 'Unknown Faculty'
+                      ? report.faculty_name
+                      : typeof report.marked_by === 'object' &&
+                        report.marked_by?.full_name
+                      ? report.marked_by.full_name
+                      : typeof report.marked_by === 'string' &&
+                        !report.marked_by.includes('-')
+                      ? report.marked_by
+                      : 'Unknown Faculty'}
+                  </div>
                 </div>
                 <div>
                   <span className='text-sm text-muted-foreground'>
