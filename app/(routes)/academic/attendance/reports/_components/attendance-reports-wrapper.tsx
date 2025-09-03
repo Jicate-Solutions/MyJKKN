@@ -43,14 +43,14 @@ export function AttendanceReportsWrapper() {
       case 'administrator':
       case 'principal':
         // Principal/Admin can only see their institution's data
-        if (profile.institution_id) {
+        if (profile.institution_id && profile.institution_id.trim() !== '') {
           baseFilters.institution_id = profile.institution_id;
         }
         break;
 
       case 'faculty':
         // Faculty can only see their own data
-        if (profile.institution_id) {
+        if (profile.institution_id && profile.institution_id.trim() !== '') {
           baseFilters.institution_id = profile.institution_id;
         }
 
@@ -66,9 +66,10 @@ export function AttendanceReportsWrapper() {
 
             // Fallback to institution_email matching (case-insensitive)
             // Only use institution_email for authentication, not personal email
-            const staffInstitutionEmail = staff.institution_email?.toLowerCase();
+            const staffInstitutionEmail =
+              staff.institution_email?.toLowerCase();
             const profileEmail = profile.email?.toLowerCase();
-            
+
             return staffInstitutionEmail === profileEmail;
           });
 
@@ -107,14 +108,14 @@ export function AttendanceReportsWrapper() {
       case 'student':
         // Students shouldn't see attendance reports
         // But if they do, limit to their institution
-        if (profile.institution_id) {
+        if (profile.institution_id && profile.institution_id.trim() !== '') {
           baseFilters.institution_id = profile.institution_id;
         }
         break;
 
       default:
         // Default to institution-based filtering
-        if (profile.institution_id) {
+        if (profile.institution_id && profile.institution_id.trim() !== '') {
           baseFilters.institution_id = profile.institution_id;
         }
         break;
@@ -173,12 +174,16 @@ export function AttendanceReportsWrapper() {
       // Ensure role-based filters are maintained (except for super_admin)
       if (profile?.role !== 'super_admin') {
         // Keep institution filter for non-super admins
-        if (profile?.institution_id) {
+        if (profile?.institution_id && profile.institution_id.trim() !== '') {
           updatedFilters.institution_id = profile.institution_id;
         }
 
         // Keep staff filter for faculty
-        if (profile?.role === 'faculty' && roleBasedFilters.staff_id) {
+        if (
+          profile?.role === 'faculty' &&
+          roleBasedFilters.staff_id &&
+          roleBasedFilters.staff_id.trim() !== ''
+        ) {
           updatedFilters.staff_id = roleBasedFilters.staff_id;
         }
       }

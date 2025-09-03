@@ -41,12 +41,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { BugReport, BugReportStatus, BugReportFilters } from '@/types/bugs';
 import { useToast } from '@/hooks/use-toast';
 import { MoreHorizontalIcon } from '@/components/icons';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
+import { DataTable } from '@/components/ui/data-table';
 import { ColumnDef } from '@tanstack/react-table';
 import {
   Users,
@@ -158,7 +157,6 @@ const StatCard = ({
 };
 
 export default function AdminBugReportsPage() {
-  const router = useRouter();
   const [filters, setFilters] = useState<BugReportFilters>({
     page: 1,
     limit: 10
@@ -174,7 +172,7 @@ export default function AdminBugReportsPage() {
   const { toast } = useToast();
   const { isSuperAdmin } = usePermissions();
 
-  const { data, isLoading, error, refetch } = useBugReports(filters);
+  const { data, isLoading, refetch } = useBugReports(filters);
   const updateStatusMutation = useUpdateBugReportStatus();
   const deleteReportMutation = useDeleteBugReport();
   const bulkDeleteMutation = useBulkDeleteBugReports();
@@ -364,7 +362,7 @@ export default function AdminBugReportsPage() {
     refetchAll
   ]);
 
-  const reports = data?.data ?? [];
+  const reports = useMemo(() => data?.data ?? [], [data?.data]);
   const metadata = data?.metadata;
 
   const handleSelectAll = useCallback(() => {
@@ -389,7 +387,7 @@ export default function AdminBugReportsPage() {
     () => [
       {
         id: 'select',
-        header: ({ table }) =>
+        header: () =>
           isSuperAdmin ? (
             <Checkbox
               checked={
@@ -428,7 +426,7 @@ export default function AdminBugReportsPage() {
             <div
               className='text-xs sm:text-sm min-w-[120px] cursor-pointer hover:text-primary transition-colors'
               onClick={() =>
-                router.push(`/admin/bug-reports/${row.original.id}`)
+                window.open(`/admin/bug-reports/${row.original.id}`, '_blank')
               }
             >
               {reporter ? (
@@ -568,7 +566,6 @@ export default function AdminBugReportsPage() {
       selectedReports,
       handleSelectAll,
       handleSelectReport,
-      router,
       reports
     ]
   );
@@ -771,15 +768,15 @@ export default function AdminBugReportsPage() {
                     }}
                     onRefresh={refetch}
                     serverSidePagination={{
-                      currentPage: filters.page,
-                      pageSize: filters.limit,
+                      currentPage: filters.page ?? 1,
+                      pageSize: filters.limit ?? 10,
                       totalPages: metadata?.totalPages ?? 1,
                       totalItems: metadata?.total ?? 0,
                       onPageChange: handlePageChange,
                       onPageSizeChange: handlePageSizeChange,
                       isLoading: isLoading,
-                      hasPreviousPage: filters.page > 1,
-                      hasNextPage: filters.page < (metadata?.totalPages ?? 1)
+                      hasPreviousPage: (filters.page ?? 1) > 1,
+                      hasNextPage: (filters.page ?? 1) < (metadata?.totalPages ?? 1)
                     }}
                   />
                 </div>

@@ -393,7 +393,8 @@ export function useConsolidatedAttendance() {
     async (
       timetable_id: string,
       section_id: string,
-      attendance_date: string
+      attendance_date: string,
+      period_id?: string
     ) => {
       try {
         setLoading(true);
@@ -402,7 +403,8 @@ export function useConsolidatedAttendance() {
         const result = await AttendanceService.getConsolidatedAttendance(
           timetable_id,
           section_id,
-          attendance_date
+          attendance_date,
+          period_id
         );
 
         setConsolidatedRecord(result);
