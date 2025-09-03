@@ -104,7 +104,7 @@ export default function LoginPage() {
       // Check if this is a child app authentication request
       const isChildApp = params.get('child_app_auth') === 'true';
       const returnUrl = params.get('return_to');
-      
+
       // Set state values
       setIsChildAppAuth(isChildApp);
       setReturnTo(returnUrl);
@@ -150,13 +150,19 @@ export default function LoginPage() {
         // Store in cookie for callback with better settings
         const isSecure = window.location.protocol === 'https:';
         // Use encodeURIComponent to ensure special characters don't break the cookie
-        const encodedData = encodeURIComponent(JSON.stringify(childAppAuthData));
-        const cookieString = `child_app_auth=${encodedData}; path=/; max-age=600; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+        const encodedData = encodeURIComponent(
+          JSON.stringify(childAppAuthData)
+        );
+        const cookieString = `child_app_auth=${encodedData}; path=/; max-age=600; SameSite=Lax${
+          isSecure ? '; Secure' : ''
+        }`;
         document.cookie = cookieString;
-        
+
         // Also store return_to separately for better reliability
         if (returnUrl) {
-          const returnCookie = `child_app_return=${encodeURIComponent(returnUrl)}; path=/; max-age=600; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+          const returnCookie = `child_app_return=${encodeURIComponent(
+            returnUrl
+          )}; path=/; max-age=600; SameSite=Lax${isSecure ? '; Secure' : ''}`;
           document.cookie = returnCookie;
         }
 
@@ -233,10 +239,27 @@ export default function LoginPage() {
             destination = '/guest';
           } else if (profile?.role === 'student') {
             destination = '/learner';
+          } else if (profile?.role === 'driver') {
+            destination = '/driver';
           }
 
-          // Override with redirectedFrom if provided (except for guest users)
-          if (redirectedFrom && profile?.role !== 'guest') {
+          // For students, only override with redirectedFrom if it's a learner-specific route
+          // This prevents students from being redirected to admin pages after login
+          if (redirectedFrom && profile?.role === 'student') {
+            // Only allow redirect to learner routes or onboarding for students
+            if (
+              redirectedFrom.startsWith('/learner') ||
+              redirectedFrom.startsWith('/students/onboarding')
+            ) {
+              destination = redirectedFrom;
+            }
+            // Otherwise, keep the default '/learner' destination
+          } else if (
+            redirectedFrom &&
+            profile?.role !== 'guest' &&
+            profile?.role !== 'student'
+          ) {
+            // For non-student, non-guest users, allow redirectedFrom as before
             destination = redirectedFrom;
           }
 
@@ -289,7 +312,7 @@ export default function LoginPage() {
         // Ensure we use the current domain, not production
         redirectTo = `${origin}/auth/callback`;
       }
-      
+
       console.log('[Login Page] Current origin:', window.location.origin);
       console.log('[Login Page] OAuth redirect URL:', redirectTo);
 
@@ -311,11 +334,11 @@ export default function LoginPage() {
           returnTo: returnTo || null,
           isChildAppAuth: isChildAppAuth || false
         };
-        
+
         // Use a more robust encoding that survives OAuth
         const encodedState = btoa(JSON.stringify(stateData)).replace(/=/g, '');
         oauthOptions.queryParams.state = encodedState;
-        
+
         console.log(
           '[Login Page] Adding to OAuth state:',
           stateData,
