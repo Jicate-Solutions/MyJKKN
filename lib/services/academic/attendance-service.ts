@@ -2,7 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import type {
   StudentAttendance,
-  CreateStudentAttendanceDto,
+  // CreateStudentAttendanceDto,
   UpdateStudentAttendanceDto,
   BatchUpdateAttendanceDto,
   AttendanceFilters,
@@ -14,8 +14,8 @@ import type {
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
   ConsolidatedAttendanceStudent,
-  CreateConsolidatedAttendanceDto,
-  UpdateConsolidatedAttendanceDto,
+  // CreateConsolidatedAttendanceDto,
+  // UpdateConsolidatedAttendanceDto,
   UpsertConsolidatedAttendanceDto
 } from '@/types/attendance';
 import type { DayOfWeek } from '@/types/academics';
@@ -132,6 +132,7 @@ export class AttendanceService {
 
       // If period_id is provided, check if this specific period has already been marked
       if (period_id && data.attendance_data) {
+        // First check if period_id matches a slot key directly
         const periodData = data.attendance_data[period_id];
         if (
           periodData &&
@@ -139,23 +140,59 @@ export class AttendanceService {
           periodData.students.length > 0
         ) {
           console.log(
-            `Period ${period_id} has already been marked in this record`
+            `Period ${period_id} has already been marked in this record (direct match)`
           );
-          return data as ConsolidatedStudentAttendance;
-        } else {
-          console.log(
-            `Period ${period_id} has not been marked yet in this record`
-          );
-          // Return null to indicate this specific period hasn't been marked
-          // This allows the system to add this period to the existing record
-          return null;
+          return {
+            ...data,
+            marked_by_profile: Array.isArray(data.marked_by_profile) 
+              ? data.marked_by_profile[0] 
+              : data.marked_by_profile
+          } as ConsolidatedStudentAttendance;
         }
+
+        // If not found by slot ID, search by period_id within the attendance data
+        for (const [slotId, slotData] of Object.entries(data.attendance_data)) {
+          if (
+            (slotData as any).period_id === period_id &&
+            (slotData as any).students &&
+            (slotData as any).students.length > 0
+          ) {
+            console.log(
+              `Period ${period_id} has already been marked in this record (found by period_id in slot ${slotId})`
+            );
+            return {
+              ...data,
+              marked_by_profile: Array.isArray(data.marked_by_profile) 
+                ? data.marked_by_profile[0] 
+                : data.marked_by_profile
+            } as ConsolidatedStudentAttendance;
+          }
+        }
+
+        console.log(
+          `Period ${period_id} has not been marked yet, but attendance exists for other periods`
+        );
+        // Return null to allow marking attendance for this specific period
+        // Even though other periods may have been marked on the same date
+        return null;
       }
     } else {
       console.log('No consolidated attendance found.');
     }
 
-    return data as ConsolidatedStudentAttendance | null;
+    // If no period_id is provided, return the record as-is (for general attendance checking)
+    // If period_id is provided and we reach here, it means no data was found for that specific period
+    if (period_id) {
+      console.log(`No attendance data found for period ${period_id}`);
+      return null;
+    }
+
+    return data ? {
+      ...data,
+      marked_by_profile: Array.isArray(data.marked_by_profile) 
+        ? data.marked_by_profile[0] 
+        : data.marked_by_profile
+    } as ConsolidatedStudentAttendance : null;
   }
 
   // Get consolidated attendance records by section and date (regardless of timetable_id)
@@ -776,7 +813,7 @@ export class AttendanceService {
 
             // Look through all periods to find this student
             // Since we may have different slot IDs for the same period, check all periods
-            for (const [slotId, periodData] of Object.entries(attendanceData)) {
+            for (const [, periodData] of Object.entries(attendanceData)) {
               const studentRecord = (periodData as any).students?.find(
                 (s: ConsolidatedAttendanceStudent) =>
                   s.student_id === student.id
@@ -895,7 +932,7 @@ export class AttendanceService {
         const attendanceData =
           record.attendance_data as ConsolidatedAttendanceData;
 
-        for (const [slotId, periodData] of Object.entries(attendanceData)) {
+        for (const [, periodData] of Object.entries(attendanceData)) {
           (periodData as any).students?.forEach(
             (student: ConsolidatedAttendanceStudent) => {
               totalStudents++;
@@ -944,11 +981,11 @@ export class AttendanceService {
         if (!timetable.timetable_data) continue;
 
         // Search through all days and periods in the JSON structure
-        for (const [dayKey, dayData] of Object.entries(
+        for (const [, dayData] of Object.entries(
           timetable.timetable_data
         )) {
           if (typeof dayData === 'object' && dayData !== null) {
-            for (const [periodKey, slotData] of Object.entries(
+            for (const [, slotData] of Object.entries(
               dayData as Record<string, any>
             )) {
               if (
@@ -1295,8 +1332,8 @@ export class AttendanceService {
   // Get attendance records for a specific slot and date
   // NOTE: This method is deprecated and returns empty array since we moved to consolidated approach
   static async getAttendanceRecords(
-    timetable_slot_id: string,
-    attendance_date: string
+    _timetable_slot_id: string,
+    _attendance_date: string
   ): Promise<StudentAttendance[]> {
     try {
       // Since we moved to consolidated attendance, individual records no longer exist
