@@ -25,7 +25,8 @@
       "mcp__vercel__list_projects",
       "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
       "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
-      "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)"
+      "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
+      "Bash(find:*)"
     ],
     "deny": []
   },

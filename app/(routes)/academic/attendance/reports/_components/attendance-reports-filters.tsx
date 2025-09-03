@@ -58,27 +58,27 @@ export function AttendanceReportsFilters({
   const { data: institutions = [] } = useInstitutions();
   const { data: degrees = [] } = useDegrees(
     filters.institution_id || '',
-    !!filters.institution_id
+    !!(filters.institution_id && filters.institution_id.trim() !== '')
   );
   const { data: departments = [] } = useDepartments(
     filters.degree_id || '',
-    !!filters.degree_id
+    !!(filters.degree_id && filters.degree_id.trim() !== '')
   );
   const { data: programs = [] } = usePrograms(
     filters.department_id || '',
-    !!filters.department_id
+    !!(filters.department_id && filters.department_id.trim() !== '')
   );
   const { data: semesters = [] } = useSemesters(
     filters.program_id || '',
-    !!filters.program_id
+    !!(filters.program_id && filters.program_id.trim() !== '')
   );
   const { data: sections = [] } = useSections(
     filters.semester_id || '',
-    !!filters.semester_id
+    !!(filters.semester_id && filters.semester_id.trim() !== '')
   );
   const { data: academicYears = [] } = useAcademicYears();
   const { data: staff = [] } = useStaff(
-    filters.institution_id,
+    filters.institution_id || '',
     user?.role === 'super_admin' || user?.role === 'administrator'
   );
 
