@@ -233,9 +233,9 @@ export function AvailablePeriodsCards({
         {/* Help Text */}
         <div className='mt-4 p-3 bg-muted/50 rounded-lg'>
           <p className='text-sm text-muted-foreground'>
-            <strong>Search Results:</strong> Click the "Mark Attendance" button
-            for any period to record student attendance. These periods match
-            your search criteria and permission levels.
+            <strong>Search Results:</strong> Click the &quot;Mark
+            Attendance&quot; button for any period to record student attendance.
+            These periods match your search criteria and permission levels.
           </p>
         </div>
       </CardContent>
