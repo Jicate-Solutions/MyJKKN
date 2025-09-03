@@ -555,7 +555,9 @@ export default function AttendanceMarkPage() {
           timetable_id: timetableId,
           section_id: contextData.section_id,
           attendance_date: date,
-          period_id: periodId
+          period_id: periodId,
+          period_id_type: typeof periodId,
+          period_id_truthy: !!periodId
         });
 
         const existingRecord =
@@ -616,7 +618,7 @@ export default function AttendanceMarkPage() {
     };
 
     checkExistingAttendance();
-  }, [contextData, timetableId, date, isSuperAdmin]);
+  }, [contextData, timetableId, date, periodId, isSuperAdmin]);
 
   // Early return for missing auth data - but allow super admins without institution_id
   if (!isSuperAdmin && !profile?.institution_id) {
@@ -802,6 +804,16 @@ export default function AttendanceMarkPage() {
         }
       };
 
+      // Debug: Log the payload being sent
+      console.log('🔄 Saving attendance with payload:', {
+        timetable_id: timetableId,
+        section_id: contextData?.section_id || sectionId,
+        attendance_date: date,
+        attendance_data: attendancePayload,
+        marked_by: profile?.id || '',
+        institution_id: institutionId
+      });
+
       // Save attendance - use validated institution_id
       const result = await saveConsolidatedAttendance({
         timetable_id: timetableId,
@@ -811,6 +823,8 @@ export default function AttendanceMarkPage() {
         marked_by: profile?.id || '',
         institution_id: institutionId
       });
+
+      console.log('✅ Save result:', result);
 
       if (result) {
         const successMessage = existingAttendance
@@ -840,10 +854,17 @@ export default function AttendanceMarkPage() {
             );
           }
         }, 1500);
+      } else {
+        console.error('❌ Save result was null/undefined');
+        toast.error('Failed to save attendance - no result returned');
       }
     } catch (error) {
-      console.error('Error saving attendance:', error);
-      toast.error('Failed to save attendance');
+      console.error('❌ Error saving attendance:', error);
+      toast.error(
+        `Failed to save attendance: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
     } finally {
       setSavingAttendance(false);
     }

@@ -27,60 +27,154 @@ import { Separator } from '@/components/ui/separator';
 import { AttendanceReportDetails } from '@/lib/services/academic/attendance-analytics-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { formatTimeRange } from '@/utils/time-format';
+import { cn } from '@/lib/utils';
 
 interface AttendanceReportHeaderProps {
   report?: AttendanceReportDetails;
   isLoading: boolean;
 }
 
+interface StaffInfo {
+  id: string;
+  name: string;
+  email: string;
+  isPrimary?: boolean;
+}
+
 export function AttendanceReportHeader({
   report,
   isLoading
 }: AttendanceReportHeaderProps) {
-  const [facultyInfo, setFacultyInfo] = useState({
-    name: 'Unknown Faculty',
-    email: 'N/A'
-  });
-  const [fetchingFaculty, setFetchingFaculty] = useState(false);
+  const [staffList, setStaffList] = useState<StaffInfo[]>([]);
+  const [fetchingStaff, setFetchingStaff] = useState(false);
+  const [timetableName, setTimetableName] = useState<string>('N/A');
 
-  // Fetch faculty information when report is available
+  // Fetch staff information and timetable name when report is available
   useEffect(() => {
-    const getFacultyInfo = async () => {
+    const getStaffInfoAndTimetable = async () => {
       if (!report) return;
 
-      // If we have proper faculty information from attendance_data, use it
-      if (
-        report.faculty_name &&
-        report.faculty_name !== 'Unknown Faculty' &&
-        report.faculty_name.trim()
-      ) {
-        setFacultyInfo({
-          name: report.faculty_name,
-          email: report.faculty_email || 'N/A'
-        });
-        return;
-      }
+      setFetchingStaff(true);
 
-      // Fallback to marked_by information if available
-      if (typeof report.marked_by === 'object' && report.marked_by) {
-        setFacultyInfo({
-          name: report.marked_by.full_name || 'Unknown Faculty',
-          email: report.marked_by.email || 'N/A'
-        });
-        return;
-      }
+      try {
+        const supabase = createClientSupabaseClient();
 
-      // If marked_by is a UUID, try to fetch the profile and staff information
-      if (
-        typeof report.marked_by === 'string' &&
-        report.marked_by &&
-        report.marked_by.includes('-')
-      ) {
-        setFetchingFaculty(true);
-        try {
-          const supabase = createClientSupabaseClient();
+        // We need to get timetable_id from the attendance record first
+        const { data: attendanceRecord } = await supabase
+          .from('student_attendance')
+          .select('timetable_id')
+          .eq('id', report.id)
+          .single();
 
-          // First try to get profile information
+        if (!attendanceRecord?.timetable_id) {
+          console.warn('No timetable_id found for attendance record');
+          return;
+        }
+
+        // Fetch timetable information to get staff IDs and timetable name
+        const { data: timetableData } = await supabase
+          .from('timetables')
+          .select('timetable_name, timetable_data')
+          .eq('id', attendanceRecord.timetable_id)
+          .single();
+
+        if (timetableData) {
+          setTimetableName(timetableData.timetable_name || 'N/A');
+
+          // Find the specific period slot in timetable data
+          const timetableDataObj = timetableData.timetable_data || {};
+          let periodSlot = null;
+
+          // Search through days and periods to find the matching period_id
+          const periodIdToFind = report.period_data?.period_id;
+          if (periodIdToFind) {
+            for (const dayData of Object.values(timetableDataObj)) {
+              if (typeof dayData === 'object' && dayData !== null) {
+                for (const [slotKey, slotData] of Object.entries(dayData)) {
+                  if (
+                    typeof slotData === 'object' &&
+                    slotData !== null &&
+                    'slot_id' in slotData &&
+                    slotData.slot_id === periodIdToFind
+                  ) {
+                    periodSlot = slotData;
+                    break;
+                  }
+                }
+                if (periodSlot) break;
+              }
+            }
+          }
+
+          if (
+            periodSlot &&
+            'staff_ids' in periodSlot &&
+            Array.isArray(periodSlot.staff_ids)
+          ) {
+            const staffIds = periodSlot.staff_ids;
+            const primaryStaffId =
+              'primary_staff_id' in periodSlot
+                ? periodSlot.primary_staff_id
+                : null;
+
+            if (staffIds.length > 0) {
+              // Fetch staff information for all assigned staff
+              const { data: staffData } = await supabase
+                .from('staff')
+                .select('id, first_name, last_name, email, institution_email')
+                .in('id', staffIds)
+                .eq('is_active', true);
+
+              if (staffData && staffData.length > 0) {
+                const staffInfoList: StaffInfo[] = staffData.map((staff) => ({
+                  id: staff.id,
+                  name:
+                    `${staff.first_name || ''} ${
+                      staff.last_name || ''
+                    }`.trim() || 'Unknown Faculty',
+                  email: staff.email || staff.institution_email || 'N/A',
+                  isPrimary: staff.id === primaryStaffId
+                }));
+
+                // Sort to put primary staff first
+                staffInfoList.sort(
+                  (a, b) => (b.isPrimary ? 1 : 0) - (a.isPrimary ? 1 : 0)
+                );
+                setStaffList(staffInfoList);
+                return;
+              }
+            }
+          }
+        }
+
+        // Fallback: Use attendance data faculty info if available
+        if (report.faculty_name && report.faculty_name !== 'Unknown Faculty') {
+          setStaffList([
+            {
+              id: 'attendance-data',
+              name: report.faculty_name,
+              email: report.faculty_email || 'N/A',
+              isPrimary: true
+            }
+          ]);
+          return;
+        }
+
+        // Final fallback: Use marked_by information
+        if (typeof report.marked_by === 'object' && report.marked_by) {
+          setStaffList([
+            {
+              id: 'marked-by',
+              name: report.marked_by.full_name || 'Unknown Faculty',
+              email: report.marked_by.email || 'N/A',
+              isPrimary: true
+            }
+          ]);
+        } else if (
+          typeof report.marked_by === 'string' &&
+          report.marked_by.includes('-')
+        ) {
+          // Fetch profile information for marked_by UUID
           const { data: profile } = await supabase
             .from('profiles')
             .select('full_name, email')
@@ -88,73 +182,33 @@ export function AttendanceReportHeader({
             .single();
 
           if (profile) {
-            let facultyName = profile.full_name || 'Unknown Faculty';
-            let facultyEmail = profile.email || 'N/A';
-
-            // Try to get staff information for better details
-            try {
-              const { data: staffData } = await supabase
-                .from('staff')
-                .select('first_name, last_name, email, institution_email')
-                .or(
-                  `email.eq.${profile.email},institution_email.eq.${profile.email}`
-                )
-                .eq('is_active', true)
-                .single();
-
-              if (staffData) {
-                const staffFullName = `${staffData.first_name || ''} ${
-                  staffData.last_name || ''
-                }`.trim();
-                if (staffFullName) {
-                  facultyName = staffFullName;
-                }
-                facultyEmail =
-                  staffData.email ||
-                  staffData.institution_email ||
-                  facultyEmail;
+            setStaffList([
+              {
+                id: report.marked_by,
+                name: profile.full_name || 'Unknown Faculty',
+                email: profile.email || 'N/A',
+                isPrimary: true
               }
-            } catch (staffError) {
-              console.warn(
-                'Could not fetch staff details, using profile data:',
-                staffError
-              );
-            }
-
-            setFacultyInfo({
-              name: facultyName,
-              email: facultyEmail
-            });
-            return;
+            ]);
           }
-        } catch (error) {
-          console.error('Error fetching faculty information:', error);
-        } finally {
-          setFetchingFaculty(false);
         }
+      } catch (error) {
+        console.error('Error fetching staff information:', error);
+        // Set default staff info
+        setStaffList([
+          {
+            id: 'default',
+            name: 'Unknown Faculty',
+            email: 'N/A',
+            isPrimary: true
+          }
+        ]);
+      } finally {
+        setFetchingStaff(false);
       }
-
-      // Fallback to marked_by string if it looks like a name (not a UUID)
-      if (
-        typeof report.marked_by === 'string' &&
-        report.marked_by &&
-        !report.marked_by.includes('-')
-      ) {
-        setFacultyInfo({
-          name: report.marked_by,
-          email: 'N/A'
-        });
-        return;
-      }
-
-      // Final fallback
-      setFacultyInfo({
-        name: 'Unknown Faculty',
-        email: 'N/A'
-      });
     };
 
-    getFacultyInfo();
+    getStaffInfoAndTimetable();
   }, [report]);
 
   if (isLoading || !report) {
@@ -174,7 +228,7 @@ export function AttendanceReportHeader({
         </Card>
 
         {/* Loading State - Info Cards */}
-        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
+        <div className='grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4'>
           {Array.from({ length: 3 }).map((_, index) => (
             <Card key={index}>
               <CardContent className='p-6'>
@@ -253,7 +307,7 @@ export function AttendanceReportHeader({
       </Card>
 
       {/* Info Cards Grid */}
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+      <div className='grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4'>
         {/* Faculty Information Card */}
         <Card className='hover:shadow-lg transition-shadow duration-200'>
           <CardContent className='p-6'>
@@ -266,31 +320,51 @@ export function AttendanceReportHeader({
               </h3>
             </div>
             <div className='space-y-3'>
-              <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>Name</p>
-                {fetchingFaculty ? (
+              {fetchingStaff ? (
+                <div className='space-y-3'>
                   <Skeleton className='h-5 w-32' />
-                ) : (
-                  <p className='font-medium text-gray-900 dark:text-gray-100'>
-                    {facultyInfo.name}
-                  </p>
-                )}
-              </div>
-              <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>
-                  Email
-                </p>
-                {fetchingFaculty ? (
                   <Skeleton className='h-4 w-40' />
-                ) : (
-                  <div className='flex items-center gap-1'>
-                    <Mail className='h-3 w-3 text-gray-400' />
-                    <p className='text-sm font-medium text-gray-700 dark:text-gray-300 break-all'>
-                      {facultyInfo.email}
+                </div>
+              ) : (
+                <div className='space-y-3'>
+                  {staffList.map((staff, index) => (
+                    <div
+                      key={staff.id}
+                      className={cn(
+                        'p-3 rounded-lg border',
+                        staff.isPrimary
+                          ? 'bg-purple-50 border-purple-200 dark:bg-purple-900/10 dark:border-purple-800'
+                          : 'bg-gray-50 border-gray-200 dark:bg-gray-800/50 dark:border-gray-700'
+                      )}
+                    >
+                      <div className='flex items-start justify-between mb-2'>
+                        <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
+                          {staff.name}
+                        </p>
+                        {staff.isPrimary && (
+                          <Badge
+                            variant='outline'
+                            className='text-xs border-purple-300 text-purple-700 dark:border-purple-600 dark:text-purple-300'
+                          >
+                            Primary
+                          </Badge>
+                        )}
+                      </div>
+                      <div className='flex items-center gap-1'>
+                        <Mail className='h-3 w-3 text-gray-400' />
+                        <p className='text-xs text-gray-600 dark:text-gray-400 break-all'>
+                          {staff.email}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  {staffList.length === 0 && (
+                    <p className='text-sm text-gray-500 dark:text-gray-400'>
+                      No staff information available
                     </p>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -307,71 +381,73 @@ export function AttendanceReportHeader({
               </h3>
             </div>
             <div className='space-y-3'>
-              <div className='flex items-center justify-between'>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>
-                  Program
-                </p>
-                <p className='font-medium text-gray-900 dark:text-gray-100'>
-                  {report.program_name}
-                </p>
-              </div>
-              <div className='flex items-center justify-between'>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>
-                  Department
-                </p>
-                <p className='font-medium text-gray-900 dark:text-gray-100'>
-                  {report.department_name || 'N/A'}
-                </p>
-              </div>
-              <div className='flex items-center justify-between'>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>
-                  Degree
-                </p>
-                <p className='font-medium text-gray-900 dark:text-gray-100'>
-                  {report.degree_name || 'N/A'}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Section & Institution Card */}
-        <Card className='hover:shadow-lg transition-shadow duration-200'>
-          <CardContent className='p-6'>
-            <div className='flex items-center gap-3 mb-4'>
-              <div className='p-2 rounded-lg bg-orange-100 dark:bg-orange-900/20'>
-                <Building2 className='h-5 w-5 text-orange-600 dark:text-orange-400' />
-              </div>
-              <h3 className='font-semibold text-gray-900 dark:text-gray-100'>
-                Section & Institution
-              </h3>
-            </div>
-            <div className='space-y-3'>
               <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>
-                  Section
-                </p>
-                <div className='flex items-center gap-2'>
-                  <p className='font-medium text-gray-900 dark:text-gray-100'>
-                    {report.section_name}
-                  </p>
-                  {report.section_code &&
-                    report.section_code !== report.section_name && (
-                      <Badge variant='outline' className='text-xs'>
-                        {report.section_code}
-                      </Badge>
-                    )}
-                </div>
-              </div>
-              <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>
                   Institution
                 </p>
                 <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
                   {report.institution_name}
                 </p>
               </div>
-              <Separator className='my-2' />
+              <Separator />
+              <div className='grid grid-cols-2 gap-3'>
+                <div>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>
+                    Section
+                  </p>
+                  <div className='flex items-center gap-2'>
+                    <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
+                      {report.section_name}
+                    </p>
+                    {report.section_code &&
+                      report.section_code !== report.section_name && (
+                        <Badge variant='outline' className='text-xs'>
+                          {report.section_code}
+                        </Badge>
+                      )}
+                  </div>
+                </div>
+                <div>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>
+                    Semester
+                  </p>
+                  <Badge
+                    variant='secondary'
+                    className='bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 text-xs'
+                  >
+                    <CalendarIcon className='h-3 w-3 mr-1' />
+                    {report.semester_name}
+                  </Badge>
+                </div>
+              </div>
+              <Separator />
+              <div className='grid grid-cols-2 gap-3'>
+                <div>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>
+                    Program
+                  </p>
+                  <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
+                    {report.program_name}
+                  </p>
+                </div>
+                <div>
+                  <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>
+                    Department
+                  </p>
+                  <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
+                    {report.department_name || 'N/A'}
+                  </p>
+                </div>
+              </div>
+              <div>
+                <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>
+                  Degree
+                </p>
+                <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
+                  {report.degree_name || 'N/A'}
+                </p>
+              </div>
+              <Separator />
               <div className='flex items-center justify-between'>
                 <div className='flex items-center gap-1'>
                   <Users className='h-4 w-4 text-gray-400' />
@@ -387,7 +463,7 @@ export function AttendanceReportHeader({
           </CardContent>
         </Card>
 
-        {/* Timetable & Semester Information Card */}
+        {/* Timetable & Schedule Information Card */}
         <Card className='hover:shadow-lg transition-shadow duration-200'>
           <CardContent className='p-6'>
             <div className='flex items-center gap-3 mb-4'>
@@ -395,41 +471,45 @@ export function AttendanceReportHeader({
                 <FileText className='h-5 w-5 text-indigo-600 dark:text-indigo-400' />
               </div>
               <h3 className='font-semibold text-gray-900 dark:text-gray-100'>
-                Timetable & Semester
+                Timetable & Schedule
               </h3>
             </div>
             <div className='space-y-3'>
               <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>
+                  Timetable
+                </p>
+                <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
+                  {timetableName}
+                </p>
+              </div>
+              <div>
+                <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>
                   Academic Year
                 </p>
-                <p className='font-medium text-gray-900 dark:text-gray-100'>
+                <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
                   {report.academic_year_name || '2025-2026'}
                 </p>
               </div>
               <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>
-                  Semester
-                </p>
-                <Badge variant='secondary' className='bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200'>
-                  <CalendarIcon className='h-3 w-3 mr-1' />
-                  {report.semester_name}
-                </Badge>
-              </div>
-              <div>
-                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                <p className='text-sm text-gray-500 dark:text-gray-400 mb-1'>
                   Class Schedule
                 </p>
-                <p className='font-medium text-gray-900 dark:text-gray-100'>
-                  Period {report.period_name}
-                </p>
+                <div className='flex items-center gap-2'>
+                  <p className='font-medium text-gray-900 dark:text-gray-100 text-sm'>
+                    Period {report.period_name}
+                  </p>
+                  <Badge variant='outline' className='text-xs'>
+                    {formatTimeRange(report.start_time, report.end_time)}
+                  </Badge>
+                </div>
               </div>
-              <Separator className='my-2' />
+              <Separator />
               <div className='flex items-center justify-between'>
                 <div className='flex items-center gap-1'>
                   <Target className='h-4 w-4 text-gray-400' />
                   <p className='text-sm text-gray-500 dark:text-gray-400'>
-                    Attendance
+                    Attendance Summary
                   </p>
                 </div>
                 <div className='flex items-center gap-2'>

@@ -45,6 +45,111 @@ export class AttendanceService {
   // =====================
 
   // Get consolidated attendance record for a specific timetable, section, and date
+  /**
+   * Check existing attendance for multiple periods at once
+   */
+  static async checkExistingAttendanceForPeriods(
+    periods: Array<{
+      timetable_slot_id: string;
+      timetable_id: string;
+      section_id: string;
+      attendance_date: string;
+    }>
+  ): Promise<Map<string, { isMarked: boolean; recordId?: string }>> {
+    const attendanceMap = new Map<
+      string,
+      { isMarked: boolean; recordId?: string }
+    >();
+
+    try {
+      // Group periods by timetable_id, section_id, and date for efficient querying
+      const groupedPeriods = new Map<string, typeof periods>();
+
+      periods.forEach((period) => {
+        const key = `${period.timetable_id}_${period.section_id}_${period.attendance_date}`;
+        if (!groupedPeriods.has(key)) {
+          groupedPeriods.set(key, []);
+        }
+        groupedPeriods.get(key)!.push(period);
+      });
+
+      // Query attendance records for each group
+      for (const [_, groupPeriods] of groupedPeriods) {
+        if (groupPeriods.length === 0) continue;
+
+        const firstPeriod = groupPeriods[0];
+
+        // Validate parameters before query
+        if (
+          !firstPeriod.timetable_id ||
+          !firstPeriod.section_id ||
+          !firstPeriod.attendance_date
+        ) {
+          console.error('Invalid parameters for attendance check:', {
+            timetable_id: firstPeriod.timetable_id,
+            section_id: firstPeriod.section_id,
+            attendance_date: firstPeriod.attendance_date
+          });
+          // Mark all periods in this group as not marked on error
+          groupPeriods.forEach((period) => {
+            attendanceMap.set(period.timetable_slot_id, { isMarked: false });
+          });
+          continue;
+        }
+
+        const { data, error } = await this.supabase
+          .from('student_attendance')
+          .select('id, attendance_data')
+          .eq('timetable_id', firstPeriod.timetable_id)
+          .eq('section_id', firstPeriod.section_id)
+          .eq('attendance_date', firstPeriod.attendance_date)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Error checking existing attendance:', {
+            error,
+            parameters: {
+              timetable_id: firstPeriod.timetable_id,
+              section_id: firstPeriod.section_id,
+              attendance_date: firstPeriod.attendance_date
+            }
+          });
+          // Mark all periods in this group as not marked on error
+          groupPeriods.forEach((period) => {
+            attendanceMap.set(period.timetable_slot_id, { isMarked: false });
+          });
+          continue;
+        }
+
+        // Check each period in this group
+        groupPeriods.forEach((period) => {
+          let isMarked = false;
+
+          if (data?.attendance_data) {
+            // Check if this specific slot has attendance data
+            const slotData = data.attendance_data[period.timetable_slot_id];
+            if (slotData && slotData.students && slotData.students.length > 0) {
+              isMarked = true;
+            }
+          }
+
+          attendanceMap.set(period.timetable_slot_id, {
+            isMarked,
+            recordId: isMarked ? data?.id : undefined
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Error in checkExistingAttendanceForPeriods:', error);
+      // On error, mark all periods as not marked
+      periods.forEach((period) => {
+        attendanceMap.set(period.timetable_slot_id, { isMarked: false });
+      });
+    }
+
+    return attendanceMap;
+  }
+
   static async getConsolidatedAttendance(
     timetable_id: string,
     section_id: string,
@@ -144,8 +249,8 @@ export class AttendanceService {
           );
           return {
             ...data,
-            marked_by_profile: Array.isArray(data.marked_by_profile) 
-              ? data.marked_by_profile[0] 
+            marked_by_profile: Array.isArray(data.marked_by_profile)
+              ? data.marked_by_profile[0]
               : data.marked_by_profile
           } as ConsolidatedStudentAttendance;
         }
@@ -162,8 +267,8 @@ export class AttendanceService {
             );
             return {
               ...data,
-              marked_by_profile: Array.isArray(data.marked_by_profile) 
-                ? data.marked_by_profile[0] 
+              marked_by_profile: Array.isArray(data.marked_by_profile)
+                ? data.marked_by_profile[0]
                 : data.marked_by_profile
             } as ConsolidatedStudentAttendance;
           }
@@ -187,12 +292,14 @@ export class AttendanceService {
       return null;
     }
 
-    return data ? {
-      ...data,
-      marked_by_profile: Array.isArray(data.marked_by_profile) 
-        ? data.marked_by_profile[0] 
-        : data.marked_by_profile
-    } as ConsolidatedStudentAttendance : null;
+    return data
+      ? ({
+          ...data,
+          marked_by_profile: Array.isArray(data.marked_by_profile)
+            ? data.marked_by_profile[0]
+            : data.marked_by_profile
+        } as ConsolidatedStudentAttendance)
+      : null;
   }
 
   // Get consolidated attendance records by section and date (regardless of timetable_id)
@@ -981,9 +1088,7 @@ export class AttendanceService {
         if (!timetable.timetable_data) continue;
 
         // Search through all days and periods in the JSON structure
-        for (const [, dayData] of Object.entries(
-          timetable.timetable_data
-        )) {
+        for (const [, dayData] of Object.entries(timetable.timetable_data)) {
           if (typeof dayData === 'object' && dayData !== null) {
             for (const [, slotData] of Object.entries(
               dayData as Record<string, any>
