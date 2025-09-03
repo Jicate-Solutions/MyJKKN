@@ -15,7 +15,10 @@ import {
   Hash,
   CheckCircle2,
   School,
-  UserCheck
+  UserCheck,
+  Calendar as CalendarIcon,
+  FileText,
+  Target
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -249,7 +252,7 @@ export function AttendanceReportHeader({
       </Card>
 
       {/* Info Cards Grid */}
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
+      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
         {/* Faculty Information Card */}
         <Card className='hover:shadow-lg transition-shadow duration-200'>
           <CardContent className='p-6'>
@@ -321,9 +324,11 @@ export function AttendanceReportHeader({
               </div>
               <div className='flex items-center justify-between'>
                 <p className='text-sm text-gray-500 dark:text-gray-400'>
-                  Semester
+                  Degree
                 </p>
-                <Badge variant='secondary'>{report.semester_name}</Badge>
+                <p className='font-medium text-gray-900 dark:text-gray-100'>
+                  {report.degree_name || 'N/A'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -376,6 +381,64 @@ export function AttendanceReportHeader({
                 <p className='font-bold text-lg text-gray-900 dark:text-gray-100'>
                   {report.total_students}
                 </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Timetable & Semester Information Card */}
+        <Card className='hover:shadow-lg transition-shadow duration-200'>
+          <CardContent className='p-6'>
+            <div className='flex items-center gap-3 mb-4'>
+              <div className='p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/20'>
+                <FileText className='h-5 w-5 text-indigo-600 dark:text-indigo-400' />
+              </div>
+              <h3 className='font-semibold text-gray-900 dark:text-gray-100'>
+                Timetable & Semester
+              </h3>
+            </div>
+            <div className='space-y-3'>
+              <div>
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Academic Year
+                </p>
+                <p className='font-medium text-gray-900 dark:text-gray-100'>
+                  {report.academic_year_name || '2025-2026'}
+                </p>
+              </div>
+              <div>
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Semester
+                </p>
+                <Badge variant='secondary' className='bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200'>
+                  <CalendarIcon className='h-3 w-3 mr-1' />
+                  {report.semester_name}
+                </Badge>
+              </div>
+              <div>
+                <p className='text-sm text-gray-500 dark:text-gray-400'>
+                  Class Schedule
+                </p>
+                <p className='font-medium text-gray-900 dark:text-gray-100'>
+                  Period {report.period_name}
+                </p>
+              </div>
+              <Separator className='my-2' />
+              <div className='flex items-center justify-between'>
+                <div className='flex items-center gap-1'>
+                  <Target className='h-4 w-4 text-gray-400' />
+                  <p className='text-sm text-gray-500 dark:text-gray-400'>
+                    Attendance
+                  </p>
+                </div>
+                <div className='flex items-center gap-2'>
+                  <span className='text-sm font-medium text-green-600 dark:text-green-400'>
+                    {report.present_count} Present
+                  </span>
+                  <span className='text-sm font-medium text-red-600 dark:text-red-400'>
+                    {report.absent_count} Absent
+                  </span>
+                </div>
               </div>
             </div>
           </CardContent>

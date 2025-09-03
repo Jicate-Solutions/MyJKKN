@@ -1,5 +1,5 @@
--- Fix the get_attendance_record_details function to properly retrieve student details
--- This will replace the students_data with proper student information including names, emails, and roll numbers
+-- Add academic year and degree information to attendance report details
+-- This enhances the get_attendance_record_details function to include academic year and degree name
 
 CREATE OR REPLACE FUNCTION public.get_attendance_record_details(
     p_attendance_id text, 

@@ -150,6 +150,8 @@ export interface AttendanceReportDetails {
       timing: string;
     };
   };
+  degree_name: string;
+  academic_year_name: string;
 }
 
 export class AttendanceAnalyticsService {

@@ -149,7 +149,7 @@ export function AttendanceViewSelector({
               periods={availablePeriods}
               onPeriodSelect={onPeriodSelect}
               loading={loading}
-              selectedDate={searchContext.attendance_date}
+              selectedDate={searchContext.attendance_date || undefined}
               attendancePermissions={attendancePermissions}
               isSuperAdmin={isSuperAdmin}
             />
@@ -219,7 +219,7 @@ export function AttendanceViewSelector({
                 periods={availablePeriods}
                 onPeriodSelect={onPeriodSelect}
                 loading={loading}
-                selectedDate={searchContext.attendance_date}
+                selectedDate={searchContext.attendance_date || undefined}
                 attendancePermissions={attendancePermissions}
                 isSuperAdmin={isSuperAdmin}
               />

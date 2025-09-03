@@ -252,24 +252,72 @@ export default function AttendanceMarkPage() {
               `🎯 Multiple sections found, trying to match by semester: "${timetableData.semester}"`
             );
 
-            // Try to find section by semester name/number
-            const semesterMatch = allMatchingSections.find((section) => {
-              // Get semester info for each section
-              // Note: This is a simplified match, might need adjustment based on your semester naming
-              return section.semester_id; // For now, just take the first one with semester_id
-            });
+            try {
+              // Fetch semester information for all matching sections to find the correct one
+              const sectionIds = allMatchingSections.map((s) => s.id);
+              const { data: sectionsWithSemesters, error: semesterError } =
+                await supabase
+                  .from('sections')
+                  .select(
+                    `
+                  id,
+                  section_name,
+                  semesters(id, semester_name)
+                `
+                  )
+                  .in('id', sectionIds);
 
-            if (semesterMatch) {
-              sections = semesterMatch;
-              console.log(
-                `✅ Selected section based on semester match:`,
-                sections
-              );
-            } else {
-              console.log(
-                `⚠️ No semester match found, using first section:`,
-                sections
-              );
+              if (!semesterError && sectionsWithSemesters) {
+                console.log(
+                  '📚 Sections with semester info:',
+                  sectionsWithSemesters
+                );
+
+                // Find the section that matches the timetable semester
+                const semesterMatch = sectionsWithSemesters.find(
+                  (sectionData: any) => {
+                    const semesterName = sectionData.semesters?.semester_name;
+                    console.log(
+                      `Comparing: "${semesterName}" with "${timetableData.semester}"`
+                    );
+
+                    // Case-insensitive comparison
+                    return (
+                      semesterName &&
+                      semesterName.toLowerCase() ===
+                        timetableData.semester.toLowerCase()
+                    );
+                  }
+                );
+
+                if (semesterMatch) {
+                  // Find the corresponding section from our original list
+                  sections =
+                    allMatchingSections.find(
+                      (s) => s.id === semesterMatch.id
+                    ) || sections;
+                  console.log(
+                    `✅ Selected section based on semester match: ${
+                      (semesterMatch as any).semesters?.semester_name
+                    }`,
+                    sections
+                  );
+                } else {
+                  console.log(
+                    `⚠️ No semester match found for "${timetableData.semester}", using first section:`,
+                    sections
+                  );
+                }
+              } else {
+                console.error('Error fetching semester info:', semesterError);
+                console.log(
+                  '⚠️ Using first section due to semester query error:',
+                  sections
+                );
+              }
+            } catch (error) {
+              console.error('Error in semester disambiguation:', error);
+              console.log('⚠️ Using first section due to error:', sections);
             }
           }
 

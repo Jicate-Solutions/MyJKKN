@@ -260,8 +260,8 @@ export function FacultyQuickAttendance({
         {/* Help Text */}
         <div className='mt-4 p-3 bg-muted/50 rounded-lg'>
           <p className='text-sm text-muted-foreground'>
-            <strong>Quick Tip:</strong> Click the "Mark Attendance" button for
-            any class to record student attendance. Your schedule is
+            <strong>Quick Tip:</strong> Click the &quot;Mark Attendance&quot;
+            button for any class to record student attendance. Your schedule is
             automatically loaded based on your timetable assignments.
           </p>
         </div>

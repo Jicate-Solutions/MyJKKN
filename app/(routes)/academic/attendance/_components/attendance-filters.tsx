@@ -26,9 +26,7 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
-import type {
-  AttendanceSearchContext
-} from '@/types/attendance';
+import type { AttendanceSearchContext } from '@/types/attendance';
 import { cn } from '@/lib/utils';
 
 interface AttendanceFiltersProps {
@@ -60,7 +58,8 @@ export function AttendanceFilters({
 
   const { data: programsData, refetch: fetchPrograms } = usePrograms({
     institution_id: searchContext.institution_id || undefined,
-    degree_id: searchContext.degree_id || undefined
+    degree_id: searchContext.degree_id || undefined,
+    department_id: searchContext.department_id || undefined
   });
   const programs = programsData?.data ?? [];
 
@@ -106,44 +105,44 @@ export function AttendanceFilters({
     }
   }, [searchContext.institution_id, fetchDegrees]);
 
-  // Load programs when degree changes
+  // Load departments when degree changes (correct hierarchy)
   useEffect(() => {
     if (searchContext.institution_id && searchContext.degree_id) {
-      fetchPrograms();
+      fetchDepartments();
     }
-  }, [searchContext.institution_id, searchContext.degree_id, fetchPrograms]);
+  }, [searchContext.institution_id, searchContext.degree_id, fetchDepartments]);
 
-  // Load departments when program changes
+  // Load programs when department changes (correct hierarchy)
   useEffect(() => {
     if (
       searchContext.institution_id &&
       searchContext.degree_id &&
-      searchContext.program_id
+      searchContext.department_id
     ) {
-      fetchDepartments();
+      fetchPrograms();
     }
   }, [
     searchContext.institution_id,
     searchContext.degree_id,
-    searchContext.program_id,
-    fetchDepartments
+    searchContext.department_id,
+    fetchPrograms
   ]);
 
-  // Load semesters when department changes
+  // Load semesters when program changes (correct hierarchy)
   useEffect(() => {
     if (
       searchContext.institution_id &&
       searchContext.degree_id &&
-      searchContext.program_id &&
-      searchContext.department_id
+      searchContext.department_id &&
+      searchContext.program_id
     ) {
       fetchSemesters();
     }
   }, [
     searchContext.institution_id,
     searchContext.degree_id,
-    searchContext.program_id,
     searchContext.department_id,
+    searchContext.program_id,
     fetchSemesters
   ]);
 
@@ -166,7 +165,6 @@ export function AttendanceFilters({
     searchContext.semester_id,
     fetchSections
   ]);
-
 
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
@@ -264,8 +262,8 @@ export function AttendanceFilters({
                 onValueChange={(value) => {
                   onContextChange({
                     degree_id: value,
-                    program_id: null,
                     department_id: null,
+                    program_id: null,
                     semester_id: null,
                     section_id: null
                   });
@@ -290,39 +288,6 @@ export function AttendanceFilters({
               </Select>
             </div>
 
-            {/* Program */}
-            <div className='space-y-2'>
-              <Label htmlFor='program'>Program</Label>
-              <Select
-                value={searchContext.program_id || undefined}
-                onValueChange={(value) => {
-                  onContextChange({
-                    program_id: value,
-                    department_id: null,
-                    semester_id: null,
-                    section_id: null
-                  });
-                }}
-                disabled={!searchContext.degree_id}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='Select program' />
-                </SelectTrigger>
-                <SelectContent>
-                  {programs.map(
-                    (program: {
-                      id: string;
-                      program_name: import('react').ReactNode;
-                    }) => (
-                      <SelectItem key={program.id} value={program.id}>
-                        {program.program_name}
-                      </SelectItem>
-                    )
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
             {/* Department */}
             <div className='space-y-2'>
               <Label htmlFor='department'>Department</Label>
@@ -331,23 +296,76 @@ export function AttendanceFilters({
                 onValueChange={(value) => {
                   onContextChange({
                     department_id: value,
+                    program_id: null,
                     semester_id: null,
                     section_id: null
                   });
                 }}
-                disabled={!searchContext.program_id}
+                disabled={!searchContext.degree_id}
               >
                 <SelectTrigger>
                   <SelectValue placeholder='Select department' />
                 </SelectTrigger>
                 <SelectContent>
-                  {departments.map(
+                  {/* Remove duplicates by department name */}
+                  {Array.from(
+                    new Map(
+                      departments.map(
+                        (department: {
+                          id: string;
+                          department_name: import('react').ReactNode;
+                        }) => [department.department_name, department]
+                      )
+                    ).values()
+                  ).map(
                     (department: {
                       id: string;
                       department_name: import('react').ReactNode;
                     }) => (
                       <SelectItem key={department.id} value={department.id}>
                         {department.department_name}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Program */}
+            <div className='space-y-2'>
+              <Label htmlFor='program'>Program</Label>
+              <Select
+                value={searchContext.program_id || undefined}
+                onValueChange={(value) => {
+                  onContextChange({
+                    program_id: value,
+                    semester_id: null,
+                    section_id: null
+                  });
+                }}
+                disabled={!searchContext.department_id}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder='Select program' />
+                </SelectTrigger>
+                <SelectContent>
+                  {/* Remove duplicates by program name for super admin */}
+                  {Array.from(
+                    new Map(
+                      programs.map(
+                        (program: {
+                          id: string;
+                          program_name: import('react').ReactNode;
+                        }) => [program.program_name, program]
+                      )
+                    ).values()
+                  ).map(
+                    (program: {
+                      id: string;
+                      program_name: import('react').ReactNode;
+                    }) => (
+                      <SelectItem key={program.id} value={program.id}>
+                        {program.program_name}
                       </SelectItem>
                     )
                   )}
@@ -372,7 +390,17 @@ export function AttendanceFilters({
                   <SelectValue placeholder='Select semester' />
                 </SelectTrigger>
                 <SelectContent>
-                  {semesters.map(
+                  {/* Remove duplicates by semester name */}
+                  {Array.from(
+                    new Map(
+                      semesters.map(
+                        (semester: {
+                          id: string;
+                          semester_name: import('react').ReactNode;
+                        }) => [semester.semester_name, semester]
+                      )
+                    ).values()
+                  ).map(
                     (semester: {
                       id: string;
                       semester_name: import('react').ReactNode;
@@ -403,7 +431,17 @@ export function AttendanceFilters({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value='all_sections'>All Sections</SelectItem>
-                  {sections.map(
+                  {/* Remove duplicates by section name */}
+                  {Array.from(
+                    new Map(
+                      sections.map(
+                        (section: {
+                          id: string;
+                          section_name: import('react').ReactNode;
+                        }) => [section.section_name, section]
+                      )
+                    ).values()
+                  ).map(
                     (section: {
                       id: string;
                       section_name: import('react').ReactNode;
@@ -495,7 +533,6 @@ export function AttendanceFilters({
           </div>
         </div>
       </div>
-
     </div>
   );
 }
