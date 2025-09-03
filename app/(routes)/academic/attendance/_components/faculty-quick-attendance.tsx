@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +17,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attendance-service';
+import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { cn } from '@/lib/utils';
 
@@ -39,6 +40,9 @@ export function FacultyQuickAttendance({
   const [searchContext, setSearchContext] = useState<any>({});
 
   const [markedPeriods, setMarkedPeriods] = useState<Set<string>>(new Set());
+  const [periodRecordIds, setPeriodRecordIds] = useState<Map<string, string>>(
+    new Map()
+  );
 
   const targetDate = selectedDate || format(new Date(), 'yyyy-MM-dd');
   const displayDate = format(
@@ -46,11 +50,7 @@ export function FacultyQuickAttendance({
     'EEEE, MMMM d, yyyy'
   );
 
-  useEffect(() => {
-    fetchFacultyPeriods();
-  }, [staffId, targetDate]);
-
-  const fetchFacultyPeriods = async () => {
+  const fetchFacultyPeriods = useCallback(async () => {
     try {
       setLoading(true);
       const result = await FacultyAttendanceService.getFacultyTodayPeriods(
@@ -61,30 +61,98 @@ export function FacultyQuickAttendance({
       setPeriods(result.periods);
       setSearchContext(result.searchContext);
 
-      // TODO: Check which periods already have attendance marked
-      // This would require another service call to check existing attendance
+      // Check which periods already have attendance marked
+      if (result.periods.length > 0) {
+        const periodChecks = result.periods
+          .map((period) => {
+            const sectionId =
+              period.sections?.[0]?.id ||
+              result.searchContext?.section_id ||
+              '';
+
+            // Skip periods without valid section_id
+            if (!sectionId || sectionId.trim() === '') {
+              console.warn(
+                'Period missing section_id, skipping attendance check:',
+                {
+                  timetable_slot_id: period.timetable_slot_id,
+                  period_name: period.period_name
+                }
+              );
+              return null;
+            }
+
+            return {
+              timetable_slot_id: period.timetable_slot_id,
+              timetable_id: period.timetable_id,
+              section_id: sectionId,
+              attendance_date: targetDate
+            };
+          })
+          .filter(
+            (check): check is NonNullable<typeof check> => check !== null
+          );
+
+        if (periodChecks.length > 0) {
+          try {
+            const attendanceMap =
+              await AttendanceService.checkExistingAttendanceForPeriods(
+                periodChecks
+              );
+
+            // Update marked periods set and record IDs
+            const marked = new Set<string>();
+            const recordIds = new Map<string, string>();
+            for (const [slotId, attendanceInfo] of attendanceMap) {
+              if (attendanceInfo.isMarked) {
+                marked.add(slotId);
+                if (attendanceInfo.recordId) {
+                  recordIds.set(slotId, attendanceInfo.recordId);
+                }
+              }
+            }
+            setMarkedPeriods(marked);
+            setPeriodRecordIds(recordIds);
+          } catch (error) {
+            console.error('Error checking existing attendance:', error);
+            // Continue without marking any periods as completed
+          }
+        }
+      }
     } catch (error) {
       console.error('Error fetching faculty periods:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [staffId, targetDate]);
+
+  useEffect(() => {
+    fetchFacultyPeriods();
+  }, [staffId, targetDate, fetchFacultyPeriods]);
 
   const handlePeriodClick = (period: AttendancePeriodOption) => {
-    // Navigate to separate attendance marking page
-    const params = new URLSearchParams({
-      periodId: period.timetable_slot_id,
-      timetableId: period.timetable_id,
-      sectionId: period.sections?.[0]?.id || searchContext.section_id || '',
-      date: targetDate,
-      periodName: period.period_name,
-      courseName: period.course?.course_name || 'Unknown Course',
-      startTime: period.start_time,
-      endTime: period.end_time
-    });
+    const isMarked = markedPeriods.has(period.timetable_slot_id);
+    const recordId = periodRecordIds.get(period.timetable_slot_id);
 
-    // Navigate to attendance marking page
-    router.push(`/academic/attendance/mark?${params.toString()}`);
+    if (isMarked && recordId) {
+      // Navigate to attendance report details page
+      router.push(`/academic/attendance/reports/${recordId}`);
+    } else {
+      // Navigate to separate attendance marking page
+      const params = new URLSearchParams({
+        periodId: period.timetable_slot_id,
+        timetableId: period.timetable_id,
+        sectionId: period.sections?.[0]?.id || searchContext.section_id || '',
+        date: targetDate,
+        periodName: period.period_name,
+        courseName: period.course?.course_name || 'Unknown Course',
+        startTime: period.start_time,
+        endTime: period.end_time
+      });
+
+      // Navigate to attendance marking page
+      router.push(`/academic/attendance/mark?${params.toString()}`);
+    }
   };
 
   const getTimeStatus = (startTime: string) => {
@@ -233,14 +301,14 @@ export function FacultyQuickAttendance({
                     <div className='flex justify-end pt-2'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={isMarked && timeStatus === 'past'}
+                        disabled={!isMarked && timeStatus === 'past'}
                         size='sm'
                         className='min-w-[140px]'
                       >
                         {isMarked ? (
                           <>
                             <CheckCircle className='h-4 w-4 mr-2' />
-                            View Attendance
+                            View Details
                           </>
                         ) : (
                           <>

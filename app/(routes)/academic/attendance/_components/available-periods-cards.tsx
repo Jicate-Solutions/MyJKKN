@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { AttendancePeriodOption } from '@/types/attendance';
+import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { cn } from '@/lib/utils';
 
 interface AvailablePeriodsCardsProps {
@@ -35,13 +37,65 @@ export function AvailablePeriodsCards({
   attendancePermissions,
   isSuperAdmin
 }: AvailablePeriodsCardsProps) {
+  const router = useRouter();
   const [markedPeriods, setMarkedPeriods] = useState<Set<string>>(new Set());
+  const [periodRecordIds, setPeriodRecordIds] = useState<Map<string, string>>(
+    new Map()
+  );
+  const [checkingAttendance, setCheckingAttendance] = useState(false);
 
   const targetDate = selectedDate || format(new Date(), 'yyyy-MM-dd');
   const displayDate = format(
     new Date(targetDate + 'T00:00:00'),
     'EEEE, MMMM d, yyyy'
   );
+
+  // Check existing attendance when periods change
+  useEffect(() => {
+    const checkExistingAttendance = async () => {
+      if (!periods.length) {
+        setMarkedPeriods(new Set());
+        return;
+      }
+
+      try {
+        setCheckingAttendance(true);
+
+        const periodChecks = periods.map((period) => ({
+          timetable_slot_id: period.timetable_slot_id,
+          timetable_id: period.timetable_id,
+          section_id: period.sections?.[0]?.id || '',
+          attendance_date: targetDate
+        }));
+
+        const attendanceMap =
+          await AttendanceService.checkExistingAttendanceForPeriods(
+            periodChecks
+          );
+
+        const marked = new Set<string>();
+        const recordIds = new Map<string, string>();
+        for (const [slotId, attendanceInfo] of attendanceMap) {
+          if (attendanceInfo.isMarked) {
+            marked.add(slotId);
+            if (attendanceInfo.recordId) {
+              recordIds.set(slotId, attendanceInfo.recordId);
+            }
+          }
+        }
+        setMarkedPeriods(marked);
+        setPeriodRecordIds(recordIds);
+      } catch (error) {
+        console.error('Error checking existing attendance:', error);
+        setMarkedPeriods(new Set());
+        setPeriodRecordIds(new Map());
+      } finally {
+        setCheckingAttendance(false);
+      }
+    };
+
+    checkExistingAttendance();
+  }, [periods, targetDate]);
 
   const getTimeStatus = (startTime: string) => {
     if (!startTime) return 'upcoming';
@@ -64,7 +118,16 @@ export function AvailablePeriodsCards({
   };
 
   const handlePeriodClick = (period: AttendancePeriodOption) => {
-    onPeriodSelect(period);
+    const isMarked = markedPeriods.has(period.timetable_slot_id);
+    const recordId = periodRecordIds.get(period.timetable_slot_id);
+
+    if (isMarked && recordId) {
+      // Navigate to attendance report details page
+      router.push(`/academic/attendance/reports/${recordId}`);
+    } else {
+      // Use the original period selection behavior for unmarked periods
+      onPeriodSelect(period);
+    }
   };
 
   // Filter periods based on permissions
@@ -206,14 +269,14 @@ export function AvailablePeriodsCards({
                     <div className='flex justify-end pt-2'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={isMarked && timeStatus === 'past'}
+                        disabled={!isMarked && timeStatus === 'past'}
                         size='sm'
                         className='min-w-[140px]'
                       >
                         {isMarked ? (
                           <>
                             <CheckCircle className='h-4 w-4 mr-2' />
-                            View Attendance
+                            View Details
                           </>
                         ) : (
                           <>
