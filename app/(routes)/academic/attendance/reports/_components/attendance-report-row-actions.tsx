@@ -255,14 +255,24 @@ export function AttendanceReportRowActions({
               <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
                 <div>
                   <span className='text-sm text-muted-foreground'>
-                    Faculty:
+                    Assigned Faculty:
                   </span>
                   <div className='font-medium'>
-                    {report.faculty_name &&
-                    report.faculty_name !== 'Unknown Faculty'
-                      ? report.faculty_name
-                      : report.marked_by || 'Unknown Faculty'}
+                    {report.assigned_faculty ||
+                      (report.faculty_name &&
+                      report.faculty_name !== 'Unknown Faculty'
+                        ? report.faculty_name
+                        : 'Unknown Faculty')}
                   </div>
+                  {report.assigned_faculty_list &&
+                    report.assigned_faculty_list.length > 0 && (
+                      <div className='text-xs text-muted-foreground mt-1'>
+                        All assigned staff:{' '}
+                        {report.assigned_faculty_list
+                          .map((f) => f.name)
+                          .join(', ')}
+                      </div>
+                    )}
                 </div>
                 <div>
                   <span className='text-sm text-muted-foreground'>
@@ -275,6 +285,12 @@ export function AttendanceReportRowActions({
                     Marked By:
                   </span>
                   <div className='font-medium'>{report.marked_by}</div>
+                  {report.marked_by !==
+                    (report.assigned_faculty || report.faculty_name) && (
+                    <div className='text-xs text-blue-600 mt-1'>
+                      (Different from assigned faculty)
+                    </div>
+                  )}
                 </div>
                 <div>
                   <span className='text-sm text-muted-foreground'>

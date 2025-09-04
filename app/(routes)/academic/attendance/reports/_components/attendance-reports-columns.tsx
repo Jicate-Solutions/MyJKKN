@@ -22,7 +22,6 @@ const getAttendanceBadge = (percentage: number) => {
   return <Badge className='bg-red-100 text-red-800'>Poor</Badge>;
 };
 
-
 export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
   // Note: The selection column is automatically added by DataTable when onBulkAction is provided
   {
@@ -97,19 +96,45 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
   {
     accessorKey: 'faculty_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Faculty' />
+      <DataTableColumnHeader column={column} title='Assigned Faculty' />
     ),
     cell: ({ row }) => {
-      const facultyName = row.getValue('faculty_name') as string;
-      const markedBy = row.original.marked_by;
+      const assignedFaculty = row.original.assigned_faculty;
+      const assignedFacultyList = row.original.assigned_faculty_list;
+      const originalFacultyName = row.getValue('faculty_name') as string;
 
-      // Determine the best faculty name to display
+      // Use assigned faculty if available, otherwise fall back to original logic
       const displayName =
-        facultyName && facultyName !== 'Unknown Faculty'
-          ? facultyName
-          : markedBy || 'Unknown Faculty';
+        assignedFaculty ||
+        (originalFacultyName && originalFacultyName !== 'Unknown Faculty'
+          ? originalFacultyName
+          : 'Unknown Faculty');
 
-      return <div className='font-medium'>{displayName}</div>;
+      // For table display: show primary faculty + staff count
+      let primaryFacultyName = displayName;
+      let additionalStaffCount = 0;
+
+      if (assignedFacultyList && assignedFacultyList.length > 0) {
+        // Find primary faculty or use first one
+        const primaryFaculty =
+          assignedFacultyList.find((f) => f.isPrimary) ||
+          assignedFacultyList[0];
+        primaryFacultyName = primaryFaculty.name;
+        additionalStaffCount = assignedFacultyList.length - 1;
+      }
+
+      return (
+        <div className='space-y-1'>
+          <div className='font-medium'>
+            {primaryFacultyName}
+            {additionalStaffCount > 0 && (
+              <span className='ml-1 text-xs text-muted-foreground'>
+                +{additionalStaffCount} staff
+              </span>
+            )}
+          </div>
+        </div>
+      );
     }
   },
   {

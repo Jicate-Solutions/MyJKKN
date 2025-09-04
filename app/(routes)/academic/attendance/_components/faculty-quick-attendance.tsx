@@ -156,6 +156,12 @@ export function FacultyQuickAttendance({
   };
 
   const getTimeStatus = (startTime: string) => {
+    // TEMPORARY: Remove time-based restrictions - faculty can mark attendance anytime
+    // TODO: Implement proper time restriction logic in future
+    // For now, always allow attendance marking regardless of time
+    return 'current';
+
+    /* COMMENTED OUT - Original time-based logic for future implementation
     if (!startTime) return 'upcoming';
 
     const now = new Date();
@@ -173,6 +179,7 @@ export function FacultyQuickAttendance({
     if (now < periodTime) return 'upcoming';
     if (now > periodTime) return 'past';
     return 'current';
+    */
   };
 
   if (loading) {
@@ -235,7 +242,7 @@ export function FacultyQuickAttendance({
                 key={period.timetable_slot_id}
                 className={cn(
                   'border-2 transition-all duration-200',
-                  timeStatus === 'past' && !isMarked && 'opacity-75',
+                  // timeStatus === 'past' && !isMarked && 'opacity-75', // TEMPORARY: Removed past period styling
                   isMarked && 'border-green-500'
                 )}
               >
@@ -251,13 +258,8 @@ export function FacultyQuickAttendance({
                           </span>
                         </div>
                         <Badge
-                          variant={
-                            timeStatus === 'current'
-                              ? 'default'
-                              : timeStatus === 'past'
-                              ? 'secondary'
-                              : 'outline'
-                          }
+                          variant='default' // TEMPORARY: Always use default variant
+                          // variant={timeStatus === 'current' ? 'default' : timeStatus === 'past' ? 'secondary' : 'outline'} // TODO: Re-enable time-based styling
                           className='text-xs'
                         >
                           {period.period_name}
@@ -301,7 +303,8 @@ export function FacultyQuickAttendance({
                     <div className='flex justify-end pt-2'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={!isMarked && timeStatus === 'past'}
+                        disabled={false} // TEMPORARY: Allow marking attendance anytime
+                        // disabled={!isMarked && timeStatus === 'past'} // TODO: Re-enable time restrictions later
                         size='sm'
                         className='min-w-[140px]'
                       >

@@ -59,7 +59,34 @@ export function AttendanceReportHeader({
       try {
         const supabase = createClientSupabaseClient();
 
-        // We need to get timetable_id from the attendance record first
+        // FIRST: Check if we have enhanced assigned_faculty_list data
+        if (
+          report.assigned_faculty_list &&
+          report.assigned_faculty_list.length > 0
+        ) {
+          console.log(
+            '✅ Details page using enhanced assigned_faculty_list data:',
+            report.assigned_faculty_list
+          );
+          console.log(
+            `📊 Found ${report.assigned_faculty_list.length} assigned faculty members`
+          );
+          setStaffList(
+            report.assigned_faculty_list.map((faculty) => ({
+              id: faculty.id,
+              name: faculty.name,
+              email: faculty.email,
+              isPrimary: faculty.isPrimary || false
+            }))
+          );
+          return;
+        } else {
+          console.log(
+            '⚠️  Details page: No enhanced assigned_faculty_list data found, using fallback methods'
+          );
+        }
+
+        // FALLBACK: Get timetable_id from the attendance record for manual parsing
         const { data: attendanceRecord } = await supabase
           .from('student_attendance')
           .select('timetable_id')
@@ -316,7 +343,7 @@ export function AttendanceReportHeader({
                 <User className='h-5 w-5 text-purple-600 dark:text-purple-400' />
               </div>
               <h3 className='font-semibold text-gray-900 dark:text-gray-100'>
-                Faculty Information
+                Assigned Faculty
               </h3>
             </div>
             <div className='space-y-3'>
@@ -527,29 +554,124 @@ export function AttendanceReportHeader({
       </div>
 
       {/* Marking Information Bar */}
-      <Card className='bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'>
+      <Card
+        className={cn(
+          'border-gray-200 dark:border-gray-700',
+          // Highlight when marked by someone other than assigned faculty
+          staffList.length > 0 &&
+            !staffList.some(
+              (staff) =>
+                staff.name ===
+                (typeof report.marked_by === 'object' && report.marked_by
+                  ? report.marked_by.full_name || report.marked_by.email
+                  : report.marked_by)
+            )
+            ? 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800'
+            : 'bg-gray-50 dark:bg-gray-800/50'
+        )}
+      >
         <CardContent className='p-4'>
           <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3'>
             <div className='flex items-center gap-3'>
-              <div className='p-1.5 rounded-lg bg-gray-100 dark:bg-gray-700'>
-                <UserCheck className='h-4 w-4 text-gray-600 dark:text-gray-400' />
+              <div
+                className={cn(
+                  'p-1.5 rounded-lg',
+                  staffList.length > 0 &&
+                    !staffList.some(
+                      (staff) =>
+                        staff.name ===
+                        (typeof report.marked_by === 'object' &&
+                        report.marked_by
+                          ? report.marked_by.full_name || report.marked_by.email
+                          : report.marked_by)
+                    )
+                    ? 'bg-blue-100 dark:bg-blue-900/20'
+                    : 'bg-gray-100 dark:bg-gray-700'
+                )}
+              >
+                <UserCheck
+                  className={cn(
+                    'h-4 w-4',
+                    staffList.length > 0 &&
+                      !staffList.some(
+                        (staff) =>
+                          staff.name ===
+                          (typeof report.marked_by === 'object' &&
+                          report.marked_by
+                            ? report.marked_by.full_name ||
+                              report.marked_by.email
+                            : report.marked_by)
+                      )
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-gray-600 dark:text-gray-400'
+                  )}
+                />
               </div>
               <div>
                 <p className='text-sm text-gray-500 dark:text-gray-400'>
                   Attendance Marked By
                 </p>
-                <p className='font-medium text-gray-900 dark:text-gray-100'>
-                  {typeof report.marked_by === 'object' && report.marked_by
-                    ? report.marked_by.full_name ||
-                      report.marked_by.email ||
-                      'Unknown'
-                    : report.marked_by || 'Unknown'}
-                </p>
+                <div className='flex items-center gap-2'>
+                  <p className='font-medium text-gray-900 dark:text-gray-100'>
+                    {typeof report.marked_by === 'object' && report.marked_by
+                      ? report.marked_by.full_name ||
+                        report.marked_by.email ||
+                        'Unknown'
+                      : report.marked_by || 'Unknown'}
+                  </p>
+                  {staffList.length > 0 &&
+                    !staffList.some(
+                      (staff) =>
+                        staff.name ===
+                        (typeof report.marked_by === 'object' &&
+                        report.marked_by
+                          ? report.marked_by.full_name || report.marked_by.email
+                          : report.marked_by)
+                    ) && (
+                      <Badge
+                        variant='outline'
+                        className='text-xs border-blue-300 text-blue-700 dark:border-blue-600 dark:text-blue-300'
+                      >
+                        Different from assigned
+                      </Badge>
+                    )}
+                </div>
               </div>
             </div>
             <div className='flex items-center gap-3'>
-              <div className='p-1.5 rounded-lg bg-gray-100 dark:bg-gray-700'>
-                <CheckCircle2 className='h-4 w-4 text-gray-600 dark:text-gray-400' />
+              <div
+                className={cn(
+                  'p-1.5 rounded-lg',
+                  staffList.length > 0 &&
+                    !staffList.some(
+                      (staff) =>
+                        staff.name ===
+                        (typeof report.marked_by === 'object' &&
+                        report.marked_by
+                          ? report.marked_by.full_name || report.marked_by.email
+                          : report.marked_by)
+                    )
+                    ? 'bg-blue-100 dark:bg-blue-900/20'
+                    : 'bg-gray-100 dark:bg-gray-700'
+                )}
+              >
+                <CheckCircle2
+                  className={cn(
+                    'h-4 w-4',
+                    staffList.length > 0 &&
+                      !staffList.some(
+                        (staff) =>
+                          staff.name ===
+                          (typeof report.marked_by === 'object' &&
+                          report.marked_by
+                            ? report.marked_by.full_name ||
+                              report.marked_by.email
+                            : report.marked_by)
+                      )
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-gray-600 dark:text-gray-400'
+                  )}
+                />
               </div>
               <div>
                 <p className='text-sm text-gray-500 dark:text-gray-400'>
