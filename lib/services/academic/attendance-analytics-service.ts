@@ -902,10 +902,13 @@ export class AttendanceAnalyticsService {
         throw error;
       }
 
-      // Enhance reports with correct assigned faculty information
+      // Fix course codes that are "N/A" by looking up by course name
       console.log('🔍 Original reports from DB:', data?.slice(0, 2)); // Debug: Show first 2 reports
+      const reportsWithFixedCourseCode = await this.fixCourseCodesInReports(data || []);
+      
+      // Enhance reports with correct assigned faculty information
       const enhancedReports = await this.enhanceReportsWithAssignedFaculty(
-        data || []
+        reportsWithFixedCourseCode
       );
       console.log('🔍 Enhanced reports:', enhancedReports?.slice(0, 2)); // Debug: Show first 2 enhanced reports
       return enhancedReports;
@@ -1922,7 +1925,177 @@ export class AttendanceAnalyticsService {
   }
 
   /**
-   * Fix course codes that are "N/A" by looking up courses by name
+   * Fix course codes that are "N/A" by looking up courses by name (for reports list)
+   */
+  private static async fixCourseCodesInReports(
+    reports: AttendanceReportRecord[]
+  ): Promise<AttendanceReportRecord[]> {
+    try {
+      const supabase = this.getSupabase();
+      
+      // Find reports with missing/empty course codes or "Unknown Course" names
+      const reportsNeedingFix = reports.filter(
+        report => {
+          const needsCourseCodeFix = !report.course_code || report.course_code === 'N/A' || report.course_code.trim() === '';
+          const hasUnknownCourseName = report.course_name === 'Unknown Course';
+          const hasValidCourseName = report.course_name && report.course_name !== 'N/A' && report.course_name.trim() !== '';
+          
+          // Need to fix if: (missing course code AND has valid course name) OR has "Unknown Course" name
+          return (needsCourseCodeFix && hasValidCourseName) || hasUnknownCourseName;
+        }
+      );
+      
+      if (reportsNeedingFix.length === 0) {
+        return reports; // No fixes needed
+      }
+      
+      // For "Unknown Course" entries, we need to look up the actual course from attendance data
+      const unknownCourseReports = reportsNeedingFix.filter(r => r.course_name === 'Unknown Course');
+      const validCourseNameReports = reportsNeedingFix.filter(r => r.course_name !== 'Unknown Course');
+      
+      // Get course codes for reports with valid course names
+      const courseNamesToLookup = [...new Set(
+        validCourseNameReports.map(report => report.course_name)
+      )];
+      
+      let allCourses: any[] = [];
+      
+      // Lookup courses by name for valid course names
+      if (courseNamesToLookup.length > 0) {
+        const { data: coursesByName, error: coursesByNameError } = await supabase
+          .from('courses')
+          .select('course_name, course_code')
+          .in('course_name', courseNamesToLookup);
+          
+        if (coursesByNameError) {
+          console.error('Error looking up courses by name for reports:', coursesByNameError);
+        } else {
+          allCourses = [...allCourses, ...(coursesByName || [])];
+        }
+      }
+      
+      // For "Unknown Course" entries, try to get the actual course info from attendance data
+      if (unknownCourseReports.length > 0) {
+        const attendanceIds = unknownCourseReports.map(r => r.id);
+        const { data: attendanceRecords, error: attendanceError } = await supabase
+          .from('student_attendance')
+          .select('id, attendance_data')
+          .in('id', attendanceIds);
+          
+        if (!attendanceError && attendanceRecords) {
+          // Extract course names from attendance_data and look them up
+          const extractedCourseNames = new Set<string>();
+          attendanceRecords.forEach(record => {
+            if (record.attendance_data) {
+              Object.values(record.attendance_data).forEach((period: any) => {
+                if (period.course_name && period.course_name !== 'Unknown Course') {
+                  extractedCourseNames.add(period.course_name);
+                }
+              });
+            }
+          });
+          
+          if (extractedCourseNames.size > 0) {
+            const { data: extractedCourses, error: extractedError } = await supabase
+              .from('courses')
+              .select('course_name, course_code')
+              .in('course_name', Array.from(extractedCourseNames));
+              
+            if (!extractedError && extractedCourses) {
+              allCourses = [...allCourses, ...extractedCourses];
+            }
+          }
+        }
+      }
+      
+      const courses = allCourses;
+      
+      // Create a map of course_name -> course_code
+      const courseCodeMap = new Map<string, string>();
+      (courses || []).forEach(course => {
+        courseCodeMap.set(course.course_name, course.course_code);
+      });
+      
+      console.log('🔍 Course code lookup results for reports:', {
+        courseNamesToLookup,
+        foundCourses: courses,
+        courseCodeMap: Object.fromEntries(courseCodeMap)
+      });
+      
+      // Create a map for "Unknown Course" entries to their actual course info
+      const unknownCourseMap = new Map<string, {course_name: string, course_code: string}>();
+      
+      if (unknownCourseReports.length > 0) {
+        const attendanceIds = unknownCourseReports.map(r => r.id);
+        const { data: attendanceRecords } = await supabase
+          .from('student_attendance')
+          .select('id, attendance_data')
+          .in('id', attendanceIds);
+          
+        if (attendanceRecords) {
+          attendanceRecords.forEach(record => {
+            if (record.attendance_data) {
+              Object.values(record.attendance_data).forEach((period: any) => {
+                if (period.course_name && period.course_name !== 'Unknown Course') {
+                  const foundCourse = courses.find(c => c.course_name === period.course_name);
+                  if (foundCourse) {
+                    unknownCourseMap.set(record.id, {
+                      course_name: foundCourse.course_name,
+                      course_code: foundCourse.course_code
+                    });
+                  }
+                }
+              });
+            }
+          });
+        }
+      }
+      
+      // Fix the course codes and names
+      return reports.map(report => {
+        // Handle "Unknown Course" cases
+        if (report.course_name === 'Unknown Course') {
+          const actualCourseInfo = unknownCourseMap.get(report.id);
+          if (actualCourseInfo) {
+            return {
+              ...report,
+              course_name: actualCourseInfo.course_name,
+              course_code: actualCourseInfo.course_code
+            };
+          } else {
+            // If no specific course found, but it's a practical session, update the name
+            if (report.period_name && report.period_name.toLowerCase().includes('practical')) {
+              return {
+                ...report,
+                course_name: `${report.period_name} Session`,
+                course_code: 'PRACTICAL'
+              };
+            }
+          }
+        }
+        
+        // Handle missing course codes for valid course names
+        if ((!report.course_code || report.course_code === 'N/A' || report.course_code.trim() === '') && report.course_name) {
+          const foundCourseCode = courseCodeMap.get(report.course_name);
+          if (foundCourseCode) {
+            return {
+              ...report,
+              course_code: foundCourseCode
+            };
+          }
+        }
+        
+        return report;
+      });
+      
+    } catch (error) {
+      console.error('Error fixing course codes in reports:', error);
+      return reports; // Return original reports if anything fails
+    }
+  }
+
+  /**
+   * Fix course codes that are "N/A" by looking up courses by name (for report details)
    */
   private static async fixCourseCodesInDetails(
     details: AttendanceReportDetails[]
@@ -1930,9 +2103,10 @@ export class AttendanceAnalyticsService {
     try {
       const supabase = this.getSupabase();
       
-      // Find details with "N/A" course codes that have course names
+      // Find details with missing/empty course codes that have course names
       const detailsNeedingFix = details.filter(
-        detail => detail.course_code === 'N/A' && detail.course_name && detail.course_name !== 'N/A'
+        detail => (!detail.course_code || detail.course_code === 'N/A' || detail.course_code.trim() === '') && 
+                  detail.course_name && detail.course_name !== 'N/A' && detail.course_name.trim() !== ''
       );
       
       if (detailsNeedingFix.length === 0) {
@@ -1969,7 +2143,7 @@ export class AttendanceAnalyticsService {
       
       // Fix the course codes
       return details.map(detail => {
-        if (detail.course_code === 'N/A' && detail.course_name) {
+        if ((!detail.course_code || detail.course_code === 'N/A' || detail.course_code.trim() === '') && detail.course_name) {
           const foundCourseCode = courseCodeMap.get(detail.course_name);
           if (foundCourseCode) {
             return {
