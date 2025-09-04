@@ -62,13 +62,6 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
           >
             {courseName}
           </div>
-          {courseCode && courseCode !== 'N/A' && courseCode.trim() !== '' && (
-            <div className='text-sm text-muted-foreground'>
-              <Badge variant='outline' className='text-xs'>
-                {courseCode}
-              </Badge>
-            </div>
-          )}
         </div>
       );
     }

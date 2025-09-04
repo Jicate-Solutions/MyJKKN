@@ -26,10 +26,15 @@
       "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
       "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
       "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Read(/D:\\Projects\\JKKN\\MyJKKN\\lib\\services\\academic/**)",
+      "Read(/D:\\Projects\\JKKN\\MyJKKN\\lib\\services\\academic/**)",
+      "Read(/D:\\Projects\\JKKN\\MyJKKN\\lib\\services\\academic/**)"
     ],
     "deny": []
   },
   "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": ["supabase"]
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }
