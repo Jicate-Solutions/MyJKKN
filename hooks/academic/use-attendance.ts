@@ -15,6 +15,7 @@ import type {
   UpsertConsolidatedAttendanceDto
 } from '@/types/attendance';
 import type { Student } from '@/types/student';
+import toast from 'react-hot-toast';
 
 export function useAttendance(initialFilters: AttendanceFilters = {}) {
   const [attendanceRecords, setAttendanceRecords] = useState<
@@ -434,11 +435,12 @@ export function useConsolidatedAttendance() {
           data.section_id,
           data.attendance_date
         );
-
+        toast.success('Attendance saved successfully');
         return result;
       } catch (err) {
         console.error('Error saving consolidated attendance:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
+        toast.error('Failed to save attendance');
         return null;
       } finally {
         setLoading(false);
