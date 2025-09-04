@@ -47,10 +47,15 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
       const courseName = row.getValue('course_name') as string;
       const courseCode = row.original.course_code;
       const reportId = row.original.id;
+      const periodId = row.original.period_id; // Get period_id for consistent navigation
 
       const handleCourseClick = () => {
-        // Navigate to the attendance report details page
-        window.open(`/academic/attendance/reports/${reportId}`, '_blank');
+        // Navigate to the attendance report details page with specific period_id
+        // This ensures the details page shows the exact same data as the reports row
+        const detailsUrl = `/academic/attendance/reports/${reportId}${
+          periodId ? `?period_id=${encodeURIComponent(periodId)}` : ''
+        }`;
+        window.open(detailsUrl, '_blank');
       };
 
       return (

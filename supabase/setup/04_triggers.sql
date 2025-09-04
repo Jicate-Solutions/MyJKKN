@@ -227,9 +227,9 @@ CREATE TRIGGER trigger_set_bug_display_id BEFORE INSERT ON bug_reports
 CREATE TRIGGER trigger_add_bug_reporter_participant AFTER INSERT ON bug_reports
     FOR EACH ROW EXECUTE FUNCTION add_bug_reporter_as_participant();
 
--- Create bug status change message
-CREATE TRIGGER trigger_bug_status_change_message AFTER UPDATE OF status ON bug_reports
-    FOR EACH ROW EXECUTE FUNCTION create_bug_status_change_message();
+-- Create bug status change message (DISABLED - Auto messages not needed)
+-- CREATE TRIGGER trigger_bug_status_change_message AFTER UPDATE OF status ON bug_reports
+--     FOR EACH ROW EXECUTE FUNCTION create_bug_status_change_message();
 
 -- ================================================================================
 -- SECTION 9: RESOURCE MANAGEMENT MODULE TRIGGERS

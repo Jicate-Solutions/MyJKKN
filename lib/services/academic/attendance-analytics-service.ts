@@ -63,7 +63,7 @@ export interface FilterOptions {
   degrees: Array<{ id: string; name: string; short_name: string }>;
   departments: Array<{ id: string; name: string; code: string }>;
   programs: Array<{ id: string; name: string; code: string }>;
-  semesters: Array<{ id: string; name: string; number: number }>;
+  semesters: Array<{ id: string; name: string; code: string }>;
   sections: Array<{ id: string; name: string; code: string }>;
 }
 
@@ -87,6 +87,7 @@ export interface AttendanceReportFilters {
 
 export interface AttendanceReportRecord {
   id: string;
+  period_id: string; // Add period_id for consistent navigation
   attendance_date: string;
   institution_name: string;
   department_name: string;
@@ -447,25 +448,25 @@ export class AttendanceAnalyticsService {
         // Get programs
         const { data: programs } = await supabase
           .from('programs')
-          .select('id, program_name, program_code')
+          .select('id, program_name, program_id')
           .eq('institution_id', institutionId)
           .order('program_name');
         options.programs = (programs || []).map((p) => ({
           id: p.id,
           name: p.program_name,
-          code: p.program_code
+          code: p.program_id
         }));
 
         // Get semesters
         const { data: semesters } = await supabase
           .from('semesters')
-          .select('id, semester_name, semester_number')
+          .select('id, semester_name, semester_code')
           .eq('institution_id', institutionId)
-          .order('semester_number');
+          .order('semester_code');
         options.semesters = (semesters || []).map((s) => ({
           id: s.id,
           name: s.semester_name,
-          number: s.semester_number
+          code: s.semester_code
         }));
 
         // Get sections
@@ -955,6 +956,20 @@ export class AttendanceAnalyticsService {
       const enhancedReports = await this.enhanceReportsWithAssignedFaculty(
         reportsWithFixedCourseCode
       );
+
+      // Debug: Log period selection for consistency monitoring
+      if (enhancedReports && enhancedReports.length > 0) {
+        console.log('🔍 Period selection debug for reports:', {
+          totalReports: enhancedReports.length,
+          sampleReport: {
+            reportId: enhancedReports[0].id,
+            periodId: enhancedReports[0].period_id,
+            courseName: enhancedReports[0].course_name,
+            periodName: enhancedReports[0].period_name
+          }
+        });
+      }
+
       console.log('🔍 Enhanced reports:', enhancedReports?.slice(0, 2)); // Debug: Show first 2 enhanced reports
       return enhancedReports;
     } catch (error) {
@@ -1582,6 +1597,21 @@ export class AttendanceAnalyticsService {
       const enhancedDetails = await this.enhanceDetailsWithAssignedFaculty(
         detailsWithFixedCourseCode
       );
+
+      // Debug: Log period selection for consistency monitoring
+      console.log('🔍 Details period selection debug:', {
+        attendanceId,
+        requestedPeriodId: periodId,
+        detailsCount: enhancedDetails?.length || 0,
+        sampleDetail: enhancedDetails?.[0]
+          ? {
+              courseName: enhancedDetails[0].course_name,
+              periodName: enhancedDetails[0].period_name,
+              totalStudents: enhancedDetails[0].total_students
+            }
+          : 'no details'
+      });
+
       console.log('🔍 Enhanced details:', enhancedDetails?.slice(0, 2)); // Debug: Show first 2 enhanced details
 
       return enhancedDetails;
@@ -1767,7 +1797,7 @@ export class AttendanceAnalyticsService {
       const supabase = this.getSupabase();
       const { data, error } = await supabase
         .from('programs')
-        .select('id, program_name, program_code')
+        .select('id, program_name, program_id')
         .eq('department_id', departmentId)
         .eq('is_active', true)
         .order('program_name');
@@ -1777,7 +1807,7 @@ export class AttendanceAnalyticsService {
       return (data || []).map((item) => ({
         id: item.id,
         name: item.program_name,
-        code: item.program_code
+        code: item.program_id
       }));
     } catch (error) {
       console.error('Error fetching programs:', error);
@@ -1800,17 +1830,17 @@ export class AttendanceAnalyticsService {
       const supabase = this.getSupabase();
       const { data, error } = await supabase
         .from('semesters')
-        .select('id, semester_name, semester_number')
+        .select('id, semester_name, semester_code')
         .eq('program_id', programId)
         .eq('is_active', true)
-        .order('semester_number');
+        .order('semester_code');
 
       if (error) throw error;
 
       return (data || []).map((item) => ({
         id: item.id,
         name: item.semester_name,
-        number: item.semester_number
+        code: item.semester_code
       }));
     } catch (error) {
       console.error('Error fetching semesters:', error);

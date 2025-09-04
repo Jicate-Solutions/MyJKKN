@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   Download,
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { useAttendanceReportDetails } from '@/hooks/academic/use-attendance-analytics';
 import { toast } from 'sonner';
 import { AttendanceReportHeader } from './attendance-report-header';
@@ -25,9 +26,13 @@ export function AttendanceReportDetailsWrapper({
   reportId
 }: AttendanceReportDetailsWrapperProps) {
   const router = useRouter();
-  const [selectedPeriodId, setSelectedPeriodId] = useState<
-    string | undefined
-  >();
+  const searchParams = useSearchParams();
+
+  // Get period_id from URL parameters for consistent data display
+  const urlPeriodId = searchParams.get('period_id');
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | undefined>(
+    urlPeriodId || undefined
+  );
 
   const {
     data: reportDetails = [],
@@ -82,6 +87,8 @@ export function AttendanceReportDetailsWrapper({
     course_code: primaryReport?.course_code,
     course_name: primaryReport?.course_name,
     period_name: primaryReport?.period_name,
+    selectedPeriodId: selectedPeriodId,
+    urlPeriodId: urlPeriodId,
     all_keys: primaryReport ? Object.keys(primaryReport) : 'no data'
   });
 
@@ -89,10 +96,22 @@ export function AttendanceReportDetailsWrapper({
     <div className='space-y-6'>
       {/* Header with navigation and actions */}
       <div className='flex items-center justify-between'>
-        <Button variant='outline' onClick={handleGoBack}>
-          <ArrowLeft className='h-4 w-4 mr-2' />
-          Back to Reports
-        </Button>
+        <div className='flex items-center gap-3'>
+          <Button variant='outline' onClick={handleGoBack}>
+            <ArrowLeft className='h-4 w-4 mr-2' />
+            Back to Reports
+          </Button>
+
+          {/* Show period information for debugging and transparency */}
+          {selectedPeriodId && (
+            <Badge variant='secondary' className='text-xs'>
+              Period: {selectedPeriodId}
+              {urlPeriodId && (
+                <span className='ml-1 text-green-600'>(from URL)</span>
+              )}
+            </Badge>
+          )}
+        </div>
 
         <div className='flex items-center gap-2'>
           <Button

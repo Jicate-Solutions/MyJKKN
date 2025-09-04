@@ -385,7 +385,7 @@ export function AttendanceDashboardFilters({
                 ) : semesters && semesters.length > 0 ? (
                   semesters.map((semester) => (
                     <SelectItem key={semester.id} value={semester.id}>
-                      {semester.name} (Semester {semester.number})
+                      {semester.name} ({semester.code})
                     </SelectItem>
                   ))
                 ) : (
