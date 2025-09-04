@@ -156,7 +156,6 @@ export function AttendanceReportHeader({
         });
 
         if (timetableData) {
-
           // Find the specific period slot in timetable data
           const timetableDataObj = timetableData.timetable_data || {};
           let periodSlot = null;
@@ -337,7 +336,7 @@ export function AttendanceReportHeader({
                     {report.course_name}
                   </CardTitle>
                   <div className='flex items-center gap-2 mt-1'>
-                    <Badge className='bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'>
+                    <Badge className='bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 hover:text-white'>
                       <Hash className='h-3 w-3 mr-1' />
                       {report.course_code}
                     </Badge>
