@@ -70,12 +70,48 @@ export async function PATCH(
     const json = await request.json();
     const { status } = updateStatusSchema.parse(json);
 
+    // Check if user is authenticated
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // Check if user is admin
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return NextResponse.json(
+        { error: 'Failed to verify user permissions' },
+        { status: 500 }
+      );
+    }
+
+    if (!['super_admin', 'administrator'].includes(profile.role)) {
+      return NextResponse.json(
+        { error: 'Only administrators can update bug report status' },
+        { status: 403 }
+      );
+    }
+
+    // Use admin client for the update
+    const adminSupabase = createAdminClient();
+
     const updateData: { status: string; resolved_at?: string } = { status };
     if (status === 'resolved') {
       updateData.resolved_at = new Date().toISOString();
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await adminSupabase
       .from('bug_reports')
       .update(updateData)
       .eq('id', reportId)

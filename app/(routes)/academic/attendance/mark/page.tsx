@@ -90,6 +90,8 @@ export default function AttendanceMarkPage() {
     useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [assignedStaff, setAssignedStaff] = useState<any[]>([]);
+  const [loadingStaff, setLoadingStaff] = useState(false);
 
   const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
@@ -620,6 +622,196 @@ export default function AttendanceMarkPage() {
     checkExistingAttendance();
   }, [contextData, timetableId, date, periodId, isSuperAdmin]);
 
+  // Load assigned staff information for the current period
+  useEffect(() => {
+    const loadAssignedStaff = async () => {
+      if (!contextData?.timetable_data || !periodId || !date) {
+        return;
+      }
+
+      try {
+        setLoadingStaff(true);
+
+        // Get the day of the week from the date
+        const dayOfWeek = new Date(date)
+          .toLocaleDateString('en-US', { weekday: 'long' })
+          .toUpperCase();
+
+        // Access the actual timetable data - it's nested in timetable_data.timetable_data
+        // The contextData.timetable_data contains the full timetable record, 
+        // and the actual schedule is in its timetable_data property
+        let actualTimetableData = contextData.timetable_data?.timetable_data;
+        
+        // Fallback: Check if the days are directly in timetable_data (for backward compatibility)
+        if (!actualTimetableData && contextData.timetable_data) {
+          // Check if timetable_data has day keys directly
+          const hasDirectDays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']
+            .some(day => contextData.timetable_data[day]);
+          
+          if (hasDirectDays) {
+            actualTimetableData = contextData.timetable_data;
+            console.log('📋 Using direct timetable structure (legacy format)');
+          }
+        }
+
+        console.log('🔍 Looking for staff assignments for:', {
+          dayOfWeek,
+          periodId,
+          hasTimetableData: !!actualTimetableData,
+          timetableDataType: typeof actualTimetableData,
+          availableDays: actualTimetableData ? Object.keys(actualTimetableData).filter(key => 
+            ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'].includes(key)
+          ) : []
+        });
+
+        if (!actualTimetableData) {
+          console.log('❌ No timetable schedule data found. Check timetable structure.');
+          console.log('Context timetable_data keys:', contextData.timetable_data ? Object.keys(contextData.timetable_data) : 'No timetable_data');
+          return;
+        }
+
+        const dayData = actualTimetableData[dayOfWeek];
+        if (!dayData) {
+          console.log('No timetable data found for day:', dayOfWeek);
+          console.log('Available days:', Object.keys(actualTimetableData));
+          return;
+        }
+
+        // Find the specific period slot
+        // The periodId might be used as a key directly OR it might be a slot_id within the period data
+        let periodSlot = dayData[periodId];
+        
+        // If not found directly, search for it as a slot_id
+        if (!periodSlot) {
+          // Search through all periods in the day to find one with matching slot_id
+          for (const [periodKey, slot] of Object.entries(dayData)) {
+            if (slot && typeof slot === 'object' && 'slot_id' in slot) {
+              if ((slot as any).slot_id === periodId) {
+                periodSlot = slot as any;
+                console.log(`✅ Found period by slot_id match: periodKey=${periodKey}, slot_id=${periodId}`);
+                break;
+              }
+            }
+          }
+        }
+        
+        if (!periodSlot) {
+          console.log('❌ No period slot found for periodId:', periodId);
+          console.log('Available period keys:', Object.keys(dayData));
+          console.log('Searched for slot_id:', periodId);
+          // Log first few slots to debug structure
+          const sampleSlots = Object.entries(dayData).slice(0, 2);
+          sampleSlots.forEach(([key, slot]) => {
+            console.log(`Sample slot ${key}:`, { 
+              slot_id: (slot as any)?.slot_id,
+              course_id: (slot as any)?.course_id,
+              staff_ids: (slot as any)?.staff_ids
+            });
+          });
+          return;
+        }
+
+        console.log('✅ Found period slot:', {
+          course_id: periodSlot.course_id,
+          primary_staff_id: periodSlot.primary_staff_id,
+          staff_ids: periodSlot.staff_ids,
+          is_break_slot: periodSlot.is_break_slot,
+          slot_id: periodSlot.slot_id
+        });
+
+        // Extract staff IDs from the slot - based on the actual data structure
+        const staffIds: string[] = [];
+        let primaryStaffId: string | null = null;
+
+        // Get primary staff ID
+        if (
+          periodSlot.primary_staff_id &&
+          typeof periodSlot.primary_staff_id === 'string'
+        ) {
+          primaryStaffId = periodSlot.primary_staff_id;
+          staffIds.push(periodSlot.primary_staff_id);
+        }
+
+        // Get additional staff from staff_ids array
+        if (
+          Array.isArray(periodSlot.staff_ids) &&
+          periodSlot.staff_ids.length > 0
+        ) {
+          periodSlot.staff_ids.forEach((id: string) => {
+            if (id && !staffIds.includes(id)) {
+              staffIds.push(id);
+            }
+          });
+        }
+
+        console.log('📋 Extracted staff IDs:', { staffIds, primaryStaffId });
+
+        if (staffIds.length === 0) {
+          setAssignedStaff([]);
+          return;
+        }
+
+        // Fetch staff information
+        const { createClientSupabaseClient } = await import(
+          '@/lib/supabase/client'
+        );
+        const supabase = createClientSupabaseClient();
+
+        const { data: staffData, error: staffError } = await supabase
+          .from('staff')
+          .select(
+            `
+            id,
+            first_name,
+            last_name,
+            email,
+            institution_email,
+            staff_id,
+            phone
+          `
+          )
+          .in('id', staffIds);
+
+        if (staffError) {
+          console.error('Error fetching staff data:', staffError);
+          setAssignedStaff([]);
+          return;
+        }
+
+        if (staffData) {
+          // Mark primary staff and sort
+          const enrichedStaffData = staffData
+            .map((staff: any) => ({
+              ...staff,
+              is_primary: staff.id === primaryStaffId,
+              full_name: `${staff.first_name || ''} ${
+                staff.last_name || ''
+              }`.trim()
+            }))
+            .sort((a, b) => {
+              // Primary staff first
+              if (a.is_primary && !b.is_primary) return -1;
+              if (!a.is_primary && b.is_primary) return 1;
+              // Then by name
+              return a.full_name.localeCompare(b.full_name);
+            });
+
+          console.log('Loaded staff information:', enrichedStaffData);
+          setAssignedStaff(enrichedStaffData);
+        } else {
+          setAssignedStaff([]);
+        }
+      } catch (error) {
+        console.error('Error loading assigned staff:', error);
+        setAssignedStaff([]);
+      } finally {
+        setLoadingStaff(false);
+      }
+    };
+
+    loadAssignedStaff();
+  }, [contextData, periodId, date]);
+
   // Early return for missing auth data - but allow super admins without institution_id
   if (!isSuperAdmin && !profile?.institution_id) {
     return (
@@ -1123,6 +1315,51 @@ export default function AttendanceMarkPage() {
                         </span>
                       </div>
                     )}
+
+                    {/* Assigned Staff Information */}
+                    <div className='flex flex-col gap-1 col-span-full'>
+                      <span className='text-blue-600 dark:text-blue-400 font-medium'>
+                        Assigned Staff:
+                      </span>
+                      {loadingStaff ? (
+                        <div className='flex items-center gap-2'>
+                          <div className='animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full'></div>
+                          <span className='text-blue-800 dark:text-blue-200 text-sm'>
+                            Loading staff information...
+                          </span>
+                        </div>
+                      ) : assignedStaff.length > 0 ? (
+                        <div className='flex flex-wrap gap-2'>
+                          {assignedStaff.map((staff, index) => (
+                            <div
+                              key={staff.id}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border ${
+                                staff.is_primary
+                                  ? 'bg-blue-600 text-white border-blue-700'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800'
+                              }`}
+                            >
+                              <User className='h-3.5 w-3.5' />
+                              <span>{staff.full_name}</span>
+                              {staff.is_primary && (
+                                <span className='text-xs bg-white/20 px-1.5 py-0.5 rounded-full'>
+                                  Primary
+                                </span>
+                              )}
+                              {staff.staff_id && (
+                                <span className='text-xs opacity-75'>
+                                  ({staff.staff_id})
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className='text-blue-800 dark:text-blue-200 text-sm italic'>
+                          No staff assigned to this period
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
