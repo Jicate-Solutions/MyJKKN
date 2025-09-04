@@ -104,7 +104,8 @@ export function AvailablePeriodsCards({
     const [time, period] = startTime.split(' ');
     const [hours, minutes] = time.split(':').map(Number);
 
-    const periodTime = new Date();
+    // Create period time using the selected date, not today's date
+    const periodTime = new Date(targetDate + 'T00:00:00');
     periodTime.setHours(
       period === 'PM' && hours !== 12 ? hours + 12 : hours,
       minutes,
@@ -112,8 +113,14 @@ export function AvailablePeriodsCards({
       0
     );
 
+    // Add buffer time (e.g., allow marking attendance up to 2 hours after period ends)
+    const bufferMinutes = 240; // 2 hours buffer
+    const periodEndTime = new Date(
+      periodTime.getTime() + bufferMinutes * 60000
+    );
+
     if (now < periodTime) return 'upcoming';
-    if (now > periodTime) return 'past';
+    if (now > periodEndTime) return 'past';
     return 'current';
   };
 
@@ -269,7 +276,9 @@ export function AvailablePeriodsCards({
                     <div className='flex justify-end pt-2'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={!isMarked && timeStatus === 'past'}
+                        disabled={
+                          !isMarked && timeStatus === 'past' && !isSuperAdmin
+                        }
                         size='sm'
                         className='min-w-[140px]'
                       >
