@@ -49,11 +49,6 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
       return (
         <div>
           <div className='font-medium'>{courseName}</div>
-          <div className='text-sm text-muted-foreground'>
-            <Badge variant='outline' className='text-xs'>
-              {courseCode}
-            </Badge>
-          </div>
         </div>
       );
     }

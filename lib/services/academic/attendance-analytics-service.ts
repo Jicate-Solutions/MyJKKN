@@ -1075,7 +1075,7 @@ export class AttendanceAnalyticsService {
           return { ...report };
         }
 
-        // Find assigned faculty for this specific period
+        // Find assigned faculty for this specific period using the FIXED method
         const assignedFacultyList: Array<{
           id: string;
           name: string;
@@ -1083,36 +1083,13 @@ export class AttendanceAnalyticsService {
           isPrimary?: boolean;
         }> = [];
 
-        // This is a simplified approach - in practice, you'd need to match the exact period
-        // For now, we'll extract all staff from the timetable as potential assigned faculty
-        const timetableSlots = timetableData as any;
-        let foundStaffIds: string[] = [];
-        let primaryStaffId: string | null = null;
-
-        // Look through timetable data to find staff assignments
-        for (const [day, dayData] of Object.entries(timetableSlots)) {
-          if (typeof dayData === 'object' && dayData) {
-            for (const [periodId, periodData] of Object.entries(
-              dayData as any
-            )) {
-              if (typeof periodData === 'object' && periodData) {
-                const periodInfo = periodData as any;
-                if (
-                  periodInfo.staff_ids &&
-                  Array.isArray(periodInfo.staff_ids)
-                ) {
-                  foundStaffIds.push(...periodInfo.staff_ids);
-                  if (periodInfo.primary_staff_id) {
-                    primaryStaffId = periodInfo.primary_staff_id;
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        // Remove duplicates
-        foundStaffIds = [...new Set(foundStaffIds)];
+        // FIXED: Use the new method that correctly extracts staff from specific period only
+        const { staffIds: foundStaffIds, primaryStaffId } =
+          this.extractStaffFromSpecificPeriod(
+            attendanceRecord,
+            timetableData,
+            report
+          );
 
         // Build assigned faculty list
         foundStaffIds.forEach((staffId) => {
@@ -1158,6 +1135,120 @@ export class AttendanceAnalyticsService {
       console.error('Error enhancing reports with faculty data:', error);
       return reports; // Return original reports if enhancement fails
     }
+  }
+
+  /**
+   * Extract staff IDs from timetable data for a specific attendance record
+   * FIXED VERSION: Only gets staff from the specific period that matches the attendance data
+   */
+  private static extractStaffFromSpecificPeriod(
+    attendanceRecord: any,
+    timetableData: any,
+    report: AttendanceReportRecord
+  ): { staffIds: string[]; primaryStaffId: string | null } {
+    const timetableSlots = timetableData as any;
+    const foundStaffIds: string[] = [];
+    let primaryStaffId: string | null = null;
+
+    // Get the specific period/slot information from attendance_data
+    const attendanceData = attendanceRecord.attendance_data as any;
+    console.log(
+      `🔍 Extracting staff for report ${report.id}:`,
+      Object.keys(attendanceData || {})
+    );
+
+    if (attendanceData && typeof attendanceData === 'object') {
+      // Look for matching period slot in timetable_data using attendance_data keys
+      for (const [attendanceSlotKey, attendanceSlotData] of Object.entries(
+        attendanceData
+      )) {
+        if (typeof attendanceSlotData === 'object' && attendanceSlotData) {
+          const slotInfo = attendanceSlotData as any;
+
+          // Try to find this slot in the timetable_data
+          for (const [day, dayData] of Object.entries(timetableSlots)) {
+            if (typeof dayData === 'object' && dayData) {
+              for (const [periodId, periodData] of Object.entries(
+                dayData as any
+              )) {
+                if (typeof periodData === 'object' && periodData) {
+                  const periodInfo = periodData as any;
+
+                  // Match by slot_id, period_id, course_id, or other identifying info
+                  const isMatchingSlot =
+                    (periodInfo.slot_id &&
+                      periodInfo.slot_id === attendanceSlotKey) ||
+                    (slotInfo.period_id &&
+                      periodInfo.period_id === slotInfo.period_id) ||
+                    (slotInfo.course_id &&
+                      periodInfo.course_id === slotInfo.course_id);
+
+                  if (
+                    isMatchingSlot &&
+                    periodInfo.staff_ids &&
+                    Array.isArray(periodInfo.staff_ids)
+                  ) {
+                    console.log(
+                      `✅ Found exact matching slot ${attendanceSlotKey} in ${day}/${periodId} with ${periodInfo.staff_ids.length} staff:`,
+                      periodInfo.staff_ids
+                    );
+                    foundStaffIds.push(...periodInfo.staff_ids);
+                    if (periodInfo.primary_staff_id) {
+                      primaryStaffId = periodInfo.primary_staff_id;
+                    }
+                    return {
+                      staffIds: [...new Set(foundStaffIds)],
+                      primaryStaffId
+                    };
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Fallback: Try to match by period_name if slot matching failed
+    if (foundStaffIds.length === 0) {
+      console.log(
+        `⚠️  No slot match found for report ${report.id}, trying period_name: ${report.period_name}`
+      );
+
+      for (const [day, dayData] of Object.entries(timetableSlots)) {
+        if (typeof dayData === 'object' && dayData) {
+          for (const [periodId, periodData] of Object.entries(dayData as any)) {
+            if (typeof periodData === 'object' && periodData) {
+              const periodInfo = periodData as any;
+
+              if (
+                periodInfo.period_name === report.period_name &&
+                periodInfo.staff_ids &&
+                Array.isArray(periodInfo.staff_ids)
+              ) {
+                console.log(
+                  `📍 Matched by period_name: ${report.period_name} with ${periodInfo.staff_ids.length} staff`
+                );
+                foundStaffIds.push(...periodInfo.staff_ids);
+                if (periodInfo.primary_staff_id) {
+                  primaryStaffId = periodInfo.primary_staff_id;
+                }
+                break;
+              }
+            }
+          }
+          if (foundStaffIds.length > 0) break;
+        }
+      }
+    }
+
+    if (foundStaffIds.length === 0) {
+      console.log(
+        `🚨 No staff found for report ${report.id} - this will show as "Unknown Faculty"`
+      );
+    }
+
+    return { staffIds: [...new Set(foundStaffIds)], primaryStaffId };
   }
 
   /**
@@ -1331,36 +1422,19 @@ export class AttendanceAnalyticsService {
           isPrimary?: boolean;
         }> = [];
 
-        // This is a simplified approach - in practice, you'd need to match the exact period
-        // For now, we'll extract all staff from the timetable as potential assigned faculty
-        const timetableSlots = timetableData as any;
-        let foundStaffIds: string[] = [];
-        let primaryStaffId: string | null = null;
+        // FIXED: Use the same period-specific logic for details
+        const reportLike = {
+          id: detail.id,
+          period_name: detail.period_name,
+          course_name: detail.course_name
+        } as AttendanceReportRecord;
 
-        // Look through timetable data to find staff assignments
-        for (const [day, dayData] of Object.entries(timetableSlots)) {
-          if (typeof dayData === 'object' && dayData) {
-            for (const [periodId, periodData] of Object.entries(
-              dayData as any
-            )) {
-              if (typeof periodData === 'object' && periodData) {
-                const periodInfo = periodData as any;
-                if (
-                  periodInfo.staff_ids &&
-                  Array.isArray(periodInfo.staff_ids)
-                ) {
-                  foundStaffIds.push(...periodInfo.staff_ids);
-                  if (periodInfo.primary_staff_id) {
-                    primaryStaffId = periodInfo.primary_staff_id;
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        // Remove duplicates
-        foundStaffIds = [...new Set(foundStaffIds)];
+        const { staffIds: foundStaffIds, primaryStaffId } =
+          this.extractStaffFromSpecificPeriod(
+            attendanceRecord,
+            timetableData,
+            reportLike
+          );
 
         // Build assigned faculty list
         foundStaffIds.forEach((staffId) => {
@@ -1445,8 +1519,18 @@ export class AttendanceAnalyticsService {
 
       // Enhance details with correct assigned faculty information
       console.log('🔍 Original details from DB:', data?.slice(0, 2)); // Debug: Show first 2 details
+      console.log('🔍 Course code and timetable debug:', {
+        course_code: data?.[0]?.course_code,
+        course_name: data?.[0]?.course_name,
+        period_name: data?.[0]?.period_name,
+        all_keys: data?.[0] ? Object.keys(data[0]) : 'no data'
+      });
+
+      // Fix course codes that are "N/A" by looking up by course name
+      const detailsWithFixedCourseCode = await this.fixCourseCodesInDetails(data || []);
+      
       const enhancedDetails = await this.enhanceDetailsWithAssignedFaculty(
-        data || []
+        detailsWithFixedCourseCode
       );
       console.log('🔍 Enhanced details:', enhancedDetails?.slice(0, 2)); // Debug: Show first 2 enhanced details
 
@@ -1834,6 +1918,72 @@ export class AttendanceAnalyticsService {
     } catch (error) {
       console.error('Error exporting attendance report:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Fix course codes that are "N/A" by looking up courses by name
+   */
+  private static async fixCourseCodesInDetails(
+    details: AttendanceReportDetails[]
+  ): Promise<AttendanceReportDetails[]> {
+    try {
+      const supabase = this.getSupabase();
+      
+      // Find details with "N/A" course codes that have course names
+      const detailsNeedingFix = details.filter(
+        detail => detail.course_code === 'N/A' && detail.course_name && detail.course_name !== 'N/A'
+      );
+      
+      if (detailsNeedingFix.length === 0) {
+        return details; // No fixes needed
+      }
+      
+      // Get unique course names that need fixing
+      const courseNamesToLookup = [...new Set(
+        detailsNeedingFix.map(detail => detail.course_name)
+      )];
+      
+      // Lookup courses by name
+      const { data: courses, error } = await supabase
+        .from('courses')
+        .select('course_name, course_code')
+        .in('course_name', courseNamesToLookup);
+        
+      if (error) {
+        console.error('Error looking up courses by name:', error);
+        return details; // Return original details if lookup fails
+      }
+      
+      // Create a map of course_name -> course_code
+      const courseCodeMap = new Map<string, string>();
+      (courses || []).forEach(course => {
+        courseCodeMap.set(course.course_name, course.course_code);
+      });
+      
+      console.log('🔍 Course code lookup results:', {
+        courseNamesToLookup,
+        foundCourses: courses,
+        courseCodeMap: Object.fromEntries(courseCodeMap)
+      });
+      
+      // Fix the course codes
+      return details.map(detail => {
+        if (detail.course_code === 'N/A' && detail.course_name) {
+          const foundCourseCode = courseCodeMap.get(detail.course_name);
+          if (foundCourseCode) {
+            return {
+              ...detail,
+              course_code: foundCourseCode
+            };
+          }
+        }
+        return detail;
+      });
+      
+    } catch (error) {
+      console.error('Error fixing course codes:', error);
+      return details; // Return original details if anything fails
     }
   }
 }

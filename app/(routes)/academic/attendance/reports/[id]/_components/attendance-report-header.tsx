@@ -49,6 +49,28 @@ export function AttendanceReportHeader({
   const [fetchingStaff, setFetchingStaff] = useState(false);
   const [timetableName, setTimetableName] = useState<string>('N/A');
 
+  // Helper function to check if marked_by is different from assigned faculty
+  const isMarkedByDifferentFromAssigned = () => {
+    if (!report || staffList.length === 0) return false;
+
+    return !staffList.some((staff) => {
+      const assignedName = (staff.name || '').toUpperCase().trim();
+      const markedByName = (
+        typeof report.marked_by === 'object' && report.marked_by
+          ? report.marked_by.full_name || report.marked_by.email
+          : report.marked_by || ''
+      )
+        .toUpperCase()
+        .trim();
+      console.log('🔍 Name comparison:', {
+        assignedName,
+        markedByName,
+        match: assignedName === markedByName
+      });
+      return assignedName === markedByName;
+    });
+  };
+
   // Fetch staff information and timetable name when report is available
   useEffect(() => {
     const getStaffInfoAndTimetable = async () => {
@@ -59,7 +81,35 @@ export function AttendanceReportHeader({
       try {
         const supabase = createClientSupabaseClient();
 
-        // FIRST: Check if we have enhanced assigned_faculty_list data
+        // ALWAYS fetch timetable name first - this should not depend on faculty data
+        // Get timetable_id from the attendance record
+        const { data: attendanceRecord } = await supabase
+          .from('student_attendance')
+          .select('timetable_id')
+          .eq('id', report.id)
+          .single();
+
+        if (attendanceRecord?.timetable_id) {
+          // Fetch timetable name
+          const { data: timetableData, error: timetableError } = await supabase
+            .from('timetables')
+            .select('timetable_name')
+            .eq('id', attendanceRecord.timetable_id)
+            .single();
+
+          console.log('🔍 Timetable name query result:', {
+            timetableData,
+            error: timetableError,
+            timetable_id: attendanceRecord.timetable_id
+          });
+
+          if (timetableData?.timetable_name) {
+            setTimetableName(timetableData.timetable_name);
+            console.log('✅ Set timetable name:', timetableData.timetable_name);
+          }
+        }
+
+        // THEN: Check if we have enhanced assigned_faculty_list data
         if (
           report.assigned_faculty_list &&
           report.assigned_faculty_list.length > 0
@@ -86,27 +136,26 @@ export function AttendanceReportHeader({
           );
         }
 
-        // FALLBACK: Get timetable_id from the attendance record for manual parsing
-        const { data: attendanceRecord } = await supabase
-          .from('student_attendance')
-          .select('timetable_id')
-          .eq('id', report.id)
-          .single();
-
+        // FALLBACK: Use the already fetched timetable_id for staff lookup
         if (!attendanceRecord?.timetable_id) {
           console.warn('No timetable_id found for attendance record');
           return;
         }
 
-        // Fetch timetable information to get staff IDs and timetable name
-        const { data: timetableData } = await supabase
+        // Fetch timetable information to get staff IDs (timetable_name already fetched above)
+        const { data: timetableData, error: timetableError } = await supabase
           .from('timetables')
-          .select('timetable_name, timetable_data')
+          .select('timetable_data')
           .eq('id', attendanceRecord.timetable_id)
           .single();
 
+        console.log('🔍 Timetable data query result for staff lookup:', {
+          hasData: !!timetableData,
+          error: timetableError,
+          timetable_id: attendanceRecord.timetable_id
+        });
+
         if (timetableData) {
-          setTimetableName(timetableData.timetable_name || 'N/A');
 
           // Find the specific period slot in timetable data
           const timetableDataObj = timetableData.timetable_data || {};
@@ -531,23 +580,6 @@ export function AttendanceReportHeader({
                   </Badge>
                 </div>
               </div>
-              <Separator />
-              <div className='flex items-center justify-between'>
-                <div className='flex items-center gap-1'>
-                  <Target className='h-4 w-4 text-gray-400' />
-                  <p className='text-sm text-gray-500 dark:text-gray-400'>
-                    Attendance Summary
-                  </p>
-                </div>
-                <div className='flex items-center gap-2'>
-                  <span className='text-sm font-medium text-green-600 dark:text-green-400'>
-                    {report.present_count} Present
-                  </span>
-                  <span className='text-sm font-medium text-red-600 dark:text-red-400'>
-                    {report.absent_count} Absent
-                  </span>
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -558,14 +590,7 @@ export function AttendanceReportHeader({
         className={cn(
           'border-gray-200 dark:border-gray-700',
           // Highlight when marked by someone other than assigned faculty
-          staffList.length > 0 &&
-            !staffList.some(
-              (staff) =>
-                staff.name ===
-                (typeof report.marked_by === 'object' && report.marked_by
-                  ? report.marked_by.full_name || report.marked_by.email
-                  : report.marked_by)
-            )
+          isMarkedByDifferentFromAssigned()
             ? 'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800'
             : 'bg-gray-50 dark:bg-gray-800/50'
         )}
@@ -576,15 +601,7 @@ export function AttendanceReportHeader({
               <div
                 className={cn(
                   'p-1.5 rounded-lg',
-                  staffList.length > 0 &&
-                    !staffList.some(
-                      (staff) =>
-                        staff.name ===
-                        (typeof report.marked_by === 'object' &&
-                        report.marked_by
-                          ? report.marked_by.full_name || report.marked_by.email
-                          : report.marked_by)
-                    )
+                  isMarkedByDifferentFromAssigned()
                     ? 'bg-blue-100 dark:bg-blue-900/20'
                     : 'bg-gray-100 dark:bg-gray-700'
                 )}
@@ -592,16 +609,7 @@ export function AttendanceReportHeader({
                 <UserCheck
                   className={cn(
                     'h-4 w-4',
-                    staffList.length > 0 &&
-                      !staffList.some(
-                        (staff) =>
-                          staff.name ===
-                          (typeof report.marked_by === 'object' &&
-                          report.marked_by
-                            ? report.marked_by.full_name ||
-                              report.marked_by.email
-                            : report.marked_by)
-                      )
+                    isMarkedByDifferentFromAssigned()
                       ? 'text-blue-600 dark:text-blue-400'
                       : 'text-gray-600 dark:text-gray-400'
                   )}
@@ -619,22 +627,14 @@ export function AttendanceReportHeader({
                         'Unknown'
                       : report.marked_by || 'Unknown'}
                   </p>
-                  {staffList.length > 0 &&
-                    !staffList.some(
-                      (staff) =>
-                        staff.name ===
-                        (typeof report.marked_by === 'object' &&
-                        report.marked_by
-                          ? report.marked_by.full_name || report.marked_by.email
-                          : report.marked_by)
-                    ) && (
-                      <Badge
-                        variant='outline'
-                        className='text-xs border-blue-300 text-blue-700 dark:border-blue-600 dark:text-blue-300'
-                      >
-                        Different from assigned
-                      </Badge>
-                    )}
+                  {isMarkedByDifferentFromAssigned() && (
+                    <Badge
+                      variant='outline'
+                      className='text-xs border-blue-300 text-blue-700 dark:border-blue-600 dark:text-blue-300'
+                    >
+                      Different from assigned
+                    </Badge>
+                  )}
                 </div>
               </div>
             </div>
@@ -642,15 +642,7 @@ export function AttendanceReportHeader({
               <div
                 className={cn(
                   'p-1.5 rounded-lg',
-                  staffList.length > 0 &&
-                    !staffList.some(
-                      (staff) =>
-                        staff.name ===
-                        (typeof report.marked_by === 'object' &&
-                        report.marked_by
-                          ? report.marked_by.full_name || report.marked_by.email
-                          : report.marked_by)
-                    )
+                  isMarkedByDifferentFromAssigned()
                     ? 'bg-blue-100 dark:bg-blue-900/20'
                     : 'bg-gray-100 dark:bg-gray-700'
                 )}
@@ -658,16 +650,7 @@ export function AttendanceReportHeader({
                 <CheckCircle2
                   className={cn(
                     'h-4 w-4',
-                    staffList.length > 0 &&
-                      !staffList.some(
-                        (staff) =>
-                          staff.name ===
-                          (typeof report.marked_by === 'object' &&
-                          report.marked_by
-                            ? report.marked_by.full_name ||
-                              report.marked_by.email
-                            : report.marked_by)
-                      )
+                    isMarkedByDifferentFromAssigned()
                       ? 'text-blue-600 dark:text-blue-400'
                       : 'text-gray-600 dark:text-gray-400'
                   )}

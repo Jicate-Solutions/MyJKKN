@@ -77,6 +77,14 @@ export function AttendanceReportDetailsWrapper({
   // Get the first report details (all periods will have the same basic info)
   const primaryReport = reportDetails[0];
 
+  // Debug logging for course code and other data
+  console.log('🔍 Primary report data in wrapper:', {
+    course_code: primaryReport?.course_code,
+    course_name: primaryReport?.course_name,
+    period_name: primaryReport?.period_name,
+    all_keys: primaryReport ? Object.keys(primaryReport) : 'no data'
+  });
+
   return (
     <div className='space-y-6'>
       {/* Header with navigation and actions */}
