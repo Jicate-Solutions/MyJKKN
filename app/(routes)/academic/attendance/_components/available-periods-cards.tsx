@@ -98,6 +98,12 @@ export function AvailablePeriodsCards({
   }, [periods, targetDate]);
 
   const getTimeStatus = (startTime: string) => {
+    // TEMPORARY: Remove time-based restrictions - faculty can mark attendance anytime
+    // TODO: Implement proper time restriction logic in future
+    // For now, always allow attendance marking regardless of time
+    return 'current';
+
+    /* COMMENTED OUT - Original time-based logic for future implementation
     if (!startTime) return 'upcoming';
 
     const now = new Date();
@@ -114,7 +120,7 @@ export function AvailablePeriodsCards({
     );
 
     // Add buffer time (e.g., allow marking attendance up to 2 hours after period ends)
-    const bufferMinutes = 240; // 2 hours buffer
+    const bufferMinutes = 240; // 4 hours buffer
     const periodEndTime = new Date(
       periodTime.getTime() + bufferMinutes * 60000
     );
@@ -122,6 +128,7 @@ export function AvailablePeriodsCards({
     if (now < periodTime) return 'upcoming';
     if (now > periodEndTime) return 'past';
     return 'current';
+    */
   };
 
   const handlePeriodClick = (period: AttendancePeriodOption) => {
@@ -206,7 +213,7 @@ export function AvailablePeriodsCards({
                 key={period.timetable_slot_id}
                 className={cn(
                   'border-2 transition-all duration-200',
-                  timeStatus === 'past' && !isMarked && 'opacity-75',
+                  // timeStatus === 'past' && !isMarked && 'opacity-75', // TEMPORARY: Removed past period styling
                   isMarked && 'border-green-500'
                 )}
               >
@@ -222,13 +229,8 @@ export function AvailablePeriodsCards({
                           </span>
                         </div>
                         <Badge
-                          variant={
-                            timeStatus === 'current'
-                              ? 'default'
-                              : timeStatus === 'past'
-                              ? 'secondary'
-                              : 'outline'
-                          }
+                          variant='default' // TEMPORARY: Always use default variant
+                          // variant={timeStatus === 'current' ? 'default' : timeStatus === 'past' ? 'secondary' : 'outline'} // TODO: Re-enable time-based styling
                           className='text-xs'
                         >
                           {period.period_name}
@@ -276,9 +278,8 @@ export function AvailablePeriodsCards({
                     <div className='flex justify-end pt-2'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={
-                          !isMarked && timeStatus === 'past' && !isSuperAdmin
-                        }
+                        disabled={false} // TEMPORARY: Allow marking attendance anytime
+                        // disabled={!isMarked && timeStatus === 'past' && !isSuperAdmin} // TODO: Re-enable time restrictions later
                         size='sm'
                         className='min-w-[140px]'
                       >

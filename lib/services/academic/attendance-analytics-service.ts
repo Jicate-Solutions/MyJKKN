@@ -98,7 +98,14 @@ export interface AttendanceReportRecord {
   period_name: string;
   start_time: string;
   end_time: string;
-  faculty_name: string;
+  faculty_name: string; // This might be incorrect from DB - showing marked_by instead of assigned faculty
+  assigned_faculty?: string; // New field for properly assigned faculty
+  assigned_faculty_list?: Array<{
+    id: string;
+    name: string;
+    email: string;
+    isPrimary?: boolean;
+  }>; // Support multiple staff
   total_students: number;
   present_count: number;
   absent_count: number;
@@ -122,8 +129,15 @@ export interface AttendanceReportDetails {
   period_name: string;
   start_time: string;
   end_time: string;
-  faculty_name: string;
+  faculty_name: string; // This might be incorrect from DB - showing marked_by instead of assigned faculty
   faculty_email: string;
+  assigned_faculty?: string; // New field for properly assigned faculty
+  assigned_faculty_list?: Array<{
+    id: string;
+    name: string;
+    email: string;
+    isPrimary?: boolean;
+  }>; // Support multiple staff
   total_students: number;
   present_count: number;
   absent_count: number;
@@ -888,10 +902,509 @@ export class AttendanceAnalyticsService {
         throw error;
       }
 
-      return data || [];
+      // Enhance reports with correct assigned faculty information
+      console.log('🔍 Original reports from DB:', data?.slice(0, 2)); // Debug: Show first 2 reports
+      const enhancedReports = await this.enhanceReportsWithAssignedFaculty(
+        data || []
+      );
+      console.log('🔍 Enhanced reports:', enhancedReports?.slice(0, 2)); // Debug: Show first 2 enhanced reports
+      return enhancedReports;
     } catch (error) {
       console.error('Error fetching attendance reports:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Enhance attendance reports with correct assigned faculty information
+   * This fixes the issue where faculty_name shows marked_by instead of assigned faculty
+   */
+  private static async enhanceReportsWithAssignedFaculty(
+    reports: AttendanceReportRecord[]
+  ): Promise<AttendanceReportRecord[]> {
+    if (!reports.length) return reports;
+
+    try {
+      const supabase = this.getSupabase();
+
+      // Get unique attendance record IDs to fetch timetable information
+      const attendanceIds = [...new Set(reports.map((r) => r.id))];
+
+      // Fetch attendance records with timetable data
+      const { data: attendanceRecords, error: attendanceError } = await supabase
+        .from('student_attendance')
+        .select('id, timetable_id, attendance_data')
+        .in('id', attendanceIds);
+
+      if (attendanceError) {
+        console.error(
+          'Error fetching attendance timetable data:',
+          attendanceError
+        );
+        return reports; // Return original reports if we can't enhance them
+      }
+
+      // Create a map of attendance_id -> timetable_data for quick lookup
+      const attendanceMap = new Map(
+        attendanceRecords?.map((record) => [record.id, record]) || []
+      );
+
+      // Get unique timetable IDs to fetch timetable information
+      const timetableIds = [
+        ...new Set(
+          attendanceRecords?.map((r) => r.timetable_id).filter(Boolean) || []
+        )
+      ];
+
+      console.log('🔍 Timetable IDs to fetch:', timetableIds); // Debug
+
+      if (!timetableIds.length) {
+        console.log('🚨 No timetable IDs found!'); // Debug
+        return reports;
+      }
+
+      // Fetch timetables with their timetable_data
+      const { data: timetables, error: timetableError } = await supabase
+        .from('timetables')
+        .select('id, timetable_data')
+        .in('id', timetableIds);
+
+      if (timetableError) {
+        console.error('Error fetching timetable data:', timetableError);
+        return reports;
+      }
+
+      console.log(
+        '🔍 Fetched timetables:',
+        timetables?.map((t) => ({ id: t.id, hasData: !!t.timetable_data }))
+      ); // Debug
+
+      // Create a map of timetable_id -> timetable_data
+      const timetableMap = new Map(
+        timetables?.map((tt) => [tt.id, tt.timetable_data]) || []
+      );
+
+      // Get all unique staff IDs from timetable data
+      const allStaffIds = new Set<string>();
+
+      for (const report of reports) {
+        const attendanceRecord = attendanceMap.get(report.id);
+        if (!attendanceRecord?.timetable_id) continue;
+
+        const timetableData = timetableMap.get(attendanceRecord.timetable_id);
+        if (!timetableData || typeof timetableData !== 'object') continue;
+
+        // Look through attendance_data to find the period/slot information
+        const attendanceData = attendanceRecord.attendance_data as any;
+        if (!attendanceData || typeof attendanceData !== 'object') continue;
+
+        // Find the slot data for this period
+        for (const [slotId, slotData] of Object.entries(attendanceData)) {
+          if (typeof slotData === 'object' && slotData) {
+            // Look for this period/slot in timetable_data
+            const timetableSlots = timetableData as any;
+            for (const [day, dayData] of Object.entries(timetableSlots)) {
+              if (typeof dayData === 'object' && dayData) {
+                for (const [periodId, periodData] of Object.entries(
+                  dayData as any
+                )) {
+                  if (typeof periodData === 'object' && periodData) {
+                    const periodInfo = periodData as any;
+                    if (
+                      periodInfo.staff_ids &&
+                      Array.isArray(periodInfo.staff_ids)
+                    ) {
+                      periodInfo.staff_ids.forEach((id: string) =>
+                        allStaffIds.add(id)
+                      );
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Fetch staff information for all staff IDs
+      console.log(
+        '🔍 All staff IDs found in timetables:',
+        Array.from(allStaffIds)
+      ); // Debug
+      let staffData: any[] = [];
+      if (allStaffIds.size > 0) {
+        const { data: fetchedStaff, error: staffError } = await supabase
+          .from('staff')
+          .select('id, first_name, last_name, email, institution_email')
+          .in('id', Array.from(allStaffIds))
+          .eq('is_active', true);
+
+        if (staffError) {
+          console.error('Error fetching staff data:', staffError);
+        } else {
+          staffData = fetchedStaff || [];
+          console.log('🔍 Fetched staff data:', staffData); // Debug
+        }
+      } else {
+        console.log('🚨 No staff IDs found in timetable data!'); // Debug
+      }
+
+      // Create staff lookup map
+      const staffMap = new Map(
+        staffData.map((staff) => [
+          staff.id,
+          {
+            id: staff.id,
+            name:
+              `${staff.first_name || ''} ${staff.last_name || ''}`.trim() ||
+              'Unknown Faculty',
+            email: staff.email || staff.institution_email || 'N/A'
+          }
+        ])
+      );
+
+      // Now enhance each report with correct faculty information
+      const enhancedReports = reports.map((report) => {
+        const attendanceRecord = attendanceMap.get(report.id);
+        if (!attendanceRecord?.timetable_id) {
+          return { ...report }; // Return as-is if no timetable data
+        }
+
+        const timetableData = timetableMap.get(attendanceRecord.timetable_id);
+        if (!timetableData) {
+          return { ...report };
+        }
+
+        // Find assigned faculty for this specific period
+        const assignedFacultyList: Array<{
+          id: string;
+          name: string;
+          email: string;
+          isPrimary?: boolean;
+        }> = [];
+
+        // This is a simplified approach - in practice, you'd need to match the exact period
+        // For now, we'll extract all staff from the timetable as potential assigned faculty
+        const timetableSlots = timetableData as any;
+        let foundStaffIds: string[] = [];
+        let primaryStaffId: string | null = null;
+
+        // Look through timetable data to find staff assignments
+        for (const [day, dayData] of Object.entries(timetableSlots)) {
+          if (typeof dayData === 'object' && dayData) {
+            for (const [periodId, periodData] of Object.entries(
+              dayData as any
+            )) {
+              if (typeof periodData === 'object' && periodData) {
+                const periodInfo = periodData as any;
+                if (
+                  periodInfo.staff_ids &&
+                  Array.isArray(periodInfo.staff_ids)
+                ) {
+                  foundStaffIds.push(...periodInfo.staff_ids);
+                  if (periodInfo.primary_staff_id) {
+                    primaryStaffId = periodInfo.primary_staff_id;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Remove duplicates
+        foundStaffIds = [...new Set(foundStaffIds)];
+
+        // Build assigned faculty list
+        foundStaffIds.forEach((staffId) => {
+          const staffInfo = staffMap.get(staffId);
+          if (staffInfo) {
+            assignedFacultyList.push({
+              ...staffInfo,
+              isPrimary: staffId === primaryStaffId
+            });
+          }
+        });
+
+        // Sort to put primary staff first
+        assignedFacultyList.sort(
+          (a, b) => (b.isPrimary ? 1 : 0) - (a.isPrimary ? 1 : 0)
+        );
+
+        // Create assigned faculty string (comma-separated names)
+        const assigned_faculty =
+          assignedFacultyList.map((f) => f.name).join(', ') || undefined;
+
+        // Debug individual report enhancement
+        if (assigned_faculty) {
+          console.log(
+            `✅ Enhanced report ${report.id}: ${report.course_name} -> ${assigned_faculty}`
+          );
+        } else {
+          console.log(
+            `⚠️  No faculty found for report ${report.id}: ${report.course_name}, original faculty: ${report.faculty_name}`
+          );
+        }
+
+        return {
+          ...report,
+          assigned_faculty,
+          assigned_faculty_list:
+            assignedFacultyList.length > 0 ? assignedFacultyList : undefined
+        };
+      });
+
+      return enhancedReports;
+    } catch (error) {
+      console.error('Error enhancing reports with faculty data:', error);
+      return reports; // Return original reports if enhancement fails
+    }
+  }
+
+  /**
+   * Enhance attendance report details with correct assigned faculty information
+   * Similar to enhanceReportsWithAssignedFaculty but for AttendanceReportDetails[]
+   */
+  private static async enhanceDetailsWithAssignedFaculty(
+    details: AttendanceReportDetails[]
+  ): Promise<AttendanceReportDetails[]> {
+    if (!details.length) return details;
+
+    try {
+      const supabase = this.getSupabase();
+
+      // Get unique attendance record IDs to fetch timetable information
+      const attendanceIds = [...new Set(details.map((d) => d.id))];
+
+      // Fetch attendance records with timetable data
+      const { data: attendanceRecords, error: attendanceError } = await supabase
+        .from('student_attendance')
+        .select('id, timetable_id, attendance_data')
+        .in('id', attendanceIds);
+
+      if (attendanceError) {
+        console.error(
+          'Error fetching attendance timetable data for details:',
+          attendanceError
+        );
+        return details; // Return original details if we can't enhance them
+      }
+
+      // Create a map of attendance_id -> timetable_data for quick lookup
+      const attendanceMap = new Map(
+        attendanceRecords?.map((record) => [record.id, record]) || []
+      );
+
+      // Get unique timetable IDs to fetch timetable information
+      const timetableIds = [
+        ...new Set(
+          attendanceRecords?.map((r) => r.timetable_id).filter(Boolean) || []
+        )
+      ];
+
+      console.log('🔍 Details - Timetable IDs to fetch:', timetableIds); // Debug
+
+      if (!timetableIds.length) {
+        console.log('🚨 Details - No timetable IDs found!'); // Debug
+        return details;
+      }
+
+      // Fetch timetables with their timetable_data
+      const { data: timetables, error: timetableError } = await supabase
+        .from('timetables')
+        .select('id, timetable_data')
+        .in('id', timetableIds);
+
+      if (timetableError) {
+        console.error(
+          'Error fetching timetable data for details:',
+          timetableError
+        );
+        return details;
+      }
+
+      console.log(
+        '🔍 Details - Fetched timetables:',
+        timetables?.map((t) => ({ id: t.id, hasData: !!t.timetable_data }))
+      ); // Debug
+
+      // Create a map of timetable_id -> timetable_data
+      const timetableMap = new Map(
+        timetables?.map((tt) => [tt.id, tt.timetable_data]) || []
+      );
+
+      // Get all unique staff IDs from timetable data
+      const allStaffIds = new Set<string>();
+
+      for (const detail of details) {
+        const attendanceRecord = attendanceMap.get(detail.id);
+        if (!attendanceRecord?.timetable_id) continue;
+
+        const timetableData = timetableMap.get(attendanceRecord.timetable_id);
+        if (!timetableData || typeof timetableData !== 'object') continue;
+
+        // Look through attendance_data to find the period/slot information
+        const attendanceData = attendanceRecord.attendance_data as any;
+        if (!attendanceData || typeof attendanceData !== 'object') continue;
+
+        // Find the slot data for this period
+        for (const [slotId, slotData] of Object.entries(attendanceData)) {
+          if (typeof slotData === 'object' && slotData) {
+            // Look for this period/slot in timetable_data
+            const timetableSlots = timetableData as any;
+            for (const [day, dayData] of Object.entries(timetableSlots)) {
+              if (typeof dayData === 'object' && dayData) {
+                for (const [periodId, periodData] of Object.entries(
+                  dayData as any
+                )) {
+                  if (typeof periodData === 'object' && periodData) {
+                    const periodInfo = periodData as any;
+                    if (
+                      periodInfo.staff_ids &&
+                      Array.isArray(periodInfo.staff_ids)
+                    ) {
+                      periodInfo.staff_ids.forEach((id: string) =>
+                        allStaffIds.add(id)
+                      );
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Fetch staff information for all staff IDs
+      console.log(
+        '🔍 Details - All staff IDs found in timetables:',
+        Array.from(allStaffIds)
+      ); // Debug
+      let staffData: any[] = [];
+      if (allStaffIds.size > 0) {
+        const { data: fetchedStaff, error: staffError } = await supabase
+          .from('staff')
+          .select('id, first_name, last_name, email, institution_email')
+          .in('id', Array.from(allStaffIds))
+          .eq('is_active', true);
+
+        if (staffError) {
+          console.error('Error fetching staff data for details:', staffError);
+        } else {
+          staffData = fetchedStaff || [];
+          console.log('🔍 Details - Fetched staff data:', staffData); // Debug
+        }
+      } else {
+        console.log('🚨 Details - No staff IDs found in timetable data!'); // Debug
+      }
+
+      // Create staff lookup map
+      const staffMap = new Map(
+        staffData.map((staff) => [
+          staff.id,
+          {
+            id: staff.id,
+            name:
+              `${staff.first_name || ''} ${staff.last_name || ''}`.trim() ||
+              'Unknown Faculty',
+            email: staff.email || staff.institution_email || 'N/A'
+          }
+        ])
+      );
+
+      // Now enhance each detail with correct faculty information
+      const enhancedDetails = details.map((detail) => {
+        const attendanceRecord = attendanceMap.get(detail.id);
+        if (!attendanceRecord?.timetable_id) {
+          return { ...detail }; // Return as-is if no timetable data
+        }
+
+        const timetableData = timetableMap.get(attendanceRecord.timetable_id);
+        if (!timetableData) {
+          return { ...detail };
+        }
+
+        // Find assigned faculty for this specific period
+        const assignedFacultyList: Array<{
+          id: string;
+          name: string;
+          email: string;
+          isPrimary?: boolean;
+        }> = [];
+
+        // This is a simplified approach - in practice, you'd need to match the exact period
+        // For now, we'll extract all staff from the timetable as potential assigned faculty
+        const timetableSlots = timetableData as any;
+        let foundStaffIds: string[] = [];
+        let primaryStaffId: string | null = null;
+
+        // Look through timetable data to find staff assignments
+        for (const [day, dayData] of Object.entries(timetableSlots)) {
+          if (typeof dayData === 'object' && dayData) {
+            for (const [periodId, periodData] of Object.entries(
+              dayData as any
+            )) {
+              if (typeof periodData === 'object' && periodData) {
+                const periodInfo = periodData as any;
+                if (
+                  periodInfo.staff_ids &&
+                  Array.isArray(periodInfo.staff_ids)
+                ) {
+                  foundStaffIds.push(...periodInfo.staff_ids);
+                  if (periodInfo.primary_staff_id) {
+                    primaryStaffId = periodInfo.primary_staff_id;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Remove duplicates
+        foundStaffIds = [...new Set(foundStaffIds)];
+
+        // Build assigned faculty list
+        foundStaffIds.forEach((staffId) => {
+          const staffInfo = staffMap.get(staffId);
+          if (staffInfo) {
+            assignedFacultyList.push({
+              ...staffInfo,
+              isPrimary: staffId === primaryStaffId
+            });
+          }
+        });
+
+        // Sort to put primary staff first
+        assignedFacultyList.sort(
+          (a, b) => (b.isPrimary ? 1 : 0) - (a.isPrimary ? 1 : 0)
+        );
+
+        // Create assigned faculty string (comma-separated names)
+        const assigned_faculty =
+          assignedFacultyList.map((f) => f.name).join(', ') || undefined;
+
+        // Debug individual detail enhancement
+        if (assigned_faculty) {
+          console.log(
+            `✅ Enhanced detail ${detail.id}: ${detail.course_name} -> ${assigned_faculty}`
+          );
+        } else {
+          console.log(
+            `⚠️  No faculty found for detail ${detail.id}: ${detail.course_name}, original faculty: ${detail.faculty_name}`
+          );
+        }
+
+        return {
+          ...detail,
+          assigned_faculty,
+          assigned_faculty_list:
+            assignedFacultyList.length > 0 ? assignedFacultyList : undefined
+        };
+      });
+
+      return enhancedDetails;
+    } catch (error) {
+      console.error('Error enhancing details with faculty data:', error);
+      return details; // Return original details if enhancement fails
     }
   }
 
@@ -930,7 +1443,14 @@ export class AttendanceAnalyticsService {
         throw error;
       }
 
-      return data || [];
+      // Enhance details with correct assigned faculty information
+      console.log('🔍 Original details from DB:', data?.slice(0, 2)); // Debug: Show first 2 details
+      const enhancedDetails = await this.enhanceDetailsWithAssignedFaculty(
+        data || []
+      );
+      console.log('🔍 Enhanced details:', enhancedDetails?.slice(0, 2)); // Debug: Show first 2 enhanced details
+
+      return enhancedDetails;
     } catch (error) {
       console.error('Error fetching attendance report details:', error);
       throw error;

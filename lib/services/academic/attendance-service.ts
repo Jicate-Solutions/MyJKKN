@@ -703,9 +703,16 @@ export class AttendanceService {
       }
 
       // First, try to find existing consolidated record
+      console.log('🔍 Checking for existing attendance record with key:', {
+        institution_id: data.institution_id,
+        timetable_id: data.timetable_id,
+        section_id: resolvedSectionId,
+        attendance_date: data.attendance_date
+      });
+
       const { data: existingRecord, error: findError } = await this.supabase
         .from('student_attendance')
-        .select('id')
+        .select('id, timetable_id')
         .eq('institution_id', data.institution_id)
         .eq('timetable_id', data.timetable_id)
         .eq('section_id', resolvedSectionId)
@@ -717,13 +724,46 @@ export class AttendanceService {
         throw findError;
       }
 
+      console.log('📊 Attendance record lookup result:', {
+        found: !!existingRecord,
+        action: existingRecord ? 'UPDATE_EXISTING' : 'CREATE_NEW',
+        existing_record_id: existingRecord?.id,
+        existing_timetable_id: existingRecord?.timetable_id
+      });
+
       let result;
       if (existingRecord) {
-        // Update existing record
+        // Fetch existing record to get current attendance_data for merging
+        const { data: currentRecord, error: fetchError } = await this.supabase
+          .from('student_attendance')
+          .select('attendance_data')
+          .eq('id', existingRecord.id)
+          .single();
+
+        if (fetchError) {
+          console.error('Error fetching existing attendance data:', fetchError);
+          throw fetchError;
+        }
+
+        // Merge new attendance data with existing data
+        const existingAttendanceData =
+          (currentRecord?.attendance_data as ConsolidatedAttendanceData) || {};
+        const mergedAttendanceData = {
+          ...existingAttendanceData, // Keep existing periods
+          ...data.attendance_data // Add/update new periods
+        };
+
+        console.log('Merging attendance data:', {
+          existing: existingAttendanceData,
+          new: data.attendance_data,
+          merged: mergedAttendanceData
+        });
+
+        // Update existing record with merged data
         const { data: updateResult, error: updateError } = await this.supabase
           .from('student_attendance')
           .update({
-            attendance_data: data.attendance_data,
+            attendance_data: mergedAttendanceData, // Use merged data instead of overwriting
             marked_by: data.marked_by,
             updated_at: new Date().toISOString()
           })
@@ -1708,6 +1748,21 @@ export class AttendanceService {
         semesterType: typeof filters.semester,
         semesterAsString: String(filters.semester)
       });
+
+      // Add warning if multiple programs might conflict
+      if (filters.program_id && filters.department_id) {
+        console.log(
+          '✅ Program filtering active - this should prevent cross-program conflicts:',
+          {
+            program_id: filters.program_id,
+            department_id: filters.department_id
+          }
+        );
+      } else {
+        console.warn(
+          '⚠️  Missing program/department filters - this might cause cross-program conflicts!'
+        );
+      }
 
       const dayOfWeek = this.getDayOfWeekFromDate(date);
       console.log('Day of week for date:', dayOfWeek);
