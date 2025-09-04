@@ -46,9 +46,29 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
     cell: ({ row }) => {
       const courseName = row.getValue('course_name') as string;
       const courseCode = row.original.course_code;
+      const reportId = row.original.id;
+
+      const handleCourseClick = () => {
+        // Navigate to the attendance report details page
+        window.open(`/academic/attendance/reports/${reportId}`, '_blank');
+      };
+
       return (
         <div>
-          <div className='font-medium'>{courseName}</div>
+          <div
+            className='font-medium text-primary hover:text-primary-hover cursor-pointer hover:underline transition-colors duration-200'
+            onClick={handleCourseClick}
+            title='Click to view attendance report details'
+          >
+            {courseName}
+          </div>
+          {courseCode && courseCode !== 'N/A' && courseCode.trim() !== '' && (
+            <div className='text-sm text-muted-foreground'>
+              <Badge variant='outline' className='text-xs'>
+                {courseCode}
+              </Badge>
+            </div>
+          )}
         </div>
       );
     }
@@ -80,10 +100,12 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
     cell: ({ row }) => {
       const sectionName = row.getValue('section_name') as string;
       const semesterName = row.original.semester_name;
+      const programName = row.original.program_name;
       return (
         <div>
-          <div className='font-medium'>{sectionName}</div>
+          <div className='text-xs text-muted-foreground'>{programName}</div>
           <div className='text-sm text-muted-foreground'>{semesterName}</div>
+          <div className='font-medium'>{sectionName}</div>
         </div>
       );
     }

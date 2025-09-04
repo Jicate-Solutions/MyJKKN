@@ -26,21 +26,10 @@
       "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
       "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
       "Read(c:\\Users\\Boobalan\\Pictures\\Screenshots/**)",
-      "Bash(find:*)",
-      "Read(/D:\\Projects\\JKKN\\MyJKKN\\lib\\services\\academic/**)",
-      "Read(/D:\\Projects\\JKKN\\MyJKKN\\lib\\services\\academic/**)",
-      "Read(/D:\\Projects\\JKKN\\MyJKKN\\lib\\services\\academic/**)",
-      "Read(/D:\\Projects\\JKKN\\MyJKKN\\lib\\services\\academic/**)",
-      "Read(/D:\\Projects\\JKKN\\MyJKKN\\lib\\services\\academic/**)",
-      "Read(/D:\\Projects\\JKKN\\MyJKKN\\lib\\services\\academic/**)",
-      "Read(/D:\\Projects\\JKKN\\MyJKKN\\app\\(routes)\\academic\\attendance\\reports\\[id]\\_components/**)",
-      "Read(/D:\\Projects\\JKKN\\MyJKKN\\app\\(routes)\\academic\\attendance\\reports\\[id]\\_components/**)",
-      "Read(/D:\\Projects\\JKKN\\MyJKKN\\app\\(routes)\\academic\\attendance\\reports\\[id]\\_components/**)"
+      "Bash(find:*)"
     ],
     "deny": []
   },
   "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "supabase"
-  ]
+  "enabledMcpjsonServers": ["supabase"]
 }
