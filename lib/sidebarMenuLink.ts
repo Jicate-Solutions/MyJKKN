@@ -136,6 +136,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/years': 'academic.years.view',
   '/academic/staff-planning': 'academic.staff.planning.view',
   '/academic/timetables': 'academic.timetables.view',
+  '/academic/timetables/templates': 'academic.timetables.view',
+  '/academic/timetables/templates/analytics': 'academic.timetables.view',
+  '/academic/timetables/templates/[id]': 'academic.timetables.view',
+  '/academic/timetables/new': 'academic.timetables.create',
+  '/academic/timetables/[id]': 'academic.timetables.view',
+  '/academic/timetables/[id]/edit': 'academic.timetables.edit',
   '/academic/timetables/faculty-calendar': 'faculty.calendar.view',
   '/academic/periods': 'academic.periods.view',
   '/academic/attendance': 'academic.attendance.view',
@@ -478,6 +484,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/academic/timetables',
               label: 'Manage Timetables',
               active: pathname === '/academic/timetables'
+            },
+            {
+              href: '/academic/timetables/templates',
+              label: 'Template Library',
+              active: pathname.startsWith('/academic/timetables/templates')
             },
             {
               href: '/academic/timetables/faculty-calendar',

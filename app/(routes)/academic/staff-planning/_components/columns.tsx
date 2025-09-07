@@ -18,6 +18,9 @@ export const columns: ColumnDef<StaffPlan>[] = [
         aria-label='Select all'
       />
     ),
+    size: 50,
+    minSize: 50,
+    maxSize: 50,
     cell: ({ row }) => (
       <Checkbox
         checked={row.getIsSelected()}
@@ -74,8 +77,15 @@ export const columns: ColumnDef<StaffPlan>[] = [
   {
     accessorKey: 'course_count',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Courses' />
+      <DataTableColumnHeader
+        column={column}
+        title='Courses'
+        className='text-center'
+      />
     ),
+    size: 50,
+    minSize: 50,
+    maxSize: 50,
     cell: ({ row }) => {
       const staffPlan = row.original;
       const courseCount = staffPlan.course_count || 0;
@@ -94,10 +104,7 @@ export const columns: ColumnDef<StaffPlan>[] = [
           )}
         </div>
       );
-    },
-    size: 80,
-    minSize: 80,
-    maxSize: 100
+    }
   },
   {
     accessorKey: 'staff_summary',

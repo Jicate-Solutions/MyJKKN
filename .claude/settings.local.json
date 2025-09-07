@@ -22,7 +22,8 @@
       "mcp__supabase__list_tables",
       "Bash(mv:*)",
       "mcp__supabase__get_logs",
-      "Read(//c/Users/Admin/Pictures/Screenshots/**)"
+      "Read(//c/Users/Admin/Pictures/Screenshots/**)",
+      "Bash(npm run:*)"
     ],
     "deny": []
   },

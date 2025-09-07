@@ -95,10 +95,23 @@ export const columns: ColumnDef<Timetable>[] = [
     ),
     cell: ({ row }) => {
       const isTemplate = row.getValue('is_template') as boolean;
+      const timetable = row.original;
       return (
-        <Badge variant={isTemplate ? 'secondary' : 'default'}>
-          {isTemplate ? 'Template' : 'Regular'}
-        </Badge>
+        <div className='flex flex-col gap-1'>
+          <Badge variant={isTemplate ? 'secondary' : 'default'}>
+            {isTemplate ? 'Template' : 'Regular'}
+          </Badge>
+          {isTemplate && timetable.template_name && (
+            <span className='text-xs text-muted-foreground'>
+              {timetable.template_name}
+            </span>
+          )}
+          {isTemplate && timetable.usage_count && timetable.usage_count > 0 && (
+            <span className='text-xs text-green-600'>
+              Used {timetable.usage_count} times
+            </span>
+          )}
+        </div>
       );
     }
   },

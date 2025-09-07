@@ -116,6 +116,11 @@ export interface Timetable {
   is_active: boolean;
   is_template: boolean;
   template_name?: string;
+  template_description?: string;
+  template_category?: string;
+  template_tags?: string[];
+  usage_count?: number;
+  created_from_template_id?: string;
   start_date?: string;
   end_date?: string;
   selected_days?: DayOfWeek[];
@@ -162,6 +167,10 @@ export interface CreateTimetableDto {
   is_active?: boolean;
   is_template?: boolean;
   template_name?: string;
+  template_description?: string;
+  template_category?: string;
+  template_tags?: string[];
+  created_from_template_id?: string;
   start_date?: string;
   end_date?: string;
   selected_dates?: string[] | any; // JSONB column for selected dates in batch format
@@ -206,4 +215,73 @@ export interface TimetableContextType {
   department_id: string | null;
   semester: string | number | null;
   section?: string | null; // Made optional
+}
+
+// Template-specific types
+export interface TimetableTemplate extends Timetable {
+  is_template: true;
+  template_name: string;
+  template_description?: string;
+  template_category?: string;
+  template_tags?: string[];
+  usage_count?: number;
+}
+
+export interface CreateTemplateDto {
+  timetable_name: string;
+  template_name: string;
+  template_description?: string;
+  template_category?: string;
+  template_tags?: string[];
+  institution_id: string;
+  academic_year_id?: string;
+  degree_id?: string;
+  program_id?: string;
+  department_id?: string;
+  semester?: string | number;
+  section?: string;
+  timetable_format?: 'regular' | 'batch';
+  periods?: any;
+  timetable_data?: any;
+  selected_days?: DayOfWeek[];
+}
+
+export interface UpdateTemplateDto extends Partial<CreateTemplateDto> {}
+
+export interface TemplateFilters {
+  search?: string;
+  institution_id?: string;
+  academic_year_id?: string;
+  degree_id?: string;
+  program_id?: string;
+  department_id?: string;
+  template_category?: string;
+  template_tags?: string[];
+  page?: number;
+  limit?: number;
+}
+
+export interface TemplateListResponse {
+  data: TimetableTemplate[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+export interface CreateFromTemplateDto {
+  template_id: string;
+  timetable_name: string;
+  institution_id: string;
+  academic_year_id: string;
+  degree_id: string;
+  program_id: string;
+  department_id: string;
+  semester: string | number;
+  section?: string;
+  start_date?: string;
+  end_date?: string;
+  is_active?: boolean;
 }
