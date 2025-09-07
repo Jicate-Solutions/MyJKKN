@@ -201,6 +201,16 @@ CREATE TRIGGER trigger_lowercase_institution_email BEFORE INSERT OR UPDATE ON st
 CREATE TRIGGER trigger_auto_populate_staff_plan_institution BEFORE INSERT ON staff_plans
     FOR EACH ROW EXECUTE FUNCTION auto_populate_staff_plan_institution();
 
+-- Auto-sync timetables when staff planning changes
+CREATE TRIGGER trigger_auto_sync_timetables_on_staff_plan_insert AFTER INSERT ON staff_plan_courses
+    FOR EACH ROW EXECUTE FUNCTION auto_sync_timetables_on_staff_plan_change();
+
+CREATE TRIGGER trigger_auto_sync_timetables_on_staff_plan_update AFTER UPDATE ON staff_plan_courses
+    FOR EACH ROW EXECUTE FUNCTION auto_sync_timetables_on_staff_plan_change();
+
+CREATE TRIGGER trigger_auto_sync_timetables_on_staff_plan_delete AFTER DELETE ON staff_plan_courses
+    FOR EACH ROW EXECUTE FUNCTION auto_sync_timetables_on_staff_plan_change();
+
 -- ================================================================================
 -- SECTION 7: PROFILE MODULE TRIGGERS
 -- ================================================================================
@@ -346,7 +356,18 @@ CREATE TRIGGER trigger_update_user_institution_access_updated_at BEFORE UPDATE O
     FOR EACH ROW EXECUTE FUNCTION update_user_institution_access_updated_at();
 
 -- ================================================================================
--- SECTION 17: AUTH MODULE TRIGGERS (IF NEEDED)
+-- SECTION 17: ATTENDANCE VALIDATION TRIGGERS
+-- ================================================================================
+
+-- Updated: 2025-09-05 - Added staff assignment validation trigger
+-- Validate staff assignment before allowing attendance marking
+CREATE TRIGGER validate_attendance_staff_assignment_trigger
+    BEFORE INSERT OR UPDATE ON student_attendance
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_attendance_staff_assignment();
+
+-- ================================================================================
+-- SECTION 18: AUTH MODULE TRIGGERS (IF NEEDED)
 -- ================================================================================
 
 -- Handle new user trigger (for auth.users table if accessible)

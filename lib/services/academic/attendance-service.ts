@@ -41,6 +41,111 @@ export class AttendanceService {
   private static supabase = createClientSupabaseClient();
 
   // =====================
+  // STAFF ASSIGNMENT VALIDATION METHODS
+  // =====================
+
+  /**
+   * Updated: 2025-09-07 - Improved staff assignment validation
+   * Validate if the current user is authorized to mark attendance for a specific timetable period
+   */
+  static async validateStaffAssignment(
+    timetableId: string,
+    markedBy: string,
+    institutionId: string
+  ): Promise<{
+    isAuthorized: boolean;
+    reason?: string;
+    assignedStaff?: any[];
+  }> {
+    try {
+      // Check if user is super admin first
+      const { data: superAdminCheck } = await this.supabase
+        .from('user_institution_access')
+        .select('role')
+        .eq('user_id', markedBy)
+        .eq('institution_id', institutionId)
+        .eq('role', 'super_admin')
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (superAdminCheck) {
+        return { isAuthorized: true, reason: 'Super admin access' };
+      }
+
+      // Get timetable data to extract staff assignments
+      const { data: timetableData, error: timetableError } = await this.supabase
+        .from('timetables')
+        .select('timetable_data')
+        .eq('id', timetableId)
+        .single();
+
+      if (timetableError || !timetableData) {
+        return {
+          isAuthorized: false,
+          reason: 'Timetable data not found'
+        };
+      }
+
+      // Extract all assigned staff from timetable_data JSONB
+      const timetableDataObj = timetableData.timetable_data || {};
+      const allAssignedStaffIds = new Set<string>();
+
+      // Search through all days and periods to collect staff assignments
+      Object.keys(timetableDataObj).forEach((dayKey) => {
+        const dayData = timetableDataObj[dayKey];
+        if (typeof dayData === 'object' && dayData !== null) {
+          Object.keys(dayData).forEach((periodKey) => {
+            const periodSlot = dayData[periodKey];
+            if (
+              periodSlot &&
+              periodSlot.staff_ids &&
+              Array.isArray(periodSlot.staff_ids)
+            ) {
+              periodSlot.staff_ids.forEach((staffId: string) => {
+                allAssignedStaffIds.add(staffId);
+              });
+            }
+          });
+        }
+      });
+
+      // Check if the marking user is in any of the assigned staff
+      const isAuthorized = allAssignedStaffIds.has(markedBy);
+
+      if (isAuthorized) {
+        return { isAuthorized: true, reason: 'Assigned staff member' };
+      }
+
+      // Get staff details for debugging
+      if (allAssignedStaffIds.size > 0) {
+        const { data: assignedStaff } = await this.supabase
+          .from('staff')
+          .select('id, first_name, last_name, email')
+          .in('id', Array.from(allAssignedStaffIds));
+
+        return {
+          isAuthorized: false,
+          reason: `User ${markedBy} is not assigned to mark attendance for this timetable`,
+          assignedStaff: assignedStaff || undefined
+        };
+      }
+
+      return {
+        isAuthorized: false,
+        reason: 'No staff assignments found in timetable data'
+      };
+    } catch (error) {
+      console.error('Error validating staff assignment:', error);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown validation error';
+      return {
+        isAuthorized: false,
+        reason: `Validation error: ${errorMessage}`
+      };
+    }
+  }
+
+  // =====================
   // NEW CONSOLIDATED ATTENDANCE METHODS
   // =====================
 
@@ -652,6 +757,32 @@ export class AttendanceService {
     data: UpsertConsolidatedAttendanceDto
   ): Promise<ConsolidatedStudentAttendance> {
     try {
+      // Updated: 2025-09-07 - Added staff assignment validation
+      // Validate staff assignment before proceeding
+      const validationResult = await this.validateStaffAssignment(
+        data.timetable_id,
+        data.marked_by,
+        data.institution_id
+      );
+
+      if (!validationResult.isAuthorized) {
+        const errorMessage = `Attendance marking not authorized: ${validationResult.reason}`;
+        console.error(errorMessage, {
+          timetable_id: data.timetable_id,
+          marked_by: data.marked_by,
+          institution_id: data.institution_id,
+          assignedStaff: validationResult.assignedStaff
+        });
+        toast.error(
+          'You are not authorized to mark attendance for this period. Only assigned staff can mark attendance.'
+        );
+        throw new Error(errorMessage);
+      }
+
+      console.log(
+        '✅ Staff assignment validation passed:',
+        validationResult.reason
+      );
       // Validate section_id is a valid UUID
       const uuidRegex =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -689,17 +820,21 @@ export class AttendanceService {
             );
             resolvedSectionId = sectionData.id;
           } else {
-            throw new Error(
-              `Cannot resolve section name "${resolvedSectionId}" to a valid UUID`
-            );
+            const errorMessage = `Cannot resolve section name "${resolvedSectionId}" to a valid UUID`;
+            console.error(errorMessage);
+            throw new Error(errorMessage);
           }
         } else {
-          throw new Error(`Cannot resolve section without timetable data`);
+          const errorMessage = 'Cannot resolve section without timetable data';
+          console.error(errorMessage);
+          throw new Error(errorMessage);
         }
       }
 
       if (!resolvedSectionId) {
-        throw new Error('Section ID is required for attendance');
+        const errorMessage = 'Section ID is required for attendance';
+        console.error(errorMessage);
+        throw new Error(errorMessage);
       }
 
       // First, try to find existing consolidated record
@@ -1152,54 +1287,107 @@ export class AttendanceService {
     }
   }
 
-  // Helper method to get slot details including period and course
-  // TODO: This method needs to be updated to work with the new JSON-based timetable structure
-  // For now, this method is deprecated and may not work correctly
+  // Get slot details from JSON-based timetable structure
   static async getSlotDetails(slotId: string): Promise<any> {
     try {
       console.log('getSlotDetails called with slotId:', slotId);
 
-      // This method needs to be rewritten to work with the new timetable_data JSON structure
-      // For now, return a placeholder to prevent crashes
-      console.warn(
-        'getSlotDetails method is deprecated and needs updating for new timetable structure'
-      );
-      return null;
+      // Find the timetable containing this slot
+      const timetableId = await this.getTimetableIdFromSlot(slotId);
+      if (!timetableId) {
+        console.error('Could not find timetable for slot:', slotId);
+        return null;
+      }
 
-      /*
-      // OLD CODE - NEEDS UPDATING
+      // Get the timetable data
+      const { data: timetableData, error: timetableError } = await this.supabase
+        .from('timetables')
+        .select('timetable_data')
+        .eq('id', timetableId)
+        .single();
+
+      if (timetableError || !timetableData?.timetable_data) {
+        console.error('Error fetching timetable data:', timetableError);
+        return null;
+      }
+
+      // Search through the JSON structure to find the slot
+      const timetableJson = timetableData.timetable_data;
+      for (const [dayKey, dayData] of Object.entries(timetableJson)) {
+        if (typeof dayData === 'object' && dayData !== null) {
+          for (const [periodKey, slotData] of Object.entries(
+            dayData as Record<string, any>
+          )) {
+            if (
+              slotData &&
+              (slotData.slot_id === slotId || slotData.id === slotId)
+            ) {
+              // Fetch related data
+              const courseData = slotData.course_id
+                ? await this.getCourseDetails(slotData.course_id)
+                : null;
+              const periodData = slotData.period_id
+                ? await this.getPeriodDetails(slotData.period_id)
+                : null;
+
+              return {
+                id: slotId,
+                timetable_id: timetableId,
+                day_of_week: dayKey,
+                period: periodData,
+                course: courseData,
+                ...slotData
+              };
+            }
+          }
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error getting slot details:', error);
+      return null;
+    }
+  }
+
+  // Helper method to get course details
+  private static async getCourseDetails(courseId: string): Promise<any> {
+    try {
       const { data, error } = await this.supabase
-        .from('timetable_slots')
-        .select(
-          `
-          id,
-          timetable_id,
-          day_of_week,
-          period:period_id(
-            id,
-            period_name,
-            start_time,
-            end_time
-          ),
-          course:course_id(
-            id,
-            course_name,
-            course_code
-          )
-        `
-        )
-        .eq('id', slotId)
+        .from('courses')
+        .select('id, course_name, course_code')
+        .eq('id', courseId)
         .single();
 
       if (error) {
-        console.error('Error getting slot details:', error);
+        console.error('Error fetching course details:', error);
         return null;
       }
 
       return data;
-      */
     } catch (error) {
-      console.error('Error getting slot details:', error);
+      console.error('Error in getCourseDetails:', error);
+      return null;
+    }
+  }
+
+  // Helper method to get period details
+  private static async getPeriodDetails(periodId: string): Promise<any> {
+    try {
+      const { data, error } = await this.supabase
+        .from('periods')
+        .select('id, period_name, start_time, end_time')
+        .eq('id', periodId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching period details:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error in getPeriodDetails:', error);
       return null;
     }
   }
@@ -1384,19 +1572,33 @@ export class AttendanceService {
       const dayOfWeek = this.getDayOfWeekFromDate(date);
       console.log('Day of week for date', date, 'is:', dayOfWeek);
 
-      // Get timetable slots using the new JSON structure
-      const { data: slots, error: slotsError } = await this.supabase.rpc(
-        'get_timetable_slots_for_day_or_date',
-        {
-          p_timetable_id: timetableId,
-          p_day_of_week: dayOfWeek,
-          p_slot_date: null
-        }
-      );
+      // Get timetable data and extract slots for the specific day
+      const { data: timetableData, error: timetableDataError } =
+        await this.supabase
+          .from('timetables')
+          .select('timetable_data')
+          .eq('id', timetableId)
+          .single();
 
-      if (slotsError) {
-        console.error('Slots query error:', slotsError);
-        throw slotsError;
+      if (timetableDataError) {
+        console.error('Timetable data query error:', timetableDataError);
+        throw timetableDataError;
+      }
+
+      let slots: any[] = [];
+      if (timetableData?.timetable_data) {
+        const daySlots = timetableData.timetable_data[dayOfWeek];
+        if (daySlots && typeof daySlots === 'object') {
+          // Convert JSON structure to array format
+          slots = Object.entries(daySlots).map(
+            ([periodId, slotData]: [string, any]) => ({
+              ...slotData,
+              id: slotData.slot_id || periodId,
+              period_id: periodId,
+              day_of_week: dayOfWeek
+            })
+          );
+        }
       }
 
       // Filter out break slots to only get class periods
@@ -1421,40 +1623,9 @@ export class AttendanceService {
         (slot: any) => slot.sections && slot.sections.length > 0
       );
 
-      // Fetch staff assignments from junction table for each slot
-      for (const slot of filteredSlots) {
-        try {
-          const { data: staffAssignments, error: staffError } =
-            await this.supabase
-              .from('timetable_slot_staff')
-              .select(
-                `
-              staff_id,
-              staff:staff(
-                id,
-                first_name,
-                last_name
-              )
-            `
-              )
-              .eq('timetable_slot_id', slot.id);
-
-          if (staffError) {
-            console.error(
-              'Error fetching staff assignments for slot:',
-              slot.id,
-              staffError
-            );
-          } else {
-            // Add staff_members array to slot (cast to any to avoid TypeScript error)
-            (slot as any).staff_members =
-              staffAssignments?.map((sa: any) => sa.staff).filter(Boolean) ||
-              [];
-          }
-        } catch (error) {
-          console.error('Error fetching staff assignments:', error);
-        }
-      }
+      // Staff assignments are now included in the JSON structure
+      // No need for separate queries as staff_ids are in the slot data
+      console.log('Using staff assignments from JSON timetable structure');
 
       // Sort by period start time
       filteredSlots.sort((a: any, b: any) => {
@@ -1536,80 +1707,15 @@ export class AttendanceService {
         }
       }
 
-      const { data: slot, error: slotError } = await this.supabase
-        .from('timetable_slots')
-        .select(
-          `
-          id,
-          day_of_week,
-          period:period_id(
-            id,
-            period_name,
-            start_time,
-            end_time
-          ),
-          course:course_id(
-            id,
-            course_name,
-            course_code
-          ),
-          timetable_slot_staff(
-            staff_id,
-            staff:staff(
-              id,
-              first_name,
-              last_name
-            )
-          ),
-          timetable_slot_sections(
-            section_id,
-            section:section_id(
-              id,
-              section_name
-            )
-          )
-        `
-        )
-        .eq('id', timetable_slot_id)
-        .single();
+      // Get slot details using the new JSON-based approach
+      const slot = await this.getSlotDetails(timetable_slot_id);
 
-      if (slotError) throw slotError;
-
-      // Fetch staff assignments from junction table for this slot
-      try {
-        const { data: staffAssignments, error: staffError } =
-          await this.supabase
-            .from('timetable_slot_staff')
-            .select(
-              `
-            staff_id,
-            staff:staff(
-              id,
-              first_name,
-              last_name
-            )
-          `
-            )
-            .eq('timetable_slot_id', timetable_slot_id);
-
-        if (staffError) {
-          console.error(
-            'Error fetching staff assignments for slot:',
-            timetable_slot_id,
-            staffError
-          );
-        } else {
-          // Add staff_members array to slot (cast to any to avoid TypeScript error)
-          (slot as any).staff_members =
-            staffAssignments?.map((sa: any) => sa.staff).filter(Boolean) || [];
-        }
-      } catch (error) {
-        console.error('Error fetching staff assignments:', error);
+      if (!slot) {
+        throw new Error(`Slot ${timetable_slot_id} not found`);
       }
 
-      // Get section IDs assigned to this slot
-      const sectionIds =
-        slot.timetable_slot_sections?.map((tss: any) => tss.section_id) || [];
+      // Get section IDs assigned to this slot from JSON structure
+      const sectionIds = slot.section_ids || [];
 
       if (sectionIds.length === 0) {
         console.warn(
@@ -1618,10 +1724,8 @@ export class AttendanceService {
         );
         return {
           students: [],
-          timetable_slot: {
-            ...slot,
-            timetable_slot_sections: undefined // Remove from final output
-          } as unknown as AttendanceRosterData['timetable_slot'],
+          timetable_slot:
+            slot as unknown as AttendanceRosterData['timetable_slot'],
           attendance_date
         };
       }
@@ -1710,10 +1814,8 @@ export class AttendanceService {
 
       return {
         students: rosterStudents,
-        timetable_slot: {
-          ...slot,
-          timetable_slot_sections: undefined // Remove from final output
-        } as unknown as AttendanceRosterData['timetable_slot'],
+        timetable_slot:
+          slot as unknown as AttendanceRosterData['timetable_slot'],
         attendance_date
       };
     } catch (error) {
@@ -2363,20 +2465,39 @@ export class AttendanceService {
         return false;
       }
 
-      // Get all slots for this timetable and check staff assignments
-      const { data: slots, error: slotsError } = await this.supabase.rpc(
-        'get_all_timetable_slots',
-        {
-          p_timetable_id: timetableId
-        }
-      );
+      // Get timetable data and extract all slots
+      const { data: timetableData, error: slotsError } = await this.supabase
+        .from('timetables')
+        .select('timetable_data')
+        .eq('id', timetableId)
+        .single();
 
-      if (slotsError) {
+      if (slotsError || !timetableData?.timetable_data) {
         console.error(
-          'Error fetching slots for staff assignment check:',
+          'Error fetching timetable data for staff assignment check:',
           slotsError
         );
         return false;
+      }
+
+      // Extract all slots from JSON structure
+      const slots: any[] = [];
+      const timetableJson = timetableData.timetable_data;
+      for (const [dayKey, dayData] of Object.entries(timetableJson)) {
+        if (typeof dayData === 'object' && dayData !== null) {
+          for (const [periodKey, slotData] of Object.entries(
+            dayData as Record<string, any>
+          )) {
+            if (slotData) {
+              slots.push({
+                ...slotData,
+                id: slotData.slot_id || periodKey,
+                period_id: periodKey,
+                day_of_week: dayKey
+              });
+            }
+          }
+        }
       }
 
       // Find the specific slot and check if staff is assigned
@@ -2407,45 +2528,10 @@ export class AttendanceService {
         }
       }
 
-      // OLD CODE - Keep as fallback for any remaining legacy data
-      const { data: junctionAssignment, error: junctionError } =
-        await this.supabase
-          .from('timetable_slot_staff')
-          .select('timetable_slot_id')
-          .eq('timetable_slot_id', timetableSlotId)
-          .eq('staff_id', staffId)
-          .single();
-
-      if (!junctionError && junctionAssignment) {
-        return true;
-      }
-
-      // Check sub-slots for combined classes
-      const { data: subSlotAssignment, error: subSlotError } =
-        await this.supabase
-          .from('timetable_sub_slot_staff')
-          .select('sub_slot_id')
-          .eq('staff_id', staffId);
-
-      if (subSlotError) {
-        console.error('Error checking sub-slot assignments:', subSlotError);
-        return false;
-      }
-
-      if (subSlotAssignment && subSlotAssignment.length > 0) {
-        // Check if any of these sub-slots belong to our timetable slot
-        const subSlotIds = subSlotAssignment.map((ss) => ss.sub_slot_id);
-
-        const { data: parentSlots, error: parentError } = await this.supabase
-          .from('timetable_sub_slots')
-          .select('parent_slot_id')
-          .in('id', subSlotIds)
-          .eq('parent_slot_id', timetableSlotId);
-
-        if (!parentError && parentSlots && parentSlots.length > 0) {
-          return true;
-        }
-      }
+      // Legacy table support removed - using JSON-based structure only
+      console.log(
+        'Staff assignment check completed using JSON-based timetable structure'
+      );
 
       return false;
     } catch (error) {
@@ -2551,7 +2637,7 @@ export class AttendanceService {
     }
   }
 
-  // New method to save manual attendance
+  // Save manual attendance to database
   static async saveManualAttendance(attendanceData: {
     attendance_date: string;
     student_records: Array<{
@@ -2560,20 +2646,54 @@ export class AttendanceService {
     }>;
     marked_by: string;
     institution_id: string;
+    section_id: string;
     notes?: string;
   }): Promise<void> {
     try {
-      // This could be saved to a separate manual_attendance table
-      // or with a special timetable_slot_id marker
-      console.log('Manual attendance data:', attendanceData);
+      if (
+        !attendanceData.student_records ||
+        attendanceData.student_records.length === 0
+      ) {
+        throw new Error('No student records provided for manual attendance');
+      }
 
-      // For now, just show success message
+      // Create attendance data structure for manual entries
+      const manualAttendanceData: ConsolidatedAttendanceData = {
+        'manual-entry': {
+          period_id: 'manual-entry',
+          period_name: 'Manual Entry',
+          course_id: 'manual-course',
+          course_name: 'Manual Attendance',
+          start_time: '00:00',
+          end_time: '23:59',
+          students: attendanceData.student_records.map((record) => ({
+            student_id: record.student_id,
+            status: record.status,
+            marked_at: new Date().toISOString()
+          }))
+        }
+      };
+
+      // Use the consolidated attendance structure
+      await this.upsertConsolidatedAttendance({
+        timetable_id: 'manual-timetable', // Special marker for manual entries
+        section_id: attendanceData.section_id,
+        attendance_date: attendanceData.attendance_date,
+        attendance_data: manualAttendanceData,
+        marked_by: attendanceData.marked_by,
+        institution_id: attendanceData.institution_id
+      });
+
       toast.success(
-        `Manual attendance marked for ${attendanceData.student_records.length} students`
+        `✅ Manual attendance saved for ${attendanceData.student_records.length} students`
       );
     } catch (error) {
       console.error('Error saving manual attendance:', error);
-      toast.error('Failed to save manual attendance');
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'Failed to save manual attendance';
+      toast.error(errorMessage);
       throw error;
     }
   }
@@ -2639,10 +2759,47 @@ export class AttendanceService {
       'FRIDAY',
       'SATURDAY'
     ];
-    // Parse the date parts to avoid timezone issues
-    const [year, month, day] = date.split('-').map(Number);
-    // Create date using local timezone (month is 0-indexed in JS)
-    const dateObj = new Date(year, month - 1, day);
-    return days[dateObj.getDay()];
+
+    try {
+      // Validate date format
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        throw new Error(`Invalid date format: ${date}. Expected YYYY-MM-DD`);
+      }
+
+      // Parse the date parts to avoid timezone issues
+      const [year, month, day] = date.split('-').map(Number);
+
+      // Validate date components
+      if (year < 1900 || year > 2100) {
+        throw new Error(`Invalid year: ${year}`);
+      }
+      if (month < 1 || month > 12) {
+        throw new Error(`Invalid month: ${month}`);
+      }
+      if (day < 1 || day > 31) {
+        throw new Error(`Invalid day: ${day}`);
+      }
+
+      // Create date using local timezone (month is 0-indexed in JS)
+      const dateObj = new Date(year, month - 1, day);
+
+      // Validate that the date is valid (handles invalid dates like Feb 30)
+      if (
+        dateObj.getFullYear() !== year ||
+        dateObj.getMonth() !== month - 1 ||
+        dateObj.getDate() !== day
+      ) {
+        throw new Error(`Invalid date: ${date}`);
+      }
+
+      return days[dateObj.getDay()];
+    } catch (error) {
+      console.error('Error parsing date:', error);
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : `Failed to parse date: ${date}`;
+      throw new Error(errorMessage);
+    }
   }
 }

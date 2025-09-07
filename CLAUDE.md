@@ -14,9 +14,10 @@ Tell Claude to remember important project details:
 ```
 "Remember that our MyJKKN project uses:
 - Supabase for database (project: kvizhngldtiuufknvehv)
-- Next.js 15 with App Router
+- Next.js 14 with App Router
 - TypeScript with strict mode
 - Billing module uses optimized queries with _optimized suffix
+- Attendance module tracks daily attendance with period-wise tracking"
 ```
 
 #### 2. Store Code Patterns
@@ -41,6 +42,8 @@ Document recurring problems:
 ### Memory Commands Examples
 
 ```
+# Store information
+"Remember that the attendance module uses daily_attendance table for tracking"
 
 # Recall information
 "What do you remember about our billing module?"
@@ -272,7 +275,7 @@ Store database conventions:
 
 ### Academic Module
 ```
-"Remember: Academic module hierarchy is Institution -> Degree -> Department -> Program -> Semester -> Section -> Course"
+"Remember: Academic module hierarchy is Institution -> Program -> Semester -> Section -> Course"
 "Use sequential thinking to add a new grading system feature"
 ```
 
@@ -282,6 +285,11 @@ Store database conventions:
 "Use sequential thinking to implement bulk discount application"
 ```
 
+### Attendance Module
+```
+"Remember: Attendance uses period-wise tracking with daily_attendance table"
+"Use sequential thinking to add attendance analytics dashboard"
+```
 
 ## 📊 Testing & Validation
 

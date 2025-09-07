@@ -90,12 +90,13 @@ When updating any SQL file:
 |----------|-------|----------|
 | setup/03_policies.sql | 250+ | 53 tables (94.6%) |
 
-### Triggers (71 total)
+### Triggers (72 total)
 | Category | Location | Count | Purpose |
 |----------|----------|-------|---------|
 | Timestamp Updates | setup/04_triggers.sql | 35 | Auto-update updated_at |
 | Business Logic | setup/04_triggers.sql | 20 | Auto-populate, validations |
 | Billing | setup/04_triggers.sql | 10 | Status updates, calculations |
+| Attendance Validation | setup/04_triggers.sql | 1 | Staff assignment validation |
 | Other | setup/04_triggers.sql | 6 | Various business rules |
 
 ### Views (7 total)

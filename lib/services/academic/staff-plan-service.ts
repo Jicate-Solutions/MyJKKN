@@ -3,6 +3,7 @@ import {
   createApiInstitutionFilter,
   applyInstitutionFilterToQuery
 } from '@/lib/auth/api-institution-filter';
+import { TimetableStaffSyncService } from './timetable-staff-sync-service';
 import type {
   StaffPlan,
   CreateStaffPlanDto,
@@ -1050,6 +1051,81 @@ export class StaffPlanService {
     } catch (error) {
       console.error('Error fetching staff assigned to course:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Update staff assignment for a course with timetable synchronization
+   * This method checks for timetable conflicts and optionally syncs changes
+   */
+  static async updateStaffAssignmentWithSync(
+    staffPlanId: string,
+    courseId: string,
+    oldStaffId: string,
+    newStaffId: string,
+    staffType: string,
+    autoSyncTimetables: boolean = false
+  ): Promise<{ success: boolean; conflicts?: any; syncResults?: any }> {
+    try {
+      // First check what timetables would be affected
+      const impact = await TimetableStaffSyncService.checkStaffPlanningImpact(
+        courseId,
+        oldStaffId,
+        newStaffId
+      );
+
+      // Update the staff plan assignment
+      const { error: updateError } = await this.supabase
+        .from('staff_plan_courses')
+        .update({
+          staff_id: newStaffId,
+          staff_type: staffType,
+          updated_at: new Date().toISOString()
+        })
+        .eq('staff_plan_id', staffPlanId)
+        .eq('course_id', courseId)
+        .eq('staff_id', oldStaffId);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      let syncResults;
+      if (impact && impact.affected_timetables.length > 0) {
+        if (autoSyncTimetables) {
+          // Auto-sync timetables
+          syncResults = await TimetableStaffSyncService.syncTimetablesToStaffPlanning(
+            impact.affected_timetables,
+            courseId,
+            oldStaffId,
+            newStaffId
+          );
+        }
+
+        return {
+          success: true,
+          conflicts: impact,
+          syncResults
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating staff assignment with sync:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all current conflicts between staff planning and timetables
+   * Use this to show users what needs to be resolved
+   */
+  static async getAllTimetableConflicts(): Promise<any[]> {
+    try {
+      return await TimetableStaffSyncService.getAllTimetableStaffConflicts();
+    } catch (error) {
+      console.error('Error getting timetable conflicts:', error);
+      return [];
     }
   }
 }

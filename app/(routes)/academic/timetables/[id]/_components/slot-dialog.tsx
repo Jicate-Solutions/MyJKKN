@@ -75,7 +75,6 @@ export function SlotDialog({
 
   const [courseAssignedStaff, setCourseAssignedStaff] = useState<any[]>([]);
   const [loadingCourseStaff, setLoadingCourseStaff] = useState(false);
-  const [showAllStaff, setShowAllStaff] = useState(false);
   const [courseStaffError, setCourseStaffError] = useState<string | null>(null);
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
@@ -272,20 +271,16 @@ export function SlotDialog({
         setCourseAssignedStaff(assignedStaff);
 
         if (assignedStaff.length === 0) {
-          setShowAllStaff(true);
           setCourseStaffError(
-            'No staff assigned to this course in staff planning. Showing all available staff.'
+            'No staff assigned to this course in staff planning. Please assign staff in Staff Planning module first.'
           );
-        } else {
-          setShowAllStaff(false);
         }
       } catch (error) {
         console.error('Error fetching course assigned staff:', error);
         setCourseStaffError(
-          'Failed to load course-assigned staff. Showing all available staff.'
+          'Failed to load course-assigned staff. Please check Staff Planning module.'
         );
         setCourseAssignedStaff([]);
-        setShowAllStaff(true);
       } finally {
         setLoadingCourseStaff(false);
       }
@@ -303,12 +298,16 @@ export function SlotDialog({
     }
   }, [selectedCourse, isBreakSlot, isOpen, fetchCourseAssignedStaff]);
 
-  // Get the staff list to display (either course-assigned or all staff)
+  // Get the staff list to display (only course-assigned staff from staff planning)
   const getDisplayStaff = () => {
-    if (isBreakSlot || !selectedCourse || showAllStaff) {
-      return staff || [];
+    if (isBreakSlot) {
+      return staff || []; // For break slots, show all staff
     }
-    return courseAssignedStaff;
+    if (!selectedCourse) {
+      return []; // No course selected, show no staff
+    }
+    // ALWAYS show only staff from staff planning - no option to show all staff
+    return courseAssignedStaff; // Only show staff from staff planning
   };
 
   const displayStaff = getDisplayStaff();
@@ -516,37 +515,13 @@ export function SlotDialog({
                       <Badge variant='secondary' className='text-xs'>
                         {displayStaff?.length || 0} available
                       </Badge>
-                      {isUsingStaffPlanningData ? (
-                        <Badge
-                          variant='default'
-                          className='text-xs bg-green-100 text-green-800 border-green-300'
-                        >
-                          From Staff Planning
-                        </Badge>
-                      ) : (
-                        <Badge
-                          variant='outline'
-                          className='text-xs bg-amber-50 text-amber-700 border-amber-300'
-                        >
-                          All Staff
-                        </Badge>
-                      )}
+                      <Badge
+                        variant='default'
+                        className='text-xs bg-green-100 text-green-800 border-green-300'
+                      >
+                        From Staff Planning Only
+                      </Badge>
                     </div>
-                    {/* Show all staff toggle - only show when using staff planning data */}
-                    {isUsingStaffPlanningData && (
-                      <div className='flex items-center space-x-2'>
-                        <Checkbox
-                          id='showAllStaff'
-                          checked={showAllStaff}
-                          onCheckedChange={(checked) =>
-                            setShowAllStaff(checked === true)
-                          }
-                        />
-                        <Label htmlFor='showAllStaff' className='text-sm'>
-                          Show all staff
-                        </Label>
-                      </div>
-                    )}
                   </div>
 
                   <div
@@ -612,15 +587,15 @@ export function SlotDialog({
                       At least one staff member is required
                     </p>
                   )}
-                  {!isUsingStaffPlanningData && displayStaff?.length > 0 && (
-                    <p className='text-xs text-amber-600'>
-                      ⚠️ No staff planning found for semester &quot;
-                      {timetable?.semester}&quot;. Showing all available staff.
+                  {displayStaff?.length === 0 && (
+                    <p className='text-xs text-red-600'>
+                      ❌ No staff assigned to this course in staff planning for semester &quot;
+                      {timetable?.semester}&quot;. Please assign staff in Staff Planning module first.
                     </p>
                   )}
-                  {isUsingStaffPlanningData && (
+                  {displayStaff?.length > 0 && (
                     <p className='text-xs text-green-600'>
-                      ✓ Showing staff from staff planning for semester &quot;
+                      ✓ Showing staff assigned to this course from staff planning for semester &quot;
                       {timetable?.semester}&quot;
                     </p>
                   )}
@@ -800,16 +775,14 @@ export function SlotDialog({
                               Staff <span className='text-red-500'>*</span>
                             </Label>
                             <Badge variant='secondary' className='text-xs'>
-                              {staff?.length || 0} available
+                              {displayStaff?.length || 0} available
                             </Badge>
-                            {isUsingStaffPlanningData && (
-                              <Badge
-                                variant='default'
-                                className='text-xs bg-green-100 text-green-800 border-green-300'
-                              >
-                                From Staff Planning
-                              </Badge>
-                            )}
+                            <Badge
+                              variant='default'
+                              className='text-xs bg-green-100 text-green-800 border-green-300'
+                            >
+                              From Staff Planning Only
+                            </Badge>
                           </div>
                           <div
                             className={`border rounded-md p-2 max-h-24 overflow-y-auto ${
@@ -822,7 +795,7 @@ export function SlotDialog({
                                 : ''
                             }`}
                           >
-                            {staff?.map((staffMember: any) => (
+                            {displayStaff?.map((staffMember: any) => (
                               <div
                                 key={staffMember.id}
                                 className='flex items-center space-x-2 py-1'
@@ -868,9 +841,12 @@ export function SlotDialog({
                               </div>
                             ))}
 
-                            {staff?.length === 0 && (
+                            {displayStaff?.length === 0 && (
                               <div className='text-center py-2 text-gray-500 text-xs'>
-                                No staff available
+                                <div className='mb-1'>No staff assigned to this course</div>
+                                <div className='text-xs text-gray-400'>
+                                  Please assign staff in Staff Planning module first
+                                </div>
                               </div>
                             )}
                           </div>
