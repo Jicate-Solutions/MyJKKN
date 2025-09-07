@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -53,10 +53,11 @@ import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
-import { toast } from 'react-hot-toast';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
+import { useTemplates, useCreateFromTemplate } from '@/hooks/use-templates';
+import toast from 'react-hot-toast';
 
 // Define the schema for timetable creation
 const timetableFormSchema = z
@@ -90,6 +91,7 @@ const timetableFormSchema = z
     is_active: z.boolean().default(true),
     is_template: z.boolean().default(false),
     template_name: z.string().optional(),
+    selected_template_id: z.string().optional(),
     timetable_format: z.enum(['regular', 'batch']).default('regular')
   })
   .refine(
@@ -111,6 +113,7 @@ export default function NewTimetablePage() {
   const router = useRouter();
   const { createTimetable } = useTimetables();
   const { isSuperAdmin, userProfile } = usePermissions();
+  const createFromTemplate = useCreateFromTemplate();
 
   // Initialize the form first to use its state in hooks
   const form = useForm<TimetableFormValues>({
@@ -127,12 +130,13 @@ export default function NewTimetablePage() {
       is_active: true,
       is_template: false,
       template_name: '',
+      selected_template_id: 'no-template',
       start_date: undefined,
       end_date: undefined
     }
   });
 
-  // Watch form values for cascading dropdowns
+  // Watch form values for cascading dropdowns and validation
   const watchIsTemplate = form.watch('is_template');
   const watchInstitutionId = form.watch('institution_id');
   const watchDegreeId = form.watch('degree_id');
@@ -140,6 +144,9 @@ export default function NewTimetablePage() {
   const watchDepartmentId = form.watch('department_id');
   const watchSemesterId = form.watch('semester');
   const watchSectionId = form.watch('section');
+  const watchStartDate = form.watch('start_date');
+  const watchEndDate = form.watch('end_date');
+  const watchSelectedTemplateId = form.watch('selected_template_id');
 
   // Organization hooks for real data
   const {
@@ -233,6 +240,18 @@ export default function NewTimetablePage() {
     exists: false
   });
 
+  // Template-related data using React Query
+  const templatesQuery = useTemplates({
+    institution_id: watchInstitutionId || undefined,
+    limit: 50
+  });
+
+  const availableTemplates = useMemo(
+    () => templatesQuery.data?.data || [],
+    [templatesQuery.data?.data]
+  );
+  const loadingTemplates = templatesQuery.isLoading;
+
   // Debug semester data
   console.log('📚 Semester Data Debug:', {
     totalSemesters: allSemesters.length,
@@ -294,7 +313,36 @@ export default function NewTimetablePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Check for existing timetable when section changes
+  // Templates are now automatically fetched via React Query
+
+  // Handle template selection to prefill timetable format
+  useEffect(() => {
+    if (watchSelectedTemplateId && watchSelectedTemplateId !== 'no-template' && availableTemplates.length > 0) {
+      const selectedTemplate = availableTemplates.find(
+        (t: any) => t.id === watchSelectedTemplateId
+      );
+      if (selectedTemplate) {
+        form.setValue(
+          'timetable_format',
+          selectedTemplate.timetable_format || 'regular'
+        );
+        // Optionally prefill the timetable name with template name
+        if (
+          !form.getValues('timetable_name') ||
+          form.getValues('timetable_name') === ''
+        ) {
+          form.setValue(
+            'timetable_name',
+            `${
+              selectedTemplate.template_name || selectedTemplate.timetable_name
+            } - Copy`
+          );
+        }
+      }
+    }
+  }, [watchSelectedTemplateId, availableTemplates, form]);
+
+  // Check for existing timetable with date overlap validation
   const checkExistingTimetable = useCallback(async () => {
     const values = form.getValues();
 
@@ -311,9 +359,25 @@ export default function NewTimetablePage() {
       return;
     }
 
+    // Skip validation if dates are not provided (allow creation without dates)
+    if (!values.start_date || !values.end_date) {
+      setExistingTimetableCheck({ checking: false, exists: false });
+      form.clearErrors('start_date');
+      form.clearErrors('end_date');
+      return;
+    }
+
     setExistingTimetableCheck({ checking: true, exists: false });
 
     try {
+      // Format dates for API call
+      const formatDateForAPI = (date: Date): string => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
       const result = await TimetableService.checkExistingTimetable({
         institution_id: values.institution_id,
         academic_year_id: values.academic_year_id,
@@ -321,7 +385,9 @@ export default function NewTimetablePage() {
         program_id: values.program_id,
         department_id: values.department_id,
         semester: values.semester,
-        section: values.section
+        section: values.section,
+        start_date: formatDateForAPI(values.start_date),
+        end_date: formatDateForAPI(values.end_date)
       });
 
       setExistingTimetableCheck({
@@ -330,16 +396,23 @@ export default function NewTimetablePage() {
         message: result.message
       });
 
-      // Set form error if timetable exists
+      // Set form error if date overlap exists
       if (result.exists) {
-        toast.error(result.message || 'A timetable already exists for this section');
-        form.setError('section', {
+        toast.error(
+          result.message || 'Date period conflicts with existing timetable'
+        );
+        form.setError('start_date', {
           type: 'manual',
-          message: 'A timetable already exists for this section'
+          message: 'Date period overlaps with existing timetable'
+        });
+        form.setError('end_date', {
+          type: 'manual',
+          message: 'Date period overlaps with existing timetable'
         });
       } else {
-        // Clear section error if no conflict
-        form.clearErrors('section');
+        // Clear date errors if no conflict
+        form.clearErrors('start_date');
+        form.clearErrors('end_date');
       }
     } catch (error) {
       console.error('Error checking existing timetable:', error);
@@ -353,7 +426,7 @@ export default function NewTimetablePage() {
       checkExistingTimetable();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchSectionId, watchSemesterId]);
+  }, [watchSectionId, watchSemesterId, watchStartDate, watchEndDate]);
 
   // Form submission handler
   const onSubmit = async (values: TimetableFormValues) => {
@@ -374,11 +447,39 @@ export default function NewTimetablePage() {
         end_date: formatDateForDB(values.end_date)
       };
 
-      const createdTimetable = await createTimetable(formattedValues);
+      let createdTimetable;
+
+      // Check if creating from template
+      if (values.selected_template_id && values.selected_template_id !== 'no-template') {
+        createdTimetable = await createFromTemplate.mutateAsync({
+          templateId: values.selected_template_id,
+          timetableData: {
+            timetable_name: formattedValues.timetable_name,
+            institution_id: formattedValues.institution_id,
+            academic_year_id: formattedValues.academic_year_id,
+            degree_id: formattedValues.degree_id,
+            program_id: formattedValues.program_id,
+            department_id: formattedValues.department_id,
+            semester: formattedValues.semester,
+            section: formattedValues.section,
+            start_date: formattedValues.start_date,
+            end_date: formattedValues.end_date,
+            is_active: formattedValues.is_active
+          }
+        });
+      } else {
+        // Remove template-related fields for regular timetable creation
+        const { selected_template_id, ...cleanedValues } = formattedValues;
+        createdTimetable = await createTimetable(cleanedValues);
+      }
+
       if (createdTimetable) {
-        toast.success('Timetable created successfully!');
+        const successMessage = (values.selected_template_id && values.selected_template_id !== 'no-template')
+          ? 'Timetable created from template successfully!'
+          : 'Timetable created successfully!';
+        toast.success(successMessage);
         // Redirect to the newly created timetable's details page
-        router.push(`/academic/timetables/${createdTimetable.id}`);
+        router.push(`/academic/timetables/${(createdTimetable as any)?.id}`);
       } else {
         toast.error('Failed to create timetable. Please try again.');
       }
@@ -402,10 +503,13 @@ export default function NewTimetablePage() {
           });
         } else {
           // Generic error handling
-          toast.error(error.message || 'Failed to create timetable. Please try again.');
+          toast.error(
+            error.message || 'Failed to create timetable. Please try again.'
+          );
           form.setError('root', {
             type: 'manual',
-            message: error.message || 'Failed to create timetable. Please try again.'
+            message:
+              error.message || 'Failed to create timetable. Please try again.'
           });
         }
       }
@@ -481,7 +585,6 @@ export default function NewTimetablePage() {
           </div>
         )}
 
-
         <Card>
           <CardContent className='p-6'>
             <Form {...form}>
@@ -504,6 +607,78 @@ export default function NewTimetablePage() {
                         </FormControl>
                         <FormDescription>
                           A descriptive name for this timetable
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='selected_template_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Create from Template (Optional)</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          disabled={loadingTemplates || !watchInstitutionId}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select a template (optional)' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent className='max-h-60 overflow-y-auto'>
+                            <SelectItem value='no-template'>
+                              <div className='flex items-center gap-2'>
+                                <span className='text-muted-foreground'>
+                                  No template - Create from scratch
+                                </span>
+                              </div>
+                            </SelectItem>
+                            {availableTemplates.map((template: any) => (
+                              <SelectItem key={template.id} value={template.id}>
+                                <div className='flex flex-col gap-1'>
+                                  <span className='font-medium'>
+                                    {template.template_name ||
+                                      template.timetable_name}
+                                  </span>
+                                  {template.template_description && (
+                                    <span className='text-sm text-muted-foreground'>
+                                      {template.template_description}
+                                    </span>
+                                  )}
+                                  <div className='flex items-center gap-2 text-xs text-muted-foreground'>
+                                    <span>
+                                      {template.timetable_format === 'batch'
+                                        ? 'Batch'
+                                        : 'Regular'}
+                                    </span>
+                                    {template.periods && (
+                                      <span>
+                                        • {template.periods.length} periods
+                                      </span>
+                                    )}
+                                    {template.usage_count &&
+                                      template.usage_count > 0 && (
+                                        <span>
+                                          • Used {template.usage_count} times
+                                        </span>
+                                      )}
+                                  </div>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {loadingTemplates
+                            ? 'Loading templates...'
+                            : availableTemplates.length === 0 &&
+                              watchInstitutionId
+                            ? 'No templates available for this institution.'
+                            : 'Choose a template to copy its structure and periods configuration.'}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -761,8 +936,9 @@ export default function NewTimetablePage() {
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          The section for this timetable (e.g., A, B, C). Only
-                          one active timetable can exist per section.
+                          The section for this timetable (e.g., A, B, C).
+                          Multiple timetables can exist for the same section
+                          with non-overlapping date periods.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -846,7 +1022,8 @@ export default function NewTimetablePage() {
                           </PopoverContent>
                         </Popover>
                         <FormDescription>
-                          The start date of the timetable period
+                          The start date of the timetable period. Required for
+                          date overlap validation.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -892,7 +1069,8 @@ export default function NewTimetablePage() {
                           </PopoverContent>
                         </Popover>
                         <FormDescription>
-                          The end date of the timetable period
+                          The end date of the timetable period. Required for
+                          date overlap validation.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -987,7 +1165,9 @@ export default function NewTimetablePage() {
                     ) : (
                       <>
                         <Save className='mr-2 h-4 w-4' />
-                        Create Timetable
+                        {(watchSelectedTemplateId && watchSelectedTemplateId !== 'no-template')
+                          ? 'Create from Template'
+                          : 'Create Timetable'}
                       </>
                     )}
                   </Button>

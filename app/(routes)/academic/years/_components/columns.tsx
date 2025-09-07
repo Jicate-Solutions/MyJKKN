@@ -19,6 +19,9 @@ export const columns: ColumnDef<AcademicYear>[] = [
         aria-label='Select all'
       />
     ),
+    size: 50,
+    minSize: 50,
+    maxSize: 50,
     cell: ({ row }) => (
       <Checkbox
         checked={row.getIsSelected()}
@@ -34,6 +37,9 @@ export const columns: ColumnDef<AcademicYear>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Academic Year' />
     ),
+    size: 50,
+    minSize: 50,
+    maxSize: 50,
     cell: ({ row }) => {
       const academicYear = row.original;
       return (
@@ -44,6 +50,19 @@ export const columns: ColumnDef<AcademicYear>[] = [
           {academicYear.academic_year_name}
         </Link>
       );
+    }
+  },
+  {
+    accessorKey: 'institution',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Institution' />
+    ),
+    size: 300,
+    minSize: 300,
+    maxSize: 350,
+    cell: ({ row }) => {
+      const academicYear = row.original;
+      return academicYear.institution?.name || 'N/A';
     }
   },
   {
@@ -66,16 +85,7 @@ export const columns: ColumnDef<AcademicYear>[] = [
       return date ? format(new Date(date), 'dd MMM yyyy') : 'N/A';
     }
   },
-  {
-    accessorKey: 'institution',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Institution' />
-    ),
-    cell: ({ row }) => {
-      const academicYear = row.original;
-      return academicYear.institution?.name || 'N/A';
-    }
-  },
+
   {
     accessorKey: 'is_active',
     header: ({ column }) => (
