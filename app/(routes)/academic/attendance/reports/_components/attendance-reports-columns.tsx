@@ -117,7 +117,9 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
       const assignedFaculty = row.original.assigned_faculty;
       const assignedFacultyList = row.original.assigned_faculty_list;
       const originalFacultyName = row.getValue('faculty_name') as string;
+      const markedBy = row.original.marked_by;
 
+      // Updated: 2025-09-05 - Enhanced conflict detection and display consistency
       // Use assigned faculty if available, otherwise fall back to original logic
       const displayName =
         assignedFaculty ||
@@ -128,6 +130,7 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
       // For table display: show primary faculty + staff count
       let primaryFacultyName = displayName;
       let additionalStaffCount = 0;
+      let isMarkedByDifferent = false;
 
       if (assignedFacultyList && assignedFacultyList.length > 0) {
         // Find primary faculty or use first one
@@ -136,6 +139,22 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
           assignedFacultyList[0];
         primaryFacultyName = primaryFaculty.name;
         additionalStaffCount = assignedFacultyList.length - 1;
+
+        // Check if marked_by is different from any assigned faculty
+        const markedByName = (typeof markedBy === 'object' && markedBy !== null)
+          ? ((markedBy as any).full_name || (markedBy as any).email || '').toUpperCase().trim()
+          : (markedBy as string || '').toUpperCase().trim();
+
+        isMarkedByDifferent = !assignedFacultyList.some(faculty => 
+          (faculty.name || '').toUpperCase().trim() === markedByName
+        );
+      } else {
+        // Fallback: compare with displayName
+        const markedByName = (typeof markedBy === 'object' && markedBy !== null)
+          ? ((markedBy as any).full_name || (markedBy as any).email || '').toUpperCase().trim()
+          : (markedBy as string || '').toUpperCase().trim();
+        
+        isMarkedByDifferent = displayName.toUpperCase().trim() !== markedByName && markedByName !== '';
       }
 
       return (
@@ -148,6 +167,11 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
               </span>
             )}
           </div>
+          {isMarkedByDifferent && (
+            <Badge variant='outline' className='text-xs border-amber-300 text-amber-700 bg-amber-50'>
+              ⚠️ Different marker
+            </Badge>
+          )}
         </div>
       );
     }
@@ -187,17 +211,40 @@ export const attendanceReportColumns: ColumnDef<AttendanceReportRecord>[] = [
   {
     accessorKey: 'marked_at',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Marked At' />
+      <DataTableColumnHeader column={column} title='Marked By' />
     ),
     cell: ({ row }) => {
       const markedAt = row.getValue('marked_at') as string;
       const markedBy = row.original.marked_by;
+      const assignedFacultyList = row.original.assigned_faculty_list;
+      const assignedFaculty = row.original.assigned_faculty;
+
+      // Updated: 2025-09-05 - Enhanced marked by display with conflict detection
+      const markedByName = (typeof markedBy === 'object' && markedBy !== null)
+        ? ((markedBy as any).full_name || (markedBy as any).email || 'Unknown')
+        : (markedBy as string || 'Unknown');
+
+      // Check if marked by someone different from assigned faculty
+      let isConflict = false;
+      if (assignedFacultyList && assignedFacultyList.length > 0) {
+        isConflict = !assignedFacultyList.some(faculty => 
+          (faculty.name || '').toUpperCase().trim() === markedByName.toUpperCase().trim()
+        );
+      } else if (assignedFaculty) {
+        isConflict = assignedFaculty.toUpperCase().trim() !== markedByName.toUpperCase().trim();
+      }
+
       return (
         <div>
           <div className='text-sm font-medium'>
             {format(new Date(markedAt), 'dd MMM, hh:mm a')}
           </div>
-          <div className='text-xs text-muted-foreground'>by {markedBy}</div>
+          <div className={`text-xs ${isConflict ? 'text-amber-600 font-medium' : 'text-muted-foreground'}`}>
+            by {markedByName}
+            {isConflict && (
+              <span className='ml-1 text-amber-500'>⚠️</span>
+            )}
+          </div>
         </div>
       );
     }

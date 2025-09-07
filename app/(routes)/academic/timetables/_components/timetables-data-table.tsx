@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { TimetablesSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon } from 'lucide-react';
+import { Plus, TrashIcon, RefreshCcw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { Timetable } from '@/types/academics';
@@ -41,6 +41,12 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
     null
   );
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Real-time refresh mechanism
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const dataTableRefreshRef = useRef<(() => void) | null>(null);
 
   // Wait for permissions and profile to be loaded before rendering the table
   const isReady = !permissionsLoading && !!userProfile;
@@ -50,6 +56,34 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
     isSuperAdmin || canAccess('academic.timetables', 'create');
   const canDeleteTimetable =
     isSuperAdmin || canAccess('academic.timetables', 'delete');
+
+  // Auto-refresh mechanism to catch automatic sync updates
+  useEffect(() => {
+    if (!autoRefreshEnabled) return;
+
+    const checkForUpdates = () => {
+      // Only refresh if it's been more than 30 seconds since last refresh
+      const now = new Date();
+      const timeSinceLastRefresh = now.getTime() - lastRefresh.getTime();
+      
+      if (timeSinceLastRefresh > 30000) { // 30 seconds
+        setLastRefresh(now);
+        if (dataTableRefreshRef.current) {
+          dataTableRefreshRef.current();
+          toast.success('🔄 Timetable data refreshed automatically');
+        }
+      }
+    };
+
+    // Check for updates every 2 minutes
+    refreshIntervalRef.current = setInterval(checkForUpdates, 120000);
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [autoRefreshEnabled, lastRefresh]);
 
   const fetchData = async (params: {
     page: number;
@@ -181,37 +215,69 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
     allSelectedIds: (string | number)[];
     totalSelectedCount: number;
     resetSelection: () => void;
-  }) => (
-    <div className='flex items-center gap-2'>
-      {canCreateTimetable && (
-        <Button
-          onClick={() => router.push('/academic/timetables/new')}
-          size='sm'
-          className='h-8'
-        >
-          <Plus className='mr-2 h-4 w-4' />
-          Add Timetable
-        </Button>
-      )}
+    refreshData?: () => void;
+  }) => {
+    // Store the refresh function for auto-refresh
+    if (props.refreshData && !dataTableRefreshRef.current) {
+      dataTableRefreshRef.current = props.refreshData;
+    }
 
-      {canDeleteTimetable && props.selectedRows.length > 0 && (
+    return (
+      <div className='flex items-center gap-2'>
+        {canCreateTimetable && (
+          <Button
+            onClick={() => router.push('/academic/timetables/new')}
+            size='sm'
+            className='h-8'
+          >
+            <Plus className='mr-2 h-4 w-4' />
+            Add Timetable
+          </Button>
+        )}
+
+        {/* Manual Refresh Button */}
         <Button
-          onClick={() =>
-            handleBulkDelete(
-              props.selectedRows as Timetable[],
-              props.resetSelection
-            )
-          }
-          variant='destructive'
+          onClick={() => {
+            if (props.refreshData) {
+              props.refreshData();
+              setLastRefresh(new Date());
+              toast.success('🔄 Timetable data refreshed');
+            }
+          }}
           size='sm'
+          variant='outline'
           className='h-8'
         >
-          <TrashIcon className='mr-2 h-4 w-4' />
-          Delete Selected ({props.selectedRows.length})
+          <RefreshCcw className='mr-2 h-4 w-4' />
+          Refresh
         </Button>
-      )}
-    </div>
-  );
+
+        {canDeleteTimetable && props.selectedRows.length > 0 && (
+          <Button
+            onClick={() =>
+              handleBulkDelete(
+                props.selectedRows as Timetable[],
+                props.resetSelection
+              )
+            }
+            variant='destructive'
+            size='sm'
+            className='h-8'
+          >
+            <TrashIcon className='mr-2 h-4 w-4' />
+            Delete Selected ({props.selectedRows.length})
+          </Button>
+        )}
+        
+        {/* Auto-refresh indicator */}
+        {autoRefreshEnabled && (
+          <div className='text-xs text-muted-foreground ml-2'>
+            Auto-refresh enabled (2min intervals)
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Show loading state while waiting for permissions and profile
   if (!isReady) {

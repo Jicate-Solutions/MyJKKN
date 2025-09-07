@@ -111,7 +111,7 @@ export interface AttendanceReportRecord {
   present_count: number;
   absent_count: number;
   attendance_percentage: number;
-  marked_by: string;
+  marked_by: string | { full_name?: string; email?: string } | null;
   marked_at: string;
   total_count: number;
 }
@@ -884,6 +884,7 @@ export class AttendanceAnalyticsService {
 
       console.log('🔍 Sending RPC params:', rpcParams);
 
+      // Updated: 2025-09-05 - Revert to original function temporarily
       const { data, error } = await supabase.rpc(
         'get_attendance_report_list',
         rpcParams
@@ -948,12 +949,13 @@ export class AttendanceAnalyticsService {
         }
       }
 
+      // Updated: 2025-09-05 - Enhanced post-processing to fix course and staff conflicts
       const reportsWithFixedCourseCode = await this.fixCourseCodesInReports(
         data || []
       );
 
-      // Enhance reports with correct assigned faculty information
-      const enhancedReports = await this.enhanceReportsWithAssignedFaculty(
+      // Post-process to add assigned faculty information from timetable data
+      const enhancedReports = await this.enhanceReportsWithTimetableData(
         reportsWithFixedCourseCode
       );
 
@@ -976,6 +978,203 @@ export class AttendanceAnalyticsService {
       console.error('Error fetching attendance reports:', error);
       throw error;
     }
+  }
+
+  /**
+   * Updated: 2025-09-05 - Enhanced method to fix timetable data mapping conflicts
+   * Enhance attendance reports with correct timetable information
+   */
+  private static async enhanceReportsWithTimetableData(
+    reports: AttendanceReportRecord[]
+  ): Promise<AttendanceReportRecord[]> {
+    if (!reports || reports.length === 0) {
+      return [];
+    }
+
+    const supabase = this.getSupabase();
+
+    // Process each report to get correct timetable information
+    const enhancedReports = await Promise.all(
+      reports.map(async (report) => {
+        try {
+          // Get timetable data for this attendance record
+          const { data: timetableData, error } = await supabase
+            .from('student_attendance')
+            .select(
+              `
+              timetable_id,
+              timetables!inner(
+                id,
+                timetable_data
+              )
+            `
+            )
+            .eq('id', report.id)
+            .single();
+
+          if (error || !timetableData) {
+            console.warn(
+              `No timetable data found for report ${report.id}:`,
+              error
+            );
+            return report;
+          }
+
+          const timetable = Array.isArray(timetableData.timetables)
+            ? timetableData.timetables[0]
+            : timetableData.timetables;
+          if (!timetable?.timetable_data || !report.period_id) {
+            return report;
+          }
+
+          // Extract correct course and staff information from timetable_data
+          const timetableSlots = timetable.timetable_data as any;
+          let matchingSlot: any = null;
+
+          // Search through timetable structure to find matching slot
+          // Timetable structure: DAY -> PERIOD_UUID -> slot_data
+          console.log(
+            `🔍 Searching for period ${report.period_id} in timetable ${timetable.id}`
+          );
+
+          for (const dayKey of Object.keys(timetableSlots)) {
+            const dayData = timetableSlots[dayKey];
+            if (typeof dayData === 'object') {
+              // Each period key is a UUID that might match the report.period_id
+              for (const periodKey of Object.keys(dayData)) {
+                const slotData = dayData[periodKey];
+                console.log(
+                  `  Checking ${dayKey}/${periodKey}: slot_id=${slotData?.slot_id}`
+                );
+
+                if (
+                  slotData &&
+                  (slotData.slot_id === report.period_id ||
+                    periodKey === report.period_id)
+                ) {
+                  matchingSlot = slotData;
+                  console.log(
+                    `✅ Found matching slot for period ${report.period_id}:`,
+                    {
+                      day: dayKey,
+                      periodKey,
+                      slot_id: slotData.slot_id,
+                      staff_ids: slotData.staff_ids,
+                      primary_staff_id: slotData.primary_staff_id,
+                      matchedBy:
+                        slotData.slot_id === report.period_id
+                          ? 'slot_id'
+                          : 'periodKey'
+                    }
+                  );
+                  break;
+                }
+              }
+              if (matchingSlot) break;
+            }
+          }
+
+          if (!matchingSlot) {
+            console.warn(
+              `❌ No matching slot found for period ${
+                report.period_id
+              } in timetable ${timetable?.id || 'unknown'}`
+            );
+            console.log(
+              '🔍 Available slots in timetable:',
+              Object.keys(timetableSlots).reduce((acc, day) => {
+                acc[day] = Object.keys(timetableSlots[day]).map(
+                  (periodKey) => ({
+                    periodKey,
+                    slot_id: timetableSlots[day][periodKey]?.slot_id
+                  })
+                );
+                return acc;
+              }, {} as any)
+            );
+            return report;
+          }
+
+          // Get assigned staff information
+          let assignedFaculty = 'Unknown Faculty';
+          let assignedFacultyList: any[] = [];
+
+          if (
+            matchingSlot.staff_ids &&
+            Array.isArray(matchingSlot.staff_ids) &&
+            matchingSlot.staff_ids.length > 0
+          ) {
+            const { data: staffData, error: staffError } = await supabase
+              .from('staff')
+              .select('id, first_name, last_name, email, institution_email')
+              .in('id', matchingSlot.staff_ids);
+
+            if (staffError) {
+              console.warn(
+                `Error fetching staff for slot ${report.period_id}:`,
+                staffError
+              );
+            } else if (staffData && staffData.length > 0) {
+              assignedFacultyList = staffData.map((staff) => ({
+                id: staff.id,
+                name:
+                  `${staff.first_name || ''} ${staff.last_name || ''}`.trim() ||
+                  'Unknown Staff',
+                email: staff.email || staff.institution_email || 'N/A',
+                isPrimary: staff.id === matchingSlot.primary_staff_id
+              }));
+
+              // Set primary faculty as assigned faculty
+              const primaryStaff =
+                assignedFacultyList.find((s) => s.isPrimary) ||
+                assignedFacultyList[0];
+              assignedFaculty = primaryStaff.name;
+
+              console.log(
+                `✅ Found ${assignedFacultyList.length} staff for period ${report.period_id}:`,
+                {
+                  assignedFaculty,
+                  staffList: assignedFacultyList.map((s) => ({
+                    name: s.name,
+                    isPrimary: s.isPrimary
+                  }))
+                }
+              );
+            } else {
+              console.warn(
+                `No staff data found for staff IDs:`,
+                matchingSlot.staff_ids
+              );
+            }
+          } else {
+            console.warn(
+              `No staff IDs found in matching slot for period ${report.period_id}`
+            );
+          }
+
+          // Return enhanced report with correct timetable information
+          return {
+            ...report,
+            course_name: matchingSlot.course_name || report.course_name,
+            course_code: matchingSlot.course_code || report.course_code,
+            period_name: matchingSlot.period_name || report.period_name,
+            start_time: matchingSlot.start_time || report.start_time,
+            end_time: matchingSlot.end_time || report.end_time,
+            assigned_faculty: assignedFaculty,
+            assigned_faculty_list: assignedFacultyList
+          };
+        } catch (error) {
+          console.error(`Error enhancing report ${report.id}:`, error);
+          return report;
+        }
+      })
+    );
+
+    console.log(
+      '✅ Enhanced reports with timetable data:',
+      enhancedReports.slice(0, 2)
+    );
+    return enhancedReports;
   }
 
   /**
@@ -1837,10 +2036,10 @@ export class AttendanceAnalyticsService {
 
       if (error) throw error;
 
-      return (data || []).map((item) => ({
+      return (data || []).map((item, index) => ({
         id: item.id,
         name: item.semester_name,
-        code: item.semester_code
+        number: parseInt(item.semester_code) || index + 1
       }));
     } catch (error) {
       console.error('Error fetching semesters:', error);

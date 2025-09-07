@@ -284,7 +284,12 @@ export function AttendanceReportRowActions({
                   <span className='text-sm text-muted-foreground'>
                     Marked By:
                   </span>
-                  <div className='font-medium'>{report.marked_by}</div>
+                  <div className='font-medium'>
+                    {(typeof report.marked_by === 'object' && report.marked_by !== null)
+                      ? ((report.marked_by as any).full_name || (report.marked_by as any).email || 'Unknown')
+                      : (report.marked_by as string || 'Unknown')
+                    }
+                  </div>
                   {report.marked_by !==
                     (report.assigned_faculty || report.faculty_name) && (
                     <div className='text-xs text-blue-600 mt-1'>

@@ -977,13 +977,31 @@ export default function AttendanceMarkPage() {
         }
       }
 
+      // Updated: 2025-09-05 - Get course info from timetable data first, then URL fallback
+      const timetableSlotData = contextData?.timetable_data;
+      const correctCourseInfo = {
+        course_id: timetableSlotData?.course?.id || contextData?.timetable_data?.course?.id || null,
+        course_name: timetableSlotData?.course_name || timetableSlotData?.course?.course_name || courseName || 'Unknown Course',
+        course_code: timetableSlotData?.course_code || timetableSlotData?.course?.course_code || 'N/A'
+      };
+
+      console.log('🔍 Course info resolution:', {
+        from_timetable: {
+          course_name: timetableSlotData?.course_name,
+          course_id: timetableSlotData?.course?.id
+        },
+        from_url: courseName,
+        final_used: correctCourseInfo
+      });
+
       // Prepare attendance data
       const attendancePayload = {
         [periodId || 'default']: {
           period_id: periodId || 'default',
           period_name: periodName || 'Unknown Period',
-          course_id: contextData?.timetable_data?.course?.id || null,
-          course_name: courseName || 'Unknown Course',
+          course_id: correctCourseInfo.course_id,
+          course_name: correctCourseInfo.course_name,
+          course_code: correctCourseInfo.course_code,
           start_time: startTime || '',
           end_time: endTime || '',
           faculty_name: facultyName,

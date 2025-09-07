@@ -607,6 +607,74 @@ BEGIN
 END;
 $$;
 
+-- Updated: 2025-09-05 - Added staff assignment validation for attendance marking
+-- Validate staff assignment before allowing attendance marking
+CREATE OR REPLACE FUNCTION public.validate_attendance_staff_assignment()
+RETURNS TRIGGER AS $$
+DECLARE
+    timetable_staff_ids UUID[];
+    is_super_admin BOOLEAN := FALSE;
+    period_slot JSONB;
+    day_key TEXT;
+    period_key TEXT;
+    timetable_data_obj JSONB;
+BEGIN
+    -- Skip validation for super admins and system operations
+    SELECT EXISTS(
+        SELECT 1 FROM user_institution_access uia
+        JOIN profiles p ON uia.user_id = p.id
+        WHERE uia.user_id = NEW.marked_by 
+        AND uia.role = 'super_admin'
+        AND uia.institution_id = NEW.institution_id
+        AND uia.is_active = true
+    ) INTO is_super_admin;
+    
+    IF is_super_admin THEN
+        RETURN NEW;
+    END IF;
+    
+    -- Get timetable data
+    SELECT t.timetable_data 
+    INTO timetable_data_obj
+    FROM timetables t
+    WHERE t.id = NEW.timetable_id;
+    
+    IF timetable_data_obj IS NULL THEN
+        RAISE EXCEPTION 'Timetable data not found for timetable_id: %', NEW.timetable_id;
+    END IF;
+    
+    -- Find the period slot that matches this attendance record
+    -- Search through all days and periods in timetable_data
+    FOR day_key IN SELECT jsonb_object_keys(timetable_data_obj)
+    LOOP
+        FOR period_key IN SELECT jsonb_object_keys(timetable_data_obj -> day_key)
+        LOOP
+            -- Check if this slot has staff assignments
+            period_slot := timetable_data_obj -> day_key -> period_key;
+            
+            -- Extract staff_ids array from the period slot
+            IF period_slot ? 'staff_ids' AND jsonb_array_length(period_slot -> 'staff_ids') > 0 THEN
+                -- Convert JSONB array to UUID array for checking
+                SELECT ARRAY(
+                    SELECT (value#>>'{}')::UUID 
+                    FROM jsonb_array_elements(period_slot -> 'staff_ids')
+                ) INTO timetable_staff_ids;
+                
+                -- Check if marked_by user is in the assigned staff list
+                IF NEW.marked_by = ANY(timetable_staff_ids) THEN
+                    RETURN NEW; -- Authorized staff member
+                END IF;
+            END IF;
+        END LOOP;
+    END LOOP;
+    
+    -- If we reach here, the user is not authorized
+    RAISE EXCEPTION 'User % is not assigned to mark attendance for this timetable period. Only assigned staff or super admins can mark attendance.', NEW.marked_by;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ================================================================================
 -- SECTION 5: TIMETABLE MODULE FUNCTIONS
 -- ================================================================================
@@ -1910,3 +1978,336 @@ BEGIN
     RETURN v_log_id;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ================================================================================
+-- SECTION: TIMETABLE STAFF SYNCHRONIZATION FUNCTIONS
+-- Updated: 2025-01-17 - Added timetable staff planning conflict detection
+-- ================================================================================
+
+-- Find timetable slots that have conflicts with staff planning for a specific course
+CREATE OR REPLACE FUNCTION public.find_timetable_staff_conflicts_for_course(
+    p_course_id uuid,
+    p_staff_id uuid
+)
+RETURNS TABLE (
+    timetable_id uuid,
+    timetable_name text,
+    semester text,
+    section text,
+    day_key text,
+    slot_key text
+) 
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT DISTINCT
+        t.id as timetable_id,
+        t.timetable_name,
+        t.semester,
+        t.section,
+        day_data.key as day_key,
+        slot_data.key as slot_key
+    FROM timetables t,
+    LATERAL jsonb_each(t.timetable_data) AS day_data(key, value),
+    LATERAL jsonb_each(day_data.value) AS slot_data(key, value)
+    WHERE t.is_active = true
+      AND slot_data.value->>'course_id' = p_course_id::text
+      AND slot_data.value->>'primary_staff_id' = p_staff_id::text
+      AND slot_data.value->>'is_break_slot' = 'false';
+END;
+$$;
+
+-- Get comprehensive timetable staff conflicts (improved to handle multiple staff planning)
+CREATE OR REPLACE FUNCTION public.get_all_timetable_staff_conflicts()
+RETURNS TABLE (
+    timetable_id uuid,
+    timetable_name text,
+    semester text,
+    section text,
+    course_id uuid,
+    course_name text,
+    timetable_staff_id uuid,
+    timetable_staff_name text,
+    planned_staff_id uuid,
+    planned_staff_name text,
+    conflict_type text
+) 
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH timetable_staff_data AS (
+        SELECT DISTINCT
+            t.id as timetable_id,
+            t.timetable_name,
+            t.semester,
+            t.section,
+            t.academic_year_id,
+            t.degree_id,
+            t.program_id,
+            t.department_id,
+            slot_info.course_id::uuid as course_id,
+            slot_info.primary_staff_id::uuid as primary_staff_id
+        FROM timetables t,
+        LATERAL (
+            SELECT 
+                jsonb_path_query(t.timetable_data, '$.*.*')->>'course_id' as course_id,
+                jsonb_path_query(t.timetable_data, '$.*.*')->>'primary_staff_id' as primary_staff_id,
+                jsonb_path_query(t.timetable_data, '$.*.*')->>'is_break_slot' as is_break_slot
+        ) AS slot_info
+        WHERE t.is_active = true
+            AND slot_info.is_break_slot = 'false'
+            AND slot_info.course_id IS NOT NULL 
+            AND slot_info.primary_staff_id IS NOT NULL
+            AND slot_info.course_id != 'null'
+            AND slot_info.primary_staff_id != 'null'
+    ),
+    staff_plan_summary AS (
+        -- For each course, check if current timetable staff is in the planning
+        -- If multiple staff are planned, prioritize the one matching current assignment
+        SELECT DISTINCT
+            spc.course_id,
+            sp.academic_year_id,
+            sp.degree_id,
+            sp.program_id,
+            sp.department_id,
+            sp.semester_id,
+            tsd.primary_staff_id as current_staff_id,
+            CASE 
+                -- If current staff is in planning, use that
+                WHEN EXISTS (
+                    SELECT 1 FROM staff_plan_courses spc2 
+                    JOIN staff_plans sp2 ON spc2.staff_plan_id = sp2.id 
+                    WHERE spc2.course_id = spc.course_id 
+                      AND spc2.staff_id = tsd.primary_staff_id
+                      AND sp2.academic_year_id = sp.academic_year_id
+                      AND sp2.degree_id = sp.degree_id
+                      AND sp2.program_id = sp.program_id
+                      AND sp2.department_id = sp.department_id
+                      AND sp2.is_active = true
+                ) THEN tsd.primary_staff_id
+                -- Otherwise, pick the first planned staff (arbitrary but consistent)
+                ELSE (
+                    SELECT spc3.staff_id FROM staff_plan_courses spc3 
+                    JOIN staff_plans sp3 ON spc3.staff_plan_id = sp3.id 
+                    WHERE spc3.course_id = spc.course_id 
+                      AND sp3.academic_year_id = sp.academic_year_id
+                      AND sp3.degree_id = sp.degree_id
+                      AND sp3.program_id = sp.program_id
+                      AND sp3.department_id = sp.department_id
+                      AND sp3.is_active = true
+                    ORDER BY spc3.staff_id LIMIT 1
+                )
+            END as planned_staff_id
+        FROM staff_plan_courses spc
+        JOIN staff_plans sp ON spc.staff_plan_id = sp.id
+        CROSS JOIN timetable_staff_data tsd
+        WHERE sp.is_active = true
+          AND spc.course_id = tsd.course_id
+          AND sp.academic_year_id = tsd.academic_year_id
+          AND sp.degree_id = tsd.degree_id
+          AND sp.program_id = tsd.program_id
+          AND sp.department_id = tsd.department_id
+    )
+    SELECT 
+        tsd.timetable_id,
+        tsd.timetable_name,
+        tsd.semester,
+        tsd.section,
+        tsd.course_id,
+        c.course_name,
+        tsd.primary_staff_id as timetable_staff_id,
+        CONCAT(assigned_staff.first_name, ' ', assigned_staff.last_name) as timetable_staff_name,
+        sps.planned_staff_id,
+        CONCAT(planned_staff.first_name, ' ', planned_staff.last_name) as planned_staff_name,
+        CASE 
+            WHEN sps.planned_staff_id IS NULL THEN 'NO_STAFF_PLAN'
+            WHEN sps.planned_staff_id != tsd.primary_staff_id THEN 'STAFF_MISMATCH'
+            ELSE 'CORRECT'
+        END as conflict_type
+    FROM timetable_staff_data tsd
+    LEFT JOIN staff_plan_summary sps ON (
+        tsd.course_id = sps.course_id 
+        AND tsd.academic_year_id = sps.academic_year_id
+        AND tsd.degree_id = sps.degree_id
+        AND tsd.program_id = sps.program_id
+        AND tsd.department_id = sps.department_id
+        AND tsd.primary_staff_id = sps.current_staff_id
+    )
+    LEFT JOIN courses c ON tsd.course_id = c.id
+    LEFT JOIN staff assigned_staff ON tsd.primary_staff_id = assigned_staff.id
+    LEFT JOIN staff planned_staff ON sps.planned_staff_id = planned_staff.id
+    WHERE (sps.planned_staff_id IS NULL OR sps.planned_staff_id != tsd.primary_staff_id)
+    ORDER BY tsd.timetable_name, c.course_name;
+END;
+$$;
+
+-- Auto-sync timetables when staff planning changes
+CREATE OR REPLACE FUNCTION public.auto_sync_timetables_on_staff_plan_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_course_id uuid;
+    v_old_staff_id uuid;
+    v_new_staff_id uuid;
+    v_staff_plan_record record;
+    v_timetable_record record;
+    v_sync_count integer := 0;
+BEGIN
+    -- Handle different trigger events
+    IF TG_OP = 'UPDATE' THEN
+        -- Staff assignment changed
+        v_course_id := NEW.course_id;
+        v_old_staff_id := OLD.staff_id;
+        v_new_staff_id := NEW.staff_id;
+        
+        -- Get staff plan context for filtering
+        SELECT * INTO v_staff_plan_record
+        FROM staff_plans 
+        WHERE id = NEW.staff_plan_id AND is_active = true;
+        
+    ELSIF TG_OP = 'INSERT' THEN
+        -- New staff assignment added
+        v_course_id := NEW.course_id;
+        v_old_staff_id := NULL;
+        v_new_staff_id := NEW.staff_id;
+        
+        -- Get staff plan context for filtering
+        SELECT * INTO v_staff_plan_record
+        FROM staff_plans 
+        WHERE id = NEW.staff_plan_id AND is_active = true;
+        
+    ELSIF TG_OP = 'DELETE' THEN
+        -- Staff assignment removed - use OLD record
+        v_course_id := OLD.course_id;
+        v_old_staff_id := OLD.staff_id;
+        v_new_staff_id := NULL;
+        
+        -- Get staff plan context for filtering
+        SELECT * INTO v_staff_plan_record
+        FROM staff_plans 
+        WHERE id = OLD.staff_plan_id AND is_active = true;
+    END IF;
+
+    -- Skip if no staff plan context found
+    IF v_staff_plan_record IS NULL THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    -- Only process if there's an actual staff change
+    IF (TG_OP = 'UPDATE' AND v_old_staff_id != v_new_staff_id) OR TG_OP = 'INSERT' OR TG_OP = 'DELETE' THEN
+        
+        -- Find all timetables that need syncing for this course and context
+        FOR v_timetable_record IN
+            SELECT DISTINCT t.id as timetable_id
+            FROM timetables t,
+            LATERAL (
+                SELECT 
+                    jsonb_path_query(t.timetable_data, '$.*.*')->>'course_id' as course_id,
+                    jsonb_path_query(t.timetable_data, '$.*.*')->>'primary_staff_id' as primary_staff_id,
+                    jsonb_path_query(t.timetable_data, '$.*.*')->>'is_break_slot' as is_break_slot
+            ) AS slot_info
+            WHERE t.is_active = true
+              AND t.academic_year_id = v_staff_plan_record.academic_year_id
+              AND t.degree_id = v_staff_plan_record.degree_id
+              AND t.program_id = v_staff_plan_record.program_id
+              AND t.department_id = v_staff_plan_record.department_id
+              AND slot_info.course_id::uuid = v_course_id
+              AND slot_info.is_break_slot = 'false'
+              AND slot_info.primary_staff_id::uuid = COALESCE(v_old_staff_id, v_new_staff_id)
+        LOOP
+            -- Auto-sync the timetable if there's a new staff assignment
+            IF v_new_staff_id IS NOT NULL AND v_old_staff_id IS NOT NULL THEN
+                PERFORM sync_timetable_staff_assignment(
+                    v_timetable_record.timetable_id,
+                    v_course_id,
+                    v_old_staff_id,
+                    v_new_staff_id
+                );
+                v_sync_count := v_sync_count + 1;
+            END IF;
+        END LOOP;
+
+        -- Log the sync operation (using RAISE NOTICE for debugging)
+        RAISE NOTICE 'Auto-synced % timetables after staff planning change for course %. Operation: %, Old Staff: %, New Staff: %', 
+            v_sync_count, v_course_id, TG_OP, v_old_staff_id, v_new_staff_id;
+    END IF;
+
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+-- Sync timetable staff assignment with staff planning
+CREATE OR REPLACE FUNCTION public.sync_timetable_staff_assignment(
+    p_timetable_id uuid,
+    p_course_id uuid,
+    p_old_staff_id uuid,
+    p_new_staff_id uuid
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+    v_timetable_data jsonb;
+    v_updated_data jsonb;
+    v_day_key text;
+    v_slot_key text;
+    v_slot_data jsonb;
+BEGIN
+    -- Get current timetable data
+    SELECT timetable_data INTO v_timetable_data
+    FROM timetables 
+    WHERE id = p_timetable_id;
+    
+    IF v_timetable_data IS NULL THEN
+        RETURN false;
+    END IF;
+    
+    v_updated_data := v_timetable_data;
+    
+    -- Iterate through all days and slots to update staff assignments
+    FOR v_day_key IN SELECT jsonb_object_keys(v_timetable_data)
+    LOOP
+        FOR v_slot_key IN SELECT jsonb_object_keys(v_timetable_data -> v_day_key)
+        LOOP
+            v_slot_data := v_timetable_data -> v_day_key -> v_slot_key;
+            
+            -- Check if this slot matches the course and old staff
+            IF (v_slot_data->>'course_id')::uuid = p_course_id 
+               AND (v_slot_data->>'primary_staff_id')::uuid = p_old_staff_id THEN
+                
+                -- Update primary_staff_id
+                v_slot_data := jsonb_set(v_slot_data, '{primary_staff_id}', to_jsonb(p_new_staff_id::text));
+                
+                -- Update staff_ids array (replace old staff with new staff)
+                v_slot_data := jsonb_set(
+                    v_slot_data, 
+                    '{staff_ids}', 
+                    jsonb_build_array(p_new_staff_id::text)
+                );
+                
+                -- Update the slot in the main data structure
+                v_updated_data := jsonb_set(
+                    v_updated_data,
+                    ARRAY[v_day_key, v_slot_key],
+                    v_slot_data
+                );
+            END IF;
+        END LOOP;
+    END LOOP;
+    
+    -- Update the timetable with new data
+    UPDATE timetables 
+    SET timetable_data = v_updated_data,
+        updated_at = now()
+    WHERE id = p_timetable_id;
+    
+    RETURN true;
+END;
+$$;
