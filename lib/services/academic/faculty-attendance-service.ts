@@ -185,10 +185,37 @@ export class FacultyAttendanceService {
       });
 
       const allPeriodsResults = await Promise.all(allPeriodsPromises);
-      const facultyPeriods = allPeriodsResults.flat();
+      const allPeriods = allPeriodsResults.flat();
+
+      // Deduplicate periods based on unique combination of key fields
+      const periodMap = new Map<string, AttendancePeriodOption>();
+      
+      for (const period of allPeriods) {
+        // Create a unique key based on:
+        // - course ID (if available)
+        // - start time
+        // - end time  
+        // - period name
+        // - section name
+        const uniqueKey = `${period.course?.id || 'no-course'}_${period.start_time}_${period.end_time}_${period.period_name}_${period.section_name || 'no-section'}`;
+        
+        // Only add if we haven't seen this period before
+        if (!periodMap.has(uniqueKey)) {
+          periodMap.set(uniqueKey, period);
+        } else {
+          console.log('Skipping duplicate period:', {
+            uniqueKey,
+            period_name: period.period_name,
+            course: period.course?.course_name,
+            section: period.section_name
+          });
+        }
+      }
+      
+      const facultyPeriods = Array.from(periodMap.values());
 
       console.log(
-        `Found ${facultyPeriods.length} periods for faculty ${staffId}`
+        `Found ${allPeriods.length} total periods, ${facultyPeriods.length} unique periods for faculty ${staffId}`
       );
 
       // Create search context from the first period found

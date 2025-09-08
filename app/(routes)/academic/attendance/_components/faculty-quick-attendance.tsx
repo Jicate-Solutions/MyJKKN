@@ -20,6 +20,7 @@ import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attend
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface FacultyQuickAttendanceProps {
   staffId: string;
@@ -135,8 +136,9 @@ export function FacultyQuickAttendance({
     const recordId = periodRecordIds.get(period.timetable_slot_id);
 
     if (isMarked && recordId) {
-      // Navigate to attendance report details page
-      router.push(`/academic/attendance/reports/${recordId}`);
+      // TODO: Navigate to new reports module when rebuilt
+      toast.info('Report viewing will be available in the new reports module');
+      return;
     } else {
       // Navigate to separate attendance marking page
       const params = new URLSearchParams({
@@ -233,13 +235,13 @@ export function FacultyQuickAttendance({
       </CardHeader>
       <CardContent>
         <div className='grid gap-4'>
-          {periods.map((period) => {
+          {periods.map((period, index) => {
             const timeStatus = getTimeStatus(period.start_time);
             const isMarked = markedPeriods.has(period.timetable_slot_id);
 
             return (
               <Card
-                key={period.timetable_slot_id}
+                key={`${period.timetable_slot_id}-${period.timetable_id}-${index}`}
                 className={cn(
                   'border-2 transition-all duration-200',
                   // timeStatus === 'past' && !isMarked && 'opacity-75', // TEMPORARY: Removed past period styling

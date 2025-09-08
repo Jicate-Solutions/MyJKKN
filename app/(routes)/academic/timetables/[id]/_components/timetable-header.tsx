@@ -2,15 +2,25 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Lock, AlertCircle } from 'lucide-react';
 import { Timetable } from '@/types/academics';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface TimetableHeaderProps {
   timetable: Timetable;
   onBack?: () => void;
+  hasAttendance?: boolean;
+  attendanceCount?: number;
+  isSuperAdmin?: boolean;
 }
 
-export function TimetableHeader({ timetable, onBack }: TimetableHeaderProps) {
+export function TimetableHeader({ 
+  timetable, 
+  onBack,
+  hasAttendance = false,
+  attendanceCount = 0,
+  isSuperAdmin = false
+}: TimetableHeaderProps) {
   return (
     <div className='bg-white rounded-lg shadow-sm border'>
       <div className='p-6'>
@@ -23,6 +33,12 @@ export function TimetableHeader({ timetable, onBack }: TimetableHeaderProps) {
               {timetable.section && (
                 <Badge variant='secondary' className='text-sm'>
                   Section {timetable.section}
+                </Badge>
+              )}
+              {hasAttendance && (
+                <Badge variant='outline' className='text-sm border-orange-500 text-orange-700'>
+                  <Lock className='h-3 w-3 mr-1' />
+                  Locked - Attendance Marked
                 </Badge>
               )}
             </div>
@@ -39,6 +55,27 @@ export function TimetableHeader({ timetable, onBack }: TimetableHeaderProps) {
             </Button>
           </div>
         </div>
+
+        {/* Attendance Lock Warning */}
+        {hasAttendance && (
+          <Alert className={isSuperAdmin ? 'mb-4 border-blue-200 bg-blue-50' : 'mb-4 border-orange-200 bg-orange-50'}>
+            <AlertCircle className={isSuperAdmin ? 'h-4 w-4 text-blue-600' : 'h-4 w-4 text-orange-600'} />
+            <AlertDescription className={isSuperAdmin ? 'text-blue-800' : 'text-orange-800'}>
+              {isSuperAdmin ? (
+                <>
+                  <strong>Super Admin Override:</strong> Attendance has been marked for {attendanceCount || 'some'} period(s). 
+                  As a super admin, you can still modify this timetable, but please be aware that changes may affect existing attendance records.
+                </>
+              ) : (
+                <>
+                  <strong>This timetable is locked for editing.</strong> Attendance has been marked for {attendanceCount || 'some'} period(s). 
+                  You cannot modify or delete this timetable to preserve attendance data integrity. 
+                  Staff changes should be made through the Staff Planning module if needed.
+                </>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Timetable Info Cards */}
         <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>

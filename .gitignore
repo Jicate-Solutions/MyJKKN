@@ -43,3 +43,6 @@ test-jwt-secret.js
 *.tsbuildinfo
 next-env.d.ts
 nul
+
+# claude
+.claude

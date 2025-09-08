@@ -22,6 +22,138 @@ import toast from 'react-hot-toast';
 export class TimetableService {
   private static supabase = createClientSupabaseClient();
 
+  // Helper method to check if timetable has attendance marked
+  static async hasAttendanceMarked(timetableId: string): Promise<{
+    hasAttendance: boolean;
+    attendanceCount: number;
+    markedPeriods: string[];
+  }> {
+    try {
+      const { data: attendanceRecords, error } = await this.supabase
+        .from('student_attendance')
+        .select('id, attendance_data')
+        .eq('timetable_id', timetableId);
+
+      if (error) {
+        console.error('Error checking attendance:', error);
+        return { hasAttendance: false, attendanceCount: 0, markedPeriods: [] };
+      }
+
+      if (!attendanceRecords || attendanceRecords.length === 0) {
+        return { hasAttendance: false, attendanceCount: 0, markedPeriods: [] };
+      }
+
+      // Collect all periods that have attendance marked
+      const markedPeriods = new Set<string>();
+      let totalAttendanceCount = 0;
+
+      attendanceRecords.forEach(record => {
+        const attendanceData = record.attendance_data || {};
+        Object.keys(attendanceData).forEach(periodId => {
+          if (attendanceData[periodId]?.students?.length > 0) {
+            markedPeriods.add(periodId);
+            totalAttendanceCount++;
+          }
+        });
+      });
+
+      return {
+        hasAttendance: markedPeriods.size > 0,
+        attendanceCount: attendanceRecords.length,
+        markedPeriods: Array.from(markedPeriods)
+      };
+    } catch (error) {
+      console.error('Error in hasAttendanceMarked:', error);
+      return { hasAttendance: false, attendanceCount: 0, markedPeriods: [] };
+    }
+  }
+
+  // Check if a specific period slot has attendance marked
+  static async isPeriodSlotLocked(
+    timetableId: string,
+    periodId: string,
+    day?: string, // For regular mode: day of week, for batch mode: date
+    isBatch: boolean = false
+  ): Promise<{
+    isLocked: boolean;
+    attendanceCount: number;
+    attendanceDate?: string;
+  }> {
+    try {
+      console.log('isPeriodSlotLocked called with:', { timetableId, periodId, day, isBatch });
+      
+      let attendanceQuery = this.supabase
+        .from('student_attendance')
+        .select('id, attendance_data, attendance_date')
+        .eq('timetable_id', timetableId);
+
+      // CRITICAL: Only add date filter for batch mode with valid date format
+      // Regular mode passes day of week which CANNOT be used as date filter
+      if (isBatch) {
+        // Validate date format to prevent SQL errors
+        const isValidDate = day && /^\d{4}-\d{2}-\d{2}$/.test(day);
+        if (isValidDate) {
+          console.log('isPeriodSlotLocked: Valid date for batch mode, filtering by:', day);
+          attendanceQuery = attendanceQuery.eq('attendance_date', day);
+        } else {
+          console.warn('isPeriodSlotLocked: Batch mode but invalid/missing date:', day);
+          // Don't add date filter if format is invalid
+        }
+      } else {
+        // Regular mode - day contains day of week (MONDAY, TUESDAY, etc.)
+        // DO NOT filter by date - check all attendance records
+        console.log('isPeriodSlotLocked: Regular mode, checking all dates. Day of week:', day);
+      }
+
+      const { data: attendanceCheck, error } = await attendanceQuery;
+
+      if (error) {
+        console.error('Error checking period lock status:', error);
+        return { isLocked: false, attendanceCount: 0 };
+      }
+
+      if (!attendanceCheck || attendanceCheck.length === 0) {
+        return { isLocked: false, attendanceCount: 0 };
+      }
+
+      // Check if this specific period/slot has attendance marked
+      let isLocked = false;
+      let attendanceCount = 0;
+      let attendanceDate = '';
+
+      for (const record of attendanceCheck) {
+        const attendanceData = record.attendance_data || {};
+        
+        // Check multiple possible keys for the period
+        const possibleKeys = [
+          periodId,
+          `${day}_${periodId}`, // day_period format
+          `slot_${periodId}` // slot_period format
+        ];
+
+        for (const key of possibleKeys) {
+          if (attendanceData[key] && attendanceData[key].students?.length > 0) {
+            isLocked = true;
+            attendanceCount = attendanceData[key].students.length;
+            attendanceDate = record.attendance_date;
+            break;
+          }
+        }
+
+        if (isLocked) break;
+      }
+
+      return {
+        isLocked,
+        attendanceCount,
+        attendanceDate: attendanceDate || undefined
+      };
+    } catch (error) {
+      console.error('Error checking period slot lock:', error);
+      return { isLocked: false, attendanceCount: 0 };
+    }
+  }
+
   // Check if a timetable already exists for the given semester and section with overlapping date periods
   static async checkExistingTimetable(data: {
     institution_id: string;
@@ -242,6 +374,38 @@ Please select a different date period that doesn't overlap.`
     data: UpdateTimetableDto
   ): Promise<Timetable> {
     try {
+      // First check if this timetable has any attendance records
+      const { data: attendanceRecords, error: attendanceCheckError } =
+        await this.supabase
+          .from('student_attendance')
+          .select('id')
+          .eq('timetable_id', id)
+          .limit(1);
+
+      if (attendanceCheckError) {
+        console.error('Error checking attendance records:', attendanceCheckError);
+        throw attendanceCheckError;
+      }
+
+      // If attendance records exist, prevent any modifications
+      if (attendanceRecords && attendanceRecords.length > 0) {
+        const errorMessage =
+          'Cannot modify this timetable because attendance has been marked. Once attendance is recorded, the timetable becomes locked to preserve data integrity. Staff changes should be made through the Staff Planning module.';
+
+        toast.error(errorMessage, {
+          duration: 6000,
+          position: 'top-center',
+          style: {
+            background: '#FEF2F2',
+            color: '#991B1B',
+            border: '1px solid #FCA5A5',
+            maxWidth: '500px'
+          }
+        });
+
+        throw new Error(errorMessage);
+      }
+
       // If updating dates, check for conflicts with existing timetables
       if (data.start_date && data.end_date) {
         // Get current timetable info
@@ -668,6 +832,84 @@ Please select a different date period that doesn't overlap.`
         isBatch
       });
 
+      // For batch mode, we need to check attendance for the specific date
+      // For regular mode, we check for the day/period combination
+      let attendanceQuery = this.supabase
+        .from('student_attendance')
+        .select('id, attendance_data, attendance_date')
+        .eq('timetable_id', timetableId);
+
+      // IMPORTANT: Only filter by date in batch mode with valid date format
+      // Regular mode has day of week (MONDAY, etc.) which cannot be used as date filter
+      if (isBatch) {
+        // Check if day is a valid date format (YYYY-MM-DD)
+        const isValidDate = day && /^\d{4}-\d{2}-\d{2}$/.test(day);
+        if (isValidDate) {
+          console.log('Batch mode with valid date, adding filter:', day);
+          attendanceQuery = attendanceQuery.eq('attendance_date', day);
+        } else {
+          console.warn('Batch mode but invalid date format:', day);
+        }
+      } else {
+        // Regular mode - day is day of week, DO NOT filter by date
+        console.log('Regular mode - NOT filtering by date. Day of week:', day);
+      }
+
+      const { data: attendanceCheck, error: checkError } = await attendanceQuery;
+
+      if (checkError) {
+        console.error('Error checking attendance for slot:', checkError);
+      }
+
+      // Check if this specific period/slot has attendance marked
+      if (attendanceCheck && attendanceCheck.length > 0) {
+        let hasAttendance = false;
+        let attendanceDate = '';
+
+        for (const record of attendanceCheck) {
+          const attendanceData = record.attendance_data || {};
+          
+          // Check multiple possible keys for the period
+          // Sometimes attendance is stored with period_id, sometimes with slot_id
+          const possibleKeys = [
+            periodId,
+            `${day}_${periodId}`, // day_period format
+            `slot_${periodId}` // slot_period format
+          ];
+
+          for (const key of possibleKeys) {
+            if (attendanceData[key] && attendanceData[key].students?.length > 0) {
+              hasAttendance = true;
+              attendanceDate = record.attendance_date;
+              break;
+            }
+          }
+
+          if (hasAttendance) break;
+        }
+
+        if (hasAttendance) {
+          const errorMessage = isBatch
+            ? `Cannot modify this period slot. Attendance has been marked on ${attendanceDate}. Once attendance is recorded, the period cannot be changed.`
+            : `Cannot modify this period slot. Attendance has been marked for it. Once attendance is recorded, the period cannot be changed. Staff changes should be made through the Staff Planning module.`;
+
+          if (!suppressToast) {
+            toast.error(errorMessage, {
+              duration: 6000,
+              position: 'top-center',
+              style: {
+                background: '#FEF2F2',
+                color: '#991B1B',
+                border: '1px solid #FCA5A5',
+                maxWidth: '500px'
+              }
+            });
+          }
+
+          throw new Error(errorMessage);
+        }
+      }
+
       // For batch mode, ensure slot_date is included in slotData
       const processedSlotData = { ...slotData };
       if (isBatch) {
@@ -715,6 +957,86 @@ Please select a different date period that doesn't overlap.`
     suppressToast: boolean = false
   ): Promise<void> {
     try {
+      // For batch mode, we need to check attendance for the specific date
+      // For regular mode, we check for the day/period combination
+      let attendanceQuery = this.supabase
+        .from('student_attendance')
+        .select('id, attendance_data, attendance_date')
+        .eq('timetable_id', timetableId);
+
+      // IMPORTANT: Only filter by date in batch mode with valid date format
+      // Regular mode has day of week (MONDAY, etc.) which cannot be used as date filter
+      if (isBatch) {
+        // Check if day is a valid date format (YYYY-MM-DD)
+        const isValidDate = day && /^\d{4}-\d{2}-\d{2}$/.test(day);
+        if (isValidDate) {
+          console.log('Delete: Batch mode with valid date, adding filter:', day);
+          attendanceQuery = attendanceQuery.eq('attendance_date', day);
+        } else {
+          console.warn('Delete: Batch mode but invalid date format:', day);
+        }
+      } else {
+        // Regular mode - day is day of week, DO NOT filter by date
+        console.log('Delete: Regular mode - NOT filtering by date. Day of week:', day);
+      }
+
+      const { data: attendanceCheck, error: checkError } = await attendanceQuery;
+
+      if (checkError) {
+        console.error('Error checking attendance for slot deletion:', checkError);
+      }
+
+      // Check if this specific period/slot has attendance marked
+      if (attendanceCheck && attendanceCheck.length > 0) {
+        let hasAttendance = false;
+        let attendanceDate = '';
+        let attendanceCount = 0;
+
+        for (const record of attendanceCheck) {
+          const attendanceData = record.attendance_data || {};
+          
+          // Check multiple possible keys for the period
+          // Sometimes attendance is stored with period_id, sometimes with slot_id
+          const possibleKeys = [
+            periodId,
+            `${day}_${periodId}`, // day_period format
+            `slot_${periodId}` // slot_period format
+          ];
+
+          for (const key of possibleKeys) {
+            if (attendanceData[key] && attendanceData[key].students?.length > 0) {
+              hasAttendance = true;
+              attendanceDate = record.attendance_date;
+              attendanceCount = attendanceData[key].students.length;
+              break;
+            }
+          }
+
+          if (hasAttendance) break;
+        }
+
+        if (hasAttendance) {
+          const errorMessage = isBatch
+            ? `Cannot delete this period slot. Attendance has been marked for ${attendanceCount} students on ${attendanceDate}. Deleting would lose attendance records.`
+            : `Cannot delete this period slot. Attendance has been marked for ${attendanceCount} students. Once attendance is recorded, the period cannot be removed to preserve data integrity.`;
+
+          if (!suppressToast) {
+            toast.error(errorMessage, {
+              duration: 6000,
+              position: 'top-center',
+              style: {
+                background: '#FEF2F2',
+                color: '#991B1B',
+                border: '1px solid #FCA5A5',
+                maxWidth: '500px'
+              }
+            });
+          }
+
+          throw new Error(errorMessage);
+        }
+      }
+
       const { error } = await this.supabase.rpc('delete_timetable_slot', {
         p_timetable_id: timetableId,
         p_day_of_week: day,
