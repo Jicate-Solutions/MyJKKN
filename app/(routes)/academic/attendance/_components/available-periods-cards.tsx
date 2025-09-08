@@ -19,6 +19,7 @@ import {
 import { AttendancePeriodOption } from '@/types/attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface AvailablePeriodsCardsProps {
   periods: AttendancePeriodOption[];
@@ -136,8 +137,9 @@ export function AvailablePeriodsCards({
     const recordId = periodRecordIds.get(period.timetable_slot_id);
 
     if (isMarked && recordId) {
-      // Navigate to attendance report details page
-      router.push(`/academic/attendance/reports/${recordId}`);
+      // TODO: Navigate to new reports module when rebuilt
+      toast.info('Report viewing will be available in the new reports module');
+      return;
     } else {
       // Use the original period selection behavior for unmarked periods
       onPeriodSelect(period);

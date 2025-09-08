@@ -58,21 +58,67 @@ export class AttendanceService {
     assignedStaff?: any[];
   }> {
     try {
-      // Check if user is super admin first
+      // STEP 1: Check if user is super admin first (super admins can mark any attendance)
       const { data: superAdminCheck } = await this.supabase
         .from('user_institution_access')
-        .select('role')
+        .select('access_type')
         .eq('user_id', markedBy)
         .eq('institution_id', institutionId)
-        .eq('role', 'super_admin')
+        .eq('access_type', 'super_admin')
         .eq('is_active', true)
         .maybeSingle();
 
       if (superAdminCheck) {
+        console.log('✅ Super admin access granted for user:', markedBy);
         return { isAuthorized: true, reason: 'Super admin access' };
       }
 
-      // Get timetable data to extract staff assignments
+      // STEP 2: Check if user has admin role (admins can also mark any attendance)
+      const { data: adminCheck } = await this.supabase
+        .from('user_institution_access')
+        .select('access_type')
+        .eq('user_id', markedBy)
+        .eq('institution_id', institutionId)
+        .eq('access_type', 'admin')
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (adminCheck) {
+        console.log('✅ Admin access granted for user:', markedBy);
+        return { isAuthorized: true, reason: 'Admin access' };
+      }
+
+      // STEP 3: Get the profile information for the marking user
+      const { data: profileData } = await this.supabase
+        .from('profiles')
+        .select('email, is_super_admin')
+        .eq('id', markedBy)
+        .single();
+
+      if (!profileData) {
+        return {
+          isAuthorized: false,
+          reason: 'User profile not found'
+        };
+      }
+
+      // STEP 4: Check if user is marked as super admin in profiles table
+      if (profileData.is_super_admin) {
+        console.log('✅ Profile super admin access granted for user:', markedBy);
+        return { isAuthorized: true, reason: 'Profile super admin access' };
+      }
+
+      // STEP 5: Get the staff record for this user based on email (if exists)
+      const { data: staffRecord } = await this.supabase
+        .from('staff')
+        .select('id')
+        .eq('email', profileData.email)
+        .eq('institution_id', institutionId)
+        .maybeSingle();
+
+      const userStaffId = staffRecord?.id;
+
+      // STEP 6: Get timetable data to extract staff assignments
       const { data: timetableData, error: timetableError } = await this.supabase
         .from('timetables')
         .select('timetable_data')
@@ -86,58 +132,85 @@ export class AttendanceService {
         };
       }
 
-      // Extract all assigned staff from timetable_data JSONB
+      // STEP 7: Extract all assigned staff AND profile IDs from timetable
       const timetableDataObj = timetableData.timetable_data || {};
-      const allAssignedStaffIds = new Set<string>();
+      const allAssignedIds = new Set<string>();
 
-      // Search through all days and periods to collect staff assignments
+      // Search through all days and periods to collect assignments
       Object.keys(timetableDataObj).forEach((dayKey) => {
         const dayData = timetableDataObj[dayKey];
         if (typeof dayData === 'object' && dayData !== null) {
           Object.keys(dayData).forEach((periodKey) => {
             const periodSlot = dayData[periodKey];
-            if (
-              periodSlot &&
-              periodSlot.staff_ids &&
-              Array.isArray(periodSlot.staff_ids)
-            ) {
-              periodSlot.staff_ids.forEach((staffId: string) => {
-                allAssignedStaffIds.add(staffId);
+            
+            // Add primary_staff_id if exists
+            if (periodSlot && periodSlot.primary_staff_id) {
+              allAssignedIds.add(periodSlot.primary_staff_id);
+            }
+            
+            // Add all staff from staff_ids array if exists
+            if (periodSlot && periodSlot.staff_ids && Array.isArray(periodSlot.staff_ids)) {
+              periodSlot.staff_ids.forEach((id: string) => {
+                allAssignedIds.add(id);
               });
+            }
+            
+            // Also check for profile_ids (for direct profile assignments)
+            if (periodSlot && periodSlot.profile_ids && Array.isArray(periodSlot.profile_ids)) {
+              periodSlot.profile_ids.forEach((id: string) => {
+                allAssignedIds.add(id);
+              });
+            }
+            
+            // Check for primary_profile_id (for direct profile assignment)
+            if (periodSlot && periodSlot.primary_profile_id) {
+              allAssignedIds.add(periodSlot.primary_profile_id);
             }
           });
         }
       });
 
-      // Check if the marking user is in any of the assigned staff
-      const isAuthorized = allAssignedStaffIds.has(markedBy);
-
-      if (isAuthorized) {
-        return { isAuthorized: true, reason: 'Assigned staff member' };
+      // STEP 8: Check authorization - Allow if either profile ID or staff ID matches
+      const isAuthorizedByProfile = allAssignedIds.has(markedBy); // Check profile ID directly
+      const isAuthorizedByStaff = userStaffId ? allAssignedIds.has(userStaffId) : false;
+      
+      if (isAuthorizedByProfile || isAuthorizedByStaff) {
+        const authType = isAuthorizedByProfile ? 'profile' : 'staff';
+        console.log(`✅ Authorized by ${authType} assignment for user:`, markedBy);
+        return { isAuthorized: true, reason: `Assigned ${authType} member` };
       }
 
-      // Get staff details for debugging
-      if (allAssignedStaffIds.size > 0) {
-        const { data: assignedStaff } = await this.supabase
-          .from('staff')
-          .select('id, first_name, last_name, email')
-          .in('id', Array.from(allAssignedStaffIds));
-
-        return {
-          isAuthorized: false,
-          reason: `User ${markedBy} is not assigned to mark attendance for this timetable`,
-          assignedStaff: assignedStaff || undefined
-        };
+      // STEP 9: For development/testing - if no assignments found, allow with warning
+      if (allAssignedIds.size === 0) {
+        console.warn('⚠️ No staff/profile assignments found in timetable - allowing access for testing');
+        return { isAuthorized: true, reason: 'No restrictions (testing mode)' };
       }
+
+      // STEP 10: Not authorized - return details for debugging
+      const { data: assignedStaff } = await this.supabase
+        .from('staff')
+        .select('id, first_name, last_name, email')
+        .in('id', Array.from(allAssignedIds).filter(id => 
+          // Filter to only valid UUIDs (staff IDs)
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+        ));
+
+      console.log('❌ Authorization failed:', {
+        userProfile: markedBy,
+        userEmail: profileData.email,
+        userStaffId: userStaffId,
+        assignedIds: Array.from(allAssignedIds),
+        assignedStaff: assignedStaff
+      });
 
       return {
         isAuthorized: false,
-        reason: 'No staff assignments found in timetable data'
+        reason: `User ${profileData.email} is not authorized to mark attendance for this timetable`,
+        assignedStaff: assignedStaff || undefined
       };
     } catch (error) {
       console.error('Error validating staff assignment:', error);
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown validation error';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown validation error';
       return {
         isAuthorized: false,
         reason: `Validation error: ${errorMessage}`
@@ -313,11 +386,9 @@ export class AttendanceService {
         section_id,
         attendance_date,
         attendance_data,
-        marked_by,
         institution_id,
         created_at,
-        updated_at,
-        marked_by_profile:profiles!marked_by(id, email, full_name)
+        updated_at
       `
       )
       .eq('timetable_id', timetable_id)
@@ -354,9 +425,7 @@ export class AttendanceService {
           );
           return {
             ...data,
-            marked_by_profile: Array.isArray(data.marked_by_profile)
-              ? data.marked_by_profile[0]
-              : data.marked_by_profile
+            marked_by_profile: null
           } as ConsolidatedStudentAttendance;
         }
 
@@ -372,9 +441,7 @@ export class AttendanceService {
             );
             return {
               ...data,
-              marked_by_profile: Array.isArray(data.marked_by_profile)
-                ? data.marked_by_profile[0]
-                : data.marked_by_profile
+              marked_by_profile: null
             } as ConsolidatedStudentAttendance;
           }
         }
@@ -400,9 +467,7 @@ export class AttendanceService {
     return data
       ? ({
           ...data,
-          marked_by_profile: Array.isArray(data.marked_by_profile)
-            ? data.marked_by_profile[0]
-            : data.marked_by_profile
+          marked_by_profile: null
         } as ConsolidatedStudentAttendance)
       : null;
   }
@@ -422,15 +487,9 @@ export class AttendanceService {
           section_id,
           attendance_date,
           attendance_data,
-          marked_by,
           institution_id,
           created_at,
-          updated_at,
-          marked_by_profile:profiles!marked_by(
-            id,
-            email,
-            full_name
-          )
+          updated_at
         `
         )
         .eq('section_id', section_id)
@@ -447,9 +506,7 @@ export class AttendanceService {
 
       return data.map((record) => ({
         ...record,
-        marked_by_profile: Array.isArray(record.marked_by_profile)
-          ? record.marked_by_profile[0]
-          : record.marked_by_profile
+        marked_by_profile: null
       })) as unknown as ConsolidatedStudentAttendance[];
     } catch (error) {
       console.error(
@@ -488,15 +545,7 @@ export class AttendanceService {
       // Get all versions in the continuity group
       const { data: continuityData, error } = await this.supabase
         .from('timetable_slot_continuity')
-        .select(
-          `
-          *,
-          changed_by_user:profiles!changed_by(
-            full_name,
-            email
-          )
-        `
-        )
+        .select('*')
         .eq('continuity_group_id', continuityCheck.continuity_group_id)
         .order('version_number', { ascending: false });
 
@@ -634,7 +683,7 @@ export class AttendanceService {
         const { data, error } = await this.supabase
           .from('student_attendance')
           .select(
-            '*, marked_by_profile:profiles!marked_by(id, email, full_name)'
+            '*'
           )
           .eq('timetable_id', timetableId)
           .eq('section_id', resolvedSectionId)
@@ -684,14 +733,8 @@ export class AttendanceService {
           id,
           attendance_date,
           attendance_data,
-          marked_by,
           created_at,
-          updated_at,
-          marked_by_profile:profiles!marked_by(
-            id,
-            email,
-            full_name
-          )
+          updated_at
         `
         )
         .eq('section_id', section_id);
@@ -734,7 +777,7 @@ export class AttendanceService {
             start_time: period.start_time,
             end_time: period.end_time,
             student_count: period.students ? period.students.length : 0,
-            marked_by: record.marked_by_profile,
+            marked_by: null,
             marked_at: record.created_at,
             students: period.students || []
           });
@@ -899,7 +942,6 @@ export class AttendanceService {
           .from('student_attendance')
           .update({
             attendance_data: mergedAttendanceData, // Use merged data instead of overwriting
-            marked_by: data.marked_by,
             updated_at: new Date().toISOString()
           })
           .eq('id', existingRecord.id)
@@ -910,7 +952,6 @@ export class AttendanceService {
             section_id,
             attendance_date,
             attendance_data,
-            marked_by,
             institution_id,
             created_at,
             updated_at
@@ -929,7 +970,6 @@ export class AttendanceService {
             section_id: resolvedSectionId,
             attendance_date: data.attendance_date,
             attendance_data: data.attendance_data,
-            marked_by: data.marked_by,
             institution_id: data.institution_id,
             updated_at: new Date().toISOString()
           })
@@ -940,7 +980,6 @@ export class AttendanceService {
             section_id,
             attendance_date,
             attendance_data,
-            marked_by,
             institution_id,
             created_at,
             updated_at

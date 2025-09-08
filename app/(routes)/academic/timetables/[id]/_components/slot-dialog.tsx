@@ -41,6 +41,7 @@ interface SlotDialogProps {
   loadingFilteredSections: boolean;
   isUsingStaffPlanningData?: boolean;
   loadingStaffPlanData?: boolean;
+  readOnly?: boolean;
 }
 
 export function SlotDialog({
@@ -56,7 +57,8 @@ export function SlotDialog({
   filteredSections,
   loadingFilteredSections,
   isUsingStaffPlanningData = false,
-  loadingStaffPlanData = false
+  loadingStaffPlanData = false,
+  readOnly = false
 }: SlotDialogProps) {
   const [slotType, setSlotType] = useState<'regular' | 'break'>('regular');
   const [isBreakSlot, setIsBreakSlot] = useState(false);
@@ -335,37 +337,52 @@ export function SlotDialog({
         <DialogContent className='max-w-4xl max-h-[90vh] overflow-y-auto'>
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
-              {/* Removed existingSlot prop */}
-              {timetable?.timetable_format === 'batch' ? 'Edit' : 'Create'} Slot
-              {/* Removed day and period props */}
+              {readOnly
+                ? 'View'
+                : timetable?.timetable_format === 'batch'
+                ? 'Edit'
+                : 'Create'}{' '}
+              Slot
+              {readOnly && (
+                <Badge variant='secondary' className='text-xs'>
+                  Read Only
+                </Badge>
+              )}
               {timetable?.timetable_format === 'batch' && (
                 <Badge variant='outline' className='text-xs'>
-                  {/* Removed day and period props */}
                   Date Range
                 </Badge>
               )}
             </DialogTitle>
             <DialogDescription>
-              {/* Removed existingSlot prop */}
-              {timetable?.timetable_format === 'batch'
-                ? 'Edit the'
-                : 'Create a new'}{' '}
-              slot for{' '}
-              <span className='font-semibold'>
-                {timetable?.timetable_format === 'batch'
-                  ? 'all dates in the selected range'
-                  : 'the selected day'}
-              </span>{' '}
-              during{' '}
-              <span className='font-semibold'>
-                {/* {timetable?.period_name} */}
-              </span>
-              .
-              {timetable?.timetable_format === 'batch' && (
-                <span className='block mt-1 text-xs text-amber-600'>
-                  Note: This configuration will apply to ALL dates in your
-                  selected range.
-                </span>
+              {readOnly ? (
+                <>
+                  Viewing slot details in read-only mode. You can only view the
+                  information.
+                </>
+              ) : (
+                <>
+                  {timetable?.timetable_format === 'batch'
+                    ? 'Edit the'
+                    : 'Create a new'}{' '}
+                  slot for{' '}
+                  <span className='font-semibold'>
+                    {timetable?.timetable_format === 'batch'
+                      ? 'all dates in the selected range'
+                      : 'the selected day'}
+                  </span>{' '}
+                  during{' '}
+                  <span className='font-semibold'>
+                    {/* {timetable?.period_name} */}
+                  </span>
+                  .
+                  {timetable?.timetable_format === 'batch' && (
+                    <span className='block mt-1 text-xs text-amber-600'>
+                      Note: This configuration will apply to ALL dates in your
+                      selected range.
+                    </span>
+                  )}
+                </>
               )}
             </DialogDescription>
           </DialogHeader>
@@ -379,17 +396,28 @@ export function SlotDialog({
               <RadioGroup
                 value={slotType}
                 onValueChange={(value: 'regular' | 'break') => {
-                  setSlotType(value);
-                  setIsBreakSlot(value === 'break');
+                  if (!readOnly) {
+                    setSlotType(value);
+                    setIsBreakSlot(value === 'break');
+                  }
                 }}
                 className='flex gap-6'
+                disabled={readOnly}
               >
                 <div className='flex items-center space-x-2'>
-                  <RadioGroupItem value='regular' id='regularSlot' />
+                  <RadioGroupItem
+                    value='regular'
+                    id='regularSlot'
+                    disabled={readOnly}
+                  />
                   <Label htmlFor='regularSlot'>Regular Class</Label>
                 </div>
                 <div className='flex items-center space-x-2'>
-                  <RadioGroupItem value='break' id='breakSlot' />
+                  <RadioGroupItem
+                    value='break'
+                    id='breakSlot'
+                    disabled={readOnly}
+                  />
                   <Label htmlFor='breakSlot'>Break</Label>
                 </div>
               </RadioGroup>
@@ -401,9 +429,12 @@ export function SlotDialog({
                   <Checkbox
                     id='combinedClass'
                     checked={isCombinedClass}
-                    onCheckedChange={(checked) =>
-                      setIsCombinedClass(checked === true)
-                    }
+                    onCheckedChange={(checked) => {
+                      if (!readOnly) {
+                        setIsCombinedClass(checked === true);
+                      }
+                    }}
+                    disabled={readOnly}
                   />
                   <Label htmlFor='combinedClass'>Combined Class</Label>
                   <Badge variant='secondary' className='text-xs ml-2'>
@@ -463,7 +494,8 @@ export function SlotDialog({
                   </div>
                   <Select
                     value={selectedCourse}
-                    onValueChange={setSelectedCourse}
+                    onValueChange={readOnly ? undefined : setSelectedCourse}
+                    disabled={readOnly}
                   >
                     <SelectTrigger
                       className={
@@ -471,6 +503,7 @@ export function SlotDialog({
                           ? 'border-red-300'
                           : ''
                       }
+                      disabled={readOnly}
                     >
                       <SelectValue placeholder='Select a course (required)' />
                     </SelectTrigger>
@@ -541,18 +574,21 @@ export function SlotDialog({
                         <Checkbox
                           id={`staff-${staffMember.id}`}
                           checked={selectedStaff.includes(staffMember.id)}
+                          disabled={readOnly}
                           onCheckedChange={(checked) => {
-                            if (checked) {
-                              setSelectedStaff([
-                                ...selectedStaff,
-                                staffMember.id
-                              ]);
-                            } else {
-                              setSelectedStaff(
-                                selectedStaff.filter(
-                                  (id: string) => id !== staffMember.id
-                                )
-                              );
+                            if (!readOnly) {
+                              if (checked) {
+                                setSelectedStaff([
+                                  ...selectedStaff,
+                                  staffMember.id
+                                ]);
+                              } else {
+                                setSelectedStaff(
+                                  selectedStaff.filter(
+                                    (id: string) => id !== staffMember.id
+                                  )
+                                );
+                              }
                             }
                           }}
                         />
@@ -589,13 +625,16 @@ export function SlotDialog({
                   )}
                   {displayStaff?.length === 0 && (
                     <p className='text-xs text-red-600'>
-                      ❌ No staff assigned to this course in staff planning for semester &quot;
-                      {timetable?.semester}&quot;. Please assign staff in Staff Planning module first.
+                      ❌ No staff assigned to this course in staff planning for
+                      semester &quot;
+                      {timetable?.semester}&quot;. Please assign staff in Staff
+                      Planning module first.
                     </p>
                   )}
                   {displayStaff?.length > 0 && (
                     <p className='text-xs text-green-600'>
-                      ✓ Showing staff assigned to this course from staff planning for semester &quot;
+                      ✓ Showing staff assigned to this course from staff
+                      planning for semester &quot;
                       {timetable?.semester}&quot;
                     </p>
                   )}
@@ -628,18 +667,21 @@ export function SlotDialog({
                         <Checkbox
                           id={`section-${section.id}`}
                           checked={selectedSections.includes(section.id)}
+                          disabled={readOnly}
                           onCheckedChange={(checked) => {
-                            if (checked) {
-                              setSelectedSections([
-                                ...selectedSections,
-                                section.id
-                              ]);
-                            } else {
-                              setSelectedSections(
-                                selectedSections.filter(
-                                  (id: string) => id !== section.id
-                                )
-                              );
+                            if (!readOnly) {
+                              if (checked) {
+                                setSelectedSections([
+                                  ...selectedSections,
+                                  section.id
+                                ]);
+                              } else {
+                                setSelectedSections(
+                                  selectedSections.filter(
+                                    (id: string) => id !== section.id
+                                  )
+                                );
+                              }
                             }
                           }}
                         />
@@ -843,9 +885,12 @@ export function SlotDialog({
 
                             {displayStaff?.length === 0 && (
                               <div className='text-center py-2 text-gray-500 text-xs'>
-                                <div className='mb-1'>No staff assigned to this course</div>
+                                <div className='mb-1'>
+                                  No staff assigned to this course
+                                </div>
                                 <div className='text-xs text-gray-400'>
-                                  Please assign staff in Staff Planning module first
+                                  Please assign staff in Staff Planning module
+                                  first
                                 </div>
                               </div>
                             )}
@@ -951,14 +996,15 @@ export function SlotDialog({
             </div>
             <div className='flex gap-2'>
               <Button variant='outline' onClick={onClose}>
-                Cancel
+                {readOnly ? 'Close' : 'Cancel'}
               </Button>
-              <Button onClick={handleSave}>
-                {/* Removed existingSlot prop */}
-                {timetable?.timetable_format === 'batch'
-                  ? 'Update Slot'
-                  : 'Create Slot'}
-              </Button>
+              {!readOnly && (
+                <Button onClick={handleSave}>
+                  {timetable?.timetable_format === 'batch'
+                    ? 'Update Slot'
+                    : 'Create Slot'}
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>

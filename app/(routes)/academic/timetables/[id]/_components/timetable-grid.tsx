@@ -13,6 +13,7 @@ interface TimetableGridProps {
   onSlotClick: (day: DayOfWeek, period: Period, existingSlot?: any) => void;
   onSlotDelete?: (day: DayOfWeek, period: Period, existingSlot: any) => void;
   lockedPeriods: string[];
+  isSuperAdmin?: boolean;
 }
 
 export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
@@ -23,7 +24,8 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
       slots,
       onSlotClick,
       onSlotDelete,
-      lockedPeriods
+      lockedPeriods,
+      isSuperAdmin = false
     },
     ref
   ) => {
@@ -296,7 +298,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                             className={`
                               p-1.5 border-2 rounded cursor-pointer transition-all duration-200 
                               hover:shadow-md min-h-[60px] flex flex-col justify-center relative group
-                              ${
+                              ${lockedPeriods.includes(period.id) ? 'border-orange-300 bg-orange-50' : ''} ${
                                 slot.is_break_slot
                                   ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
                                   : slot.is_combined
@@ -306,8 +308,14 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                             `}
                             onClick={() => onSlotClick(day, period, slot)}
                           >
-                            {/* Delete button */}
-                            {onSlotDelete && (
+                            {/* Lock indicator for periods with attendance */}
+                            {lockedPeriods.includes(period.id) && !isSuperAdmin && (
+                              <div className='absolute top-1 left-1 p-1 rounded-full bg-orange-500 text-white z-10' title='Attendance marked - Cannot modify'>
+                                <Lock className='h-3 w-3' />
+                              </div>
+                            )}
+                            {/* Delete button - show for super admin even if locked, hide for others if locked */}
+                            {onSlotDelete && (isSuperAdmin || !lockedPeriods.includes(period.id)) && (
                               <button
                                 className='absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-500 hover:bg-red-600 text-white z-10'
                                 onClick={(e) => {
@@ -324,6 +332,12 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                               : slot.is_combined
                               ? renderCombinedSlot(slot)
                               : renderRegularSlot(slot)}
+                          </div>
+                        ) : lockedPeriods.includes(period.id) && !isSuperAdmin ? (
+                          // Show locked state for periods with attendance (except for super admin)
+                          <div className='w-full h-14 border-2 border-dashed border-orange-300 bg-orange-50 rounded flex flex-col items-center justify-center cursor-not-allowed'>
+                            <Lock className='h-3 w-3 text-orange-500' />
+                            <span className='text-xs text-orange-600'>Locked</span>
                           </div>
                         ) : (
                           <Button

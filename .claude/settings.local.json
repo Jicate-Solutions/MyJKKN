@@ -1,5 +1,4 @@
 {
-  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
       "Bash(npm run typecheck:*)",
@@ -22,13 +21,16 @@
       "mcp__supabase__list_tables",
       "Bash(mv:*)",
       "mcp__supabase__get_logs",
-      "Read(//c/Users/Admin/Pictures/Screenshots/**)",
-      "Bash(npm run:*)"
+      "Read(/D:\\Projects\\JKKN\\MyJKKN\\.claude/**)",
+      "Read(//c/Users/Boobalan/Pictures/Screenshots/**)"
     ],
-    "deny": []
+    "deny": [],
+    "ask": []
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
-    "supabase"
+    "supabase",
+    "sequential-thinking",
+    "memory"
   ]
 }

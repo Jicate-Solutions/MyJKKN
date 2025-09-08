@@ -146,7 +146,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/periods': 'academic.periods.view',
   '/academic/attendance': 'academic.attendance.view',
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
-  '/academic/attendance/reports': 'academic.attendance.reports.view',
 
   // Notification Management
   '/admin/notifications': 'notifications.view',
@@ -514,11 +513,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/academic/attendance',
               label: 'Mark Attendance',
               active: pathname === '/academic/attendance'
-            },
-            {
-              href: '/academic/attendance/reports',
-              label: 'Attendance Reports',
-              active: pathname === '/academic/attendance/reports'
             }
           ]
         }

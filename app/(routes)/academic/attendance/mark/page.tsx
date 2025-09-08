@@ -1047,22 +1047,12 @@ export default function AttendanceMarkPage() {
 
         // Redirect to report page after delay
         setTimeout(() => {
-          toast.loading('Redirecting to attendance report...');
+          toast.success('Attendance saved successfully! Redirecting...');
         }, 500);
 
         setTimeout(() => {
-          if (result.id) {
-            router.push(`/academic/attendance/reports/${result.id}`);
-          } else {
-            const reportParams = new URLSearchParams({
-              date: date || '',
-              section: sectionId || '',
-              timetable: timetableId || ''
-            });
-            router.push(
-              `/academic/attendance/reports?${reportParams.toString()}`
-            );
-          }
+          // Redirect back to attendance page after successful save
+          router.push('/academic/attendance');
         }, 1500);
       } else {
         console.error('❌ Save result was null/undefined');
@@ -1290,92 +1280,124 @@ export default function AttendanceMarkPage() {
               {(contextData?.timetable_data?.timetable_name ||
                 contextData?.timetable_data?.semester ||
                 contextData?.degree_name) && (
-                <div className='mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg border border-blue-200 dark:border-blue-800'>
-                  <div className='flex items-center gap-2 mb-3'>
-                    <BookOpen className='h-4 w-4 text-blue-600 dark:text-blue-500' />
-                    <h4 className='text-sm font-semibold text-blue-800 dark:text-blue-300'>
-                      Timetable Information
-                    </h4>
+                <div className='mb-6 bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden'>
+                  {/* Header with gradient background */}
+                  <div className='px-6 py-4 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 dark:from-blue-500/20 dark:via-indigo-500/20 dark:to-purple-500/20 border-b border-gray-200 dark:border-gray-800'>
+                    <div className='flex items-center gap-3'>
+                      <div className='p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm'>
+                        <BookOpen className='h-5 w-5 text-blue-600 dark:text-blue-400' />
+                      </div>
+                      <h4 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+                        Timetable Information
+                      </h4>
+                    </div>
                   </div>
-                  <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm'>
-                    {contextData?.timetable_data?.timetable_name && (
-                      <div className='flex flex-col gap-1'>
-                        <span className='text-blue-600 dark:text-blue-400 font-medium'>
-                          Timetable:
-                        </span>
-                        <span className='text-blue-900 dark:text-blue-100 font-semibold'>
-                          {contextData.timetable_data.timetable_name}
+                  
+                  {/* Content with better spacing */}
+                  <div className='p-6 space-y-6'>
+                    {/* Basic Info Grid */}
+                    <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'>
+                      {contextData?.timetable_data?.timetable_name && (
+                        <div className='bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700'>
+                          <span className='text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold'>
+                            Timetable
+                          </span>
+                          <p className='text-sm font-bold text-gray-900 dark:text-gray-100 mt-1'>
+                            {contextData.timetable_data.timetable_name}
+                          </p>
+                        </div>
+                      )}
+
+                      {contextData?.timetable_data?.semester && (
+                        <div className='bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700'>
+                          <span className='text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold'>
+                            Semester
+                          </span>
+                          <p className='text-sm font-bold text-gray-900 dark:text-gray-100 mt-1'>
+                            {contextData.timetable_data.semester}
+                          </p>
+                        </div>
+                      )}
+
+                      {(contextData?.timetable_data?.section ||
+                        contextData?.section_name) && (
+                        <div className='bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700'>
+                          <span className='text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold'>
+                            Section
+                          </span>
+                          <p className='text-sm font-bold text-gray-900 dark:text-gray-100 mt-1'>
+                            Section{' '}
+                            {contextData.timetable_data?.section ||
+                              contextData.section_name}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Assigned Staff Section - Improved Layout */}
+                    <div className='border-t border-gray-200 dark:border-gray-700 pt-6'>
+                      <div className='flex items-center gap-2 mb-4'>
+                        <User className='h-4 w-4 text-gray-500 dark:text-gray-400' />
+                        <span className='text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider'>
+                          Assigned Faculty
                         </span>
                       </div>
-                    )}
-
-                    {contextData?.timetable_data?.semester && (
-                      <div className='flex flex-col gap-1'>
-                        <span className='text-blue-600 dark:text-blue-400 font-medium'>
-                          Semester:
-                        </span>
-                        <span className='text-blue-900 dark:text-blue-100 font-semibold'>
-                          {contextData.timetable_data.semester}
-                        </span>
-                      </div>
-                    )}
-
-                    {(contextData?.timetable_data?.section ||
-                      contextData?.section_name) && (
-                      <div className='flex flex-col gap-1'>
-                        <span className='text-blue-600 dark:text-blue-400 font-medium'>
-                          Section:
-                        </span>
-                        <span className='text-blue-900 dark:text-blue-100 font-semibold'>
-                          Section{' '}
-                          {contextData.timetable_data?.section ||
-                            contextData.section_name}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Assigned Staff Information */}
-                    <div className='flex flex-col gap-1 col-span-full'>
-                      <span className='text-blue-600 dark:text-blue-400 font-medium'>
-                        Assigned Staff:
-                      </span>
+                      
                       {loadingStaff ? (
-                        <div className='flex items-center gap-2'>
-                          <div className='animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full'></div>
-                          <span className='text-blue-800 dark:text-blue-200 text-sm'>
-                            Loading staff information...
+                        <div className='flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg'>
+                          <div className='animate-spin h-5 w-5 border-3 border-blue-600 border-t-transparent rounded-full'></div>
+                          <span className='text-gray-600 dark:text-gray-400 text-sm'>
+                            Loading faculty information...
                           </span>
                         </div>
                       ) : assignedStaff.length > 0 ? (
-                        <div className='flex flex-wrap gap-2'>
+                        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
                           {assignedStaff.map((staff, index) => (
                             <div
                               key={staff.id}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border ${
+                              className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
                                 staff.is_primary
-                                  ? 'bg-blue-600 text-white border-blue-700'
-                                  : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800'
+                                  ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-300 dark:border-blue-700'
+                                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                               }`}
                             >
-                              <User className='h-3.5 w-3.5' />
-                              <span>{staff.full_name}</span>
-                              {staff.is_primary && (
-                                <span className='text-xs bg-white/20 px-1.5 py-0.5 rounded-full'>
-                                  Primary
-                                </span>
-                              )}
-                              {staff.staff_id && (
-                                <span className='text-xs opacity-75'>
-                                  ({staff.staff_id})
-                                </span>
-                              )}
+                              <div className={`p-2 rounded-full ${
+                                staff.is_primary 
+                                  ? 'bg-blue-100 dark:bg-blue-800' 
+                                  : 'bg-gray-100 dark:bg-gray-700'
+                              }`}>
+                                <User className={`h-4 w-4 ${
+                                  staff.is_primary 
+                                    ? 'text-blue-600 dark:text-blue-400' 
+                                    : 'text-gray-600 dark:text-gray-400'
+                                }`} />
+                              </div>
+                              <div className='flex-1 min-w-0'>
+                                <p className='text-sm font-semibold text-gray-900 dark:text-gray-100 truncate'>
+                                  {staff.full_name}
+                                </p>
+                                <div className='flex items-center gap-2 mt-1'>
+                                  {staff.is_primary && (
+                                    <span className='inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-200'>
+                                      Primary
+                                    </span>
+                                  )}
+                                  {staff.staff_id && (
+                                    <span className='text-xs text-gray-500 dark:text-gray-400'>
+                                      ID: {staff.staff_id}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <span className='text-blue-800 dark:text-blue-200 text-sm italic'>
-                          No staff assigned to this period
-                        </span>
+                        <div className='p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800'>
+                          <span className='text-yellow-800 dark:text-yellow-200 text-sm'>
+                            No faculty assigned to this timetable slot
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>

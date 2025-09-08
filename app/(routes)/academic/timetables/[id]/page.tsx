@@ -11,7 +11,8 @@ import {
   Download,
   ArrowLeft,
   AlertCircle,
-  Loader2
+  Loader2,
+  Lock
 } from 'lucide-react';
 import {
   DndContext,
@@ -57,6 +58,16 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 import Loading from '@/components/Loading/Loading';
 import { useToast } from '@/hooks/use-toast';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
@@ -69,6 +80,8 @@ import { useSections } from '@/hooks/organization/use-sections';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { Timetable, DayOfWeek, Period } from '@/types/academics';
+import { usePermissions } from '@/hooks/use-permissions';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   Select,
   SelectContent,
@@ -117,6 +130,14 @@ export default function TimetableDetailPage({
   const unwrappedParams = use(params);
   const timetableId = unwrappedParams.id;
   const { saveTimetableAsTemplate } = useTimetables();
+  
+  // Get permissions for role-based access control
+  const { canAccess, isSuperAdmin } = usePermissions();
+  
+  // Permission checks for different actions
+  const canEditTimetable = isSuperAdmin || canAccess('academic.timetables', 'edit');
+  const canDeleteTimetable = isSuperAdmin || canAccess('academic.timetables', 'delete');
+  const canCreateTimetable = isSuperAdmin || canAccess('academic.timetables', 'create');
 
   // Add ref for timetable grid capture
   const timetableGridRef = useRef<HTMLDivElement>(null);
@@ -132,6 +153,9 @@ export default function TimetableDetailPage({
   const [templateName, setTemplateName] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
+  const [slotDialogReadOnly, setSlotDialogReadOnly] = useState(false);
+  const [hasAttendance, setHasAttendance] = useState(false);
+  const [markedPeriods, setMarkedPeriods] = useState<string[]>([]);
   const [timetableFormat, setTimetableFormat] = useState<'regular' | 'batch'>(
     'regular'
   );
@@ -732,6 +756,11 @@ export default function TimetableDetailPage({
       const timetableData = await TimetableService.getTimetable(timetableId);
       setTimetable(timetableData);
 
+      // Check if attendance has been marked for this timetable
+      const attendanceStatus = await TimetableService.hasAttendanceMarked(timetableId);
+      setHasAttendance(attendanceStatus.hasAttendance);
+      setMarkedPeriods(attendanceStatus.markedPeriods);
+
       // Update timetable format based on fetched data
       if (timetableData.timetable_format) {
         setTimetableFormat(timetableData.timetable_format);
@@ -847,7 +876,39 @@ export default function TimetableDetailPage({
     period: Period,
     existingSlot?: any
   ) => {
-    // Prevent slot creation/editing for break periods
+    // Check if this period has attendance marked (but allow super admins to override)
+    const isPeriodLocked = markedPeriods.includes(period.id);
+    
+    if (isPeriodLocked && !isSuperAdmin) {
+      toast({
+        title: 'Period Locked',
+        description: 'This period cannot be modified because attendance has been marked. Staff changes should be made through the Staff Planning module.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // For viewing existing slots, allow users with view permission
+    // For creating/editing, require edit permission
+    let isReadOnly = false;
+    
+    if (existingSlot) {
+      // Viewing existing slot - allow with view permission
+      // Dialog will be in read-only mode if user doesn't have edit permission
+      isReadOnly = !canEditTimetable;
+    } else {
+      // Creating new slot - require edit permission
+      if (!canEditTimetable) {
+        toast({
+          title: 'Permission Denied',
+          description: 'You do not have permission to create timetable slots.',
+          variant: 'destructive'
+        });
+        return;
+      }
+    }
+    
+    // Prevent slot creation for break periods (but allow viewing)
     if (period.is_break && !existingSlot) {
       toast({
         title: 'Break Period',
@@ -862,6 +923,7 @@ export default function TimetableDetailPage({
     setSelectedPeriod(period);
     setSelectedSlot(existingSlot || null);
     setEditingSlot(existingSlot || null);
+    setSlotDialogReadOnly(isReadOnly);
 
     setSlotDialogOpen(true);
   };
@@ -873,14 +935,89 @@ export default function TimetableDetailPage({
     setSelectedPeriod(null);
     setSelectedSlot(null);
     setEditingSlot(null);
+    setSlotDialogReadOnly(false);
   };
 
-  // Delete a timetable slot from grid
+  // Delete a timetable slot from grid - shows confirmation dialog first
   const handleSlotDelete = async (
     day: DayOfWeek | string,
     period: Period,
     existingSlot: any
   ) => {
+    // Check permission for deleting timetable slots
+    if (!canDeleteTimetable) {
+      toast({
+        title: 'Permission Denied',
+        description: 'You do not have permission to delete timetable slots.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // Store the slot information for deletion
+    setSlotToDelete({
+      day,
+      period,
+      existingSlot
+    });
+    
+    // Show confirmation dialog
+    setDeleteDialogOpen(true);
+  };
+
+  // Actual deletion function called after confirmation
+  const confirmSlotDeletion = async () => {
+    if (!slotToDelete) return;
+    
+    const { day, period, existingSlot } = slotToDelete;
+
+    // Real-time check if this specific period slot has attendance marked
+    // Super admins can override this check
+    if (!isSuperAdmin) {
+      try {
+        const lockStatus = await TimetableService.isPeriodSlotLocked(
+          timetableId,
+          period.id,
+          day as string,
+          timetableFormat === 'batch'
+        );
+
+        if (lockStatus.isLocked) {
+          toast({
+            title: 'Cannot Delete Slot',
+            description: `This period slot cannot be deleted. Attendance has been marked for ${lockStatus.attendanceCount} students${
+              lockStatus.attendanceDate ? ` on ${lockStatus.attendanceDate}` : ''
+            }. Deleting would lose attendance records.`,
+            variant: 'destructive',
+            duration: 6000
+          });
+          setDeleteDialogOpen(false);
+          setSlotToDelete(null);
+          return;
+        }
+      } catch (checkError) {
+        console.error('Error checking slot lock status:', checkError);
+        // Continue with caution if check fails
+      }
+    } else if (isSuperAdmin) {
+      // Show warning for super admin but allow them to proceed
+      const lockStatus = await TimetableService.isPeriodSlotLocked(
+        timetableId,
+        period.id,
+        day as string,
+        timetableFormat === 'batch'
+      );
+
+      if (lockStatus.isLocked) {
+        toast({
+          title: 'Warning: Attendance Exists',
+          description: `This slot has attendance for ${lockStatus.attendanceCount} students. As super admin, you can still delete it.`,
+          variant: 'default',
+          duration: 3000
+        });
+      }
+    }
+    
     try {
       // Check if this is a range operation
       if (typeof day === 'string' && day.startsWith('RANGE:')) {
@@ -922,6 +1059,9 @@ export default function TimetableDetailPage({
             title: 'Success',
             description: `Slot deleted from ${dates.length} dates (${startDate} to ${endDate})`
           });
+          // Close the dialog
+          setDeleteDialogOpen(false);
+          setSlotToDelete(null);
         } else {
           throw new Error('Invalid range format');
         }
@@ -939,14 +1079,32 @@ export default function TimetableDetailPage({
           title: 'Success',
           description: 'Slot deleted successfully'
         });
+        // Close the dialog
+        setDeleteDialogOpen(false);
+        setSlotToDelete(null);
       }
     } catch (err) {
       console.error('Error deleting slot:', err);
-      toast({
-        title: 'Error',
-        description: 'Failed to delete slot. Please try again.',
-        variant: 'destructive'
-      });
+      
+      // Check if it's an attendance-related error
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      if (errorMessage.includes('attendance')) {
+        toast({
+          title: 'Cannot Delete Slot',
+          description: errorMessage,
+          variant: 'destructive',
+          duration: 5000
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Failed to delete slot. Please try again.',
+          variant: 'destructive'
+        });
+      }
+      // Close dialog on error too
+      setDeleteDialogOpen(false);
+      setSlotToDelete(null);
     }
   };
 
@@ -1817,13 +1975,17 @@ export default function TimetableDetailPage({
   }
 
   return (
-    <ContentLayout title='Timetable Details'>
-      <div className='space-y-6'>
-        {/* Timetable Header */}
-        <TimetableHeader
-          timetable={timetable}
-          onBack={() => handleNavigationWithWarning('/academic/timetables')}
-        />
+    <PermissionGuard module='academic.timetables' action='view'>
+      <ContentLayout title='Timetable Details'>
+        <div className='space-y-6'>
+          {/* Timetable Header */}
+          <TimetableHeader
+            timetable={timetable}
+            onBack={() => handleNavigationWithWarning('/academic/timetables')}
+            hasAttendance={hasAttendance}
+            attendanceCount={markedPeriods.length}
+            isSuperAdmin={isSuperAdmin}
+          />
 
         {/* Unsaved Changes Indicator */}
         {hasUnsavedChanges && (
@@ -1883,17 +2045,31 @@ export default function TimetableDetailPage({
                 </p>
               </div>
               <div className='flex items-center gap-2'>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => setPeriodSelectorOpen(true)}
-                >
-                  <Settings className='h-4 w-4 mr-2' />
-                  Configure Periods
-                  <Badge variant='secondary' className='ml-2'>
-                    {selectedPeriods.length}
-                  </Badge>
-                </Button>
+                {canEditTimetable && (
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => {
+                      if (hasAttendance && !isSuperAdmin) {
+                        toast({
+                          title: 'Timetable Locked',
+                          description: 'Cannot configure periods. Attendance has been marked for this timetable.',
+                          variant: 'destructive'
+                        });
+                        return;
+                      }
+                      setPeriodSelectorOpen(true);
+                    }}
+                    disabled={hasAttendance && !isSuperAdmin}
+                  >
+                    {hasAttendance && !isSuperAdmin && <Lock className='h-3 w-3 mr-1' />}
+                    <Settings className='h-4 w-4 mr-2' />
+                    Configure Periods
+                    <Badge variant='secondary' className='ml-2'>
+                      {selectedPeriods.length}
+                    </Badge>
+                  </Button>
+                )}
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1939,7 +2115,7 @@ export default function TimetableDetailPage({
                     )}
                   </Tooltip>
                 </TooltipProvider>
-                {timetableFormat === 'regular' && (
+                {timetableFormat === 'regular' && canEditTimetable && (
                   <Button
                     variant='outline'
                     size='sm'
@@ -1952,16 +2128,18 @@ export default function TimetableDetailPage({
                     </Badge>
                   </Button>
                 )}
-                <Button
-                  variant='default'
-                  size='sm'
-                  onClick={savePeriodSelections}
-                  disabled={savingPeriods}
-                  className='bg-green-600 hover:bg-green-700'
-                >
-                  <Save className='h-4 w-4 mr-2' />
-                  Save Configuration
-                </Button>
+                {canEditTimetable && (!hasAttendance || isSuperAdmin) && (
+                  <Button
+                    variant='default'
+                    size='sm'
+                    onClick={savePeriodSelections}
+                    disabled={savingPeriods || (hasAttendance && !isSuperAdmin)}
+                    className='bg-green-600 hover:bg-green-700'
+                  >
+                    <Save className='h-4 w-4 mr-2' />
+                    Save Configuration
+                  </Button>
+                )}
                 <Button variant='outline' size='sm' onClick={exportToPDF}>
                   <Download className='h-4 w-4 mr-2' />
                   Export PDF
@@ -1975,9 +2153,10 @@ export default function TimetableDetailPage({
                 selectedDays={selectedDays}
                 selectedPeriods={selectedPeriods}
                 slots={slots}
-                lockedPeriods={lockedPeriods}
+                lockedPeriods={markedPeriods}
                 onSlotClick={openSlotDialog}
                 onSlotDelete={handleSlotDelete}
+                isSuperAdmin={isSuperAdmin}
               />
             ) : (
               <BatchTimetableGrid
@@ -2204,7 +2383,7 @@ export default function TimetableDetailPage({
             {/* Add Period/Date Range Button */}
             <div className='mt-4'>
               {timetableFormat === 'regular' ? (
-                getAvailablePeriods().length > 0 && (
+                getAvailablePeriods().length > 0 && canEditTimetable && (
                   <Button
                     variant='outline'
                     size='sm'
@@ -2216,15 +2395,17 @@ export default function TimetableDetailPage({
                   </Button>
                 )
               ) : (
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => setAddDateRangeOpen(true)}
-                  className='bg-blue-600 text-white hover:bg-blue-700 border-blue-600 hover:text-white'
-                >
-                  <Plus className='h-4 w-4 mr-2' />
-                  Add Date Range
-                </Button>
+                canEditTimetable && (
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setAddDateRangeOpen(true)}
+                    className='bg-blue-600 text-white hover:bg-blue-700 border-blue-600 hover:text-white'
+                  >
+                    <Plus className='h-4 w-4 mr-2' />
+                    Add Date Range
+                  </Button>
+                )
               )}
             </div>
 
@@ -2270,6 +2451,7 @@ export default function TimetableDetailPage({
         loadingFilteredSections={loadingFilteredSections}
         isUsingStaffPlanningData={staffPlanningCourses.length > 0}
         loadingStaffPlanData={loadingStaffPlanData}
+        readOnly={slotDialogReadOnly}
       />
 
       {/* Period Configuration Component */}
@@ -2657,6 +2839,55 @@ export default function TimetableDetailPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Slot Deletion</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this timetable slot?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4 space-y-2">
+            {slotToDelete?.existingSlot?.course?.course_name && (
+              <div className="font-medium">
+                Course: {slotToDelete.existingSlot.course.course_name}
+              </div>
+            )}
+            {slotToDelete?.period?.period_name && (
+              <div className="text-sm">
+                Period: {slotToDelete.period.period_name} ({slotToDelete.period.start_time} - {slotToDelete.period.end_time})
+              </div>
+            )}
+            {timetableFormat === 'regular' && slotToDelete?.day && (
+              <div className="text-sm">
+                Day: {slotToDelete.day}
+              </div>
+            )}
+            {timetableFormat === 'batch' && slotToDelete?.day && (
+              <div className="text-sm">
+                Date: {slotToDelete.day}
+              </div>
+            )}
+            <div className="mt-3 text-sm text-amber-600 font-medium">
+              ⚠️ This action cannot be undone.
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setSlotToDelete(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmSlotDeletion}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Delete Slot
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
