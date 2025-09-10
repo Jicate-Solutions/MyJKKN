@@ -20,7 +20,6 @@ import { FacultyAttendanceService } from '@/lib/services/academic/faculty-attend
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
 
 interface FacultyQuickAttendanceProps {
   staffId: string;
@@ -136,8 +135,8 @@ export function FacultyQuickAttendance({
     const recordId = periodRecordIds.get(period.timetable_slot_id);
 
     if (isMarked && recordId) {
-      // TODO: Navigate to new reports module when rebuilt
-      toast.info('Report viewing will be available in the new reports module');
+      // Navigate to attendance report details page
+      router.push(`/academic/attendance/reports/${recordId}`);
       return;
     } else {
       // Navigate to separate attendance marking page

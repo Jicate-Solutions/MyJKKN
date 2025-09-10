@@ -22,7 +22,8 @@
       "Bash(mv:*)",
       "mcp__supabase__get_logs",
       "Read(/D:\\Projects\\JKKN\\MyJKKN\\.claude/**)",
-      "Read(//c/Users/Boobalan/Pictures/Screenshots/**)"
+      "Read(//c/Users/Boobalan/Pictures/Screenshots/**)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
