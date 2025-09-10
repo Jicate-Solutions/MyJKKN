@@ -940,12 +940,12 @@ export default function AttendanceMarkPage() {
     try {
       setSavingAttendance(true);
 
-      // Get current user's staff information for better faculty details
-      let facultyName = profile?.full_name || 'Unknown Faculty';
-      let facultyEmail = profile?.email || null;
+      // Get current user's information for marker details
+      let markerName = profile?.full_name || 'Unknown User';
+      let markerEmail = profile?.email || null;
 
-      // Try to get staff details if user is faculty
-      if (profile?.role === 'faculty' && profile?.email) {
+      // Try to get better name from staff table if user is faculty
+      if (profile?.role === 'faculty' && profile?.id) {
         try {
           const { createClientSupabaseClient } = await import(
             '@/lib/supabase/client'
@@ -955,19 +955,17 @@ export default function AttendanceMarkPage() {
           const { data: staffData } = await supabase
             .from('staff')
             .select('first_name, last_name, email, institution_email')
-            .or(
-              `email.eq.${profile.email},institution_email.eq.${profile.email}`
-            )
+            .eq('profile_id', profile.id)
             .eq('is_active', true)
             .single();
 
           if (staffData) {
-            facultyName =
+            markerName =
               `${staffData.first_name || ''} ${
                 staffData.last_name || ''
-              }`.trim() || facultyName;
-            facultyEmail =
-              staffData.email || staffData.institution_email || facultyEmail;
+              }`.trim() || markerName;
+            markerEmail =
+              staffData.email || staffData.institution_email || markerEmail;
           }
         } catch (error) {
           console.warn(
@@ -977,24 +975,86 @@ export default function AttendanceMarkPage() {
         }
       }
 
-      // Updated: 2025-09-05 - Get course info from timetable data first, then URL fallback
-      const timetableSlotData = contextData?.timetable_data;
+      // Updated: 2025-09-09 - Extract course info from timetable_data JSON structure
+      // The periodId is actually the slot_id from the timetable_data
+      let slotData = null;
+      let courseId = null;
+      
+      // Search through all days to find the slot with matching slot_id
+      if (contextData?.timetable_data?.timetable_data && periodId) {
+        const timetableJsonData = contextData.timetable_data.timetable_data;
+        
+        // Search through each day
+        for (const day of Object.keys(timetableJsonData)) {
+          for (const periodKey of Object.keys(timetableJsonData[day])) {
+            const slot = timetableJsonData[day][periodKey];
+            if (slot.slot_id === periodId) {
+              slotData = slot;
+              courseId = slot.course_id;
+              break;
+            }
+          }
+          if (slotData) break;
+        }
+      }
+      
+      console.log('🔍 Found slot data:', { periodId, slotData, courseId });
+      
+      // Fetch course details if we have a course_id
+      let courseDetails = null;
+      if (courseId) {
+        try {
+          const { createClientSupabaseClient } = await import('@/lib/supabase/client');
+          const supabase = createClientSupabaseClient();
+          
+          const { data: course } = await supabase
+            .from('courses')
+            .select('id, course_name, course_code')
+            .eq('id', courseId)
+            .single();
+            
+          if (course) {
+            courseDetails = course;
+          }
+        } catch (error) {
+          console.warn('Failed to fetch course details:', error);
+        }
+      }
+      
       const correctCourseInfo = {
-        course_id: timetableSlotData?.course?.id || contextData?.timetable_data?.course?.id || null,
-        course_name: timetableSlotData?.course_name || timetableSlotData?.course?.course_name || courseName || 'Unknown Course',
-        course_code: timetableSlotData?.course_code || timetableSlotData?.course?.course_code || 'N/A'
+        course_id: courseDetails?.id || courseId || null,
+        course_name: courseDetails?.course_name || courseName || 'Unknown Course',
+        course_code: courseDetails?.course_code || 'N/A'
       };
 
       console.log('🔍 Course info resolution:', {
-        from_timetable: {
-          course_name: timetableSlotData?.course_name,
-          course_id: timetableSlotData?.course?.id
-        },
+        slot_data: slotData,
+        course_details: courseDetails,
         from_url: courseName,
         final_used: correctCourseInfo
       });
 
-      // Prepare attendance data
+      // Prepare faculty data - store all assigned faculty if multiple
+      let assignedFacultyData;
+      if (assignedStaff.length > 1) {
+        // Multiple faculty - store as array
+        assignedFacultyData = assignedStaff.map(staff => ({
+          faculty_id: staff.id,
+          faculty_name: staff.full_name || `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
+          faculty_email: staff.email || staff.institution_email || '',
+          is_primary: staff.is_primary || false
+        }));
+      } else if (assignedStaff.length === 1) {
+        // Single faculty - store as object for backward compatibility
+        const faculty = assignedStaff[0];
+        assignedFacultyData = {
+          faculty_id: faculty.id,
+          faculty_name: faculty.full_name || `${faculty.first_name || ''} ${faculty.last_name || ''}`.trim(),
+          faculty_email: faculty.email || faculty.institution_email || ''
+        };
+      }
+      
+      // Prepare attendance data with proper structure
       const attendancePayload = {
         [periodId || 'default']: {
           period_id: periodId || 'default',
@@ -1004,8 +1064,15 @@ export default function AttendanceMarkPage() {
           course_code: correctCourseInfo.course_code,
           start_time: startTime || '',
           end_time: endTime || '',
-          faculty_name: facultyName,
-          faculty_email: facultyEmail,
+          // Add all assigned faculty information
+          assigned_faculty: assignedFacultyData,
+          // Add marker details - always use profile ID for consistency across all user types
+          marked_by_details: {
+            marker_id: profile?.id || '',
+            marker_name: markerName,
+            marker_role: profile?.role || 'faculty',
+            marker_email: markerEmail || profile?.email || ''
+          },
           students: students.map((student) => ({
             student_id: student.id,
             status: attendanceData[student.id] || 'Present',
@@ -1047,12 +1114,17 @@ export default function AttendanceMarkPage() {
 
         // Redirect to report page after delay
         setTimeout(() => {
-          toast.success('Attendance saved successfully! Redirecting...');
+          toast.success('Redirecting to reports...');
         }, 500);
 
         setTimeout(() => {
-          // Redirect back to attendance page after successful save
-          router.push('/academic/attendance');
+          // Redirect to reports page with parameters to highlight the new record
+          const params = new URLSearchParams({
+            marked: 'true',
+            date: date || new Date().toISOString().split('T')[0],
+            section: contextData?.section_name || sectionId || ''
+          });
+          router.push(`/academic/attendance/reports?${params.toString()}`);
         }, 1500);
       } else {
         console.error('❌ Save result was null/undefined');

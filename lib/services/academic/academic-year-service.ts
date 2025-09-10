@@ -127,6 +127,12 @@ export class AcademicYearService {
     isSuperAdmin: boolean = false
   ): Promise<AcademicYearListResponse> {
     try {
+      console.log('Fetching academic years with access control:', {
+        filters,
+        userInstitutionId,
+        isSuperAdmin
+      });
+
       let query = this.supabase.from('academic_years').select(
         `
           *,
@@ -147,13 +153,21 @@ export class AcademicYearService {
           userInstitutionId &&
           filters.institution_id !== userInstitutionId
         ) {
+          console.warn(
+            'Access denied: User trying to access different institution data'
+          );
           throw new Error(
             'Access denied: You can only access your own institution data'
           );
         }
+        console.log(
+          'Applying specific institution filter:',
+          filters.institution_id
+        );
         query = query.eq('institution_id', filters.institution_id);
       } else if (!isSuperAdmin && userInstitutionId) {
         // If no specific institution is requested, filter by user's institution
+        console.log('Applying user institution filter:', userInstitutionId);
         query = query.eq('institution_id', userInstitutionId);
       }
 
@@ -177,9 +191,21 @@ export class AcademicYearService {
 
       query = query.range(offset, offset + limit - 1);
 
+      console.log('Executing academic years query with access control...');
       const { data, error, count } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error(
+          'Supabase query error in getAcademicYearsWithAccess:',
+          error
+        );
+        throw error;
+      }
+
+      console.log('Academic years with access query successful:', {
+        dataCount: data?.length,
+        totalCount: count
+      });
 
       const total = count || 0;
       const totalPages = Math.ceil(total / limit);
@@ -198,6 +224,12 @@ export class AcademicYearService {
         'Error fetching academic years with access control:',
         error
       );
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        code: (error as any)?.code,
+        details: (error as any)?.details,
+        hint: (error as any)?.hint
+      });
       throw error;
     }
   }
@@ -241,6 +273,8 @@ export class AcademicYearService {
     filters: AcademicYearFilters = {}
   ): Promise<AcademicYearListResponse> {
     try {
+      console.log('Fetching academic years with filters:', filters);
+
       let query = this.supabase.from('academic_years').select(
         `
           *,
@@ -255,6 +289,7 @@ export class AcademicYearService {
 
       // Apply institution filter
       if (filters.institution_id) {
+        console.log('Applying institution filter:', filters.institution_id);
         query = query.eq('institution_id', filters.institution_id);
       }
 
@@ -278,9 +313,18 @@ export class AcademicYearService {
 
       query = query.range(offset, offset + limit - 1);
 
+      console.log('Executing academic years query...');
       const { data, error, count } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase query error:', error);
+        throw error;
+      }
+
+      console.log('Academic years query successful:', {
+        dataCount: data?.length,
+        totalCount: count
+      });
 
       const total = count || 0;
       const totalPages = Math.ceil(total / limit);
@@ -296,6 +340,12 @@ export class AcademicYearService {
       };
     } catch (error) {
       console.error('Error fetching academic years:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        code: (error as any)?.code,
+        details: (error as any)?.details,
+        hint: (error as any)?.hint
+      });
       throw error;
     }
   }

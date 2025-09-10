@@ -104,7 +104,10 @@ export class AttendanceService {
 
       // STEP 4: Check if user is marked as super admin in profiles table
       if (profileData.is_super_admin) {
-        console.log('✅ Profile super admin access granted for user:', markedBy);
+        console.log(
+          '✅ Profile super admin access granted for user:',
+          markedBy
+        );
         return { isAuthorized: true, reason: 'Profile super admin access' };
       }
 
@@ -142,26 +145,34 @@ export class AttendanceService {
         if (typeof dayData === 'object' && dayData !== null) {
           Object.keys(dayData).forEach((periodKey) => {
             const periodSlot = dayData[periodKey];
-            
+
             // Add primary_staff_id if exists
             if (periodSlot && periodSlot.primary_staff_id) {
               allAssignedIds.add(periodSlot.primary_staff_id);
             }
-            
+
             // Add all staff from staff_ids array if exists
-            if (periodSlot && periodSlot.staff_ids && Array.isArray(periodSlot.staff_ids)) {
+            if (
+              periodSlot &&
+              periodSlot.staff_ids &&
+              Array.isArray(periodSlot.staff_ids)
+            ) {
               periodSlot.staff_ids.forEach((id: string) => {
                 allAssignedIds.add(id);
               });
             }
-            
+
             // Also check for profile_ids (for direct profile assignments)
-            if (periodSlot && periodSlot.profile_ids && Array.isArray(periodSlot.profile_ids)) {
+            if (
+              periodSlot &&
+              periodSlot.profile_ids &&
+              Array.isArray(periodSlot.profile_ids)
+            ) {
               periodSlot.profile_ids.forEach((id: string) => {
                 allAssignedIds.add(id);
               });
             }
-            
+
             // Check for primary_profile_id (for direct profile assignment)
             if (periodSlot && periodSlot.primary_profile_id) {
               allAssignedIds.add(periodSlot.primary_profile_id);
@@ -172,17 +183,24 @@ export class AttendanceService {
 
       // STEP 8: Check authorization - Allow if either profile ID or staff ID matches
       const isAuthorizedByProfile = allAssignedIds.has(markedBy); // Check profile ID directly
-      const isAuthorizedByStaff = userStaffId ? allAssignedIds.has(userStaffId) : false;
-      
+      const isAuthorizedByStaff = userStaffId
+        ? allAssignedIds.has(userStaffId)
+        : false;
+
       if (isAuthorizedByProfile || isAuthorizedByStaff) {
         const authType = isAuthorizedByProfile ? 'profile' : 'staff';
-        console.log(`✅ Authorized by ${authType} assignment for user:`, markedBy);
+        console.log(
+          `✅ Authorized by ${authType} assignment for user:`,
+          markedBy
+        );
         return { isAuthorized: true, reason: `Assigned ${authType} member` };
       }
 
       // STEP 9: For development/testing - if no assignments found, allow with warning
       if (allAssignedIds.size === 0) {
-        console.warn('⚠️ No staff/profile assignments found in timetable - allowing access for testing');
+        console.warn(
+          '⚠️ No staff/profile assignments found in timetable - allowing access for testing'
+        );
         return { isAuthorized: true, reason: 'No restrictions (testing mode)' };
       }
 
@@ -190,10 +208,15 @@ export class AttendanceService {
       const { data: assignedStaff } = await this.supabase
         .from('staff')
         .select('id, first_name, last_name, email')
-        .in('id', Array.from(allAssignedIds).filter(id => 
-          // Filter to only valid UUIDs (staff IDs)
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
-        ));
+        .in(
+          'id',
+          Array.from(allAssignedIds).filter((id) =>
+            // Filter to only valid UUIDs (staff IDs)
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+              id
+            )
+          )
+        );
 
       console.log('❌ Authorization failed:', {
         userProfile: markedBy,
@@ -210,7 +233,8 @@ export class AttendanceService {
       };
     } catch (error) {
       console.error('Error validating staff assignment:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown validation error';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown validation error';
       return {
         isAuthorized: false,
         reason: `Validation error: ${errorMessage}`
@@ -425,7 +449,8 @@ export class AttendanceService {
           );
           return {
             ...data,
-            marked_by_profile: null
+            marked_by: '', // Add missing required property
+            marked_by_profile: undefined
           } as ConsolidatedStudentAttendance;
         }
 
@@ -441,7 +466,8 @@ export class AttendanceService {
             );
             return {
               ...data,
-              marked_by_profile: null
+              marked_by: '', // Add missing required property
+              marked_by_profile: undefined
             } as ConsolidatedStudentAttendance;
           }
         }
@@ -467,7 +493,8 @@ export class AttendanceService {
     return data
       ? ({
           ...data,
-          marked_by_profile: null
+          marked_by: '', // Add missing required property
+          marked_by_profile: undefined
         } as ConsolidatedStudentAttendance)
       : null;
   }
@@ -506,7 +533,8 @@ export class AttendanceService {
 
       return data.map((record) => ({
         ...record,
-        marked_by_profile: null
+        marked_by: '', // Add missing required property
+        marked_by_profile: undefined
       })) as unknown as ConsolidatedStudentAttendance[];
     } catch (error) {
       console.error(
@@ -682,9 +710,7 @@ export class AttendanceService {
 
         const { data, error } = await this.supabase
           .from('student_attendance')
-          .select(
-            '*'
-          )
+          .select('*')
           .eq('timetable_id', timetableId)
           .eq('section_id', resolvedSectionId)
           .gte('attendance_date', start_date)
@@ -963,6 +989,34 @@ export class AttendanceService {
         result = updateResult;
       } else {
         // Create new record
+        // Updated: 2025-09-09 - Fetch academic fields from timetable if not provided
+        let academicFields = {
+          academic_year_id: data.academic_year_id,
+          degree_id: data.degree_id,
+          program_id: data.program_id,
+          department_id: data.department_id,
+          semester_id: data.semester_id
+        };
+
+        // If any academic field is missing, fetch from timetable
+        if (!data.academic_year_id || !data.degree_id || !data.program_id || !data.department_id) {
+          const { data: timetableData, error: timetableError } = await this.supabase
+            .from('timetables')
+            .select('academic_year_id, degree_id, program_id, department_id, semester_id')
+            .eq('id', data.timetable_id)
+            .single();
+          
+          if (!timetableError && timetableData) {
+            academicFields = {
+              academic_year_id: data.academic_year_id || timetableData.academic_year_id,
+              degree_id: data.degree_id || timetableData.degree_id,
+              program_id: data.program_id || timetableData.program_id,
+              department_id: data.department_id || timetableData.department_id,
+              semester_id: data.semester_id || timetableData.semester_id
+            };
+          }
+        }
+
         const { data: insertResult, error: insertError } = await this.supabase
           .from('student_attendance')
           .insert({
@@ -971,6 +1025,11 @@ export class AttendanceService {
             attendance_date: data.attendance_date,
             attendance_data: data.attendance_data,
             institution_id: data.institution_id,
+            academic_year_id: academicFields.academic_year_id,
+            degree_id: academicFields.degree_id,
+            program_id: academicFields.program_id,
+            department_id: academicFields.department_id,
+            semester_id: academicFields.semester_id,
             updated_at: new Date().toISOString()
           })
           .select(
@@ -1027,6 +1086,11 @@ export class AttendanceService {
           timetable_name,
           start_date,
           end_date,
+          academic_year_id,
+          degree_id,
+          program_id,
+          department_id,
+          semester_id,
           degree:degree_id(
             id,
             degree_name
@@ -1188,7 +1252,14 @@ export class AttendanceService {
     attendance_date: string,
     attendance_data: ConsolidatedAttendanceData,
     marked_by: string,
-    institution_id: string
+    institution_id: string,
+    academicFields?: {
+      academic_year_id?: string;
+      degree_id?: string;
+      program_id?: string;
+      department_id?: string;
+      semester_id?: string;
+    }
   ): Promise<void> {
     try {
       await this.upsertConsolidatedAttendance({
@@ -1197,7 +1268,8 @@ export class AttendanceService {
         attendance_date,
         attendance_data,
         marked_by,
-        institution_id
+        institution_id,
+        ...academicFields
       });
 
       toast.success('Attendance saved successfully');
