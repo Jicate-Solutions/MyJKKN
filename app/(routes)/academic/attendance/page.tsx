@@ -60,15 +60,9 @@ export default function AttendancePage() {
     refetch: refetchPeriods
   } = useAttendancePeriods(searchContext, showResults);
 
-  // Debug logging for periods loading
+  // Monitor periods loading state
   useEffect(() => {
-    console.log('📊 useAttendancePeriods state:', {
-      availablePeriodsCount: availablePeriods.length,
-      loading,
-      showResults,
-      searchContext,
-      isSuperAdmin
-    });
+    // State changes tracked internally
   }, [availablePeriods, loading, showResults, searchContext, isSuperAdmin]);
 
   const { checkStaffPermissions } = useAttendanceRoster();
@@ -80,12 +74,6 @@ export default function AttendancePage() {
 
   // Initialize with user's institution
   useEffect(() => {
-    console.log('🔧 Initializing attendance page:', {
-      profileInstitutionId: profile?.institution_id,
-      isSuperAdmin,
-      profile: profile
-    });
-
     if (profile?.institution_id) {
       updateSearchContext({
         institution_id: profile.institution_id
@@ -93,9 +81,6 @@ export default function AttendancePage() {
       setLoadingInitialData(false);
     } else if (isSuperAdmin) {
       // For super admins without a specific institution, we need to handle this case
-      console.log(
-        '⚠️ Super admin without institution_id - may need to select institution manually'
-      );
       setLoadingInitialData(false);
     }
   }, [profile?.institution_id, isSuperAdmin, profile]);
@@ -168,14 +153,6 @@ export default function AttendancePage() {
       return;
     }
 
-    console.log('🚀 Period selection - redirecting to mark page with data:', {
-      sectionId,
-      periodId: period.timetable_slot_id,
-      timetableId: period.timetable_id,
-      date: searchContext.attendance_date,
-      periodData: period
-    });
-
     // Navigate directly to attendance marking page
     const params = new URLSearchParams({
       periodId: period.timetable_slot_id,
@@ -187,8 +164,6 @@ export default function AttendancePage() {
       startTime: period.start_time || '',
       endTime: period.end_time || ''
     });
-
-    console.log('🔗 Redirect URL params:', params.toString());
     router.push(`/academic/attendance/mark?${params.toString()}`);
   };
 
