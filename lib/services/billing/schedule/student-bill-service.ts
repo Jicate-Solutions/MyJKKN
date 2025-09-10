@@ -35,7 +35,8 @@ export class StudentBillService {
           *,
           student:students(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email,
             student_mobile
@@ -171,7 +172,8 @@ export class StudentBillService {
           *,
           student:students(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email,
             student_mobile
@@ -246,50 +248,103 @@ export class StudentBillService {
     filters: StudentBillFilters = {}
   ): Promise<StudentBillListResponse> {
     try {
-      // Use the optimized view that pre-joins all data
-      let query = this.supabase.from('v_bill_details').select(
-        `
-          id,
-          student_id,
-          institution_id,
-          item_category_id,
-          bill_description,
-          due_date,
-          quantity,
-          unit_amount,
-          total_amount,
-          tax_amount,
-          final_amount,
-          status,
-          payment_date,
-          balance_amount,
-          remarks,
-          is_recurring,
-          recurrence_pattern,
-          number_of_recurrences,
-          created_by,
-          created_at,
-          updated_at,
-          student_name,
-          roll_number,
-          student_email,
-          institution_name,
-          item_category_name,
-          parent_category_name,
-          sub_category_name,
-          total_paid,
-          total_refunded,
-          total_discount,
-          net_paid
-        `,
-        { count: 'exact' }
+      // Check if any academic hierarchy filters are provided
+      const hasAcademicFilters = !!(
+        filters.academic_year_id ||
+        filters.degree_id ||
+        filters.department_id ||
+        filters.program_id ||
+        filters.semester_id ||
+        filters.section_id
       );
+
+      let query;
+
+      if (hasAcademicFilters) {
+        // Use the billing_student_bills table with joins when academic filters are needed
+        query = this.supabase.from('billing_student_bills').select(
+          `
+            id,
+            student_id,
+            institution_id,
+            item_category_id,
+            bill_description,
+            due_date,
+            quantity,
+            unit_amount,
+            total_amount,
+            tax_amount,
+            final_amount,
+            status,
+            payment_date,
+            balance_amount,
+            remarks,
+            is_recurring,
+            recurrence_pattern,
+            number_of_recurrences,
+            created_by,
+            created_at,
+            updated_at,
+            student:students!billing_student_bills_student_id_fkey(
+              first_name,
+              last_name,
+              roll_number,
+              academic_year_id,
+              degree_id,
+              department_id,
+              program_id,
+              semester_id,
+              section_id
+            ),
+            institution:institutions(
+              id,
+              name
+            ),
+            item_category:billing_item_categories(
+              id,
+              item_category_name
+            )
+          `,
+          { count: 'exact' }
+        );
+      } else {
+        // Use the optimized view that pre-joins all data when no academic filters are needed
+        query = this.supabase.from('v_bill_details').select(
+          `
+            id,
+            student_id,
+            institution_id,
+            item_category_id,
+            bill_description,
+            due_date,
+            quantity,
+            unit_amount,
+            total_amount,
+            tax_amount,
+            final_amount,
+            status,
+            payment_date,
+            balance_amount,
+            remarks,
+            is_recurring,
+            recurrence_pattern,
+            number_of_recurrences,
+            created_by,
+            created_at,
+            updated_at,
+            student_name,
+            roll_number,
+            institution_name
+          `,
+          { count: 'exact' }
+        );
+      }
 
       // Apply search filter with correct syntax
       if (filters.search) {
         const searchTerm = `*${filters.search}*`;
         query = query.or(
-          `bill_description.ilike.${searchTerm},student_name.ilike.${searchTerm},roll_number.ilike.${searchTerm}`
+          `bill_description.ilike.${searchTerm},first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},roll_number.ilike.${searchTerm}`
         );
       }
 
@@ -329,6 +384,33 @@ export class StudentBillService {
         query = query.eq('is_recurring', filters.is_recurring);
       }
 
+      // Apply academic hierarchy filters (only when using the joined query)
+      if (hasAcademicFilters) {
+        if (filters.academic_year_id) {
+          query = query.eq('student.academic_year_id', filters.academic_year_id);
+        }
+
+        if (filters.degree_id) {
+          query = query.eq('student.degree_id', filters.degree_id);
+        }
+
+        if (filters.department_id) {
+          query = query.eq('student.department_id', filters.department_id);
+        }
+
+        if (filters.program_id) {
+          query = query.eq('student.program_id', filters.program_id);
+        }
+
+        if (filters.semester_id) {
+          query = query.eq('student.semester_id', filters.semester_id);
+        }
+
+        if (filters.section_id) {
+          query = query.eq('student.section_id', filters.section_id);
+        }
+      }
+
       // Apply sorting
       const sortBy = filters.sortBy || 'created_at';
       const sortDirection = filters.sortDirection || 'desc';
@@ -343,62 +425,80 @@ export class StudentBillService {
 
       if (error) throw error;
 
-      // Transform the flattened view data back to the expected nested structure
+      // Transform data based on the query type
       const transformedData = (data || []).map(
-        (bill): StudentBill => ({
-          // Core bill fields from view
-          id: bill.id,
-          student_id: bill.student_id,
-          institution_id: bill.institution_id,
-          item_category_id: bill.item_category_id,
-          bill_description: bill.bill_description,
-          due_date: bill.due_date,
-          quantity: bill.quantity,
-          unit_amount: bill.unit_amount,
-          total_amount: bill.total_amount,
-          tax_amount: bill.tax_amount,
-          final_amount: bill.final_amount,
-          status: bill.status,
-          payment_date: bill.payment_date,
-          balance_amount: bill.balance_amount,
-          remarks: bill.remarks,
-          is_recurring: bill.is_recurring,
-          recurrence_pattern: bill.recurrence_pattern,
-          number_of_recurrences: bill.number_of_recurrences,
-          created_by: bill.created_by,
-          created_at: bill.created_at,
-          updated_at: bill.updated_at,
+        (bill): StudentBill => {
+          // Common core bill fields
+          const baseBill = {
+            id: bill.id,
+            student_id: bill.student_id,
+            institution_id: bill.institution_id,
+            item_category_id: bill.item_category_id,
+            bill_description: bill.bill_description,
+            due_date: bill.due_date,
+            quantity: bill.quantity,
+            unit_amount: bill.unit_amount,
+            total_amount: bill.total_amount,
+            tax_amount: bill.tax_amount,
+            final_amount: bill.final_amount,
+            status: bill.status,
+            payment_date: bill.payment_date,
+            balance_amount: bill.balance_amount,
+            remarks: bill.remarks,
+            is_recurring: bill.is_recurring,
+            recurrence_pattern: bill.recurrence_pattern,
+            number_of_recurrences: bill.number_of_recurrences,
+            created_by: bill.created_by,
+            created_at: bill.created_at,
+            updated_at: bill.updated_at,
+          };
 
-          // Related data from view
-          student: {
-            id: bill.student_id,
-            student_name: bill.student_name,
-            roll_number: bill.roll_number,
-            student_email: bill.student_email,
-            student_mobile: '' // Not available in view, would need separate query if needed
-          },
-          institution: {
-            id: bill.institution_id,
-            name: bill.institution_name,
-            counselling_code: '' // Not available in view
-          },
-          item_category: {
-            id: bill.item_category_id,
-            item_category_name: bill.item_category_name,
-            parent_category: bill.parent_category_name
-              ? {
-                  id: '',
-                  parent_category_name: bill.parent_category_name
-                }
-              : undefined,
-            sub_category: bill.sub_category_name
-              ? {
-                  id: '',
-                  sub_category_name: bill.sub_category_name
-                }
-              : undefined
+          if (hasAcademicFilters && bill.student) {
+            // Data from joined query with full student object
+            return {
+              ...baseBill,
+              student: {
+                id: bill.student_id,
+                first_name: bill.student.first_name || '',
+                last_name: bill.student.last_name || '',
+                roll_number: bill.student.roll_number || '',
+                college_email: '', // Not queried to keep it light
+                student_mobile: '' // Not queried to keep it light
+              },
+              institution: {
+                id: bill.institution_id,
+                name: bill.institution?.name || '',
+                counselling_code: '' // Not queried to keep it light
+              },
+              item_category: {
+                id: bill.item_category_id,
+                item_category_name: bill.item_category?.item_category_name || ''
+              }
+            };
+          } else {
+            // Data from optimized view (flattened structure)
+            return {
+              ...baseBill,
+              student: {
+                id: bill.student_id,
+                first_name: bill.student_name?.split(' ')[0] || '',
+                last_name: bill.student_name?.split(' ').slice(1).join(' ') || '',
+                roll_number: bill.roll_number,
+                college_email: '', // Not available in view, would need separate query if needed
+                student_mobile: '' // Not available in view, would need separate query if needed
+              },
+              institution: {
+                id: bill.institution_id,
+                name: bill.institution_name,
+                counselling_code: '' // Not available in view
+              },
+              item_category: {
+                id: bill.item_category_id,
+                item_category_name: '' // Not available in view, would need separate query if needed
+              }
+            };
           }
-        })
+        }
       );
 
       return {
@@ -425,7 +525,8 @@ export class StudentBillService {
           *,
           student:students(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email,
             student_mobile
@@ -455,7 +556,7 @@ export class StudentBillService {
             *,
             receipt:billing_receipts(
               *,
-              student:students(id, student_name, student_email),
+              student:students(id, first_name, last_name, college_email),
               accountant:profiles(id, full_name),
               refunds:billing_refunds(
                 *,

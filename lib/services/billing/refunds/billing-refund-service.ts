@@ -41,7 +41,8 @@ export class BillingRefundService {
             payment_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -86,7 +87,8 @@ export class BillingRefundService {
             payment_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -142,7 +144,8 @@ export class BillingRefundService {
             payment_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -162,7 +165,7 @@ export class BillingRefundService {
       // Apply filters
       if (filters.search) {
         query = query.or(
-          `refund_reason.ilike.%${filters.search}%,receipt.student.student_name.ilike.%${filters.search}%`
+          `refund_reason.ilike.%${filters.search}%,receipt.student.first_name.ilike.%${filters.search}%,receipt.student.last_name.ilike.%${filters.search}%`
         );
       }
 
@@ -231,7 +234,8 @@ export class BillingRefundService {
             payment_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -282,7 +286,8 @@ export class BillingRefundService {
             payment_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -330,7 +335,8 @@ export class BillingRefundService {
             payment_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -378,7 +384,8 @@ export class BillingRefundService {
             payment_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )

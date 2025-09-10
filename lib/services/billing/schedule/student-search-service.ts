@@ -10,18 +10,25 @@ import type {
 type RawStudentData = {
   id: string;
   roll_number: string;
-  student_name: string;
+  first_name: string;
+  last_name: string;
   father_name: string;
   student_mobile: string;
-  student_email: string;
+  college_email: string;
   institution_id: string;
+  academic_year_id: string;
+  degree_id: string;
   department_id: string;
   program_id: string;
   semester_id: string;
+  section_id: string;
   institution?: any;
+  academic_year?: any;
+  degree?: any;
   department?: any;
   program?: any;
   semester?: any;
+  section?: any;
 };
 
 export class StudentSearchService {
@@ -35,17 +42,29 @@ export class StudentSearchService {
     return {
       id: rawData.id,
       roll_number: rawData.roll_number,
-      student_name: rawData.student_name,
+      first_name: rawData.first_name,
+      last_name: rawData.last_name,
       father_name: rawData.father_name,
-      student_mobile: rawData.student_mobile,
-      student_email: rawData.student_email,
+      mobile_number: rawData.student_mobile,
+      college_email: rawData.college_email,
       institution_id: rawData.institution_id,
+      academic_year_id: rawData.academic_year_id,
+      degree_id: rawData.degree_id,
       department_id: rawData.department_id,
       program_id: rawData.program_id,
       semester_id: rawData.semester_id,
+      section_id: rawData.section_id,
       institution: rawData.institution || {
         id: rawData.institution_id,
         name: ''
+      },
+      academic_year: rawData.academic_year || {
+        id: rawData.academic_year_id,
+        academic_year_name: ''
+      },
+      degree: rawData.degree || {
+        id: rawData.degree_id,
+        degree_name: ''
       },
       department: rawData.department || {
         id: rawData.department_id,
@@ -55,6 +74,10 @@ export class StudentSearchService {
       semester: rawData.semester || {
         id: rawData.semester_id,
         semester_name: ''
+      },
+      section: rawData.section || {
+        id: rawData.section_id,
+        section_name: ''
       },
       outstanding_amount: outstandingAmount
     };
@@ -70,18 +93,24 @@ export class StudentSearchService {
           `
           id,
           roll_number,
-          student_name,
+          first_name, last_name,
           father_name,
           student_mobile,
-          student_email,
+          college_email,
           institution_id,
+          academic_year_id,
+          degree_id,
           department_id,
           program_id,
           semester_id,
-          institution:institutions(id, name),
-          department:departments(id, department_name),
-          program:programs(id, program_name),
-          semester:semesters(id, semester_name)
+          section_id,
+          institution:institutions!institution_id(id, name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name),
+          degree:degrees!degree_id(id, degree_name),
+          department:departments!department_id(id, department_name),
+          program:programs!program_id(id, program_name),
+          semester:semesters!semester_id(id, semester_name),
+          section:sections!section_id(id, section_name)
         `,
           { count: 'exact' }
         )
@@ -89,20 +118,41 @@ export class StudentSearchService {
         .eq('is_profile_complete', true);
 
       // Apply filters
+      // Apply hierarchy filters in order
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
+      }
+
+      if (filters.academic_year_id) {
+        query = query.eq('academic_year_id', filters.academic_year_id);
+      }
+
+      if (filters.degree_id) {
+        query = query.eq('degree_id', filters.degree_id);
       }
 
       if (filters.department_id) {
         query = query.eq('department_id', filters.department_id);
       }
 
+      if (filters.program_id) {
+        query = query.eq('program_id', filters.program_id);
+      }
+
       if (filters.semester_id) {
         query = query.eq('semester_id', filters.semester_id);
       }
 
-      if (filters.student_name) {
-        query = query.ilike('student_name', `%${filters.student_name}%`);
+      if (filters.section_id) {
+        query = query.eq('section_id', filters.section_id);
+      }
+
+      if (filters.first_name) {
+        query = query.ilike('first_name', `%${filters.first_name}%`);
+      }
+
+      if (filters.last_name) {
+        query = query.ilike('last_name', `%${filters.last_name}%`);
       }
 
       if (filters.roll_number) {
@@ -114,7 +164,7 @@ export class StudentSearchService {
       }
 
       // Apply sorting
-      query = query.order('student_name', { ascending: true });
+      query = query.order('first_name', { ascending: true });
 
       // Apply pagination
       const page = filters.page || 1;
@@ -160,18 +210,24 @@ export class StudentSearchService {
           `
           id,
           roll_number,
-          student_name,
+          first_name, last_name,
           father_name,
           student_mobile,
-          student_email,
+          college_email,
           institution_id,
+          academic_year_id,
+          degree_id,
           department_id,
           program_id,
           semester_id,
-          institution:institutions(id, name),
-          department:departments(id, department_name),
-          program:programs(id, program_name),
-          semester:semesters(id, semester_name)
+          section_id,
+          institution:institutions!institution_id(id, name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name),
+          degree:degrees!degree_id(id, degree_name),
+          department:departments!department_id(id, department_name),
+          program:programs!program_id(id, program_name),
+          semester:semesters!semester_id(id, semester_name),
+          section:sections!section_id(id, section_name)
         `
         )
         .eq('id', studentId)
@@ -381,10 +437,10 @@ export class StudentSearchService {
           `
           id,
           roll_number,
-          student_name,
+          first_name, last_name,
           father_name,
           student_mobile,
-          student_email,
+          college_email,
           institution_id,
           department_id,
           program_id,
@@ -396,7 +452,7 @@ export class StudentSearchService {
         )
         .eq('institution_id', institutionId)
         .eq('status', 'active')
-        .order('student_name', { ascending: true })
+        .order('first_name', { ascending: true })
         .limit(limit);
 
       if (error) throw error;
@@ -429,18 +485,24 @@ export class StudentSearchService {
           `
           id,
           roll_number,
-          student_name,
+          first_name, last_name,
           father_name,
           student_mobile,
-          student_email,
+          college_email,
           institution_id,
+          academic_year_id,
+          degree_id,
           department_id,
           program_id,
           semester_id,
-          institution:institutions(id, name),
-          department:departments(id, department_name),
-          program:programs(id, program_name),
-          semester:semesters(id, semester_name)
+          section_id,
+          institution:institutions!institution_id(id, name),
+          academic_year:academic_years!academic_year_id(id, academic_year_name),
+          degree:degrees!degree_id(id, degree_name),
+          department:departments!department_id(id, department_name),
+          program:programs!program_id(id, program_name),
+          semester:semesters!semester_id(id, semester_name),
+          section:sections!section_id(id, section_name)
         `
         )
         .eq('status', 'active');
@@ -449,7 +511,7 @@ export class StudentSearchService {
         query = query.eq('institution_id', institutionId);
       }
 
-      query = query.order('student_name', { ascending: true }).limit(limit);
+      query = query.order('first_name', { ascending: true }).limit(limit);
 
       const { data, error } = await query;
 
@@ -487,10 +549,10 @@ export class StudentSearchService {
           `
           id,
           roll_number,
-          student_name,
+          first_name, last_name,
           father_name,
           student_mobile,
-          student_email,
+          college_email,
           institution_id,
           department_id,
           program_id,
@@ -507,10 +569,10 @@ export class StudentSearchService {
 
       // Search across multiple fields
       query = query.or(
-        `student_name.ilike.%${searchQuery}%,roll_number.ilike.%${searchQuery}%,student_mobile.ilike.%${searchQuery}%,student_email.ilike.%${searchQuery}%`
+        `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,roll_number.ilike.%${searchQuery}%,student_mobile.ilike.%${searchQuery}%,college_email.ilike.%${searchQuery}%`
       );
 
-      query = query.order('student_name', { ascending: true }).limit(limit);
+      query = query.order('first_name', { ascending: true }).limit(limit);
 
       const { data, error } = await query;
 

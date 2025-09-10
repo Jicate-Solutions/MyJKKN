@@ -83,7 +83,8 @@ export class BillingReceiptService {
           *,
           student:students (
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),
@@ -157,7 +158,8 @@ export class BillingReceiptService {
           *,
           student:students (
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),
@@ -205,7 +207,8 @@ export class BillingReceiptService {
           *,
           student:students (
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),
@@ -302,7 +305,8 @@ export class BillingReceiptService {
           *,
           student:students (
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),
@@ -531,7 +535,7 @@ export class BillingReceiptService {
         <h3>Student Information</h3>
         <div class="info-row">
             <span>Name:</span>
-            <span>${receipt.student?.student_name || 'N/A'}</span>
+            <span>${receipt.student?.first_name || 'N/A'} ${receipt.student?.last_name || ''}</span>
         </div>
         ${
           receipt.student?.roll_number
@@ -545,7 +549,7 @@ export class BillingReceiptService {
         }
         <div class="info-row">
             <span>Email:</span>
-            <span>${receipt.student?.student_email || 'N/A'}</span>
+            <span>${receipt.student?.college_email || 'N/A'}</span>
         </div>
     </div>
 
@@ -740,7 +744,8 @@ export class BillingReceiptService {
           *,
           student:students(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),
@@ -789,7 +794,8 @@ export class BillingReceiptService {
           ),
           student:students (
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email,
             institution_id

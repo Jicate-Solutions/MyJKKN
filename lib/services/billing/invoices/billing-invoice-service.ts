@@ -159,7 +159,8 @@ export class BillingInvoiceService {
           *,
           student:students(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),
@@ -281,7 +282,8 @@ export class BillingInvoiceService {
           *,
           student:students(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),
@@ -349,7 +351,7 @@ export class BillingInvoiceService {
             Invoice Notification
           </h2>
           
-          <p>Dear ${invoice.student?.student_name},</p>
+          <p>Dear ${invoice.student?.first_name || ''} ${invoice.student?.last_name || ''},</p>
           
           <p>Please find attached your invoice with the following details:</p>
           
@@ -704,7 +706,7 @@ export class BillingInvoiceService {
             <div class="section">
               <h3>Bill To</h3>
               <p><span class="label">Student:</span> ${
-                invoice.student?.student_name || 'N/A'
+                `${invoice.student?.first_name || 'N/A'} ${invoice.student?.last_name || ''}`
               }</p>
               ${
                 invoice.student?.roll_number
@@ -712,8 +714,8 @@ export class BillingInvoiceService {
                   : ''
               }
               ${
-                invoice.student?.student_email
-                  ? `<p><span class="label">Email:</span> ${invoice.student.student_email}</p>`
+                invoice.student?.college_email
+                  ? `<p><span class="label">Email:</span> ${invoice.student.college_email}</p>`
                   : ''
               }
               ${
@@ -891,7 +893,8 @@ export class BillingInvoiceService {
           *,
           student:students(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),
@@ -939,7 +942,8 @@ export class BillingInvoiceService {
           *,
           student:students(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),
@@ -998,7 +1002,8 @@ export class BillingInvoiceService {
           *,
           student:students(
             id,
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             student_email
           ),

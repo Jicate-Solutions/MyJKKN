@@ -16,7 +16,8 @@ import {
   Trash2,
   FileText,
   Calculator,
-  ShoppingCart
+  ShoppingCart,
+  IndianRupee
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -285,9 +286,11 @@ export function StudentBillForm({
       if (studentToUse) {
         setSelectedStudent(studentToUse);
         setStudentSearchQuery(
-          `${studentToUse.first_name} ${studentToUse.last_name} (${
-            studentToUse.roll_number || 'N/A'
-          })`
+          `${
+            [studentToUse.first_name, studentToUse.last_name]
+              .filter(Boolean)
+              .join(' ') || 'N/A'
+          } (${studentToUse.roll_number || 'N/A'})`
         );
       }
     } else if (preSelectedStudent) {
@@ -315,9 +318,11 @@ export function StudentBillForm({
       form.reset(formValues);
       setSelectedStudent(preSelectedStudent);
       setStudentSearchQuery(
-        `${preSelectedStudent.first_name} ${preSelectedStudent.last_name} (${
-          preSelectedStudent.roll_number || 'N/A'
-        })`
+        `${
+          [preSelectedStudent.first_name, preSelectedStudent.last_name]
+            .filter(Boolean)
+            .join(' ') || 'N/A'
+        } (${preSelectedStudent.roll_number || 'N/A'})`
       );
     }
   }, [bill, preSelectedStudent, form, completeStudentData]);
@@ -355,7 +360,10 @@ export function StudentBillForm({
   const handleStudentSelect = (student: any) => {
     setSelectedStudent(student);
     setStudentSearchQuery(
-      `${student.first_name} ${student.last_name} (${student.roll_number})`
+      `${
+        [student.first_name, student.last_name].filter(Boolean).join(' ') ||
+        'N/A'
+      } (${student.roll_number || 'N/A'})`
     );
     form.setValue('student_id', student.id);
   };
@@ -463,60 +471,110 @@ export function StudentBillForm({
             </CardTitle>
           </CardHeader>
           <CardContent className='p-6'>
-            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
-              <div className='space-y-3'>
-                <div>
-                  <label className='text-sm font-medium text-muted-foreground'>
-                    Student Name
-                  </label>
-                  <p className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
-                    {`${selectedStudent.first_name} ${selectedStudent.last_name}`}
-                  </p>
-                </div>
-                <div>
-                  <label className='text-sm font-medium text-muted-foreground'>
-                    Roll Number
-                  </label>
-                  <p className='font-medium'>{selectedStudent.roll_number}</p>
-                </div>
+            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
+              {/* Basic Information */}
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Student Name
+                </label>
+                <p className='text-base font-semibold text-gray-900 dark:text-gray-100'>
+                  {[selectedStudent.first_name, selectedStudent.last_name]
+                    .filter(Boolean)
+                    .join(' ') || 'N/A'}
+                </p>
               </div>
 
-              <div className='space-y-3'>
-                <div>
-                  <label className='text-sm font-medium text-muted-foreground'>
-                    Email
-                  </label>
-                  <p className='font-medium text-sm break-all'>
-                    {selectedStudent.college_email}
-                  </p>
-                </div>
-                <div>
-                  <label className='text-sm font-medium text-muted-foreground'>
-                    Mobile
-                  </label>
-                  <p className='font-medium'>
-                    {selectedStudent.student_mobile}
-                  </p>
-                </div>
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Roll Number
+                </label>
+                <p className='font-medium'>
+                  {selectedStudent.roll_number || 'N/A'}
+                </p>
               </div>
 
-              <div className='space-y-3'>
-                <div>
-                  <label className='text-sm font-medium text-muted-foreground'>
-                    Institution
-                  </label>
-                  <p className='font-medium'>
-                    {selectedStudent.institution?.name}
-                  </p>
-                </div>
-                <div>
-                  <label className='text-sm font-medium text-muted-foreground'>
-                    Department
-                  </label>
-                  <p className='font-medium'>
-                    {selectedStudent.department?.department_name}
-                  </p>
-                </div>
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Email
+                </label>
+                <p className='font-medium text-sm break-all'>
+                  {selectedStudent.college_email || 'N/A'}
+                </p>
+              </div>
+
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Mobile
+                </label>
+                <p className='font-medium'>
+                  {selectedStudent.mobile_number ||
+                    selectedStudent.student_mobile ||
+                    'N/A'}
+                </p>
+              </div>
+
+              {/* Academic Information */}
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Institution
+                </label>
+                <p className='font-medium'>
+                  {selectedStudent.institution?.name || 'N/A'}
+                </p>
+              </div>
+
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Academic Year
+                </label>
+                <p className='font-medium'>
+                  {selectedStudent.academic_year?.academic_year_name || 'N/A'}
+                </p>
+              </div>
+
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Degree
+                </label>
+                <p className='font-medium'>
+                  {selectedStudent.degree?.degree_name || 'N/A'}
+                </p>
+              </div>
+
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Department
+                </label>
+                <p className='font-medium'>
+                  {selectedStudent.department?.department_name || 'N/A'}
+                </p>
+              </div>
+
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Program
+                </label>
+                <p className='font-medium'>
+                  {selectedStudent.program?.program_name || 'N/A'}
+                </p>
+              </div>
+
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Semester
+                </label>
+                <p className='font-medium'>
+                  {selectedStudent.semester?.semester_name || 'N/A'}
+                </p>
+              </div>
+
+              <div>
+                <label className='text-sm font-medium text-muted-foreground'>
+                  Section
+                </label>
+                <p className='font-medium'>
+                  {selectedStudent.section?.section_name || 'N/A'}
+                </p>
               </div>
             </div>
 
@@ -530,9 +588,6 @@ export function StudentBillForm({
                 >
                   Outstanding: ₹
                   {selectedStudent.outstanding_amount?.toLocaleString() || '0'}
-                </Badge>
-                <Badge variant='outline'>
-                  Program: {selectedStudent.program?.program_name || 'N/A'}
                 </Badge>
               </div>
             </div>
@@ -1112,7 +1167,7 @@ export function StudentBillForm({
                     </div>
                   ) : (
                     <div className='flex items-center gap-2'>
-                      <DollarSign className='h-4 w-4' />
+                      <IndianRupee className='h-4 w-4' />
                       {bill
                         ? 'Update Bill'
                         : `Create Bill (₹${finalAmount.toFixed(2)})`}

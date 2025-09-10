@@ -261,7 +261,7 @@ export default function StudentBillingDetailPage() {
             { label: 'Billing', href: '/billing/schedule' },
             { label: 'Students', href: '/billing/schedule/students' },
             {
-              label: `${student.first_name} ${student.last_name}`,
+              label: [student.first_name, student.last_name].filter(Boolean).join(' ') || 'N/A',
               href: `/billing/schedule/students/${studentId}`
             }
           ]}
@@ -281,7 +281,7 @@ export default function StudentBillingDetailPage() {
             </Button>
             <div className='min-w-0 flex-1'>
               <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100'>
-                {`${student.first_name} ${student.last_name}`}
+                {[student.first_name, student.last_name].filter(Boolean).join(' ') || 'N/A'}
               </h1>
               <p className='text-sm text-muted-foreground mt-1'>
                 Student billing information and transaction history
@@ -314,75 +314,45 @@ export default function StudentBillingDetailPage() {
               <div className='flex flex-col sm:flex-row lg:flex-col items-center lg:items-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-0 lg:space-y-4 lg:w-64 shrink-0'>
                 <Avatar className='h-20 w-20 sm:h-16 sm:w-16 lg:h-24 lg:w-24'>
                   <AvatarFallback className='text-lg font-semibold bg-gradient-to-br from-blue-400 to-indigo-600 text-white'>
-                    {`${student.first_name} ${student.last_name}`
-                      .split(' ')
+                    {[student.first_name, student.last_name]
+                      .filter(Boolean)
                       .map((n) => n[0])
                       .join('')}
                   </AvatarFallback>
                 </Avatar>
-                <div className='text-center sm:text-left lg:text-center'>
+                <div className='text-center sm:text-left lg:text-center space-y-2'>
                   <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
-                    {`${student.first_name} ${student.last_name}`}
+                    {[student.first_name, student.last_name].filter(Boolean).join(' ') || 'N/A'}
                   </h3>
                   <p className='text-sm text-muted-foreground'>
                     Roll No: {student.roll_number || 'N/A'}
                   </p>
-                  <Badge variant='outline' className='mt-2'>
-                    Student ID: {studentId.slice(-8)}
-                  </Badge>
+                  <div className='flex flex-col items-center lg:items-center gap-2'>
+                    <a 
+                      href={`mailto:${student.college_email}`}
+                      className='flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline'
+                    >
+                      <Mail className='h-3 w-3' />
+                      {student.college_email}
+                    </a>
+                    <a 
+                      href={`tel:${student.mobile_number}`}
+                      className='flex items-center gap-2 text-sm text-green-600 hover:text-green-800 hover:underline'
+                    >
+                      <Phone className='h-3 w-3' />
+                      {student.mobile_number}
+                    </a>
+                  </div>
                 </div>
               </div>
 
-              {/* Contact and Academic Information */}
-              <div className='flex-1 grid grid-cols-1 md:grid-cols-2 gap-6'>
-                {/* Contact Information */}
-                <div className='space-y-4'>
-                  <h4 className='font-semibold text-sm text-gray-700 dark:text-gray-300 uppercase tracking-wide border-b pb-2'>
-                    Contact Information
-                  </h4>
-                  <div className='space-y-3'>
-                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                      <Phone className='h-4 w-4 text-blue-600 shrink-0' />
-                      <div className='min-w-0 flex-1'>
-                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                          Mobile
-                        </p>
-                        <p className='text-sm text-muted-foreground truncate'>
-                          {student.mobile_number}
-                        </p>
-                      </div>
-                    </div>
-                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                      <Mail className='h-4 w-4 text-green-600 shrink-0' />
-                      <div className='min-w-0 flex-1'>
-                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                          Email
-                        </p>
-                        <p className='text-sm text-muted-foreground truncate'>
-                          {student.college_email}
-                        </p>
-                      </div>
-                    </div>
-                    <div className='flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                      <User className='h-4 w-4 text-purple-600 shrink-0 mt-1' />
-                      <div className='min-w-0 flex-1'>
-                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                          Guardian
-                        </p>
-                        <p className='text-sm text-muted-foreground'>
-                          {student.father_name}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Academic Information */}
+              {/* Academic Information */}
+              <div className='flex-1'>
                 <div className='space-y-4'>
                   <h4 className='font-semibold text-sm text-gray-700 dark:text-gray-300 uppercase tracking-wide border-b pb-2'>
                     Academic Information
                   </h4>
-                  <div className='space-y-3'>
+                  <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                     <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
                       <Building className='h-4 w-4 text-indigo-600 shrink-0' />
                       <div className='min-w-0 flex-1'>
@@ -391,6 +361,17 @@ export default function StudentBillingDetailPage() {
                         </p>
                         <p className='text-sm text-muted-foreground truncate'>
                           {student.institution?.name || 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                      <GraduationCap className='h-4 w-4 text-purple-600 shrink-0' />
+                      <div className='min-w-0 flex-1'>
+                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                          Degree
+                        </p>
+                        <p className='text-sm text-muted-foreground truncate'>
+                          {student.degree?.degree_name || 'N/A'}
                         </p>
                       </div>
                     </div>
@@ -406,6 +387,17 @@ export default function StudentBillingDetailPage() {
                       </div>
                     </div>
                     <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                      <GraduationCap className='h-4 w-4 text-blue-600 shrink-0' />
+                      <div className='min-w-0 flex-1'>
+                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                          Program
+                        </p>
+                        <p className='text-sm text-muted-foreground truncate'>
+                          {student.program?.program_name || 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
                       <Calendar className='h-4 w-4 text-teal-600 shrink-0' />
                       <div className='min-w-0 flex-1'>
                         <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
@@ -413,6 +405,17 @@ export default function StudentBillingDetailPage() {
                         </p>
                         <p className='text-sm text-muted-foreground truncate'>
                           {student.semester?.semester_name || 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                      <User className='h-4 w-4 text-green-600 shrink-0' />
+                      <div className='min-w-0 flex-1'>
+                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                          Section
+                        </p>
+                        <p className='text-sm text-muted-foreground truncate'>
+                          {student.section?.section_name || 'N/A'}
                         </p>
                       </div>
                     </div>

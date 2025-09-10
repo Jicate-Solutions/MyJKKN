@@ -212,7 +212,7 @@ export function DashboardMetrics({
                       <div>
                         <p className='font-medium'>{receipt.receipt_number}</p>
                         <p className='text-sm text-muted-foreground'>
-                          {receipt.student?.student_name || 'Unknown Student'}
+                          {`${receipt.student?.first_name || 'Unknown'} ${receipt.student?.last_name || 'Student'}`}
                         </p>
                       </div>
                     </div>
