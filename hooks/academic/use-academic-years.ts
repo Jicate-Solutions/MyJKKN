@@ -1,6 +1,6 @@
 // hooks/academic/use-academic-years.ts
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { AcademicYear, AcademicYearFilters } from '@/types/academics';
@@ -25,6 +25,12 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
         setError(null);
         const currentFilters = newFilters || filters;
 
+        console.log('useAcademicYears: Fetching with filters:', currentFilters);
+        console.log('useAcademicYears: User context:', {
+          isSuperAdmin,
+          userInstitutionId: userProfile?.institution_id
+        });
+
         // Use institution-aware method if user is not super admin
         const result = isSuperAdmin
           ? await AcademicYearService.getAcademicYears(currentFilters)
@@ -33,6 +39,12 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
               userProfile?.institution_id,
               false
             );
+
+        console.log('useAcademicYears: Query result:', {
+          dataCount: result.data?.length,
+          metadata: result.metadata
+        });
+
         setAcademicYears(result.data);
 
         // Ensure we have all required metadata fields
@@ -52,8 +64,21 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching academic years:', err);
+        console.error('useAcademicYears: Error fetching academic years:', err);
+        console.error('useAcademicYears: Error context:', {
+          filters: newFilters || filters,
+          isSuperAdmin,
+          userInstitutionId: userProfile?.institution_id
+        });
         setError(err instanceof Error ? err.message : 'An error occurred');
+        // Set empty array as fallback
+        setAcademicYears([]);
+        setMetadata({
+          total: 0,
+          page: 1,
+          limit: 10,
+          totalPages: 0
+        });
       } finally {
         setLoading(false);
       }
@@ -94,6 +119,13 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
     },
     [filters, fetchAcademicYears]
   );
+
+  // Fetch academic years on mount and when institution changes
+  useEffect(() => {
+    if (initialFilters.institution_id) {
+      fetchAcademicYears(initialFilters);
+    }
+  }, [initialFilters, fetchAcademicYears]); // Run when filters change
 
   return {
     academicYears,

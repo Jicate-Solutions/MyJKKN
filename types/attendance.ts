@@ -30,6 +30,24 @@ export interface ConsolidatedAttendancePeriod {
   course_id: string;
   course_name: string;
   students: ConsolidatedAttendanceStudent[];
+  // Faculty information - can be single or multiple
+  assigned_faculty?: {
+    faculty_id: string;
+    faculty_name: string;
+    faculty_email: string;
+  } | Array<{
+    faculty_id: string;
+    faculty_name: string;
+    faculty_email: string;
+    is_primary?: boolean;
+  }>;
+  // Marker information
+  marked_by_details?: {
+    marker_id: string;
+    marker_name: string;
+    marker_role: string;
+    marker_email: string;
+  };
 }
 
 export interface ConsolidatedAttendanceData {
@@ -154,6 +172,12 @@ export interface UpsertConsolidatedAttendanceDto {
   attendance_data: ConsolidatedAttendanceData;
   marked_by: string;
   institution_id: string;
+  // Academic hierarchy fields
+  academic_year_id?: string;
+  degree_id?: string;
+  program_id?: string;
+  department_id?: string;
+  semester_id?: string;
 }
 
 export interface AttendanceFilters {

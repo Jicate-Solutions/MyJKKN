@@ -544,7 +544,35 @@ export function useConsolidatedAttendanceRoster() {
         setLoading(true);
         setError(null);
 
-        // Build the consolidated attendance data structure
+        // Get current user profile for marker info
+        const { createClientSupabaseClient } = await import('@/lib/supabase/client');
+        const supabase = createClientSupabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        // Get better name from staff table if user is faculty
+        let markerName = user?.user_metadata?.full_name || 'Unknown';
+        let markerEmail = user?.email || '';
+        
+        // Try to get staff details for better name/email if user is faculty
+        if (user?.id && user?.user_metadata?.role === 'faculty') {
+          try {
+            const { data: staffData } = await supabase
+              .from('staff')
+              .select('first_name, last_name, email, institution_email')
+              .eq('profile_id', user.id)
+              .eq('is_active', true)
+              .single();
+              
+            if (staffData) {
+              markerName = `${staffData.first_name || ''} ${staffData.last_name || ''}`.trim() || markerName;
+              markerEmail = staffData.email || staffData.institution_email || markerEmail;
+            }
+          } catch (error) {
+            console.warn('Could not fetch staff details for marker name:', error);
+          }
+        }
+        
+        // Build the consolidated attendance data structure with proper faculty and marker info
         const attendanceData: ConsolidatedAttendanceData = {
           [slot_id]: {
             period_id: slot_id,
@@ -553,6 +581,30 @@ export function useConsolidatedAttendanceRoster() {
             end_time: period_info.end_time,
             course_id: period_info.course?.id || '',
             course_name: period_info.course?.course_name || '',
+            // Add assigned faculty if available - handle both single and multiple
+            assigned_faculty: period_info.staff ? (
+              Array.isArray(period_info.staff) ? 
+                // Multiple staff - store as array
+                period_info.staff.map((staff: any) => ({
+                  faculty_id: staff.id,
+                  faculty_name: staff.full_name || `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
+                  faculty_email: staff.email || staff.institution_email || '',
+                  is_primary: staff.is_primary || false
+                })) :
+                // Single staff - store as object
+                {
+                  faculty_id: period_info.staff.id,
+                  faculty_name: period_info.staff.full_name || `${period_info.staff.first_name || ''} ${period_info.staff.last_name || ''}`.trim(),
+                  faculty_email: period_info.staff.email || period_info.staff.institution_email || ''
+                }
+            ) : undefined,
+            // Add marker details with profile ID (works for all user types)
+            marked_by_details: {
+              marker_id: marked_by, // This is the profile ID passed to the function
+              marker_name: markerName,
+              marker_role: user?.user_metadata?.role || 'faculty',
+              marker_email: markerEmail
+            },
             students: rosterData.students.map((student) => ({
               student_id: student.id,
               status: student.status,
@@ -567,7 +619,14 @@ export function useConsolidatedAttendanceRoster() {
           attendance_date,
           attendanceData,
           marked_by,
-          institution_id
+          institution_id,
+          {
+            academic_year_id: rosterData.timetable?.academic_year_id,
+            degree_id: rosterData.timetable?.degree_id,
+            program_id: rosterData.timetable?.program_id,
+            department_id: rosterData.timetable?.department_id,
+            semester_id: rosterData.timetable?.semester_id
+          }
         );
 
         // Refresh the roster data after save
@@ -577,9 +636,9 @@ export function useConsolidatedAttendanceRoster() {
           attendance_date,
           {
             institution_id,
-            degree_id: rosterData.timetable?.degree?.id,
-            program_id: rosterData.timetable?.program?.id,
-            department_id: rosterData.timetable?.department?.id
+            degree_id: rosterData.timetable?.degree_id,
+            program_id: rosterData.timetable?.program_id,
+            department_id: rosterData.timetable?.department_id
           }
         );
 

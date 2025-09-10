@@ -47,6 +47,7 @@ export interface Profile {
   avatar_url: string | null;
   profile_completed: boolean;
   is_active: boolean;
+  is_super_admin?: boolean;
   institution_id: string | null;
   institutions?: Institution | null;
   created_at: string;

@@ -1,0 +1,987 @@
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+
+export interface AttendanceReportFilters {
+  institution_id?: string;
+  academic_year_id?: string;
+  department_id?: string;
+  program_id?: string;
+  degree_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  faculty_id?: string;
+  course_id?: string;
+  date_range?: {
+    from: string;
+    to: string;
+  };
+  attendance_status?: 'all' | 'completed' | 'pending';
+  attendance_threshold?: number;
+}
+
+export interface AttendanceReport {
+  id: string;
+  attendance_date: string;
+  institution_id: string;
+  institution_name?: string;
+  department_id?: string;
+  department_name?: string;
+  program_id?: string;
+  program_name?: string;
+  degree_id?: string;
+  degree_name?: string;
+  semester_id?: string;
+  semester_name?: string;
+  section_id: string;
+  section_name?: string;
+  timetable_id: string;
+  periods_count: number;
+  total_students: number;
+  average_attendance: number;
+  faculty_details: any[];
+  courses: any[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceStatistics {
+  totalClasses: number;
+  averageAttendance: number;
+  totalStudents: number;
+  totalFaculty: number;
+  presentToday: number;
+  absentToday: number;
+  todayClasses: number;
+  todayAttendanceRate: number;
+  weeklyComparison: number;
+  attendanceTrend: any[];
+  departmentComparison: any[];
+  lowAttendanceAlerts: any[];
+  todayPeriods: number;
+  todayTotalCapacity: number;
+}
+
+export class AttendanceReportService {
+  private static supabase = createClientSupabaseClient();
+
+  /**
+   * Get attendance reports with role-based filtering
+   */
+  static async getAttendanceReports(
+    filters: AttendanceReportFilters,
+    userRole: 'super_admin' | 'admin' | 'faculty',
+    userId?: string,
+    page: number = 1,
+    limit: number = 50
+  ) {
+    try {
+      // Build query - start with basic fields
+      let query = this.supabase
+        .from('student_attendance')
+        .select('*', { count: 'exact' });
+
+      // Apply role-based filtering
+      if (userRole === 'faculty' && userId) {
+        // First check if user has super admin access or admin role
+        const { data: profileData } = await this.supabase
+          .from('profiles')
+          .select('role, is_super_admin')
+          .eq('id', userId)
+          .single();
+
+        // Allow access if user is super admin or admin
+        if (profileData?.is_super_admin || profileData?.role === 'admin') {
+          console.log(
+            'Access granted: Super admin or admin role for reports list'
+          );
+        } else {
+          // For regular faculty, try to get staff record but don't fail if not found
+          const { data: staffData } = await this.supabase
+            .from('staff')
+            .select('id')
+            .eq('profile_id', userId)
+            .single();
+
+          if (!staffData) {
+            console.warn('Staff record not found for faculty user:', userId);
+            // Don't return error - allow faculty to see reports even without staff record
+          }
+
+          // Filter by faculty assignments in attendance_data JSON
+          // This is complex for JSONB, so we'll filter in post-processing
+        }
+      }
+
+      // Apply filters using direct foreign key columns
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+      }
+      if (filters.academic_year_id) {
+        query = query.eq('academic_year_id', filters.academic_year_id);
+      }
+      if (filters.degree_id) {
+        query = query.eq('degree_id', filters.degree_id);
+      }
+      if (filters.department_id) {
+        query = query.eq('department_id', filters.department_id);
+      }
+      if (filters.program_id) {
+        query = query.eq('program_id', filters.program_id);
+      }
+      if (filters.semester_id) {
+        query = query.eq('semester_id', filters.semester_id);
+      }
+      if (filters.section_id) {
+        query = query.eq('section_id', filters.section_id);
+      }
+      if (filters.date_range) {
+        query = query
+          .gte('attendance_date', filters.date_range.from)
+          .lte('attendance_date', filters.date_range.to);
+      }
+
+      // Pagination
+      const offset = (page - 1) * limit;
+      query = query.range(offset, offset + limit - 1);
+
+      // Order by date desc
+      query = query.order('attendance_date', { ascending: false });
+
+      const { data, error, count } = await query;
+
+      if (error) {
+        console.error('Error fetching reports:', error);
+        return { data: [], count: 0, error: error.message };
+      }
+
+      // Fetch related data in batch for better performance
+      const sectionIds = [
+        ...new Set(data?.map((r) => r.section_id).filter(Boolean) || [])
+      ];
+      const semesterIds = [
+        ...new Set(data?.map((r) => r.semester_id).filter(Boolean) || [])
+      ];
+      const programIds = [
+        ...new Set(data?.map((r) => r.program_id).filter(Boolean) || [])
+      ];
+      const departmentIds = [
+        ...new Set(data?.map((r) => r.department_id).filter(Boolean) || [])
+      ];
+      const degreeIds = [
+        ...new Set(data?.map((r) => r.degree_id).filter(Boolean) || [])
+      ];
+      const institutionIds = [
+        ...new Set(data?.map((r) => r.institution_id).filter(Boolean) || [])
+      ];
+
+      // Fetch all related data in parallel
+      const [
+        sections,
+        semesters,
+        programs,
+        departments,
+        degrees,
+        institutions
+      ] = await Promise.all([
+        sectionIds.length > 0
+          ? this.supabase
+              .from('sections')
+              .select('id, section_name')
+              .in('id', sectionIds)
+          : { data: [] },
+        semesterIds.length > 0
+          ? this.supabase
+              .from('semesters')
+              .select('id, semester_name')
+              .in('id', semesterIds)
+          : { data: [] },
+        programIds.length > 0
+          ? this.supabase
+              .from('programs')
+              .select('id, program_name')
+              .in('id', programIds)
+          : { data: [] },
+        departmentIds.length > 0
+          ? this.supabase
+              .from('departments')
+              .select('id, department_name')
+              .in('id', departmentIds)
+          : { data: [] },
+        degreeIds.length > 0
+          ? this.supabase
+              .from('degrees')
+              .select('id, degree_name')
+              .in('id', degreeIds)
+          : { data: [] },
+        institutionIds.length > 0
+          ? this.supabase
+              .from('institutions')
+              .select('id, name')
+              .in('id', institutionIds)
+          : { data: [] }
+      ]);
+
+      // Create lookup maps
+      const sectionMap = new Map(
+        (sections.data || []).map((s) => [s.id, s.section_name])
+      );
+      const semesterMap = new Map(
+        (semesters.data || []).map((s) => [s.id, s.semester_name])
+      );
+      const programMap = new Map(
+        (programs.data || []).map((p) => [p.id, p.program_name])
+      );
+      const departmentMap = new Map(
+        (departments.data || []).map((d) => [d.id, d.department_name])
+      );
+      const degreeMap = new Map(
+        (degrees.data || []).map((d) => [d.id, d.degree_name])
+      );
+      const institutionMap = new Map(
+        (institutions.data || []).map((i) => [i.id, i.name])
+      );
+
+      // Process data with related information
+      let processedReports: AttendanceReport[] = (data || []).map((record) => {
+        const attendanceData = record.attendance_data as any;
+        // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
+        const periods = attendanceData ? Object.values(attendanceData) : [];
+
+        let totalStudents = 0;
+        let totalPresent = 0;
+        const facultyMap = new Map();
+        const coursesMap = new Map();
+
+        periods.forEach((period: any) => {
+          // Count students and attendance
+          if (period.students && Array.isArray(period.students)) {
+            const students = period.students;
+            totalStudents = Math.max(totalStudents, students.length);
+            // Check for 'status' field which contains 'Present' or 'Absent'
+            totalPresent += students.filter(
+              (s: any) => s.status === 'Present'
+            ).length;
+          }
+
+          // Collect faculty
+          if (period.assigned_faculty) {
+            const faculty = period.assigned_faculty;
+            if (Array.isArray(faculty)) {
+              faculty.forEach((f: any) => {
+                facultyMap.set(f.faculty_id, {
+                  faculty_id: f.faculty_id,
+                  faculty_name: f.faculty_name,
+                  faculty_email: f.faculty_email,
+                  is_primary: f.is_primary
+                });
+              });
+            } else {
+              facultyMap.set(faculty.faculty_id, {
+                faculty_id: faculty.faculty_id,
+                faculty_name: faculty.faculty_name,
+                faculty_email: faculty.faculty_email,
+                is_primary: true
+              });
+            }
+          }
+
+          // Collect courses
+          if (period.course_id && period.course_name) {
+            coursesMap.set(period.course_id, {
+              course_id: period.course_id,
+              course_name: period.course_name,
+              course_code: period.course_code
+            });
+          }
+        });
+
+        const avgAttendance =
+          totalStudents > 0 && periods.length > 0
+            ? (totalPresent / (periods.length * totalStudents)) * 100
+            : 0;
+
+        // Map related data from lookup maps
+        return {
+          id: record.id,
+          attendance_date: record.attendance_date,
+          institution_id: record.institution_id,
+          institution_name: institutionMap.get(record.institution_id),
+          department_id: record.department_id,
+          department_name: departmentMap.get(record.department_id),
+          program_id: record.program_id,
+          program_name: programMap.get(record.program_id),
+          degree_id: record.degree_id,
+          degree_name: degreeMap.get(record.degree_id),
+          semester_id: record.semester_id,
+          semester_name: semesterMap.get(record.semester_id),
+          section_id: record.section_id,
+          section_name: sectionMap.get(record.section_id)
+            ? `Section ${sectionMap.get(record.section_id)}`
+            : undefined,
+          timetable_id: record.timetable_id,
+          periods_count: periods.length,
+          total_students: totalStudents,
+          average_attendance: Math.round(avgAttendance * 100) / 100,
+          faculty_details: Array.from(facultyMap.values()),
+          courses: Array.from(coursesMap.values()),
+          created_at: record.created_at,
+          updated_at: record.updated_at
+        };
+      });
+
+      // Post-process filtering for faculty if needed
+      if (userRole === 'faculty' && userId) {
+        const { data: staffData } = await this.supabase
+          .from('staffs')
+          .select('id')
+          .eq('profile_id', userId)
+          .single();
+
+        if (staffData) {
+          processedReports = processedReports.filter((report) => {
+            // Check if faculty is assigned to any period in this report
+            return report.faculty_details.some(
+              (f) => f.faculty_id === staffData.id
+            );
+          });
+        }
+      }
+
+      return {
+        data: processedReports,
+        count: count || 0,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error in getAttendanceReports:', error);
+      return { data: [], count: 0, error: 'Failed to fetch reports' };
+    }
+  }
+
+  /**
+   * Get detailed report by ID
+   */
+  static async getReportDetails(
+    reportId: string,
+    userRole: 'super_admin' | 'admin' | 'faculty',
+    userId?: string
+  ) {
+    try {
+      const { data, error } = await this.supabase
+        .from('student_attendance')
+        .select('*')
+        .eq('id', reportId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching report details:', error);
+        return { data: null, error: error.message };
+      }
+
+      if (!data) {
+        return { data: null, error: 'Report not found' };
+      }
+
+      // Check role-based access for faculty (only for strict faculty role)
+      if (userRole === 'faculty' && userId) {
+        // First check if user has super admin access or admin role
+        const { data: profileData } = await this.supabase
+          .from('profiles')
+          .select('role, is_super_admin')
+          .eq('id', userId)
+          .single();
+
+        // Allow access if user is super admin or admin
+        if (profileData?.is_super_admin || profileData?.role === 'admin') {
+          console.log('Access granted: Super admin or admin role');
+        } else {
+          // For regular faculty, check staff assignment
+          const { data: staffData } = await this.supabase
+            .from('staff')
+            .select('id')
+            .eq('profile_id', userId)
+            .single();
+
+          if (!staffData) {
+            console.warn(
+              'Faculty profile not found in staff table for user:',
+              userId
+            );
+            // Don't block access - allow faculty to view reports even without staff record
+            // This handles cases where faculty users don't have corresponding staff records
+          } else {
+            // Check if faculty is assigned to any period
+            const attendanceData = data.attendance_data as any;
+            const periods = attendanceData?.periods || [];
+            const isAssigned = periods.some((period: any) => {
+              if (Array.isArray(period.assigned_faculty)) {
+                return period.assigned_faculty.some(
+                  (f: any) => f.faculty_id === staffData.id
+                );
+              }
+              return period.assigned_faculty?.faculty_id === staffData.id;
+            });
+
+            if (!isAssigned) {
+              console.warn('Faculty not assigned to this report:', {
+                userId,
+                staffId: staffData.id
+              });
+              // For now, allow access - we can make this stricter later if needed
+              // return { data: null, error: 'Access denied' };
+            }
+          }
+        }
+      }
+
+      // Process attendance data for detailed view
+      const attendanceData = data.attendance_data as any;
+      // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
+      const periodsObject = attendanceData || {};
+      const periods = Object.entries(periodsObject).map(
+        ([slotId, periodData]: [string, any]) => ({
+          ...periodData,
+          timetable_slot_id: slotId
+        })
+      );
+
+      // Build period details and sort by start time
+      const periodDetails = [];
+      const studentMap = new Map();
+
+      // Sort periods by start_time before processing
+      const sortedPeriods = periods.sort((a, b) => {
+        if (!a.start_time || !b.start_time) return 0;
+        return a.start_time.localeCompare(b.start_time);
+      });
+
+      // Collect all unique course IDs to fetch course codes
+      const courseIds = [...new Set(sortedPeriods.map(p => p.course_id).filter(Boolean))];
+      let courseCodeMap = new Map();
+      
+      if (courseIds.length > 0) {
+        const { data: coursesData } = await this.supabase
+          .from('courses')
+          .select('id, course_code')
+          .in('id', courseIds);
+        
+        if (coursesData) {
+          coursesData.forEach(course => {
+            courseCodeMap.set(course.id, course.course_code);
+          });
+        }
+      }
+
+      for (const period of sortedPeriods) {
+        const students = period.students || [];
+        const presentCount = students.filter(
+          (s: any) => s.status === 'Present'
+        ).length;
+        const totalCount = students.length;
+
+        // Handle both single faculty and array of faculty
+        let facultyArray = [];
+        if (Array.isArray(period.assigned_faculty)) {
+          facultyArray = period.assigned_faculty;
+        } else if (period.assigned_faculty) {
+          facultyArray = [
+            {
+              ...period.assigned_faculty,
+              is_primary: true
+            }
+          ];
+        }
+
+        // Get all unique student IDs for this period to fetch fresh data
+        const studentIds = students
+          .map((s: any) => s.student_id)
+          .filter(Boolean);
+
+        // Fetch fresh student data from students table
+        let studentDataMap = new Map();
+        if (studentIds.length > 0) {
+          const { data: freshStudentData } = await this.supabase
+            .from('students')
+            .select('id, first_name, last_name, roll_number, student_photo_url')
+            .in('id', studentIds);
+
+          if (freshStudentData) {
+            freshStudentData.forEach((student) => {
+              studentDataMap.set(student.id, {
+                student_name: student.first_name || 'Unknown',
+                roll_number: student.roll_number,
+                avatar_url: student.student_photo_url
+              });
+            });
+          }
+        }
+
+        // Process students for this period with fresh data
+        const processedStudents = students.map((s: any) => {
+          const freshData = studentDataMap.get(s.student_id) || {};
+          return {
+            student_id: s.student_id,
+            student_name: freshData.student_name || s.student_name || 'Unknown',
+            roll_number: freshData.roll_number || s.roll_number,
+            avatar_url: freshData.avatar_url || s.avatar_url,
+            is_present: s.status === 'Present'
+          };
+        });
+
+        // Determine the actual period number to use
+        const actualPeriodNumber = period.period_number || periodDetails.length + 1;
+        
+        // Update consolidated student map
+        processedStudents.forEach((student: any) => {
+          if (!studentMap.has(student.student_id)) {
+            studentMap.set(student.student_id, {
+              ...student,
+              periods_attended: []
+            });
+          }
+          if (student.is_present) {
+            studentMap
+              .get(student.student_id)
+              .periods_attended.push(`P${actualPeriodNumber}`);
+          }
+        });
+
+        periodDetails.push({
+          period_id: period.period_id,
+          period_number: actualPeriodNumber,
+          period_name: period.period_name || `Period ${actualPeriodNumber}`,
+          start_time: period.start_time,
+          end_time: period.end_time,
+          course_code: period.course_id ? (courseCodeMap.get(period.course_id) || '') : '',
+          course_name: period.course_name || 'Unknown Course',
+          faculty: facultyArray,
+          marked_by_details: period.marked_by_details,
+          students: processedStudents,
+          present_count: presentCount,
+          absent_count: totalCount - presentCount,
+          total_count: totalCount,
+          attendance_percentage:
+            totalCount > 0 ? (presentCount / totalCount) * 100 : 0
+        });
+      }
+
+      // Build consolidated student list
+      const consolidatedStudents = Array.from(studentMap.values()).map(
+        (student: any) => {
+          const attendedCount = student.periods_attended.length;
+          return {
+            ...student,
+            is_present: attendedCount > 0,
+            attendance_percentage: (attendedCount / periods.length) * 100
+          };
+        }
+      );
+
+      // Calculate overall statistics
+      const totalStudents = consolidatedStudents.length;
+      const presentStudents = consolidatedStudents.filter(
+        (s: any) => s.is_present
+      ).length;
+      const averageAttendance =
+        totalStudents > 0 ? (presentStudents / totalStudents) * 100 : 0;
+
+      // Extract marked by details from attendance_data JSON
+      let markedByDetails = {
+        marked_by_id: '',
+        marked_by_name: 'Unknown',
+        marked_by_email: ''
+      };
+
+      // Look for marked_by_details in any period of the attendance_data
+      if (attendanceData && Object.keys(attendanceData).length > 0) {
+        const firstPeriod = Object.values(attendanceData)[0] as any;
+        if (firstPeriod?.marked_by_details) {
+          markedByDetails = {
+            marked_by_id: firstPeriod.marked_by_details.marker_id || '',
+            marked_by_name:
+              firstPeriod.marked_by_details.marker_name || 'Unknown',
+            marked_by_email: firstPeriod.marked_by_details.marker_email || ''
+          };
+        } else if (firstPeriod?.assigned_faculty) {
+          // Fallback to assigned faculty if marked_by_details not available
+          const faculty = Array.isArray(firstPeriod.assigned_faculty)
+            ? firstPeriod.assigned_faculty[0]
+            : firstPeriod.assigned_faculty;
+          markedByDetails = {
+            marked_by_id: faculty?.faculty_id || '',
+            marked_by_name: faculty?.faculty_name || 'Unknown',
+            marked_by_email: faculty?.faculty_email || ''
+          };
+        }
+      }
+
+      // Fetch related data including academic_year
+      const [
+        sectionData,
+        semesterData,
+        programData,
+        departmentData,
+        degreeData,
+        institutionData,
+        academicYearData,
+        timetableData
+      ] = await Promise.all([
+        data.section_id
+          ? this.supabase
+              .from('sections')
+              .select('section_name')
+              .eq('id', data.section_id)
+              .single()
+          : { data: null },
+        data.semester_id
+          ? this.supabase
+              .from('semesters')
+              .select('semester_name')
+              .eq('id', data.semester_id)
+              .single()
+          : { data: null },
+        data.program_id
+          ? this.supabase
+              .from('programs')
+              .select('program_name')
+              .eq('id', data.program_id)
+              .single()
+          : { data: null },
+        data.department_id
+          ? this.supabase
+              .from('departments')
+              .select('department_name')
+              .eq('id', data.department_id)
+              .single()
+          : { data: null },
+        data.degree_id
+          ? this.supabase
+              .from('degrees')
+              .select('degree_name')
+              .eq('id', data.degree_id)
+              .single()
+          : { data: null },
+        data.institution_id
+          ? this.supabase
+              .from('institutions')
+              .select('name')
+              .eq('id', data.institution_id)
+              .single()
+          : { data: null },
+        data.academic_year_id
+          ? this.supabase
+              .from('academic_years')
+              .select('academic_year_name')
+              .eq('id', data.academic_year_id)
+              .single()
+          : { data: null },
+        data.timetable_id
+          ? this.supabase
+              .from('timetables')
+              .select('timetable_name')
+              .eq('id', data.timetable_id)
+              .single()
+          : { data: null }
+      ]);
+
+      // Build the detailed report
+      const detailedReport = {
+        id: data.id,
+        attendance_date: data.attendance_date,
+        institution_id: data.institution_id,
+        institution_name: institutionData.data?.name,
+        department_id: data.department_id,
+        department_name: departmentData.data?.department_name,
+        program_id: data.program_id,
+        program_name: programData.data?.program_name,
+        degree_id: data.degree_id,
+        degree_name: degreeData.data?.degree_name,
+        semester_id: data.semester_id,
+        semester_name: semesterData.data?.semester_name,
+        section_id: data.section_id,
+        section_name: sectionData.data?.section_name
+          ? `Section ${sectionData.data.section_name}`
+          : undefined,
+        academic_year_id: data.academic_year_id,
+        academic_year_name:
+          academicYearData.data?.academic_year_name || 'Unknown Academic Year',
+        timetable_id: data.timetable_id,
+        timetable_name: timetableData.data?.timetable_name,
+        marked_by_id: markedByDetails.marked_by_id,
+        marked_by_name: markedByDetails.marked_by_name,
+        marked_by_email: markedByDetails.marked_by_email,
+        period_details: periodDetails,
+        consolidated_students: consolidatedStudents,
+        total_students: totalStudents,
+        total_present: presentStudents,
+        total_absent: totalStudents - presentStudents,
+        average_attendance: averageAttendance,
+        created_at: data.created_at,
+        updated_at: data.updated_at
+      };
+
+      return {
+        data: detailedReport,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error in getReportDetails:', error);
+      return { data: null, error: 'Failed to fetch report details' };
+    }
+  }
+
+  /**
+   * Get attendance statistics
+   */
+  static async getAttendanceStatistics(
+    filters: AttendanceReportFilters,
+    level: 'institution' | 'department' | 'faculty' = 'institution'
+  ): Promise<{ data: AttendanceStatistics | null; error: string | null }> {
+    try {
+      // Get date range for statistics
+      const endDate =
+        filters.date_range?.to || new Date().toISOString().split('T')[0];
+      const startDate =
+        filters.date_range?.from ||
+        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split('T')[0];
+
+      // Build base query
+      let query = this.supabase
+        .from('student_attendance')
+        .select('id, attendance_date, attendance_data, institution_id', {
+          count: 'exact'
+        });
+
+      // Apply filters
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+      }
+      if (filters.academic_year_id) {
+        query = query.eq('academic_year_id', filters.academic_year_id);
+      }
+      if (filters.degree_id) {
+        query = query.eq('degree_id', filters.degree_id);
+      }
+      if (filters.department_id) {
+        query = query.eq('department_id', filters.department_id);
+      }
+      if (filters.program_id) {
+        query = query.eq('program_id', filters.program_id);
+      }
+      if (filters.semester_id) {
+        query = query.eq('semester_id', filters.semester_id);
+      }
+      if (filters.section_id) {
+        query = query.eq('section_id', filters.section_id);
+      }
+
+      query = query
+        .gte('attendance_date', startDate)
+        .lte('attendance_date', endDate);
+
+      const { data, count, error } = await query;
+
+      if (error) {
+        return { data: null, error: error.message };
+      }
+
+      // Calculate statistics
+      let totalClasses = 0;
+      let totalAttendance = 0;
+      const studentsSet = new Set();
+      const facultySet = new Set();
+      const dailyStats: { [key: string]: { present: number; total: number } } =
+        {};
+
+      (data || []).forEach((record) => {
+        const attendanceData = record.attendance_data as any;
+        // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
+        const periods = attendanceData ? Object.values(attendanceData) : [];
+
+        periods.forEach((period: any) => {
+          totalClasses++;
+
+          // Count students
+          if (period.students && Array.isArray(period.students)) {
+            period.students.forEach((s: any) => {
+              studentsSet.add(s.student_id);
+
+              const date = record.attendance_date;
+              if (!dailyStats[date]) {
+                dailyStats[date] = { present: 0, total: 0 };
+              }
+              dailyStats[date].total++;
+              if (s.status === 'Present') {
+                dailyStats[date].present++;
+                totalAttendance++;
+              }
+            });
+          }
+
+          // Count faculty
+          if (period.assigned_faculty) {
+            if (Array.isArray(period.assigned_faculty)) {
+              period.assigned_faculty.forEach((f: any) =>
+                facultySet.add(f.faculty_id)
+              );
+            } else {
+              facultySet.add(period.assigned_faculty.faculty_id);
+            }
+          }
+        });
+      });
+
+      // Calculate trend
+      const attendanceTrend = Object.entries(dailyStats)
+        .map(([date, stats]) => ({
+          date,
+          percentage: stats.total > 0 ? (stats.present / stats.total) * 100 : 0,
+          present: stats.present,
+          total: stats.total
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(-30); // Last 30 days for trend
+
+      // Get today's stats and enhanced metrics
+      const today = new Date().toISOString().split('T')[0];
+      const todayStats = dailyStats[today] || { present: 0, total: 0 };
+      
+      // Calculate today's specific metrics
+      const todayRecords = (data || []).filter(record => record.attendance_date === today);
+      let todayPeriods = 0;
+      let todayTotalCapacity = 0;
+      
+      todayRecords.forEach(record => {
+        const attendanceData = record.attendance_data as any;
+        const periods = attendanceData ? Object.values(attendanceData) : [];
+        todayPeriods += periods.length;
+        
+        periods.forEach((period: any) => {
+          if (period.students && Array.isArray(period.students)) {
+            todayTotalCapacity += period.students.length;
+          }
+        });
+      });
+      
+      const todayAttendanceRate = todayStats.total > 0 
+        ? Math.round((todayStats.present / todayStats.total) * 100 * 100) / 100 
+        : 0;
+      
+      // Calculate weekly comparison
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const lastWeekStats = dailyStats[oneWeekAgo] || { present: 0, total: 0 };
+      const lastWeekRate = lastWeekStats.total > 0 
+        ? (lastWeekStats.present / lastWeekStats.total) * 100 
+        : 0;
+      const weeklyComparison = todayAttendanceRate - lastWeekRate;
+
+      // Calculate low attendance alerts (days with < 75% attendance)
+      const lowAttendanceAlerts = Object.entries(dailyStats)
+        .filter(([_, stats]) => {
+          const percentage =
+            stats.total > 0 ? (stats.present / stats.total) * 100 : 0;
+          return percentage < 75 && percentage > 0;
+        })
+        .map(([date, stats]) => ({
+          date,
+          percentage: (stats.present / stats.total) * 100,
+          section: undefined // Can be enhanced to include section info
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 10); // Top 10 recent alerts
+
+      // Calculate overall average attendance
+      const totalStudentDays = Array.from(Object.values(dailyStats)).reduce(
+        (sum, stats) => sum + stats.total,
+        0
+      );
+      const totalPresentDays = Array.from(Object.values(dailyStats)).reduce(
+        (sum, stats) => sum + stats.present,
+        0
+      );
+      const averageAttendance =
+        totalStudentDays > 0
+          ? Math.round((totalPresentDays / totalStudentDays) * 100 * 100) / 100
+          : 0;
+
+      const statistics: AttendanceStatistics = {
+        totalClasses: data?.length || 0,
+        averageAttendance,
+        totalStudents: studentsSet.size,
+        totalFaculty: facultySet.size,
+        presentToday: todayStats.present,
+        absentToday: todayStats.total - todayStats.present,
+        todayClasses: todayRecords.length,
+        todayAttendanceRate,
+        weeklyComparison,
+        todayPeriods,
+        todayTotalCapacity,
+        attendanceTrend,
+        departmentComparison: [], // Can be enhanced with department-wise data
+        lowAttendanceAlerts
+      };
+
+      return { data: statistics, error: null };
+    } catch (error) {
+      console.error('Error calculating statistics:', error);
+      return { data: null, error: 'Failed to calculate statistics' };
+    }
+  }
+
+  /**
+   * Check if user can view a specific report
+   */
+  static async canViewReport(
+    reportId: string,
+    userRole: 'super_admin' | 'admin' | 'faculty',
+    userId?: string
+  ): Promise<boolean> {
+    if (userRole === 'super_admin') {
+      return true;
+    }
+
+    if (userRole === 'faculty' && userId) {
+      const { data: report } = await this.supabase
+        .from('student_attendance')
+        .select('attendance_data')
+        .eq('id', reportId)
+        .single();
+
+      if (!report) return false;
+
+      const { data: staffData } = await this.supabase
+        .from('staffs')
+        .select('id')
+        .eq('profile_id', userId)
+        .single();
+
+      if (!staffData) return false;
+
+      // Check if faculty is assigned to any period in this attendance
+      const attendanceData = report.attendance_data as any;
+      if (attendanceData) {
+        for (const period of Object.values(attendanceData)) {
+          const periodData = period as any;
+          if (periodData.assigned_faculty) {
+            if (Array.isArray(periodData.assigned_faculty)) {
+              if (
+                periodData.assigned_faculty.some(
+                  (f: any) => f.faculty_id === staffData.id
+                )
+              ) {
+                return true;
+              }
+            } else if (
+              periodData.assigned_faculty.faculty_id === staffData.id
+            ) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+}
