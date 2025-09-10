@@ -57,7 +57,7 @@ export class BillingInvoiceServiceOptimized {
           // Get student data
           this.supabase
             .from('students')
-            .select('id, student_name, roll_number, student_email')
+            .select('id, first_name, last_name, roll_number, college_email')
             .eq('id', invoice.student_id)
             .single(),
 
@@ -214,9 +214,7 @@ export class BillingInvoiceServiceOptimized {
 
       const invoices = invoicesResult.value.data || [];
       const total =
-        countResult.status === 'fulfilled'
-          ? countResult.value.value.count || 0
-          : 0;
+        countResult.status === 'fulfilled' ? countResult.value.count || 0 : 0;
 
       // Step 2: Get related data for the fetched invoices
       if (invoices.length > 0) {
@@ -231,7 +229,7 @@ export class BillingInvoiceServiceOptimized {
           await Promise.allSettled([
             this.supabase
               .from('students')
-              .select('id, student_name, roll_number, student_email')
+              .select('id, first_name, last_name, roll_number, college_email')
               .in('id', studentIds),
 
             this.supabase
@@ -417,8 +415,8 @@ export class BillingInvoiceServiceOptimized {
   // Optimized method for bulk operations
   static async bulkCreateInvoices(
     invoices: CreateInvoiceDto[]
-  ): Promise<BulkOperationResult<BillingInvoice>> {
-    const results: BulkOperationResult<BillingInvoice> = {
+  ): Promise<BulkOperationResult> {
+    const results: BulkOperationResult = {
       success: [],
       failed: []
     };
@@ -434,10 +432,10 @@ export class BillingInvoiceServiceOptimized {
 
       chunkResults.forEach((result, index) => {
         if (result.status === 'fulfilled') {
-          results.success.push(result.value);
+          results.success.push(result.value.id);
         } else {
           results.failed.push({
-            data: chunk[index],
+            id: chunk[index].student_id || `invoice_${i + index}`,
             error: result.reason.message || 'Unknown error'
           });
         }

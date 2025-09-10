@@ -87,7 +87,8 @@ const SEARCH_WORTHY_FILTER_KEYS: ReadonlyArray<
   'academic_year_id',
   'semester_id',
   'department_id',
-  'student_name',
+  'first_name',
+  'last_name',
   'roll_number',
   'mobile_number',
   'is_profile_complete'

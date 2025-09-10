@@ -62,7 +62,8 @@ export class BillingDiscountService {
             total_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -103,7 +104,8 @@ export class BillingDiscountService {
             total_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -155,7 +157,8 @@ export class BillingDiscountService {
             total_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -171,7 +174,7 @@ export class BillingDiscountService {
       // Apply filters
       if (filters.search) {
         query = query.or(
-          `discount_reason.ilike.%${filters.search}%,bill.student.student_name.ilike.%${filters.search}%`
+          `discount_reason.ilike.%${filters.search}%,bill.student.first_name.ilike.%${filters.search}%,bill.student.last_name.ilike.%${filters.search}%`
         );
       }
 
@@ -240,7 +243,8 @@ export class BillingDiscountService {
             total_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -329,7 +333,8 @@ export class BillingDiscountService {
             total_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -409,7 +414,8 @@ export class BillingDiscountService {
             total_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )
@@ -487,7 +493,8 @@ export class BillingDiscountService {
             total_amount,
             student:students (
               id,
-              student_name,
+              first_name,
+              last_name,
               roll_number,
               student_email
             )

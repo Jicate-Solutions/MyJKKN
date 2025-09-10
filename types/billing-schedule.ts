@@ -127,6 +127,13 @@ export interface StudentBillFilters {
   amount_from?: number;
   amount_to?: number;
   is_recurring?: boolean;
+  // Academic hierarchy filters
+  academic_year_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -498,8 +505,11 @@ export interface InvoiceListResponse {
 export interface StudentSearchFilters {
   institution_id?: string;
   academic_year_id?: string;
-  semester_id?: string;
+  degree_id?: string;
   department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
   first_name?: string;
   last_name?: string;
   roll_number?: string;
@@ -518,15 +528,26 @@ export interface StudentForBilling {
   mobile_number: string;
   college_email: string;
   institution_id: string;
+  academic_year_id?: string;
+  degree_id?: string;
   department_id?: string;
   program_id?: string;
   semester_id?: string;
+  section_id?: string;
   outstanding_amount: number;
 
   // Related data
   institution?: {
     id: string;
     name: string;
+  };
+  academic_year?: {
+    id: string;
+    academic_year_name: string;
+  };
+  degree?: {
+    id: string;
+    degree_name: string;
   };
   department?: {
     id: string;
@@ -539,6 +560,10 @@ export interface StudentForBilling {
   semester?: {
     id: string;
     semester_name: string;
+  };
+  section?: {
+    id: string;
+    section_name: string;
   };
 }
 

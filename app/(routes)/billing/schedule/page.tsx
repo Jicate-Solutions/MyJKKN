@@ -1,196 +1,108 @@
 'use client';
 
-import { useEffect } from 'react';
-import Link from 'next/link';
-import { Plus, Calendar, Receipt, Users } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import { usePermissions } from '@/hooks/use-permissions';
-import { BeatLoader } from 'react-spinners';
-import { StudentBillList } from './_components/student-bill-list';
-import { StudentBillFilters } from './_components/student-bill-filters';
-import { useStudentBills } from '@/hooks/billing/use-student-bills';
-import { useState } from 'react';
-import type { StudentBillFilters as StudentBillFiltersType } from '@/types/billing-schedule';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
+import { Card, CardContent } from '@/components/ui/card';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { BillingScheduleDataTable } from './_components/billing-schedule-data-table';
+import { billingScheduleSearchParamsSchema } from './_components/data-table-schema';
+import { BillingScheduleFilters } from './_components/billing-schedule-filters';
 
 export default function BillingSchedulePage() {
-  const [filters, setFilters] = useState<StudentBillFiltersType>({
-    page: 1,
-    limit: 10,
-    sortBy: 'created_at',
-    sortDirection: 'desc'
-  });
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const {
-    data: billsData,
-    isLoading,
-    error,
-    refetch
-  } = useStudentBills(filters);
-  const {
-    canAccess,
-    isSuperAdmin,
-    isLoading: permissionsLoading
-  } = usePermissions();
-  const canViewBills = isSuperAdmin || canAccess('billing.schedule', 'view');
-  const canCreateBills =
-    isSuperAdmin || canAccess('billing.schedule', 'create');
-  const handleFilterChange = (newFilters: Partial<StudentBillFiltersType>) => {
-    setFilters((prev) => ({
-      ...prev,
-      ...newFilters,
-      page: newFilters.page || 1
-    }));
-  };
-  const handlePageChange = (page: number) => {
-    setFilters((prev) => ({ ...prev, page }));
-  }; // Show loading state while permissions are loading  if (permissionsLoading) {    return (      <ContentLayout title='Billing Schedule'>        <div className='flex items-center justify-center min-h-[400px]'>          <BeatLoader color='#00e902' />          <span className='ml-2'>Loading permissions...</span>        </div>      </ContentLayout>    );  }  if (!canViewBills) {    return (      <ContentLayout title='Billing Schedule'>        <div className='text-center py-8'>          <p className='text-destructive'>            You don&apos;t have permission to view billing schedules.          </p>        </div>      </ContentLayout>    );  }
+  // Parse current search parameters
+  const search = billingScheduleSearchParamsSchema.parse(
+    Object.fromEntries(searchParams.entries())
+  );
 
-  if (error) {
-    return (
-      <ContentLayout title='Billing Schedule'>
-        <div className='text-center py-8'>
-          <p className='text-destructive'>
-            Error loading billing schedules: {error.message}
-          </p>
-          <Button variant='outline' onClick={() => refetch()} className='mt-4'>
-            Try Again
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
+  // Handle filter changes by updating URL
+  const handleFilterChange = useCallback(
+    (key: string, value: string | undefined) => {
+      const params = new URLSearchParams(searchParams);
+
+      if (value) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
+
+      // Reset page to 1 when filters change
+      params.set('page', '1');
+
+      router.push(`/billing/schedule?${params.toString()}`);
+    },
+    [router, searchParams]
+  );
+
+  // Handle clearing all filters
+  const handleClearFilters = useCallback(() => {
+    const params = new URLSearchParams();
+    // Keep only page and pageSize
+    params.set('page', '1');
+    if (searchParams.get('pageSize')) {
+      params.set('pageSize', searchParams.get('pageSize')!);
+    }
+    router.push(`/billing/schedule?${params.toString()}`);
+  }, [router, searchParams]);
 
   return (
-    <ContentLayout title='Billing Schedule'>
-      <PageBreadcrumb
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Schedule', href: '/billing/schedule' }
-        ]}
-      />
+    <PermissionGuard module='billing.schedule' action='view'>
+      <ContentLayout title='Billing Schedule'>
+        <div className='space-y-6'>
+          {/* Breadcrumb */}
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink href='/'>Dashboard</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbLink href='/billing'>Billing</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Schedule</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
 
-      <div className='space-y-6 mt-4'>
-        {/* Header */}
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
+          {/* Header Section */}
           <div>
-            <h1 className='text-2xl font-bold py-1'>Billing Schedule</h1>
+            <h1 className='text-2xl font-bold py-1'>Billing Schedule Management</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage student bills, payments, and billing schedules
+              Manage student bills, track payments, and schedule recurring billing
             </p>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            {canCreateBills ? (
-              <>
-                <Button variant='outline' asChild>
-                  <Link href='/billing/schedule/bulk-create'>
-                    <Users className='mr-2 h-4 w-4' />
-                    Bulk Create Bills
-                  </Link>
-                </Button>
-                <Button asChild>
-                  <Link href='/billing/schedule/new'>
-                    <Plus className='mr-2 h-4 w-4' />
-                    Create Bill
-                  </Link>
-                </Button>
-              </>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Create Bill
-              </Button>
-            )}
-          </div>
-        </div>
 
-        {/* Quick Stats */}
-        <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+          {/* Main Content */}
           <Card>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>Total Bills</CardTitle>
-              <Calendar className='h-4 w-4 text-muted-foreground' />
-            </CardHeader>
-            <CardContent>
-              <div className='text-2xl font-bold'>
-                {billsData?.metadata.total || 0}
-              </div>
-              <p className='text-xs text-muted-foreground'>
-                Active student bills
-              </p>
-            </CardContent>
-          </Card>
+            <CardContent className='p-6'>
+              <div className='space-y-6'>
+                {/* Filters */}
+                <BillingScheduleFilters
+                  searchParams={search}
+                  onFilterChange={handleFilterChange}
+                  onClearFilters={handleClearFilters}
+                />
 
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>
-                Unpaid Bills
-              </CardTitle>
-              <Receipt className='h-4 w-4 text-muted-foreground' />
-            </CardHeader>
-            <CardContent>
-              <div className='text-2xl font-bold text-orange-600'>
-                {billsData?.data.filter((bill) => bill.status === 'unpaid')
-                  .length || 0}
+                {/* Data Table */}
+                <BillingScheduleDataTable search={search} />
               </div>
-              <p className='text-xs text-muted-foreground'>Pending payments</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>
-                Overdue Bills
-              </CardTitle>
-              <Receipt className='h-4 w-4 text-muted-foreground' />
-            </CardHeader>
-            <CardContent>
-              <div className='text-2xl font-bold text-red-600'>
-                {billsData?.data.filter((bill) => bill.status === 'overdue')
-                  .length || 0}
-              </div>
-              <p className='text-xs text-muted-foreground'>Past due date</p>
             </CardContent>
           </Card>
         </div>
-
-        {/* Bills List */}
-        <Card>
-          <CardContent className='p-6'>
-            <StudentBillFilters
-              filters={filters}
-              onFilterChange={handleFilterChange}
-            />
-
-            {isLoading ? (
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            ) : (
-              <StudentBillList
-                bills={billsData?.data || []}
-                metadata={
-                  billsData?.metadata || {
-                    total: 0,
-                    page: 1,
-                    limit: 10,
-                    totalPages: 0
-                  }
-                }
-                onPageChange={handlePageChange}
-                onRefresh={() => refetch()}
-              />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </ContentLayout>
+      </ContentLayout>
+    </PermissionGuard>
   );
 }

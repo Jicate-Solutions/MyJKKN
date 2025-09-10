@@ -86,7 +86,7 @@ export default function NewStudentBillPage() {
             ? [
                 { label: 'Students', href: '/billing/schedule/students' },
                 {
-                  label: `${preSelectedStudent.first_name} ${preSelectedStudent.last_name}`,
+                  label: [preSelectedStudent.first_name, preSelectedStudent.last_name].filter(Boolean).join(' ') || 'N/A',
                   href: `/billing/schedule/students/${studentId}`
                 },
                 {
@@ -103,7 +103,7 @@ export default function NewStudentBillPage() {
           <h1 className='text-2xl font-bold py-1'>Create Student Bill</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
             {preSelectedStudent
-              ? `Create a new bill for ${preSelectedStudent.first_name} ${preSelectedStudent.last_name}`
+              ? `Create a new bill for ${[preSelectedStudent.first_name, preSelectedStudent.last_name].filter(Boolean).join(' ') || 'N/A'}`
               : 'Create a new bill for a student with payment details and scheduling options'}
           </p>
         </div>

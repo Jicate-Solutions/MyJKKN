@@ -1,83 +1,135 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Download, Users, FileText, Info } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
 import { StudentSearchFilters } from './_components/student-search-filters';
-import { useStudentsForBilling } from '@/hooks/billing/use-student-search';
+import { StudentDataTable } from './_components/student-data-table';
+import {
+  studentBillingSearchParamsSchema,
+  type StudentBillingSearchParams
+} from './_components/student-data-table-schema';
 import type { StudentSearchFilters as StudentSearchFiltersType } from '@/types/billing-schedule';
-import { StudentListForBilling } from './_components/student-list-for-billing';
 
 function BillingStudentsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Initialize filters from URL search parameters
-  const [filters, setFilters] = useState<StudentSearchFiltersType>(() => {
-    const urlFilters: StudentSearchFiltersType = {
+  // Memoize search object parsing to prevent recreation on every render
+  const search = useMemo(() => {
+    return studentBillingSearchParamsSchema.parse({
       page: parseInt(searchParams.get('page') || '1'),
-      limit: parseInt(searchParams.get('limit') || '20')
-    };
+      pageSize: parseInt(searchParams.get('pageSize') || '20'),
+      search: searchParams.get('search') || undefined,
+      sortBy: searchParams.get('sortBy') || undefined,
+      sortOrder: (searchParams.get('sortOrder') as 'asc' | 'desc') || undefined,
 
-    // Add search parameters if they exist
-    if (searchParams.get('first_name')) {
-      urlFilters.first_name = searchParams.get('first_name') || undefined;
-    }
-    if (searchParams.get('roll_number')) {
-      urlFilters.roll_number = searchParams.get('roll_number') || undefined;
-    }
-    if (searchParams.get('mobile_number')) {
-      urlFilters.mobile_number = searchParams.get('mobile_number') || undefined;
-    }
-    if (searchParams.get('institution_id')) {
-      urlFilters.institution_id =
-        searchParams.get('institution_id') || undefined;
-    }
-    if (searchParams.get('academic_year_id')) {
-      urlFilters.academic_year_id =
-        searchParams.get('academic_year_id') || undefined;
-    }
-    if (searchParams.get('semester_id')) {
-      urlFilters.semester_id = searchParams.get('semester_id') || undefined;
-    }
-    if (searchParams.get('department_id')) {
-      urlFilters.department_id = searchParams.get('department_id') || undefined;
-    }
+      // Student search filters
+      institution_id: searchParams.get('institution_id') || undefined,
+      academic_year_id: searchParams.get('academic_year_id') || undefined,
+      degree_id: searchParams.get('degree_id') || undefined,
+      department_id: searchParams.get('department_id') || undefined,
+      program_id: searchParams.get('program_id') || undefined,
+      semester_id: searchParams.get('semester_id') || undefined,
+      section_id: searchParams.get('section_id') || undefined,
+      first_name: searchParams.get('first_name') || undefined,
+      last_name: searchParams.get('last_name') || undefined,
+      roll_number: searchParams.get('roll_number') || undefined,
+      mobile_number: searchParams.get('mobile_number') || undefined,
+      is_profile_complete:
+        searchParams.get('is_profile_complete') === 'true' ? true : undefined
+    });
+  }, [searchParams]);
+
+  // Legacy filter state for the search filters component - memoized to prevent recreation
+  const [filters, setFilters] = useState(() => {
+    const urlFilters = {
+      page: search.page,
+      limit: search.pageSize
+    } as any;
+
+    // Copy search parameters to legacy filter format
+    Object.keys(search).forEach((key) => {
+      if (
+        search[key as keyof typeof search] !== undefined &&
+        key !== 'page' &&
+        key !== 'pageSize'
+      ) {
+        urlFilters[key] = search[key as keyof typeof search];
+      }
+    });
 
     return urlFilters;
   });
 
-  // Update URL when filters change
+  // Update filters when search params change but avoid unnecessary updates
   useEffect(() => {
-    const params = new URLSearchParams();
+    const newFilters = {
+      page: search.page,
+      limit: search.pageSize
+    } as any;
 
-    // Add filter parameters to URL
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        params.set(key, value.toString());
+    Object.keys(search).forEach((key) => {
+      if (
+        search[key as keyof typeof search] !== undefined &&
+        key !== 'page' &&
+        key !== 'pageSize'
+      ) {
+        newFilters[key] = search[key as keyof typeof search];
       }
     });
 
-    // Update URL without triggering navigation
-    const newUrl = params.toString() ? `?${params.toString()}` : '';
-    if (window.location.search !== newUrl) {
-      router.replace(`/billing/schedule/students${newUrl}`, { scroll: false });
+    // Only update if filters actually changed
+    const hasChanged = JSON.stringify(filters) !== JSON.stringify(newFilters);
+    if (hasChanged) {
+      setFilters(newFilters);
     }
+  }, [search, filters]);
+
+  // Update URL when filters change (debounced to prevent excessive updates)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      const params = new URLSearchParams();
+
+      // Add filter parameters to URL
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.set(key, value.toString());
+        }
+      });
+
+      // Update URL without triggering navigation
+      const newUrl = params.toString() ? `?${params.toString()}` : '';
+      const currentUrl = window.location.search;
+
+      if (currentUrl !== newUrl) {
+        router.replace(`/billing/schedule/students${newUrl}`, {
+          scroll: false
+        });
+      }
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timeoutId);
   }, [filters, router]);
 
-  const {
-    data: studentsData,
-    isLoading,
-    error,
-    refetch,
-    hasPerformedSearch
-  } = useStudentsForBilling(filters);
+  // For backward compatibility with filters component, we still need this hook
+  // but the actual data fetching will be handled by the DataTable
+  const hasActiveFilters = !!(
+    search.first_name ||
+    search.roll_number ||
+    search.mobile_number ||
+    search.institution_id ||
+    search.academic_year_id ||
+    search.degree_id ||
+    search.department_id ||
+    search.program_id ||
+    search.semester_id ||
+    search.section_id
+  );
 
   const {
     canAccess,
@@ -90,7 +142,7 @@ function BillingStudentsContent() {
   const handleFilterChange = (
     newFilters: Partial<StudentSearchFiltersType>
   ) => {
-    setFilters((prev) => ({
+    setFilters((prev: StudentSearchFiltersType) => ({
       ...prev,
       ...newFilters,
       page: newFilters.page || 1
@@ -98,7 +150,7 @@ function BillingStudentsContent() {
   };
 
   const handlePageChange = (page: number) => {
-    setFilters((prev) => ({ ...prev, page }));
+    setFilters((prev: StudentSearchFiltersType) => ({ ...prev, page }));
   };
 
   const handleClearFilters = () => {
@@ -131,29 +183,6 @@ function BillingStudentsContent() {
     );
   }
 
-  if (error && hasPerformedSearch) {
-    return (
-      <ContentLayout title='Student Billing Search'>
-        <PageBreadcrumb
-          items={[
-            { label: 'Home', href: '/' },
-            { label: 'Billing', href: '/billing' },
-            { label: 'Schedule', href: '/billing/schedule' },
-            { label: 'Students', href: '/billing/schedule/students' }
-          ]}
-        />
-        <div className='mt-4 text-center py-8'>
-          <p className='text-destructive'>
-            Error loading students: {error.message}
-          </p>
-          <Button variant='outline' onClick={() => refetch()} className='mt-4'>
-            Try Again
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
-
   return (
     <ContentLayout title='Student Billing Search'>
       <PageBreadcrumb
@@ -173,101 +202,10 @@ function BillingStudentsContent() {
               filters
             </p>
           </div>
-          <div className='flex flex-col sm:flex-row gap-2'>
-            <Button
-              variant='outline'
-              onClick={handleExport}
-              disabled={!studentsData?.data.length}
-            >
-              <Download className='mr-2 h-4 w-4' />
-              Export List
-            </Button>
-          </div>
+          {/* Export functionality is now handled by the DataTable component */}
         </div>
 
-        {hasPerformedSearch && studentsData && studentsData.data.length > 0 && (
-          <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
-            <Card>
-              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                <CardTitle className='text-sm font-medium'>
-                  Matching Students
-                </CardTitle>
-                <Users className='h-4 w-4 text-muted-foreground' />
-              </CardHeader>
-              <CardContent>
-                <div className='text-2xl font-bold'>
-                  {studentsData?.metadata.total || 0}
-                </div>
-                <p className='text-xs text-muted-foreground'>Students found</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                <CardTitle className='text-sm font-medium'>
-                  With Outstanding
-                </CardTitle>
-                <FileText className='h-4 w-4 text-muted-foreground' />
-              </CardHeader>
-              <CardContent>
-                <div className='text-2xl font-bold text-orange-600'>
-                  {studentsData?.data.filter(
-                    (student) => student.outstanding_amount > 0
-                  ).length || 0}
-                </div>
-                <p className='text-xs text-muted-foreground'>
-                  Have pending dues
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                <CardTitle className='text-sm font-medium'>
-                  Total Outstanding
-                </CardTitle>
-                <FileText className='h-4 w-4 text-muted-foreground' />
-              </CardHeader>
-              <CardContent>
-                <div className='text-2xl font-bold text-red-600'>
-                  ₹
-                  {studentsData?.data
-                    .reduce(
-                      (sum, student) => sum + student.outstanding_amount,
-                      0
-                    )
-                    .toLocaleString() || 0}
-                </div>
-                <p className='text-xs text-muted-foreground'>
-                  Total amount due
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                <CardTitle className='text-sm font-medium'>
-                  Avg Outstanding
-                </CardTitle>
-                <FileText className='h-4 w-4 text-muted-foreground' />
-              </CardHeader>
-              <CardContent>
-                <div className='text-2xl font-bold'>
-                  ₹
-                  {studentsData?.data.length
-                    ? Math.round(
-                        studentsData.data.reduce(
-                          (sum, student) => sum + student.outstanding_amount,
-                          0
-                        ) / studentsData.data.length
-                      ).toLocaleString()
-                    : 0}
-                </div>
-                <p className='text-xs text-muted-foreground'>Per student</p>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        {/* Statistics cards will be integrated into the DataTable */}
 
         <Card>
           <CardContent className='p-6'>
@@ -276,46 +214,9 @@ function BillingStudentsContent() {
               onFilterChange={handleFilterChange}
             />
 
-            {isLoading ? (
-              <div className='flex flex-col justify-center items-center p-8 min-h-[200px]'>
-                <BeatLoader color='#00e902' />
-                <p className='mt-4 text-sm text-muted-foreground'>
-                  Searching for students...
-                </p>
-              </div>
-            ) : !hasPerformedSearch ? (
-              <div className='flex flex-col justify-center items-center p-8 min-h-[200px] text-center'>
-                <Info className='h-10 w-10 text-blue-500 mb-4' />
-                <p className='text-lg font-semibold'>Begin Your Search</p>
-                <p className='text-sm text-muted-foreground'>
-                  Use the filters above to find specific students.
-                </p>
-              </div>
-            ) : studentsData && studentsData.data.length > 0 ? (
-              <StudentListForBilling
-                students={studentsData.data}
-                metadata={studentsData.metadata}
-                onPageChange={handlePageChange}
-                onRefresh={() => refetch()}
-              />
-            ) : (
-              <div className='flex flex-col justify-center items-center p-8 min-h-[200px] text-center'>
-                <Users className='h-10 w-10 text-muted-foreground mb-4' />
-                <p className='text-lg font-semibold'>No Students Found</p>
-                <p className='text-sm text-muted-foreground'>
-                  Try adjusting your search filters or try a different query.
-                </p>
-                {hasPerformedSearch && (
-                  <Button
-                    variant='outline'
-                    onClick={handleClearFilters}
-                    className='mt-4'
-                  >
-                    Clear Filters & Start Over
-                  </Button>
-                )}
-              </div>
-            )}
+            <div className='mt-6'>
+              <StudentDataTable search={search} />
+            </div>
           </CardContent>
         </Card>
       </div>

@@ -48,9 +48,13 @@ const SEARCH_WORTHY_FILTER_KEYS: ReadonlyArray<
 > = [
   'institution_id',
   'academic_year_id',
-  'semester_id',
+  'degree_id',
   'department_id',
-  'student_name',
+  'program_id',
+  'semester_id',
+  'section_id',
+  'first_name',
+  'last_name',
   'roll_number',
   'mobile_number',
   'is_profile_complete'

@@ -165,7 +165,8 @@ export class BillingReportService {
           `
           student_id,
           students(
-            student_name,
+            first_name,
+            last_name,
             roll_number,
             institution:institutions(name),
             department:departments(department_name)
@@ -210,7 +211,8 @@ export class BillingReportService {
         if (!studentMap.has(studentId)) {
           studentMap.set(studentId, {
             student_id: studentId,
-            student_name: bill.students?.student_name || '',
+            first_name: bill.students?.first_name || '',
+          last_name: bill.students?.last_name || '',
             roll_number: bill.students?.roll_number,
             institution_name: bill.students?.institution?.name || '',
             department_name: bill.students?.department?.department_name,
@@ -259,7 +261,8 @@ export class BillingReportService {
           payment_mode,
           payment_amount,
           student:students(
-            student_name,
+            first_name,
+            last_name,
             roll_number
           ),
           institution:institutions(name),
@@ -309,7 +312,8 @@ export class BillingReportService {
             receipt_id: receipt.id,
             receipt_number: receipt.receipt_number,
             receipt_date: receipt.receipt_date,
-            student_name: receipt.student?.student_name || '',
+            first_name: receipt.student?.first_name || '',
+          last_name: receipt.student?.last_name || '',
             roll_number: receipt.student?.roll_number,
             institution_name: receipt.institution?.name || '',
             payment_mode: receipt.payment_mode,
@@ -346,7 +350,8 @@ export class BillingReportService {
           bill:billing_student_bills(
             bill_description,
             student:students(
-              student_name,
+              first_name,
+            last_name,
               roll_number,
               institution:institutions(name)
             )
@@ -373,7 +378,8 @@ export class BillingReportService {
       return (
         data?.map((discount: any) => ({
           discount_id: discount.id,
-          student_name: discount.bill?.student?.student_name || '',
+          first_name: discount.bill?.student?.first_name || '',
+          last_name: discount.bill?.student?.last_name || '',
           roll_number: discount.bill?.student?.roll_number,
           institution_name: discount.bill?.student?.institution?.name || '',
           bill_description: discount.bill?.bill_description || '',
@@ -412,7 +418,8 @@ export class BillingReportService {
           receipt:billing_receipts(
             receipt_number,
             student:students(
-              student_name,
+              first_name,
+            last_name,
               roll_number,
               institution:institutions(name)
             )
@@ -440,7 +447,8 @@ export class BillingReportService {
         data?.map((refund: any) => ({
           refund_id: refund.id,
           receipt_number: refund.receipt?.receipt_number || '',
-          student_name: refund.receipt?.student?.student_name || '',
+          first_name: refund.receipt?.student?.first_name || '',
+          last_name: refund.receipt?.student?.last_name || '',
           roll_number: refund.receipt?.student?.roll_number,
           institution_name: refund.receipt?.student?.institution?.name || '',
           refund_category: refund.refund_category,
@@ -475,7 +483,8 @@ export class BillingReportService {
           billing_period_from,
           billing_period_to,
           student:students(
-            student_name,
+            first_name,
+            last_name,
             roll_number
           ),
           institution:institutions(name)
@@ -507,7 +516,8 @@ export class BillingReportService {
           invoice_id: invoice.id,
           invoice_number: invoice.invoice_number,
           invoice_date: invoice.invoice_date,
-          student_name: invoice.student?.student_name || '',
+          first_name: invoice.student?.first_name || '',
+          last_name: invoice.student?.last_name || '',
           roll_number: invoice.student?.roll_number,
           institution_name: invoice.institution?.name || '',
           invoice_type: invoice.invoice_type,
@@ -839,7 +849,7 @@ export class BillingReportService {
       .select(
         `
         *,
-        student:students(student_name, roll_number),
+        student:students(first_name, last_name, roll_number),
         institution:institutions(name)
       `
       )
@@ -863,7 +873,7 @@ export class BillingReportService {
       .select(
         `
         *,
-        student:students(student_name, roll_number),
+        student:students(first_name, last_name, roll_number),
         institution:institutions(name)
       `
       )
