@@ -175,6 +175,15 @@ export function useAcademicYearsByInstitution(institutionId?: string) {
     [institutionId]
   );
 
+  // Auto-fetch when institutionId changes
+  useEffect(() => {
+    if (institutionId) {
+      fetchAcademicYears(institutionId);
+    } else {
+      setAcademicYears([]);
+    }
+  }, [institutionId, fetchAcademicYears]);
+
   return {
     academicYears,
     loading,

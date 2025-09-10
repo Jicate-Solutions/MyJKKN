@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/collapsible';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { useAcademicYears } from '@/hooks/academic/use-academic-years';
+import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
 
 interface ReportsFiltersProps {
   searchParams: AttendanceReportsSearchParams;
@@ -49,12 +49,9 @@ export function ReportsFilters({
   // Academic years filtered by institution - using the proper hook pattern
   const {
     academicYears: academicYearsData,
-    fetchAcademicYears,
     error: academicYearsError,
     loading: academicYearsLoading
-  } = useAcademicYears({
-    institution_id: searchParams.institution_id || undefined
-  });
+  } = useAcademicYearsByInstitution(searchParams.institution_id || undefined);
 
   // Degrees filtered by institution only
   const { data: degreesData, refetch: fetchDegrees } = useDegrees({
@@ -96,12 +93,7 @@ export function ReportsFilters({
     fetchInstitutions();
   }, [fetchInstitutions]);
 
-  // Load academic years when institution changes
-  useEffect(() => {
-    if (searchParams.institution_id) {
-      fetchAcademicYears({ institution_id: searchParams.institution_id });
-    }
-  }, [searchParams.institution_id, fetchAcademicYears]);
+  // Academic years are now auto-fetched by the hook when institution_id changes
 
   // Load degrees when institution changes
   useEffect(() => {
@@ -356,7 +348,7 @@ export function ReportsFilters({
                         Error loading academic years
                       </SelectItem>
                     ) : (
-                      academicYears.map((year: any) => (
+                      academicYearsData.map((year: any) => (
                         <SelectItem key={year.id} value={year.id}>
                           {year.academic_year_name}
                         </SelectItem>

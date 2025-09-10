@@ -47,7 +47,7 @@ export function AttendanceFilters({
   const { institutions, refetch: fetchInstitutions } =
     useInstitutionsWithAccess({});
 
-  const { academicYears, fetchAcademicYears } = useAcademicYearsByInstitution(
+  const { academicYears } = useAcademicYearsByInstitution(
     searchContext.institution_id || undefined
   );
 
@@ -91,12 +91,7 @@ export function AttendanceFilters({
     fetchInstitutions();
   }, [fetchInstitutions]);
 
-  // Load academic years when institution changes
-  useEffect(() => {
-    if (searchContext.institution_id) {
-      fetchAcademicYears(searchContext.institution_id);
-    }
-  }, [searchContext.institution_id, fetchAcademicYears]);
+  // Academic years are now auto-fetched by the hook when institution_id changes
 
   // Load degrees when institution changes
   useEffect(() => {
