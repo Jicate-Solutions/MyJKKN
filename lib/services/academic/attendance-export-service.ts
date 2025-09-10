@@ -84,7 +84,7 @@ export class AttendanceExportService {
           Semester: report.semester_name,
           Section: report.section_name,
           'Academic Year': report.academic_year_name,
-          'Timetable': report.timetable_name || 'N/A',
+          Timetable: report.timetable_name || 'N/A',
           'Total Students': report.total_students,
           Present: report.total_present,
           Absent: report.total_absent,
@@ -99,15 +99,22 @@ export class AttendanceExportService {
       // Sheet 2: Period-wise Details
       const periodData = report.period_details.map((period, index) => ({
         'Period Number': period.period_number || index + 1,
-        'Period Name': period.period_name || `Period ${period.period_number || index + 1}`,
+        'Period Name':
+          period.period_name || `Period ${period.period_number || index + 1}`,
         'Start Time': period.start_time,
         'End Time': period.end_time,
         'Course Name': period.course_name,
         'Course Code': period.course_code || 'N/A',
         'Faculty Name(s)': period.faculty.map((f) => f.faculty_name).join(', '),
-        'Faculty Email(s)': period.faculty.map((f) => f.faculty_email).join(', '),
-        'Marked By': period.marked_by_details ? period.marked_by_details.marker_name : 'N/A',
-        'Marked By Email': period.marked_by_details ? period.marked_by_details.marker_email : 'N/A',
+        'Faculty Email(s)': period.faculty
+          .map((f) => f.faculty_email)
+          .join(', '),
+        'Marked By': period.marked_by_details
+          ? period.marked_by_details.marker_name
+          : 'N/A',
+        'Marked By Email': period.marked_by_details
+          ? period.marked_by_details.marker_email
+          : 'N/A',
         'Total Students': period.total_count,
         'Present Count': period.present_count,
         'Absent Count': period.absent_count,
@@ -118,7 +125,9 @@ export class AttendanceExportService {
 
       // Sheet 3: Overall Student Attendance
       const studentData = report.consolidated_students
-        .sort((a, b) => (a.roll_number || '').localeCompare(b.roll_number || ''))
+        .sort((a, b) =>
+          (a.roll_number || '').localeCompare(b.roll_number || '')
+        )
         .map((student) => ({
           'Roll No': student.roll_number || '-',
           'Student Name': student.student_name,
@@ -134,49 +143,65 @@ export class AttendanceExportService {
       // Sheet 4+: Individual Period Student Lists
       report.period_details.forEach((period, index) => {
         const periodStudentData = period.students
-          .sort((a, b) => (a.roll_number || '').localeCompare(b.roll_number || ''))
+          .sort((a, b) =>
+            (a.roll_number || '').localeCompare(b.roll_number || '')
+          )
           .map((student, studentIndex) => ({
             'S.No': studentIndex + 1,
             'Roll Number': student.roll_number || 'N/A',
             'Student Name': student.student_name,
             'Attendance Status': student.is_present ? 'Present' : 'Absent',
-            'Period': period.period_name || `Period ${period.period_number || index + 1}`,
-            'Course': period.course_name,
+            Period:
+              period.period_name ||
+              `Period ${period.period_number || index + 1}`,
+            Course: period.course_name,
             'Course Code': period.course_code || 'N/A',
-            'Time': `${period.start_time} - ${period.end_time}`,
-            'Faculty': period.faculty.map(f => f.faculty_name).join(', ')
+            Time: `${period.start_time} - ${period.end_time}`,
+            Faculty: period.faculty.map((f) => f.faculty_name).join(', ')
           }));
-        
-        const wsName = `P${period.period_number || index + 1} - ${(period.period_name || 'Period').substring(0, 20)}`;
+
+        const wsName = `P${period.period_number || index + 1} - ${(
+          period.period_name || 'Period'
+        ).substring(0, 20)}`;
         const wsPeriod = XLSX.utils.json_to_sheet(periodStudentData);
-        
+
         // Add summary at the top of each period sheet
         const summaryRow = [
-          [`Period: ${period.period_name || `Period ${period.period_number || index + 1}`}`],
+          [
+            `Period: ${
+              period.period_name ||
+              `Period ${period.period_number || index + 1}`
+            }`
+          ],
           [`Course: ${period.course_name} (${period.course_code || 'N/A'})`],
           [`Time: ${period.start_time} - ${period.end_time}`],
-          [`Faculty: ${period.faculty.map(f => f.faculty_name).join(', ')}`],
-          [`Present: ${period.present_count} | Absent: ${period.absent_count} | Total: ${period.total_count}`],
+          [`Faculty: ${period.faculty.map((f) => f.faculty_name).join(', ')}`],
+          [
+            `Present: ${period.present_count} | Absent: ${period.absent_count} | Total: ${period.total_count}`
+          ],
           [`Attendance Rate: ${period.attendance_percentage.toFixed(2)}%`],
           [''],
           ['Student Details:']
         ];
-        
+
         XLSX.utils.book_append_sheet(wb, wsPeriod, wsName.substring(0, 31));
       });
 
       // Auto-size columns for all sheets
-      wb.SheetNames.forEach(sheetName => {
+      wb.SheetNames.forEach((sheetName) => {
         const worksheet = wb.Sheets[sheetName];
         const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
         const maxWidth = 50;
-        
+
         for (let C = range.s.c; C <= range.e.c; ++C) {
           let maxLength = 0;
           for (let R = range.s.r; R <= range.e.r; ++R) {
-            const cellAddress = XLSX.utils.encode_cell({r: R, c: C});
+            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
             if (worksheet[cellAddress] && worksheet[cellAddress].v) {
-              maxLength = Math.max(maxLength, String(worksheet[cellAddress].v).length);
+              maxLength = Math.max(
+                maxLength,
+                String(worksheet[cellAddress].v).length
+              );
             }
           }
           if (!worksheet['!cols']) worksheet['!cols'] = [];
@@ -280,14 +305,24 @@ export class AttendanceExportService {
 
       // Header with institution name
       doc.setFontSize(20);
-      doc.setFont(undefined, 'bold');
-      doc.text(report.institution_name || 'Institution', doc.internal.pageSize.width / 2, yPosition, { align: 'center' });
+      doc.setFont('helvetica', 'bold');
+      doc.text(
+        report.institution_name || 'Institution',
+        doc.internal.pageSize.width / 2,
+        yPosition,
+        { align: 'center' }
+      );
       yPosition += 8;
-      
+
       // Title
       doc.setFontSize(16);
-      doc.setFont(undefined, 'normal');
-      doc.text('ATTENDANCE REPORT', doc.internal.pageSize.width / 2, yPosition, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.text(
+        'ATTENDANCE REPORT',
+        doc.internal.pageSize.width / 2,
+        yPosition,
+        { align: 'center' }
+      );
       yPosition += 10;
 
       // Report Info Box
@@ -295,33 +330,68 @@ export class AttendanceExportService {
       doc.setDrawColor(200);
       doc.setFillColor(245, 245, 245);
       doc.rect(14, yPosition - 5, 182, 40, 'FD');
-      
+
       // Left column info
-      doc.text(`Date: ${new Date(report.attendance_date).toLocaleDateString('en-US', { 
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
-      })}`, 18, yPosition);
+      doc.text(
+        `Date: ${new Date(report.attendance_date).toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        })}`,
+        18,
+        yPosition
+      );
       yPosition += 6;
       doc.text(`Department: ${report.department_name || 'N/A'}`, 18, yPosition);
       yPosition += 6;
-      doc.text(`Program: ${report.program_name || 'N/A'} | Degree: ${report.degree_name || 'N/A'}`, 18, yPosition);
+      doc.text(
+        `Program: ${report.program_name || 'N/A'} | Degree: ${
+          report.degree_name || 'N/A'
+        }`,
+        18,
+        yPosition
+      );
       yPosition += 6;
-      doc.text(`Section: ${report.section_name || 'N/A'} | Semester: ${report.semester_name || 'N/A'}`, 18, yPosition);
+      doc.text(
+        `Section: ${report.section_name || 'N/A'} | Semester: ${
+          report.semester_name || 'N/A'
+        }`,
+        18,
+        yPosition
+      );
       yPosition += 6;
-      doc.text(`Academic Year: ${report.academic_year_name || 'N/A'}`, 18, yPosition);
-      
+      doc.text(
+        `Academic Year: ${report.academic_year_name || 'N/A'}`,
+        18,
+        yPosition
+      );
+
       // Right column - Overall Statistics
-      doc.setFont(undefined, 'bold');
-      doc.text(`Overall Attendance: ${report.average_attendance.toFixed(1)}%`, 120, yPosition - 24);
-      doc.setFont(undefined, 'normal');
+      doc.setFont('helvetica', 'bold');
+      doc.text(
+        `Overall Attendance: ${report.average_attendance.toFixed(1)}%`,
+        120,
+        yPosition - 24
+      );
+      doc.setFont('helvetica', 'normal');
       doc.text(`Total Students: ${report.total_students}`, 120, yPosition - 18);
-      doc.text(`Present: ${report.total_present} | Absent: ${report.total_absent}`, 120, yPosition - 12);
-      doc.text(`Total Periods: ${report.period_details.length}`, 120, yPosition - 6);
-      
+      doc.text(
+        `Present: ${report.total_present} | Absent: ${report.total_absent}`,
+        120,
+        yPosition - 12
+      );
+      doc.text(
+        `Total Periods: ${report.period_details.length}`,
+        120,
+        yPosition - 6
+      );
+
       yPosition += 10;
 
       // Period-wise Detailed Table
       doc.setFontSize(12);
-      doc.setFont(undefined, 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.text('PERIOD-WISE ATTENDANCE DETAILS', 14, yPosition);
       yPosition += 5;
 
@@ -337,10 +407,18 @@ export class AttendanceExportService {
       ]);
 
       autoTable(doc, {
-        head: [[
-          'Period', 'Time', 'Course\nCode', 'Faculty', 'Marked By', 
-          'Present', 'Absent', 'Rate'
-        ]],
+        head: [
+          [
+            'Period',
+            'Time',
+            'Course\nCode',
+            'Faculty',
+            'Marked By',
+            'Present',
+            'Absent',
+            'Rate'
+          ]
+        ],
         body: periodTableData,
         startY: yPosition,
         styles: {
@@ -375,42 +453,79 @@ export class AttendanceExportService {
       report.period_details.forEach((period, periodIndex) => {
         doc.addPage();
         yPosition = 15;
-        
+
         // Period Header
         doc.setFontSize(14);
-        doc.setFont(undefined, 'bold');
-        doc.text(`${period.period_name || `Period ${period.period_number || periodIndex + 1}`} - Student Attendance`, 14, yPosition);
+        doc.setFont('helvetica', 'bold');
+        doc.text(
+          `${
+            period.period_name ||
+            `Period ${period.period_number || periodIndex + 1}`
+          } - Student Attendance`,
+          14,
+          yPosition
+        );
         yPosition += 6;
-        
+
         doc.setFontSize(10);
-        doc.setFont(undefined, 'normal');
-        doc.text(`Course: ${period.course_name} (${period.course_code || 'N/A'})`, 14, yPosition);
+        doc.setFont('helvetica', 'normal');
+        doc.text(
+          `Course: ${period.course_name} (${period.course_code || 'N/A'})`,
+          14,
+          yPosition
+        );
         yPosition += 5;
-        doc.text(`Time: ${period.start_time} - ${period.end_time}`, 14, yPosition);
+        doc.text(
+          `Time: ${period.start_time} - ${period.end_time}`,
+          14,
+          yPosition
+        );
         yPosition += 5;
-        doc.text(`Faculty: ${period.faculty.map(f => f.faculty_name).join(', ')}`, 14, yPosition);
+        doc.text(
+          `Faculty: ${period.faculty.map((f) => f.faculty_name).join(', ')}`,
+          14,
+          yPosition
+        );
         yPosition += 5;
-        doc.text(`Marked By: ${period.marked_by_details ? period.marked_by_details.marker_name : 'N/A'}`, 14, yPosition);
+        doc.text(
+          `Marked By: ${
+            period.marked_by_details
+              ? period.marked_by_details.marker_name
+              : 'N/A'
+          }`,
+          14,
+          yPosition
+        );
         yPosition += 5;
-        
+
         // Statistics bar
         doc.setFillColor(240, 240, 240);
         doc.rect(14, yPosition, 182, 8, 'F');
-        doc.setFont(undefined, 'bold');
-        doc.text(`Present: ${period.present_count} | Absent: ${period.absent_count} | Total: ${period.total_count} | Attendance: ${period.attendance_percentage.toFixed(1)}%`, 
-          doc.internal.pageSize.width / 2, yPosition + 5, { align: 'center' });
+        doc.setFont('helvetica', 'bold');
+        doc.text(
+          `Present: ${period.present_count} | Absent: ${
+            period.absent_count
+          } | Total: ${
+            period.total_count
+          } | Attendance: ${period.attendance_percentage.toFixed(1)}%`,
+          doc.internal.pageSize.width / 2,
+          yPosition + 5,
+          { align: 'center' }
+        );
         yPosition += 12;
-        
+
         // Student list for this period
         const periodStudentData = period.students
-          .sort((a, b) => (a.roll_number || '').localeCompare(b.roll_number || ''))
+          .sort((a, b) =>
+            (a.roll_number || '').localeCompare(b.roll_number || '')
+          )
           .map((student, idx) => [
             (idx + 1).toString(),
             student.roll_number || 'N/A',
             student.student_name,
             student.is_present ? 'Present' : 'Absent'
           ]);
-        
+
         autoTable(doc, {
           head: [['S.No', 'Roll No', 'Student Name', 'Status']],
           body: periodStudentData,
@@ -431,13 +546,13 @@ export class AttendanceExportService {
             0: { cellWidth: 15, halign: 'center' },
             1: { cellWidth: 30 },
             2: { cellWidth: 100 },
-            3: { 
-              cellWidth: 25, 
+            3: {
+              cellWidth: 25,
               halign: 'center',
               fontStyle: 'bold'
             }
           },
-          didParseCell: function(data) {
+          didParseCell: function (data) {
             // Color code the status column
             if (data.column.index === 3 && data.cell.section === 'body') {
               if (data.cell.raw === 'Present') {
@@ -453,15 +568,17 @@ export class AttendanceExportService {
       // Overall Student Summary
       doc.addPage();
       yPosition = 15;
-      
+
       doc.setFontSize(14);
-      doc.setFont(undefined, 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.text('OVERALL STUDENT ATTENDANCE SUMMARY', 14, yPosition);
       yPosition += 8;
 
       // Overall Student Table
       const studentTableData = report.consolidated_students
-        .sort((a, b) => (a.roll_number || '').localeCompare(b.roll_number || ''))
+        .sort((a, b) =>
+          (a.roll_number || '').localeCompare(b.roll_number || '')
+        )
         .map((student, idx) => [
           (idx + 1).toString(),
           student.roll_number || 'N/A',
@@ -472,7 +589,16 @@ export class AttendanceExportService {
         ]);
 
       autoTable(doc, {
-        head: [['S.No', 'Roll No', 'Name', 'Status', 'Periods Attended', 'Attendance %']],
+        head: [
+          [
+            'S.No',
+            'Roll No',
+            'Name',
+            'Status',
+            'Periods Attended',
+            'Attendance %'
+          ]
+        ],
         body: studentTableData,
         startY: yPosition,
         styles: {
@@ -492,7 +618,7 @@ export class AttendanceExportService {
           4: { cellWidth: 50 },
           5: { cellWidth: 25, halign: 'center', fontStyle: 'bold' }
         },
-        didParseCell: function(data) {
+        didParseCell: function (data) {
           // Color code the status column
           if (data.column.index === 3 && data.cell.section === 'body') {
             if (data.cell.raw === 'Present') {
@@ -503,7 +629,7 @@ export class AttendanceExportService {
           }
           // Color code attendance percentage
           if (data.column.index === 5 && data.cell.section === 'body') {
-            const percentage = parseFloat(data.cell.raw);
+            const percentage = parseFloat(String(data.cell.raw || '0'));
             if (percentage >= 75) {
               data.cell.styles.textColor = [34, 197, 94];
             } else {
