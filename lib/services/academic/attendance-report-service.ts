@@ -455,17 +455,19 @@ export class AttendanceReportService {
       });
 
       // Collect all unique course IDs to fetch course codes
-      const courseIds = [...new Set(sortedPeriods.map(p => p.course_id).filter(Boolean))];
-      let courseCodeMap = new Map();
-      
+      const courseIds = [
+        ...new Set(sortedPeriods.map((p) => p.course_id).filter(Boolean))
+      ];
+      const courseCodeMap = new Map();
+
       if (courseIds.length > 0) {
         const { data: coursesData } = await this.supabase
           .from('courses')
           .select('id, course_code')
           .in('id', courseIds);
-        
+
         if (coursesData) {
-          coursesData.forEach(course => {
+          coursesData.forEach((course) => {
             courseCodeMap.set(course.id, course.course_code);
           });
         }
@@ -497,7 +499,7 @@ export class AttendanceReportService {
           .filter(Boolean);
 
         // Fetch fresh student data from students table
-        let studentDataMap = new Map();
+        const studentDataMap = new Map();
         if (studentIds.length > 0) {
           const { data: freshStudentData } = await this.supabase
             .from('students')
@@ -528,8 +530,9 @@ export class AttendanceReportService {
         });
 
         // Determine the actual period number to use
-        const actualPeriodNumber = period.period_number || periodDetails.length + 1;
-        
+        const actualPeriodNumber: number =
+          period.period_number || periodDetails.length + 1;
+
         // Update consolidated student map
         processedStudents.forEach((student: any) => {
           if (!studentMap.has(student.student_id)) {
@@ -551,7 +554,9 @@ export class AttendanceReportService {
           period_name: period.period_name || `Period ${actualPeriodNumber}`,
           start_time: period.start_time,
           end_time: period.end_time,
-          course_code: period.course_id ? (courseCodeMap.get(period.course_id) || '') : '',
+          course_code: period.course_id
+            ? courseCodeMap.get(period.course_id) || ''
+            : '',
           course_name: period.course_name || 'Unknown Course',
           faculty: facultyArray,
           marked_by_details: period.marked_by_details,
@@ -846,34 +851,41 @@ export class AttendanceReportService {
       // Get today's stats and enhanced metrics
       const today = new Date().toISOString().split('T')[0];
       const todayStats = dailyStats[today] || { present: 0, total: 0 };
-      
+
       // Calculate today's specific metrics
-      const todayRecords = (data || []).filter(record => record.attendance_date === today);
+      const todayRecords = (data || []).filter(
+        (record) => record.attendance_date === today
+      );
       let todayPeriods = 0;
       let todayTotalCapacity = 0;
-      
-      todayRecords.forEach(record => {
+
+      todayRecords.forEach((record) => {
         const attendanceData = record.attendance_data as any;
         const periods = attendanceData ? Object.values(attendanceData) : [];
         todayPeriods += periods.length;
-        
+
         periods.forEach((period: any) => {
           if (period.students && Array.isArray(period.students)) {
             todayTotalCapacity += period.students.length;
           }
         });
       });
-      
-      const todayAttendanceRate = todayStats.total > 0 
-        ? Math.round((todayStats.present / todayStats.total) * 100 * 100) / 100 
-        : 0;
-      
+
+      const todayAttendanceRate =
+        todayStats.total > 0
+          ? Math.round((todayStats.present / todayStats.total) * 100 * 100) /
+            100
+          : 0;
+
       // Calculate weekly comparison
-      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split('T')[0];
       const lastWeekStats = dailyStats[oneWeekAgo] || { present: 0, total: 0 };
-      const lastWeekRate = lastWeekStats.total > 0 
-        ? (lastWeekStats.present / lastWeekStats.total) * 100 
-        : 0;
+      const lastWeekRate =
+        lastWeekStats.total > 0
+          ? (lastWeekStats.present / lastWeekStats.total) * 100
+          : 0;
       const weeklyComparison = todayAttendanceRate - lastWeekRate;
 
       // Calculate low attendance alerts (days with < 75% attendance)
