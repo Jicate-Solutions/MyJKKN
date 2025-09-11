@@ -350,7 +350,7 @@ export class AttendanceReportService {
 
       return {
         data: processedReports,
-        count: count || 0,
+        count: processedReports.length, // Use filtered count, not original database count
         error: null
       };
     } catch (error) {
@@ -413,20 +413,37 @@ export class AttendanceReportService {
           } else {
             // Check if faculty is assigned to any period
             const attendanceData = data.attendance_data as any;
-            const periods = attendanceData?.periods || [];
-            const isAssigned = periods.some((period: any) => {
-              if (Array.isArray(period.assigned_faculty)) {
-                return period.assigned_faculty.some(
-                  (f: any) => f.faculty_id === staffData.id
-                );
-              }
-              return period.assigned_faculty?.faculty_id === staffData.id;
+            // attendance_data is an object with timetable_slot_id as keys and period data as values
+            const periods = Object.values(attendanceData || {});
+            
+            console.log('Debugging faculty access validation:', {
+              staffId: staffData.id,
+              totalPeriods: periods.length,
+              attendanceData: JSON.stringify(attendanceData, null, 2)
             });
+            
+            const isAssigned = periods.some((period: any) => {
+              const facultyMatch = Array.isArray(period.assigned_faculty)
+                ? period.assigned_faculty.some((f: any) => {
+                    console.log('Checking array faculty:', f.faculty_id, 'vs staff:', staffData.id, 'match:', f.faculty_id === staffData.id);
+                    return f.faculty_id === staffData.id;
+                  })
+                : (() => {
+                    const match = period.assigned_faculty?.faculty_id === staffData.id;
+                    console.log('Checking single faculty:', period.assigned_faculty?.faculty_id, 'vs staff:', staffData.id, 'match:', match);
+                    return match;
+                  })();
+              
+              return facultyMatch;
+            });
+
+            console.log('Final assignment result:', isAssigned);
 
             if (!isAssigned) {
               console.error('Faculty not assigned to this report:', {
                 userId,
-                staffId: staffData.id
+                staffId: staffData.id,
+                reportId: data.id
               });
               // Deny access - faculty can only view reports they are assigned to
               return { data: null, error: 'Access denied: You are not assigned to this report' };
@@ -1006,7 +1023,7 @@ export class AttendanceReportService {
       if (!report) return false;
 
       const { data: staffData } = await this.supabase
-        .from('staffs')
+        .from('staff')
         .select('id')
         .eq('profile_id', userId)
         .single();

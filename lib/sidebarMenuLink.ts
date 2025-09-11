@@ -145,7 +145,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/timetables/faculty-calendar': 'faculty.calendar.view',
   '/academic/periods': 'academic.periods.view',
   '/academic/attendance': 'academic.attendance.view',
-  '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
   '/academic/attendance/reports': 'academic.attendance.reports.view',
 
   // Notification Management
@@ -505,11 +504,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/academic/attendance'),
           icon: ClipboardCheck,
           submenus: [
-            {
-              href: '/academic/attendance/dashboard',
-              label: 'Analytics Dashboard',
-              active: pathname === '/academic/attendance/dashboard'
-            },
             {
               href: '/academic/attendance',
               label: 'Mark Attendance',
