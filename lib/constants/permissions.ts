@@ -284,10 +284,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.attendance.edit', label: 'Edit Attendance' },
       { key: 'academic.attendance.reports', label: 'View Attendance Reports' },
       {
-        key: 'academic.attendance.dashboard.view',
-        label: 'View Attendance Dashboard'
-      },
-      {
         key: 'academic.attendance.reports.view',
         label: 'View Attendance Reports'
       },
