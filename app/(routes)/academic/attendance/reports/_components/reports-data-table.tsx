@@ -10,7 +10,8 @@ import { AttendanceReportService } from '@/lib/services/academic/attendance-repo
 import type { AttendanceReport } from '@/lib/services/academic/attendance-report-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface AttendanceReportsDataTableProps {
   search: AttendanceReportsSearchParams;
@@ -27,6 +28,7 @@ export function AttendanceReportsDataTable({
     userProfile,
     isLoading: permissionsLoading
   } = usePermissions();
+  const [facultyStaffId, setFacultyStaffId] = useState<string | null>(null);
 
   // Determine user role - use useMemo to memoize this
   const userRole = useMemo(() => {
@@ -35,6 +37,26 @@ export function AttendanceReportsDataTable({
     if (profile?.role === 'faculty') return 'faculty';
     return 'faculty';
   }, [isSuperAdmin, profile?.role]);
+
+  // Fetch staff ID for faculty users
+  useEffect(() => {
+    const fetchStaffId = async () => {
+      if (profile?.role === 'faculty' && profile?.id) {
+        const supabase = createClientSupabaseClient();
+        const { data, error } = await supabase
+          .from('staff')
+          .select('id')
+          .eq('profile_id', profile.id)
+          .single();
+
+        if (data && !error) {
+          setFacultyStaffId(data.id);
+        }
+      }
+    };
+
+    fetchStaffId();
+  }, [profile]);
 
   const fetchData = useCallback(
     async (params: {
@@ -118,7 +140,13 @@ export function AttendanceReportsDataTable({
   const getColumns = useCallback(() => columns as any, []);
 
   // Wait for permissions and profile to be loaded before rendering the table
-  const isReady = !permissionsLoading && !!userProfile;
+  // For faculty users, also wait for staff ID to be fetched
+  const isRegularFaculty =
+    userRole === 'faculty' && !isSuperAdmin && profile?.role === 'faculty';
+  const isReady =
+    !permissionsLoading &&
+    !!userProfile &&
+    (isRegularFaculty ? !!facultyStaffId || !profile?.id : true);
 
   if (!isReady) {
     return <div>Loading...</div>;

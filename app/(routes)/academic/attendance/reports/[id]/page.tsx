@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -89,23 +90,54 @@ export default function AttendanceReportDetailPage() {
   const [sortOrder, setSortOrder] = useState<'name' | 'roll' | 'status'>(
     'name'
   );
+  const [facultyStaffId, setFacultyStaffId] = useState<string | null>(null);
+  const [roleLoading, setRoleLoading] = useState(false);
 
   // Determine user role
-  const getUserRole = useMemo(() => {
+  const userRole = useMemo(() => {
     if (isSuperAdmin || profile?.is_super_admin) return 'super_admin';
     if (profile?.role === 'admin') return 'admin';
     return 'faculty';
   }, [isSuperAdmin, profile?.role, profile?.is_super_admin]);
 
+  // Fetch staff ID for faculty users
+  useEffect(() => {
+    const fetchStaffId = async () => {
+      if (profile?.role === 'faculty' && profile?.id) {
+        setRoleLoading(true);
+        const supabase = createClientSupabaseClient();
+        const { data, error } = await supabase
+          .from('staff')
+          .select('id')
+          .eq('profile_id', profile.id)
+          .single();
+
+        if (data && !error) {
+          setFacultyStaffId(data.id);
+        }
+        setRoleLoading(false);
+      }
+    };
+
+    fetchStaffId();
+  }, [profile]);
+
+  // Determine if we should delay showing data for faculty users
+  const isRegularFaculty =
+    userRole === 'faculty' && !isSuperAdmin && profile?.role === 'faculty';
+  const shouldWaitForRole =
+    isRegularFaculty && profile?.id && !facultyStaffId && roleLoading;
+
   // Fetch report details
   const fetchReportDetails = useCallback(async () => {
     if (!reportId) return;
+    if (shouldWaitForRole) return; // Wait for staff ID to be fetched for faculty users
 
     try {
       setLoading(true);
       const { data, error } = await AttendanceReportService.getReportDetails(
         reportId,
-        getUserRole,
+        userRole,
         profile?.id
       );
 
@@ -132,7 +164,7 @@ export default function AttendanceReportDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [reportId, getUserRole, profile?.id, router]);
+  }, [reportId, userRole, profile?.id, router, shouldWaitForRole]);
 
   useEffect(() => {
     fetchReportDetails();
@@ -170,12 +202,16 @@ export default function AttendanceReportDetailPage() {
     }
   };
 
-  if (loading) {
+  if (loading || shouldWaitForRole) {
     return (
       <ContentLayout title='Loading Report...'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin text-blue-600' />
-          <span className='ml-2'>Loading report details...</span>
+          <span className='ml-2'>
+            {shouldWaitForRole
+              ? 'Preparing your data...'
+              : 'Loading report details...'}
+          </span>
         </div>
       </ContentLayout>
     );

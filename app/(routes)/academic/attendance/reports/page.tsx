@@ -35,7 +35,7 @@ export default function AttendanceReportsPage() {
   const [statistics, setStatistics] = useState<AttendanceStatistics | null>(
     null
   );
-  const [loadingStats, setLoadingStats] = useState(false);
+  const [loadingStats, setLoadingStats] = useState(true); // Start with loading for all users
   const [facultyStaffId, setFacultyStaffId] = useState<string | null>(null);
 
   // Parse initial search parameters
@@ -64,7 +64,7 @@ export default function AttendanceReportsPage() {
   }, [search]);
 
   // Determine user role - memoize to prevent unnecessary re-renders
-  const getUserRole = useMemo(() => {
+  const userRole = useMemo(() => {
     if (isSuperAdmin) return 'super_admin';
     if (profile?.role === 'admin') return 'admin';
     if (profile?.role === 'faculty') return 'faculty';
@@ -76,13 +76,13 @@ export default function AttendanceReportsPage() {
     const fetchStaffId = async () => {
       if (profile?.role === 'faculty' && profile?.id) {
         const supabase = createClientSupabaseClient();
-        const { data } = await supabase
-          .from('staffs')
+        const { data, error } = await supabase
+          .from('staff')
           .select('id')
           .eq('profile_id', profile.id)
           .single();
 
-        if (data) {
+        if (data && !error) {
           setFacultyStaffId(data.id);
         }
       }
@@ -112,9 +112,19 @@ export default function AttendanceReportsPage() {
     } as any);
   }, [search.pageSize]);
 
+  // Determine if we should wait for faculty role resolution
+  const isRegularFaculty =
+    userRole === 'faculty' && !isSuperAdmin && profile?.role === 'faculty';
+  const shouldWaitForFacultyId =
+    isRegularFaculty && profile?.id && !facultyStaffId;
+
   // Fetch statistics for all users (including faculty)
   const fetchStatistics = useCallback(async () => {
-    // Allow all users to see statistics (faculty will see their own data)
+    // For faculty users, wait until staff ID is available to prevent showing institutional data
+    if (shouldWaitForFacultyId) {
+      setLoadingStats(true); // Keep loading state active while waiting
+      return;
+    }
 
     try {
       setLoadingStats(true);
@@ -139,15 +149,15 @@ export default function AttendanceReportsPage() {
           : undefined
       };
 
-      // For faculty, add their staff ID to the filters to get their specific statistics
       const statsFilters =
-        profile?.role === 'faculty' && facultyStaffId
+        isRegularFaculty && facultyStaffId
           ? { ...filters, faculty_id: facultyStaffId }
           : filters;
 
       const { data } = await AttendanceReportService.getAttendanceStatistics(
         statsFilters,
-        profile?.role === 'faculty' ? 'faculty' : 'institution'
+        isRegularFaculty ? 'faculty' : 'institution',
+        isRegularFaculty && facultyStaffId ? facultyStaffId : undefined
       );
 
       setStatistics(data);
@@ -156,12 +166,23 @@ export default function AttendanceReportsPage() {
     } finally {
       setLoadingStats(false);
     }
-  }, [search, isSuperAdmin, profile]);
+  }, [
+    search,
+    isSuperAdmin,
+    profile,
+    userRole,
+    facultyStaffId,
+    isRegularFaculty,
+    shouldWaitForFacultyId
+  ]);
 
   // Fetch statistics when filters change
   useEffect(() => {
     fetchStatistics();
   }, [fetchStatistics]);
+
+  // Show loading state while waiting for faculty role resolution
+  const shouldShowLoading = shouldWaitForFacultyId;
 
   return (
     <PermissionGuard module='academic.attendance.reports' action='view'>
@@ -190,35 +211,67 @@ export default function AttendanceReportsPage() {
             </BreadcrumbList>
           </Breadcrumb>
 
-          {/* Statistics Dashboard (Available for all roles) */}
-          <ReportStatistics
-            statistics={statistics}
-            loading={loadingStats}
-            userRole={getUserRole}
-          />
-
-          {/* Main Content */}
-          <Card>
-            <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                <FileText className='h-5 w-5' />
-                Attendance Reports
-              </CardTitle>
-            </CardHeader>
-            <CardContent className='p-6'>
-              <div className='space-y-6'>
-                {/* Filters */}
-                <ReportsFilters
-                  searchParams={search}
-                  onFilterChange={handleFilterChange}
-                  onClearFilters={handleClearFilters}
-                />
-
-                {/* Data Table */}
-                <AttendanceReportsDataTable search={search} />
+          {shouldShowLoading ? (
+            /* Loading State for Faculty Users */
+            <div className='space-y-6'>
+              <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+                {[1, 2, 3, 4].map((i) => (
+                  <Card key={i} className='animate-pulse'>
+                    <CardContent className='p-6'>
+                      <div className='flex items-center justify-between space-y-0 pb-2'>
+                        <div className='h-4 bg-gray-200 rounded w-24'></div>
+                        <div className='h-10 w-10 bg-gray-200 rounded-full'></div>
+                      </div>
+                      <div className='space-y-2'>
+                        <div className='h-8 bg-gray-200 rounded w-16'></div>
+                        <div className='h-3 bg-gray-200 rounded w-20'></div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardContent className='p-6'>
+                  <div className='animate-pulse space-y-4'>
+                    <div className='h-6 bg-gray-200 rounded w-48'></div>
+                    <div className='h-40 bg-gray-200 rounded'></div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <>
+              {/* Statistics Dashboard (Available for all roles) */}
+              <ReportStatistics
+                statistics={statistics}
+                loading={loadingStats}
+                userRole={userRole}
+              />
+
+              {/* Main Content */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className='flex items-center gap-2'>
+                    <FileText className='h-5 w-5' />
+                    Attendance Reports
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='p-6'>
+                  <div className='space-y-6'>
+                    {/* Filters */}
+                    <ReportsFilters
+                      searchParams={search}
+                      onFilterChange={handleFilterChange}
+                      onClearFilters={handleClearFilters}
+                    />
+
+                    {/* Data Table */}
+                    <AttendanceReportsDataTable search={search} />
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
       </ContentLayout>
     </PermissionGuard>

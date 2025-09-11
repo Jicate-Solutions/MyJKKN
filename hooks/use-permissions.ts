@@ -129,8 +129,10 @@ export function usePermissions(
         setIsLoading(true);
         setError(null);
 
-        // Check if user is a super admin
-        const isSuperAdminUser = userProfile.role === SYSTEM_ROLES.SUPER_ADMIN;
+        // Check if user is a super admin (either by role or is_super_admin flag)
+        const isSuperAdminUser =
+          userProfile.role === SYSTEM_ROLES.SUPER_ADMIN ||
+          userProfile.is_super_admin === true;
         if (mounted) {
           setIsSuperAdmin(isSuperAdminUser);
         }
