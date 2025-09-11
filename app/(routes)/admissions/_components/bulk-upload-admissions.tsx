@@ -187,21 +187,91 @@ export default function BulkUploadAdmissions() {
 
           <div className='text-xs text-muted-foreground'>
             <p>Note: The file should contain the following columns:</p>
-            <ul className='list-disc pl-4 mt-1 space-y-1'>
-              <li>First Name (required)</li>
-              <li>Last Name (optional)</li>
-              <li>Father Name</li>
-              <li>Mother Name</li>
-              <li>Date of Birth (YYYY-MM-DD)</li>
-              <li>Gender</li>
-              <li>Institution</li>
-              <li>Course</li>
-              <li>Contact Number</li>
-              <li>Email</li>
-            </ul>
-            <p className='mt-2 text-orange-600'>
-              💡 Use &quot;Download Template&quot; button to get the correct
-              format with all required columns.
+            <div className='mt-2 max-h-48 overflow-y-auto'>
+              <div className='grid grid-cols-1 md:grid-cols-2 gap-2'>
+                <div>
+                  <p className='font-semibold text-blue-600 mb-1'>Basic Details:</p>
+                  <ul className='list-disc pl-4 space-y-1'>
+                    <li>Enquiry Date</li>
+                    <li>First Name (required)</li>
+                    <li>Last Name</li>
+                    <li>Father Name (required)</li>
+                    <li>Father Occupation</li>
+                    <li>Father Mobile (required)</li>
+                    <li>Mother Name (required)</li>
+                    <li>Mother Occupation</li>
+                    <li>Mother Mobile (required)</li>
+                    <li>Date of Birth (YYYY-MM-DD)</li>
+                    <li>Gender (required)</li>
+                    <li>Religion (required)</li>
+                    <li>Community (required)</li>
+                    <li>Caste</li>
+                    <li>Annual Income</li>
+                  </ul>
+                  
+                  <p className='font-semibold text-green-600 mb-1 mt-3'>Academic Info:</p>
+                  <ul className='list-disc pl-4 space-y-1'>
+                    <li>Last School (required)</li>
+                    <li>Board of Study (required)</li>
+                    <li>10th Max Marks (required)</li>
+                    <li>10th Obtained Marks (required)</li>
+                    <li>10th Percentage</li>
+                    <li>12th Group (required)</li>
+                    <li>12th Max Marks (required)</li>
+                    <li>12th Obtained Marks (required)</li>
+                    <li>12th Percentage</li>
+                    <li>12th Subject 1-4 Names & Marks</li>
+                    <li>NEET Roll Number</li>
+                    <li>Medical Cutoff Marks</li>
+                    <li>Engineering Cutoff Marks</li>
+                    <li>Counseling Applied</li>
+                    <li>Counseling Number</li>
+                    <li>First Graduate</li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <p className='font-semibold text-purple-600 mb-1'>Course Selection:</p>
+                  <ul className='list-disc pl-4 space-y-1'>
+                    <li>Quota</li>
+                    <li>Category</li>
+                    <li>Institution (required)</li>
+                    <li>Degree (required)</li>
+                    <li>Department (required)</li>
+                    <li>Program (required)</li>
+                    <li>Entry Type (required)</li>
+                  </ul>
+                  
+                  <p className='font-semibold text-orange-600 mb-1 mt-3'>Contact Details:</p>
+                  <ul className='list-disc pl-4 space-y-1'>
+                    <li>Permanent Address Street (required)</li>
+                    <li>Permanent Address Taluk</li>
+                    <li>Permanent Address District (required)</li>
+                    <li>Permanent Address Pin Code (required)</li>
+                    <li>Permanent Address State (required)</li>
+                    <li>Student Mobile (required)</li>
+                    <li>Student Email (required)</li>
+                  </ul>
+                  
+                  <p className='font-semibold text-teal-600 mb-1 mt-3'>Accommodation:</p>
+                  <ul className='list-disc pl-4 space-y-1'>
+                    <li>Accommodation Type (required)</li>
+                    <li>Hostel Type</li>
+                    <li>Bus Required</li>
+                    <li>Bus Route</li>
+                    <li>Bus Pickup Location</li>
+                    <li>Reference Type</li>
+                    <li>Reference Name</li>
+                    <li>Reference Contact</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            <p className='mt-3 text-orange-600 font-medium'>
+              💡 Use &quot;Download Template&quot; button to get the exact format with all 48 required columns.
+            </p>
+            <p className='mt-1 text-red-600 text-xs'>
+              ⚠️ Required fields must be filled. Template includes proper headers and format.
             </p>
           </div>
         </div>
