@@ -28,6 +28,10 @@
       "env": {
         "MEMORY_STORE_PATH": "D:\\MyJKKN\\.claude\\memory"
       }
+    },
+    "actor-critic-thinking": {
+      "command": "npx",
+      "args": ["-y", "mcp-server-actor-critic-thinking"]
     }
   }
 }
