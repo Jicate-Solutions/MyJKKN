@@ -999,23 +999,80 @@ export class AttendanceService {
         };
 
         // If any academic field is missing, fetch from timetable
-        if (!data.academic_year_id || !data.degree_id || !data.program_id || !data.department_id) {
+        if (!data.academic_year_id || !data.degree_id || !data.program_id || !data.department_id || !data.semester_id) {
           const { data: timetableData, error: timetableError } = await this.supabase
             .from('timetables')
-            .select('academic_year_id, degree_id, program_id, department_id, semester_id')
+            .select('academic_year_id, degree_id, program_id, department_id, semester_id, semester')
             .eq('id', data.timetable_id)
             .single();
           
           if (!timetableError && timetableData) {
+            let resolvedSemesterId = data.semester_id || timetableData.semester_id;
+            
+            // If semester_id is null but we have semester name, lookup the semester_id
+            if (!resolvedSemesterId && timetableData.semester && timetableData.degree_id && timetableData.program_id) {
+              console.log('🔍 Looking up semester_id for:', {
+                semester_name: timetableData.semester,
+                degree_id: timetableData.degree_id,
+                program_id: timetableData.program_id
+              });
+              
+              const { data: semesterData, error: semesterError } = await this.supabase
+                .from('semesters')
+                .select('id')
+                .eq('semester_name', timetableData.semester)
+                .eq('degree_id', timetableData.degree_id)
+                .eq('program_id', timetableData.program_id)
+                .single();
+              
+              if (!semesterError && semesterData) {
+                resolvedSemesterId = semesterData.id;
+                console.log('✅ Found semester_id:', resolvedSemesterId);
+              } else {
+                console.error('❌ Could not resolve semester_id:', {
+                  error: semesterError,
+                  semester_name: timetableData.semester,
+                  degree_id: timetableData.degree_id,
+                  program_id: timetableData.program_id
+                });
+              }
+            }
+            
             academicFields = {
               academic_year_id: data.academic_year_id || timetableData.academic_year_id,
               degree_id: data.degree_id || timetableData.degree_id,
               program_id: data.program_id || timetableData.program_id,
               department_id: data.department_id || timetableData.department_id,
-              semester_id: data.semester_id || timetableData.semester_id
+              semester_id: resolvedSemesterId
             };
           }
         }
+
+        // Validate required fields before insertion
+        const validationErrors: string[] = [];
+        if (!academicFields.semester_id) validationErrors.push('semester_id is null or undefined');
+        if (!academicFields.academic_year_id) validationErrors.push('academic_year_id is null or undefined');
+        if (!academicFields.degree_id) validationErrors.push('degree_id is null or undefined');
+        if (!academicFields.program_id) validationErrors.push('program_id is null or undefined');
+        if (!academicFields.department_id) validationErrors.push('department_id is null or undefined');
+        
+        if (validationErrors.length > 0) {
+          console.error('❌ ATTENDANCE VALIDATION FAILED:', {
+            errors: validationErrors,
+            timetable_id: data.timetable_id,
+            section_id: resolvedSectionId,
+            attendance_date: data.attendance_date,
+            academicFields
+          });
+          throw new Error(`Attendance validation failed: ${validationErrors.join(', ')}`);
+        }
+        
+        console.log('✅ Attendance validation passed, inserting record:', {
+          timetable_id: data.timetable_id,
+          section_id: resolvedSectionId,
+          attendance_date: data.attendance_date,
+          academicFields
+        });
 
         const { data: insertResult, error: insertError } = await this.supabase
           .from('student_attendance')
@@ -2912,6 +2969,252 @@ export class AttendanceService {
           ? error.message
           : `Failed to parse date: ${date}`;
       throw new Error(errorMessage);
+    }
+  }
+
+  // Debug and validate attendance records
+  static async debugAttendanceRecord(recordId?: string, options?: {
+    checkDate?: string,
+    timetableId?: string,
+    sectionId?: string
+  }): Promise<{
+    record?: any,
+    issues: string[],
+    suggestions: string[],
+    timetableInfo?: any,
+    semesterInfo?: any
+  }> {
+    const issues: string[] = [];
+    const suggestions: string[] = [];
+    let record: any = null;
+    let timetableInfo: any = null;
+    let semesterInfo: any = null;
+
+    try {
+      if (recordId) {
+        // Debug specific record
+        const { data, error } = await this.supabase
+          .from('student_attendance')
+          .select('*')
+          .eq('id', recordId)
+          .single();
+
+        if (error || !data) {
+          issues.push(`Cannot find attendance record with ID: ${recordId}`);
+          return { issues, suggestions };
+        }
+
+        record = data;
+      } else if (options?.checkDate && options?.timetableId && options?.sectionId) {
+        // Debug by criteria
+        const { data, error } = await this.supabase
+          .from('student_attendance')
+          .select('*')
+          .eq('attendance_date', options.checkDate)
+          .eq('timetable_id', options.timetableId)
+          .eq('section_id', options.sectionId)
+          .maybeSingle();
+
+        record = data;
+        if (error) {
+          issues.push(`Error querying attendance: ${error.message}`);
+        }
+        if (!record) {
+          issues.push(`No attendance record found for date: ${options.checkDate}, timetable: ${options.timetableId}, section: ${options.sectionId}`);
+        }
+      } else {
+        issues.push('Please provide either recordId or (checkDate + timetableId + sectionId)');
+        return { issues, suggestions };
+      }
+
+      if (record) {
+        // Check for null values
+        const nullFields = [];
+        if (!record.semester_id) nullFields.push('semester_id');
+        if (!record.academic_year_id) nullFields.push('academic_year_id');
+        if (!record.degree_id) nullFields.push('degree_id');
+        if (!record.program_id) nullFields.push('program_id');
+        if (!record.department_id) nullFields.push('department_id');
+
+        if (nullFields.length > 0) {
+          issues.push(`Null fields detected: ${nullFields.join(', ')}`);
+        }
+
+        // Fetch timetable information
+        if (record.timetable_id) {
+          const { data: timetableData, error: timetableError } = await this.supabase
+            .from('timetables')
+            .select('id, semester, semester_id, section, section_id, degree_id, program_id, department_id, academic_year_id')
+            .eq('id', record.timetable_id)
+            .single();
+
+          if (!timetableError && timetableData) {
+            timetableInfo = timetableData;
+            
+            // Check if timetable has missing semester_id
+            if (!timetableData.semester_id && timetableData.semester) {
+              issues.push(`Timetable has semester name '${timetableData.semester}' but no semester_id`);
+              suggestions.push(`Update timetable ${record.timetable_id} with correct semester_id`);
+            }
+            
+            // Check if record fields match timetable
+            if (timetableData.degree_id && record.degree_id !== timetableData.degree_id) {
+              issues.push(`Degree mismatch: record=${record.degree_id}, timetable=${timetableData.degree_id}`);
+            }
+            if (timetableData.program_id && record.program_id !== timetableData.program_id) {
+              issues.push(`Program mismatch: record=${record.program_id}, timetable=${timetableData.program_id}`);
+            }
+          }
+        }
+
+        // Try to find correct semester_id if missing
+        if (!record.semester_id && timetableInfo?.semester && timetableInfo?.degree_id && timetableInfo?.program_id) {
+          const { data: semesterData, error: semesterError } = await this.supabase
+            .from('semesters')
+            .select('id, semester_name')
+            .eq('semester_name', timetableInfo.semester)
+            .eq('degree_id', timetableInfo.degree_id)
+            .eq('program_id', timetableInfo.program_id)
+            .single();
+
+          if (!semesterError && semesterData) {
+            semesterInfo = semesterData;
+            suggestions.push(`Record should have semester_id: ${semesterData.id} (${semesterData.semester_name})`);
+            suggestions.push(`UPDATE student_attendance SET semester_id = '${semesterData.id}' WHERE id = '${record.id}'`);
+          } else {
+            issues.push(`Cannot resolve semester_id for semester '${timetableInfo.semester}'`);
+          }
+        }
+
+        // Summary
+        console.log('🔍 ATTENDANCE RECORD DEBUG:', {
+          record_id: record.id,
+          attendance_date: record.attendance_date,
+          issues: issues.length,
+          suggestions: suggestions.length,
+          null_fields: nullFields.length
+        });
+      }
+
+      return {
+        record,
+        issues,
+        suggestions,
+        timetableInfo,
+        semesterInfo
+      };
+
+    } catch (error) {
+      console.error('Error debugging attendance record:', error);
+      issues.push(`Debug error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { issues, suggestions };
+    }
+  }
+
+  // Bulk fix attendance records with missing semester_id
+  static async fixAttendanceRecords(options: {
+    dryRun?: boolean,
+    dateRange?: { start: string, end: string },
+    limit?: number
+  } = {}): Promise<{
+    totalFound: number,
+    fixedCount: number,
+    errors: string[],
+    summary: any[]
+  }> {
+    const { dryRun = true, dateRange, limit = 100 } = options;
+    const errors: string[] = [];
+    const summary: any[] = [];
+    let fixedCount = 0;
+
+    try {
+      console.log('🔧 Starting attendance records fix...', { dryRun, dateRange, limit });
+
+      // Find records with null semester_id
+      let query = this.supabase
+        .from('student_attendance')
+        .select('id, attendance_date, timetable_id, semester_id')
+        .is('semester_id', null)
+        .limit(limit);
+
+      if (dateRange) {
+        query = query
+          .gte('attendance_date', dateRange.start)
+          .lte('attendance_date', dateRange.end);
+      }
+
+      const { data: recordsToFix, error: queryError } = await query;
+
+      if (queryError) {
+        errors.push(`Query error: ${queryError.message}`);
+        return { totalFound: 0, fixedCount: 0, errors, summary };
+      }
+
+      const totalFound = recordsToFix?.length || 0;
+      console.log(`📊 Found ${totalFound} records with null semester_id`);
+
+      if (!recordsToFix || recordsToFix.length === 0) {
+        return { totalFound: 0, fixedCount: 0, errors, summary };
+      }
+
+      // Process each record
+      for (const record of recordsToFix) {
+        try {
+          const debugResult = await this.debugAttendanceRecord(record.id);
+          
+          if (debugResult.semesterInfo && debugResult.semesterInfo.id) {
+            const recordSummary = {
+              record_id: record.id,
+              attendance_date: record.attendance_date,
+              timetable_id: record.timetable_id,
+              resolved_semester_id: debugResult.semesterInfo.id,
+              semester_name: debugResult.semesterInfo.semester_name,
+              action: dryRun ? 'would_fix' : 'fixed'
+            };
+
+            if (!dryRun) {
+              // Actually update the record
+              const { error: updateError } = await this.supabase
+                .from('student_attendance')
+                .update({ semester_id: debugResult.semesterInfo.id })
+                .eq('id', record.id);
+
+              if (updateError) {
+                errors.push(`Failed to fix record ${record.id}: ${updateError.message}`);
+                recordSummary.action = 'failed';
+              } else {
+                fixedCount++;
+              }
+            }
+
+            summary.push(recordSummary);
+          } else {
+            summary.push({
+              record_id: record.id,
+              attendance_date: record.attendance_date,
+              timetable_id: record.timetable_id,
+              action: 'cannot_resolve',
+              issues: debugResult.issues
+            });
+          }
+        } catch (error) {
+          errors.push(`Error processing record ${record.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+
+      console.log('🎯 Fix operation completed:', {
+        totalFound,
+        fixedCount: dryRun ? 0 : fixedCount,
+        errors: errors.length,
+        dryRun
+      });
+
+      return { totalFound, fixedCount, errors, summary };
+
+    } catch (error) {
+      console.error('Error in fixAttendanceRecords:', error);
+      errors.push(`Fix operation error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { totalFound: 0, fixedCount: 0, errors, summary };
     }
   }
 }
