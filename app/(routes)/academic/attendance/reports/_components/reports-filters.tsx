@@ -25,7 +25,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from '@/components/ui/collapsible';
-import { DatePickerWithRange } from '@/components/ui/date-range-picker';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
 
@@ -172,19 +171,6 @@ export function ReportsFilters({
   const semesters = semestersData?.data || [];
   const sections = sectionsData?.data || [];
 
-  const handleDateRangeChange = (range: any) => {
-    if (range && range.from && range.to) {
-      onFilterChange(
-        'dateRange',
-        JSON.stringify({
-          from: range.from.toISOString(),
-          to: range.to.toISOString()
-        })
-      );
-    } else {
-      onFilterChange('dateRange', undefined);
-    }
-  };
 
   // Handle hierarchical field changes with child field resets (matching attendance filter pattern)
   const handleHierarchicalChange = (
@@ -248,8 +234,7 @@ export function ReportsFilters({
     searchParams.section_id ||
     searchParams.faculty_id ||
     searchParams.attendance_status ||
-    searchParams.attendance_threshold ||
-    searchParams.dateRange;
+    searchParams.attendance_threshold;
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -286,15 +271,6 @@ export function ReportsFilters({
           </CardHeader>
           <CardContent className='space-y-4'>
             <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
-              {/* Date Range */}
-              <div className='space-y-2'>
-                <Label>Date Range</Label>
-                <DatePickerWithRange
-                  value={searchParams.dateRange}
-                  onChange={handleDateRangeChange}
-                />
-              </div>
-
               {/* Institution */}
               <div className='space-y-2'>
                 <Label htmlFor='institution'>Institution</Label>

@@ -118,8 +118,8 @@ interface DataTableProps<TData extends ExportableData, TValue> {
   // Function to fetch specific items by their IDs
   fetchByIdsFn?: (ids: number[] | string[]) => Promise<TData[]>;
 
-  // Export configuration
-  exportConfig: {
+  // Export configuration (optional)
+  exportConfig?: {
     entityName: string;
     columnMapping: Record<string, string>;
     columnWidths: Array<{ wch: number }>;
@@ -436,7 +436,7 @@ export function DataTable<TData extends ExportableData, TValue>({
           dateRange,
           sortBy,
           sortOrder,
-          exportConfig.caseConfig
+          exportConfig?.caseConfig
         )
       : null;
 
@@ -766,7 +766,7 @@ export function DataTable<TData extends ExportableData, TValue>({
                   <span className='text-primary font-bold'>
                     {(data?.pagination.total_items || 0).toLocaleString()}{' '}
                   </span>
-                  {exportConfig.entityName}
+                  {exportConfig?.entityName || 'items'}
                 </span>
               </div>
 
@@ -841,11 +841,11 @@ export function DataTable<TData extends ExportableData, TValue>({
             }, 100);
           }}
           resetColumnOrder={resetColumnOrder}
-          entityName={exportConfig.entityName}
-          columnMapping={exportConfig.columnMapping}
-          columnWidths={exportConfig.columnWidths}
-          headers={exportConfig.headers}
-          transformFunction={exportConfig.transformFunction}
+          entityName={exportConfig?.entityName || 'items'}
+          columnMapping={exportConfig?.columnMapping || {}}
+          columnWidths={exportConfig?.columnWidths || []}
+          headers={exportConfig?.headers || []}
+          transformFunction={exportConfig?.transformFunction}
           customToolbarComponent={renderToolbarContent?.({
             selectedRows: dataItems.filter(
               (item) => selectedItemIds[String(item[idField])]

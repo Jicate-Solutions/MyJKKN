@@ -81,13 +81,13 @@ export default function AttendanceReportsPage() {
           .select('id')
           .eq('profile_id', profile.id)
           .single();
-        
+
         if (data) {
           setFacultyStaffId(data.id);
         }
       }
     };
-    
+
     fetchStaffId();
   }, [profile]);
 
@@ -140,10 +140,11 @@ export default function AttendanceReportsPage() {
       };
 
       // For faculty, add their staff ID to the filters to get their specific statistics
-      const statsFilters = profile?.role === 'faculty' && facultyStaffId
-        ? { ...filters, faculty_id: facultyStaffId }
-        : filters;
-      
+      const statsFilters =
+        profile?.role === 'faculty' && facultyStaffId
+          ? { ...filters, faculty_id: facultyStaffId }
+          : filters;
+
       const { data } = await AttendanceReportService.getAttendanceStatistics(
         statsFilters,
         profile?.role === 'faculty' ? 'faculty' : 'institution'

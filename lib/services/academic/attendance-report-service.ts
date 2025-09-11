@@ -79,6 +79,9 @@ export class AttendanceReportService {
         .from('student_attendance')
         .select('*', { count: 'exact' });
 
+      // Store staff ID for faculty filtering
+      let staffId: string | null = null;
+      
       // Apply role-based filtering
       if (userRole === 'faculty' && userId) {
         // First check if user has super admin access or admin role
@@ -88,13 +91,13 @@ export class AttendanceReportService {
           .eq('id', userId)
           .single();
 
-        // Allow access if user is super admin or admin
+        // Allow full access if user is super admin or admin
         if (profileData?.is_super_admin || profileData?.role === 'admin') {
           console.log(
             'Access granted: Super admin or admin role for reports list'
           );
         } else {
-          // For regular faculty, try to get staff record but don't fail if not found
+          // For regular faculty, get staff record for filtering
           const { data: staffData } = await this.supabase
             .from('staff')
             .select('id')
@@ -102,12 +105,13 @@ export class AttendanceReportService {
             .single();
 
           if (!staffData) {
-            console.warn('Staff record not found for faculty user:', userId);
-            // Don't return error - allow faculty to see reports even without staff record
+            console.error('Staff record not found for faculty user:', userId);
+            // Return empty result for faculty without staff record
+            return { data: [], count: 0, error: 'Staff record not found' };
           }
 
-          // Filter by faculty assignments in attendance_data JSON
-          // This is complex for JSONB, so we'll filter in post-processing
+          staffId = staffData.id;
+          console.log('Faculty staff ID for filtering:', staffId);
         }
       }
 
@@ -328,22 +332,20 @@ export class AttendanceReportService {
         };
       });
 
-      // Post-process filtering for faculty if needed
-      if (userRole === 'faculty' && userId) {
-        const { data: staffData } = await this.supabase
-          .from('staffs')
-          .select('id')
-          .eq('profile_id', userId)
-          .single();
-
-        if (staffData) {
-          processedReports = processedReports.filter((report) => {
-            // Check if faculty is assigned to any period in this report
-            return report.faculty_details.some(
-              (f) => f.faculty_id === staffData.id
-            );
-          });
-        }
+      // Filter reports for faculty users - only show reports where they are assigned
+      if (staffId) {
+        console.log('Filtering reports for faculty staff ID:', staffId);
+        const originalCount = processedReports.length;
+        
+        processedReports = processedReports.filter((report) => {
+          // Check if faculty is assigned to any period in this report
+          const isAssigned = report.faculty_details.some(
+            (f) => f.faculty_id === staffId
+          );
+          return isAssigned;
+        });
+        
+        console.log(`Faculty filtering: ${originalCount} reports filtered to ${processedReports.length}`);
       }
 
       return {
@@ -422,12 +424,12 @@ export class AttendanceReportService {
             });
 
             if (!isAssigned) {
-              console.warn('Faculty not assigned to this report:', {
+              console.error('Faculty not assigned to this report:', {
                 userId,
                 staffId: staffData.id
               });
-              // For now, allow access - we can make this stricter later if needed
-              // return { data: null, error: 'Access denied' };
+              // Deny access - faculty can only view reports they are assigned to
+              return { data: null, error: 'Access denied: You are not assigned to this report' };
             }
           }
         }
@@ -437,12 +439,53 @@ export class AttendanceReportService {
       const attendanceData = data.attendance_data as any;
       // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
       const periodsObject = attendanceData || {};
-      const periods = Object.entries(periodsObject).map(
+      let periods = Object.entries(periodsObject).map(
         ([slotId, periodData]: [string, any]) => ({
           ...periodData,
           timetable_slot_id: slotId
         })
       );
+      
+      // Filter periods for faculty users - only show periods they are assigned to
+      let facultyStaffId: string | null = null;
+      if (userRole === 'faculty' && userId) {
+        // Get staff ID if not super admin or admin
+        const { data: profileData } = await this.supabase
+          .from('profiles')
+          .select('role, is_super_admin')
+          .eq('id', userId)
+          .single();
+        
+        if (!profileData?.is_super_admin && profileData?.role !== 'admin') {
+          const { data: staffData } = await this.supabase
+            .from('staff')
+            .select('id')
+            .eq('profile_id', userId)
+            .single();
+          
+          if (staffData) {
+            facultyStaffId = staffData.id;
+            console.log('Filtering periods for faculty staff ID:', facultyStaffId);
+            
+            // Filter periods to only include those assigned to this faculty
+            const originalPeriodsCount = periods.length;
+            periods = periods.filter((period: any) => {
+              if (Array.isArray(period.assigned_faculty)) {
+                return period.assigned_faculty.some(
+                  (f: any) => f.faculty_id === facultyStaffId
+                );
+              }
+              return period.assigned_faculty?.faculty_id === facultyStaffId;
+            });
+            
+            console.log(`Faculty period filtering: ${originalPeriodsCount} periods filtered to ${periods.length}`);
+            
+            if (periods.length === 0) {
+              console.warn('No periods found for this faculty in the report');
+            }
+          }
+        }
+      }
 
       // Build period details and sort by start time
       const periodDetails = [];
