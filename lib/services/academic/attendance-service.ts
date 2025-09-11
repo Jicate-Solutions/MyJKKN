@@ -2085,27 +2085,28 @@ export class AttendanceService {
           selected_dates: timetable.selected_dates
         });
 
-        // For batch timetables, check if the date falls within the date range
-        if (timetable.timetable_format === 'batch') {
-          // Check if date is within the timetable's date range
-          if (timetable.start_date && timetable.end_date) {
-            const searchDate = new Date(date);
-            const startDate = new Date(timetable.start_date);
-            const endDate = new Date(timetable.end_date);
+        // Check date range for ALL timetable formats (both regular and batch)
+        if (timetable.start_date && timetable.end_date) {
+          const searchDate = new Date(date);
+          const startDate = new Date(timetable.start_date);
+          const endDate = new Date(timetable.end_date);
 
-            console.log('Checking date range:', {
-              searchDate: searchDate.toISOString(),
-              startDate: startDate.toISOString(),
-              endDate: endDate.toISOString(),
-              isWithinRange: searchDate >= startDate && searchDate <= endDate
-            });
+          console.log('Checking date range for', timetable.timetable_format, 'timetable:', {
+            searchDate: searchDate.toISOString(),
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
+            isWithinRange: searchDate >= startDate && searchDate <= endDate
+          });
 
-            // Skip this timetable if the date is outside its range
-            if (searchDate < startDate || searchDate > endDate) {
-              console.log('Date is outside timetable range, skipping');
-              continue;
-            }
+          // Skip this timetable if the date is outside its range
+          if (searchDate < startDate || searchDate > endDate) {
+            console.log('Date is outside timetable range, skipping');
+            continue;
           }
+        }
+
+        // Additional checks for batch timetables
+        if (timetable.timetable_format === 'batch') {
 
           // Also check if the date is in the selected_dates array
           if (timetable.selected_dates) {
