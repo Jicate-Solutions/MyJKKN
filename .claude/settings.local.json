@@ -24,7 +24,8 @@
       "Read(/D:\\Projects\\JKKN\\MyJKKN\\.claude/**)",
       "Read(//c/Users/Boobalan/Pictures/Screenshots/**)",
       "Bash(ls:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Read(//c/Users/Boobalan/Downloads/**)"
     ],
     "deny": [],
     "ask": []
