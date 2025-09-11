@@ -74,14 +74,9 @@ export class AttendanceReportService {
     limit: number = 50
   ) {
     try {
-      // Build query - start with basic fields
-      let query = this.supabase
-        .from('student_attendance')
-        .select('*', { count: 'exact' });
-
       // Store staff ID for faculty filtering
       let staffId: string | null = null;
-      
+
       // Apply role-based filtering
       if (userRole === 'faculty' && userId) {
         // First check if user has super admin access or admin role
@@ -112,8 +107,21 @@ export class AttendanceReportService {
 
           staffId = staffData.id;
           console.log('Faculty staff ID for filtering:', staffId);
+
+          // Use RPC function for faculty filtering - much more efficient
+          return await this.getFacultyAttendanceReports(
+            staffId!,
+            filters,
+            page,
+            limit
+          );
         }
       }
+
+      // Build query for non-faculty users - start with basic fields
+      let query = this.supabase
+        .from('student_attendance')
+        .select('*', { count: 'exact' });
 
       // Apply filters using direct foreign key columns
       if (filters.institution_id) {
@@ -143,7 +151,7 @@ export class AttendanceReportService {
           .lte('attendance_date', filters.date_range.to);
       }
 
-      // Pagination
+      // Apply pagination for non-faculty users
       const offset = (page - 1) * limit;
       query = query.range(offset, offset + limit - 1);
 
@@ -245,118 +253,389 @@ export class AttendanceReportService {
       );
 
       // Process data with related information
-      let processedReports: AttendanceReport[] = (data || []).map((record) => {
-        const attendanceData = record.attendance_data as any;
-        // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
-        const periods = attendanceData ? Object.values(attendanceData) : [];
+      const processedReports: AttendanceReport[] = (data || []).map(
+        (record) => {
+          const attendanceData = record.attendance_data as any;
+          // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
+          const periods = attendanceData ? Object.values(attendanceData) : [];
 
-        let totalStudents = 0;
-        let totalPresent = 0;
-        const facultyMap = new Map();
-        const coursesMap = new Map();
+          let totalStudents = 0;
+          let totalPresent = 0;
+          const facultyMap = new Map();
+          const coursesMap = new Map();
 
-        periods.forEach((period: any) => {
-          // Count students and attendance
-          if (period.students && Array.isArray(period.students)) {
-            const students = period.students;
-            totalStudents = Math.max(totalStudents, students.length);
-            // Check for 'status' field which contains 'Present' or 'Absent'
-            totalPresent += students.filter(
-              (s: any) => s.status === 'Present'
-            ).length;
-          }
+          periods.forEach((period: any) => {
+            // Count students and attendance
+            if (period.students && Array.isArray(period.students)) {
+              const students = period.students;
+              totalStudents = Math.max(totalStudents, students.length);
+              // Check for 'status' field which contains 'Present' or 'Absent'
+              totalPresent += students.filter(
+                (s: any) => s.status === 'Present'
+              ).length;
+            }
 
-          // Collect faculty
-          if (period.assigned_faculty) {
-            const faculty = period.assigned_faculty;
-            if (Array.isArray(faculty)) {
-              faculty.forEach((f: any) => {
-                facultyMap.set(f.faculty_id, {
-                  faculty_id: f.faculty_id,
-                  faculty_name: f.faculty_name,
-                  faculty_email: f.faculty_email,
-                  is_primary: f.is_primary
+            // Collect faculty
+            if (period.assigned_faculty) {
+              const faculty = period.assigned_faculty;
+              if (Array.isArray(faculty)) {
+                faculty.forEach((f: any) => {
+                  facultyMap.set(f.faculty_id, {
+                    faculty_id: f.faculty_id,
+                    faculty_name: f.faculty_name,
+                    faculty_email: f.faculty_email,
+                    is_primary: f.is_primary
+                  });
                 });
-              });
-            } else {
-              facultyMap.set(faculty.faculty_id, {
-                faculty_id: faculty.faculty_id,
-                faculty_name: faculty.faculty_name,
-                faculty_email: faculty.faculty_email,
-                is_primary: true
+              } else {
+                facultyMap.set(faculty.faculty_id, {
+                  faculty_id: faculty.faculty_id,
+                  faculty_name: faculty.faculty_name,
+                  faculty_email: faculty.faculty_email,
+                  is_primary: true
+                });
+              }
+            }
+
+            // Collect courses
+            if (period.course_id && period.course_name) {
+              coursesMap.set(period.course_id, {
+                course_id: period.course_id,
+                course_name: period.course_name,
+                course_code: period.course_code
               });
             }
-          }
+          });
 
-          // Collect courses
-          if (period.course_id && period.course_name) {
-            coursesMap.set(period.course_id, {
-              course_id: period.course_id,
-              course_name: period.course_name,
-              course_code: period.course_code
-            });
-          }
-        });
+          const avgAttendance =
+            totalStudents > 0 && periods.length > 0
+              ? (totalPresent / (periods.length * totalStudents)) * 100
+              : 0;
 
-        const avgAttendance =
-          totalStudents > 0 && periods.length > 0
-            ? (totalPresent / (periods.length * totalStudents)) * 100
-            : 0;
+          // Map related data from lookup maps
+          return {
+            id: record.id,
+            attendance_date: record.attendance_date,
+            institution_id: record.institution_id,
+            institution_name: institutionMap.get(record.institution_id),
+            department_id: record.department_id,
+            department_name: departmentMap.get(record.department_id),
+            program_id: record.program_id,
+            program_name: programMap.get(record.program_id),
+            degree_id: record.degree_id,
+            degree_name: degreeMap.get(record.degree_id),
+            semester_id: record.semester_id,
+            semester_name: semesterMap.get(record.semester_id),
+            section_id: record.section_id,
+            section_name: sectionMap.get(record.section_id)
+              ? `Section ${sectionMap.get(record.section_id)}`
+              : undefined,
+            timetable_id: record.timetable_id,
+            periods_count: periods.length,
+            total_students: totalStudents,
+            average_attendance: Math.round(avgAttendance * 100) / 100,
+            faculty_details: Array.from(facultyMap.values()),
+            courses: Array.from(coursesMap.values()),
+            created_at: record.created_at,
+            updated_at: record.updated_at
+          };
+        }
+      );
 
-        // Map related data from lookup maps
-        return {
-          id: record.id,
-          attendance_date: record.attendance_date,
-          institution_id: record.institution_id,
-          institution_name: institutionMap.get(record.institution_id),
-          department_id: record.department_id,
-          department_name: departmentMap.get(record.department_id),
-          program_id: record.program_id,
-          program_name: programMap.get(record.program_id),
-          degree_id: record.degree_id,
-          degree_name: degreeMap.get(record.degree_id),
-          semester_id: record.semester_id,
-          semester_name: semesterMap.get(record.semester_id),
-          section_id: record.section_id,
-          section_name: sectionMap.get(record.section_id)
-            ? `Section ${sectionMap.get(record.section_id)}`
-            : undefined,
-          timetable_id: record.timetable_id,
-          periods_count: periods.length,
-          total_students: totalStudents,
-          average_attendance: Math.round(avgAttendance * 100) / 100,
-          faculty_details: Array.from(facultyMap.values()),
-          courses: Array.from(coursesMap.values()),
-          created_at: record.created_at,
-          updated_at: record.updated_at
-        };
-      });
-
-      // Filter reports for faculty users - only show reports where they are assigned
-      if (staffId) {
-        console.log('Filtering reports for faculty staff ID:', staffId);
-        const originalCount = processedReports.length;
-        
-        processedReports = processedReports.filter((report) => {
-          // Check if faculty is assigned to any period in this report
-          const isAssigned = report.faculty_details.some(
-            (f) => f.faculty_id === staffId
-          );
-          return isAssigned;
-        });
-        
-        console.log(`Faculty filtering: ${originalCount} reports filtered to ${processedReports.length}`);
-      }
+      // No client-side filtering needed - faculty uses RPC function
 
       return {
         data: processedReports,
-        count: processedReports.length, // Use filtered count, not original database count
+        count: count || 0, // Use database count since filtering is done at SQL level
         error: null
       };
     } catch (error) {
       console.error('Error in getAttendanceReports:', error);
       return { data: [], count: 0, error: 'Failed to fetch reports' };
     }
+  }
+
+  /**
+   * Get attendance reports for faculty using RPC function (scalable for large datasets)
+   */
+  static async getFacultyAttendanceReports(
+    staffId: string,
+    filters: AttendanceReportFilters,
+    page: number = 1,
+    limit: number = 50
+  ) {
+    try {
+      console.log(
+        'Using RPC function for faculty filtering - scalable for large datasets'
+      );
+      console.log('Faculty staff ID:', staffId);
+      console.log('Filters:', filters);
+      console.log('Page:', page, 'Limit:', limit);
+
+      // Calculate offset for pagination
+      const offset = (page - 1) * limit;
+
+      // Call the RPC function with all filters
+      const { data: rpcData, error } = await this.supabase.rpc(
+        'get_faculty_attendance_reports',
+        {
+          faculty_staff_id: staffId,
+          filter_institution_id: filters.institution_id || null,
+          filter_academic_year_id: filters.academic_year_id || null,
+          filter_degree_id: filters.degree_id || null,
+          filter_department_id: filters.department_id || null,
+          filter_program_id: filters.program_id || null,
+          filter_semester_id: filters.semester_id || null,
+          filter_section_id: filters.section_id || null,
+          filter_date_from: filters.date_range?.from || null,
+          filter_date_to: filters.date_range?.to || null,
+          page_offset: offset,
+          page_limit: limit
+        }
+      );
+
+      if (error) {
+        console.error('Error in faculty RPC call:', error);
+        console.error('RPC call details:', {
+          faculty_staff_id: staffId,
+          filter_institution_id: filters.institution_id || null,
+          filter_academic_year_id: filters.academic_year_id || null,
+          filter_degree_id: filters.degree_id || null,
+          filter_department_id: filters.department_id || null,
+          filter_program_id: filters.program_id || null,
+          filter_semester_id: filters.semester_id || null,
+          filter_section_id: filters.section_id || null,
+          filter_date_from: filters.date_range?.from || null,
+          filter_date_to: filters.date_range?.to || null,
+          page_offset: offset,
+          page_limit: limit
+        });
+        return { data: [], count: 0, error: error.message };
+      }
+
+      if (!rpcData || rpcData.length === 0) {
+        return { data: [], count: 0, error: null };
+      }
+
+      // Get total count from first record (all records have same total_count)
+      const totalCount = rpcData[0]?.total_count || 0;
+
+      // Process the data similar to regular processing but without client-side filtering
+      console.log(
+        `RPC returned ${rpcData.length} records with total count: ${rpcData[0]?.total_count}`
+      );
+      const processedReports = await this.processAttendanceReports(rpcData);
+
+      return {
+        data: processedReports,
+        count: parseInt(totalCount),
+        error: null
+      };
+    } catch (error) {
+      console.error('Error in getFacultyAttendanceReports:', error);
+      return { data: [], count: 0, error: 'Failed to fetch faculty reports' };
+    }
+  }
+
+  /**
+   * Process raw attendance records into report format
+   */
+  static async processAttendanceReports(data: any[]) {
+    // Get unique IDs for lookup data
+    const sectionIds = [
+      ...new Set(data.map((r) => r.section_id).filter(Boolean))
+    ];
+    const semesterIds = [
+      ...new Set(data.map((r) => r.semester_id).filter(Boolean))
+    ];
+    const programIds = [
+      ...new Set(data.map((r) => r.program_id).filter(Boolean))
+    ];
+    const departmentIds = [
+      ...new Set(data.map((r) => r.department_id).filter(Boolean))
+    ];
+    const degreeIds = [
+      ...new Set(data.map((r) => r.degree_id).filter(Boolean))
+    ];
+    const institutionIds = [
+      ...new Set(data.map((r) => r.institution_id).filter(Boolean))
+    ];
+
+    // Fetch all related data in parallel - with error handling for empty arrays
+    const [sections, semesters, programs, departments, degrees, institutions] =
+      await Promise.all([
+        sectionIds.length > 0
+          ? this.supabase
+              .from('sections')
+              .select('id, section_name')
+              .in('id', sectionIds)
+              .then((result) => {
+                if (result.error)
+                  console.error('Error fetching sections:', result.error);
+                return result;
+              })
+          : Promise.resolve({ data: [] }),
+        semesterIds.length > 0
+          ? this.supabase
+              .from('semesters')
+              .select('id, semester_name')
+              .in('id', semesterIds)
+              .then((result) => {
+                if (result.error)
+                  console.error('Error fetching semesters:', result.error);
+                return result;
+              })
+          : Promise.resolve({ data: [] }),
+        programIds.length > 0
+          ? this.supabase
+              .from('programs')
+              .select('id, program_name')
+              .in('id', programIds)
+              .then((result) => {
+                if (result.error)
+                  console.error('Error fetching programs:', result.error);
+                return result;
+              })
+          : Promise.resolve({ data: [] }),
+        departmentIds.length > 0
+          ? this.supabase
+              .from('departments')
+              .select('id, department_name')
+              .in('id', departmentIds)
+              .then((result) => {
+                if (result.error)
+                  console.error('Error fetching departments:', result.error);
+                return result;
+              })
+          : Promise.resolve({ data: [] }),
+        degreeIds.length > 0
+          ? this.supabase
+              .from('degrees')
+              .select('id, degree_name')
+              .in('id', degreeIds)
+              .then((result) => {
+                if (result.error)
+                  console.error('Error fetching degrees:', result.error);
+                return result;
+              })
+          : Promise.resolve({ data: [] }),
+        institutionIds.length > 0
+          ? this.supabase
+              .from('institutions')
+              .select('id, name')
+              .in('id', institutionIds)
+              .then((result) => {
+                if (result.error)
+                  console.error('Error fetching institutions:', result.error);
+                return result;
+              })
+          : Promise.resolve({ data: [] })
+      ]);
+
+    // Create lookup maps
+    const sectionMap = new Map(
+      (sections.data || []).map((s) => [s.id, s.section_name])
+    );
+    const semesterMap = new Map(
+      (semesters.data || []).map((s) => [s.id, s.semester_name])
+    );
+    const programMap = new Map(
+      (programs.data || []).map((p) => [p.id, p.program_name])
+    );
+    const departmentMap = new Map(
+      (departments.data || []).map((d) => [d.id, d.department_name])
+    );
+    const degreeMap = new Map(
+      (degrees.data || []).map((d) => [d.id, d.degree_name])
+    );
+    const institutionMap = new Map(
+      (institutions.data || []).map((i) => [i.id, i.name])
+    );
+
+    // Process each record
+    return data.map((record) => {
+      const attendanceData = record.attendance_data as any;
+      const periods = attendanceData ? Object.values(attendanceData) : [];
+
+      let totalStudents = 0;
+      let totalPresent = 0;
+      const facultyMap = new Map();
+      const coursesMap = new Map();
+
+      periods.forEach((period: any) => {
+        // Count students and attendance
+        if (period.students && Array.isArray(period.students)) {
+          const students = period.students;
+          totalStudents = Math.max(totalStudents, students.length);
+          totalPresent += students.filter(
+            (s: any) => s.status === 'Present'
+          ).length;
+        }
+
+        // Collect faculty
+        if (period.assigned_faculty) {
+          const faculty = period.assigned_faculty;
+          if (Array.isArray(faculty)) {
+            faculty.forEach((f: any) => {
+              facultyMap.set(f.faculty_id, {
+                faculty_id: f.faculty_id,
+                faculty_name: f.faculty_name,
+                faculty_email: f.faculty_email,
+                is_primary: f.is_primary
+              });
+            });
+          } else {
+            facultyMap.set(faculty.faculty_id, {
+              faculty_id: faculty.faculty_id,
+              faculty_name: faculty.faculty_name,
+              faculty_email: faculty.faculty_email,
+              is_primary: true
+            });
+          }
+        }
+
+        // Collect courses
+        if (period.course_id && period.course_name) {
+          coursesMap.set(period.course_id, {
+            course_id: period.course_id,
+            course_name: period.course_name,
+            course_code: period.course_code
+          });
+        }
+      });
+
+      const avgAttendance =
+        totalStudents > 0 && periods.length > 0
+          ? (totalPresent / (periods.length * totalStudents)) * 100
+          : 0;
+
+      return {
+        id: record.id,
+        attendance_date: record.attendance_date,
+        institution_id: record.institution_id,
+        institution_name: institutionMap.get(record.institution_id),
+        department_id: record.department_id,
+        department_name: departmentMap.get(record.department_id),
+        program_id: record.program_id,
+        program_name: programMap.get(record.program_id),
+        degree_id: record.degree_id,
+        degree_name: degreeMap.get(record.degree_id),
+        semester_id: record.semester_id,
+        semester_name: semesterMap.get(record.semester_id),
+        section_id: record.section_id,
+        section_name: sectionMap.get(record.section_id)
+          ? `Section ${sectionMap.get(record.section_id)}`
+          : undefined,
+        timetable_id: record.timetable_id,
+        periods_count: periods.length,
+        total_students: totalStudents,
+        average_attendance: Math.round(avgAttendance * 100) / 100,
+        faculty_details: Array.from(facultyMap.values()),
+        courses: Array.from(coursesMap.values()),
+        created_at: record.created_at,
+        updated_at: record.updated_at
+      };
+    });
   }
 
   /**
@@ -415,25 +694,40 @@ export class AttendanceReportService {
             const attendanceData = data.attendance_data as any;
             // attendance_data is an object with timetable_slot_id as keys and period data as values
             const periods = Object.values(attendanceData || {});
-            
+
             console.log('Debugging faculty access validation:', {
               staffId: staffData.id,
               totalPeriods: periods.length,
               attendanceData: JSON.stringify(attendanceData, null, 2)
             });
-            
+
             const isAssigned = periods.some((period: any) => {
               const facultyMatch = Array.isArray(period.assigned_faculty)
                 ? period.assigned_faculty.some((f: any) => {
-                    console.log('Checking array faculty:', f.faculty_id, 'vs staff:', staffData.id, 'match:', f.faculty_id === staffData.id);
+                    console.log(
+                      'Checking array faculty:',
+                      f.faculty_id,
+                      'vs staff:',
+                      staffData.id,
+                      'match:',
+                      f.faculty_id === staffData.id
+                    );
                     return f.faculty_id === staffData.id;
                   })
                 : (() => {
-                    const match = period.assigned_faculty?.faculty_id === staffData.id;
-                    console.log('Checking single faculty:', period.assigned_faculty?.faculty_id, 'vs staff:', staffData.id, 'match:', match);
+                    const match =
+                      period.assigned_faculty?.faculty_id === staffData.id;
+                    console.log(
+                      'Checking single faculty:',
+                      period.assigned_faculty?.faculty_id,
+                      'vs staff:',
+                      staffData.id,
+                      'match:',
+                      match
+                    );
                     return match;
                   })();
-              
+
               return facultyMatch;
             });
 
@@ -446,7 +740,10 @@ export class AttendanceReportService {
                 reportId: data.id
               });
               // Deny access - faculty can only view reports they are assigned to
-              return { data: null, error: 'Access denied: You are not assigned to this report' };
+              return {
+                data: null,
+                error: 'Access denied: You are not assigned to this report'
+              };
             }
           }
         }
@@ -462,7 +759,7 @@ export class AttendanceReportService {
           timetable_slot_id: slotId
         })
       );
-      
+
       // Filter periods for faculty users - only show periods they are assigned to
       let facultyStaffId: string | null = null;
       if (userRole === 'faculty' && userId) {
@@ -472,18 +769,21 @@ export class AttendanceReportService {
           .select('role, is_super_admin')
           .eq('id', userId)
           .single();
-        
+
         if (!profileData?.is_super_admin && profileData?.role !== 'admin') {
           const { data: staffData } = await this.supabase
             .from('staff')
             .select('id')
             .eq('profile_id', userId)
             .single();
-          
+
           if (staffData) {
             facultyStaffId = staffData.id;
-            console.log('Filtering periods for faculty staff ID:', facultyStaffId);
-            
+            console.log(
+              'Filtering periods for faculty staff ID:',
+              facultyStaffId
+            );
+
             // Filter periods to only include those assigned to this faculty
             const originalPeriodsCount = periods.length;
             periods = periods.filter((period: any) => {
@@ -494,9 +794,11 @@ export class AttendanceReportService {
               }
               return period.assigned_faculty?.faculty_id === facultyStaffId;
             });
-            
-            console.log(`Faculty period filtering: ${originalPeriodsCount} periods filtered to ${periods.length}`);
-            
+
+            console.log(
+              `Faculty period filtering: ${originalPeriodsCount} periods filtered to ${periods.length}`
+            );
+
             if (periods.length === 0) {
               console.warn('No periods found for this faculty in the report');
             }
@@ -799,17 +1101,15 @@ export class AttendanceReportService {
    */
   static async getAttendanceStatistics(
     filters: AttendanceReportFilters,
-    level: 'institution' | 'department' | 'faculty' = 'institution'
+    level: 'institution' | 'department' | 'faculty' = 'institution',
+    facultyStaffId?: string
   ): Promise<{ data: AttendanceStatistics | null; error: string | null }> {
     try {
-      // Get date range for statistics
+      // Use same date range as reports or default to a broader range for statistics
+      // If no date range specified, use a wider range to match all available data
       const endDate =
         filters.date_range?.to || new Date().toISOString().split('T')[0];
-      const startDate =
-        filters.date_range?.from ||
-        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split('T')[0];
+      const startDate = filters.date_range?.from || '2020-01-01'; // Broader default range
 
       // Build base query
       let query = this.supabase
@@ -862,13 +1162,32 @@ export class AttendanceReportService {
       (data || []).forEach((record) => {
         const attendanceData = record.attendance_data as any;
         // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
-        const periods = attendanceData ? Object.values(attendanceData) : [];
+        let periods = attendanceData ? Object.values(attendanceData) : [];
+
+        // Filter periods for faculty users - only include periods they are assigned to
+        if (level === 'faculty' && facultyStaffId) {
+          periods = periods.filter((period: any) => {
+            if (Array.isArray(period.assigned_faculty)) {
+              return period.assigned_faculty.some(
+                (f: any) => f.faculty_id === facultyStaffId
+              );
+            }
+            return period.assigned_faculty?.faculty_id === facultyStaffId;
+          });
+        }
 
         periods.forEach((period: any) => {
-          totalClasses++;
+          // Only count periods where attendance was actually marked (students array exists and has attendance data)
+          const hasAttendanceMarked =
+            period.students &&
+            Array.isArray(period.students) &&
+            period.students.length > 0 &&
+            period.students.some((s: any) => s.status);
 
-          // Count students
-          if (period.students && Array.isArray(period.students)) {
+          if (hasAttendanceMarked) {
+            totalClasses++;
+
+            // Count students
             period.students.forEach((s: any) => {
               studentsSet.add(s.student_id);
 
@@ -882,16 +1201,16 @@ export class AttendanceReportService {
                 totalAttendance++;
               }
             });
-          }
 
-          // Count faculty
-          if (period.assigned_faculty) {
-            if (Array.isArray(period.assigned_faculty)) {
-              period.assigned_faculty.forEach((f: any) =>
-                facultySet.add(f.faculty_id)
-              );
-            } else {
-              facultySet.add(period.assigned_faculty.faculty_id);
+            // Count faculty (only for periods with marked attendance)
+            if (period.assigned_faculty) {
+              if (Array.isArray(period.assigned_faculty)) {
+                period.assigned_faculty.forEach((f: any) =>
+                  facultySet.add(f.faculty_id)
+                );
+              } else {
+                facultySet.add(period.assigned_faculty.faculty_id);
+              }
             }
           }
         });
@@ -921,11 +1240,30 @@ export class AttendanceReportService {
 
       todayRecords.forEach((record) => {
         const attendanceData = record.attendance_data as any;
-        const periods = attendanceData ? Object.values(attendanceData) : [];
-        todayPeriods += periods.length;
+        let periods = attendanceData ? Object.values(attendanceData) : [];
+
+        // Apply faculty filtering for today's records too
+        if (level === 'faculty' && facultyStaffId) {
+          periods = periods.filter((period: any) => {
+            if (Array.isArray(period.assigned_faculty)) {
+              return period.assigned_faculty.some(
+                (f: any) => f.faculty_id === facultyStaffId
+              );
+            }
+            return period.assigned_faculty?.faculty_id === facultyStaffId;
+          });
+        }
 
         periods.forEach((period: any) => {
-          if (period.students && Array.isArray(period.students)) {
+          // Only count periods where attendance was actually marked
+          const hasAttendanceMarked =
+            period.students &&
+            Array.isArray(period.students) &&
+            period.students.length > 0 &&
+            period.students.some((s: any) => s.status);
+
+          if (hasAttendanceMarked) {
+            todayPeriods++;
             todayTotalCapacity += period.students.length;
           }
         });
@@ -978,13 +1316,13 @@ export class AttendanceReportService {
           : 0;
 
       const statistics: AttendanceStatistics = {
-        totalClasses: data?.length || 0,
+        totalClasses: totalClasses, // Now counts only periods where attendance was marked
         averageAttendance,
         totalStudents: studentsSet.size,
         totalFaculty: facultySet.size,
         presentToday: todayStats.present,
         absentToday: todayStats.total - todayStats.present,
-        todayClasses: todayRecords.length,
+        todayClasses: todayPeriods, // Now counts only periods with marked attendance for today
         todayAttendanceRate,
         weeklyComparison,
         todayPeriods,

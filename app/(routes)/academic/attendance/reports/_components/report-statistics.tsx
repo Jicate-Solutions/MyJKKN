@@ -137,7 +137,7 @@ export function ReportStatistics({
             <div className={`absolute inset-0 ${GRADIENTS.blue} opacity-10`} />
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2 relative'>
               <CardTitle className='text-sm font-medium'>
-                Today&apos;s Classes
+                Today&apos;s Attendance
               </CardTitle>
               <div className='h-10 w-10 rounded-full bg-blue-500/20 flex items-center justify-center'>
                 <School className='h-5 w-5 text-blue-600' />
@@ -148,7 +148,7 @@ export function ReportStatistics({
                 <span className='text-3xl font-bold text-blue-600'>
                   {statistics.todayClasses || 0}
                 </span>
-                <span className='text-sm text-muted-foreground'>classes</span>
+                <span className='text-sm text-muted-foreground'>marked</span>
               </div>
               <div className='flex items-center gap-2 mt-2'>
                 <Badge variant='secondary' className='text-xs'>
@@ -157,7 +157,8 @@ export function ReportStatistics({
                 </Badge>
               </div>
               <p className='text-xs text-muted-foreground mt-1'>
-                Capacity: {statistics.todayTotalCapacity || 0} students
+                Attendance marked for {statistics.todayTotalCapacity || 0}{' '}
+                students
               </p>
             </CardContent>
           </Card>
@@ -315,7 +316,7 @@ export function ReportStatistics({
             />
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2 relative'>
               <CardTitle className='text-sm font-medium'>
-                Total Classes
+                Attendance Records
               </CardTitle>
               <div className='h-10 w-10 rounded-full bg-indigo-500/20 flex items-center justify-center'>
                 <BookOpen className='h-5 w-5 text-indigo-600' />
@@ -326,10 +327,10 @@ export function ReportStatistics({
                 <span className='text-3xl font-bold text-indigo-600'>
                   {statistics.totalClasses}
                 </span>
-                <span className='text-sm text-muted-foreground'>sessions</span>
+                <span className='text-sm text-muted-foreground'>periods</span>
               </div>
               <p className='text-xs text-muted-foreground mt-2'>
-                In selected period
+                Periods with marked attendance
               </p>
             </CardContent>
           </Card>
@@ -524,7 +525,6 @@ export function ReportStatistics({
           </CardContent>
         </Card>
       </div>
-
     </div>
   );
 }
