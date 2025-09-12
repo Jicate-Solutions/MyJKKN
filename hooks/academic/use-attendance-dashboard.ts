@@ -8,14 +8,30 @@ import type { DashboardFilters } from '@/types/attendance-dashboard';
 /**
  * Hook for fetching attendance dashboard statistics
  */
-export function useAttendanceStats(institutionId?: string) {
+export function useAttendanceStats(
+  institutionId?: string,
+  canViewAllInstitutions: boolean = false,
+  selectedDate: Date = new Date(),
+  refreshTrigger: number = 0,
+  academicYearId?: string
+) {
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
 
   // Determine which institution to query
-  const queryInstitutionId = isSuperAdmin
-    ? institutionId
-    : profile?.institution_id;
+  // For super admin: undefined = all institutions, specific id = that institution
+  // For regular users: always their own institution
+  const queryInstitutionId =
+    isSuperAdmin && canViewAllInstitutions
+      ? institutionId
+      : profile?.institution_id || undefined;
+
+  // For super admin with undefined institutionId, query all institutions
+  const queryAllInstitutions =
+    isSuperAdmin && canViewAllInstitutions && institutionId === undefined;
+
+  // Format date for query
+  const dateString = selectedDate.toISOString().split('T')[0];
 
   const {
     data: stats,
@@ -23,12 +39,22 @@ export function useAttendanceStats(institutionId?: string) {
     error,
     refetch
   } = useQuery({
-    queryKey: ['attendance-stats', queryInstitutionId],
+    queryKey: [
+      'attendance-stats',
+      queryInstitutionId,
+      queryAllInstitutions,
+      dateString,
+      academicYearId,
+      refreshTrigger
+    ],
     queryFn: () =>
       AttendanceDashboardService.getTodayAttendanceStats(
-        queryInstitutionId as string
+        queryAllInstitutions ? undefined : queryInstitutionId,
+        canViewAllInstitutions && isSuperAdmin,
+        dateString,
+        academicYearId
       ),
-    enabled: !!queryInstitutionId,
+    enabled: queryAllInstitutions || !!queryInstitutionId,
     refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
     staleTime: 2 * 60 * 1000 // Consider stale after 2 minutes
   });
@@ -44,15 +70,19 @@ export function useAttendanceStats(institutionId?: string) {
 /**
  * Hook for fetching pending attendance periods
  */
-export function usePendingAttendance(filters: DashboardFilters = {}) {
+export function usePendingAttendance(
+  filters: DashboardFilters & { refreshTrigger?: number } = {}
+) {
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
 
+  const { refreshTrigger = 0, ...restFilters } = filters;
+
   // Use provided institution or user's institution
   const queryFilters: DashboardFilters = {
-    ...filters,
+    ...restFilters,
     userInstitutionId: isSuperAdmin
-      ? filters.userInstitutionId
+      ? restFilters.userInstitutionId
       : profile?.institution_id || undefined
   };
 
@@ -62,7 +92,7 @@ export function usePendingAttendance(filters: DashboardFilters = {}) {
     error,
     refetch
   } = useQuery({
-    queryKey: ['pending-attendance', queryFilters],
+    queryKey: ['pending-attendance', queryFilters, refreshTrigger],
     queryFn: () =>
       AttendanceDashboardService.getTodayPendingAttendance(queryFilters),
     enabled: !!queryFilters.userInstitutionId,

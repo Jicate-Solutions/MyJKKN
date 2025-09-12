@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { ChevronDown } from 'lucide-react';
+import { Calendar, TrendingUp, Users, AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -12,13 +12,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu';
 import {
   Card,
   CardContent,
@@ -28,12 +21,21 @@ import {
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { StatisticsCards } from './_components/statistics-cards';
 import { PendingAttendanceDataTable } from './_components/pending-attendance-data-table';
+import { PendingAttendanceHierarchyFilters } from './_components/pending-attendance-hierarchy-filters';
+import { PendingStatisticsCards } from './_components/pending-statistics-cards';
+import {
+  DashboardFilters,
+  type DashboardFilterState
+} from './_components/dashboard-filters';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { format } from 'date-fns';
 
 interface Institution {
   id: string;
@@ -45,12 +47,41 @@ function AttendanceDashboardContent() {
   const { canAccess } = usePermissions();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<DashboardFilterState>({
+    selectedDate: new Date()
+  });
+  const [pendingFilters, setPendingFilters] = useState<{
+    institutionId?: string;
+    academicYearId?: string;
+    degreeId?: string;
+    departmentId?: string;
+    programId?: string;
+    semesterId?: string;
+    sectionId?: string;
+    attendanceDate?: string;
+  }>({});
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Check if user can view all institutions
   const canViewAllInstitutions = canAccess(
     'academic.attendance.dashboard',
     'view_all_institutions'
   );
+
+  // Initialize filters based on user permissions
+  useEffect(() => {
+    if (!canViewAllInstitutions && profile?.institution_id) {
+      const institutionId = profile.institution_id || undefined;
+      setFilters((prev) => ({
+        ...prev,
+        institutionId
+      }));
+      setPendingFilters((prev) => ({
+        ...prev,
+        institutionId
+      }));
+    }
+  }, [canViewAllInstitutions, profile?.institution_id]);
 
   // Fetch institutions for super admin
   useEffect(() => {
@@ -83,6 +114,44 @@ function AttendanceDashboardContent() {
     fetchInstitutions();
   }, [canViewAllInstitutions]);
 
+  // Handle filter changes
+  const handleFiltersChange = useCallback(
+    (newFilters: DashboardFilterState) => {
+      console.log('🔄 Dashboard filters updated:', newFilters);
+      setFilters(newFilters);
+    },
+    []
+  );
+
+  // Handle refresh
+  const handleRefresh = useCallback(() => {
+    console.log('🔄 Refreshing dashboard data...');
+    setRefreshTrigger((prev) => prev + 1);
+  }, []);
+
+  // Handle pending filters change
+  const handlePendingFiltersChange = useCallback(
+    (newFilters: any) => {
+      console.log('🔄 Pending filters updated:', newFilters);
+      setPendingFilters((prev) => ({ ...prev, ...newFilters }));
+    },
+    []
+  );
+
+  // Reset pending filters
+  const resetPendingFilters = useCallback(() => {
+    setPendingFilters({
+      institutionId: !canViewAllInstitutions ? profile?.institution_id || undefined : undefined,
+      academicYearId: undefined,
+      degreeId: undefined,
+      departmentId: undefined,
+      programId: undefined,
+      semesterId: undefined,
+      sectionId: undefined,
+      attendanceDate: undefined
+    });
+  }, [canViewAllInstitutions, profile?.institution_id]);
+
   if (loading) {
     return (
       <ContentLayout title='Attendance Dashboard'>
@@ -92,6 +161,19 @@ function AttendanceDashboardContent() {
           <Skeleton className='h-64 w-full' />
         </div>
       </ContentLayout>
+    );
+  }
+
+  // Check if showing historical data
+  const isHistoricalData = !isToday(filters.selectedDate);
+
+  // Helper function to check if date is today
+  function isToday(date: Date) {
+    const today = new Date();
+    return (
+      date.getDate() === today.getDate() &&
+      date.getMonth() === today.getMonth() &&
+      date.getFullYear() === today.getFullYear()
     );
   }
 
@@ -125,81 +207,202 @@ function AttendanceDashboardContent() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        {/* Header with Institution Filter for Super Admin */}
-        <div className='flex items-center justify-between'>
-          <div>
-            <h1 className='text-3xl font-bold tracking-tight'>
-              Attendance Dashboard
-            </h1>
-            <p className='text-muted-foreground'>
-              Real-time overview of today&apos;s attendance statistics and
-              pending periods
-            </p>
-          </div>
+        {/* Enhanced Header */}
+        <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-6 text-white shadow-lg'>
+          <div className='absolute inset-0 bg-black/10'></div>
+          <div className='relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4'>
+            <div>
+              <h1 className='text-3xl font-bold tracking-tight flex items-center gap-3'>
+                <TrendingUp className='h-8 w-8' />
+                Attendance Dashboard
+              </h1>
+              <p className='text-blue-100 mt-2'>
+                {isHistoricalData
+                  ? `Historical attendance data for ${format(
+                      filters.selectedDate,
+                      'EEEE, MMMM dd, yyyy'
+                    )}`
+                  : "Real-time overview of today's attendance statistics and pending periods"}
+              </p>
+            </div>
 
-          {canViewAllInstitutions && institutions.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant='outline' className='gap-2'>
-                  All Institutions
-                  <ChevronDown className='h-4 w-4' />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align='end' className='w-56'>
-                <DropdownMenuItem>All Institutions</DropdownMenuItem>
-                {institutions.map((institution) => (
-                  <DropdownMenuItem key={institution.id}>
-                    {institution.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+            <div className='flex flex-wrap items-center gap-2'>
+              <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30 flex items-center gap-1'>
+                <Calendar className='h-3 w-3' />
+                {format(filters.selectedDate, 'MMM dd, yyyy')}
+              </Badge>
+
+              {!canViewAllInstitutions && profile?.institution_id && (
+                <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30 flex items-center gap-1'>
+                  <Users className='h-3 w-3' />
+                  Your Institution
+                </Badge>
+              )}
+
+              {isHistoricalData && (
+                <Badge
+                  variant='secondary'
+                  className='bg-orange-100 text-orange-800 border-orange-300'
+                >
+                  <AlertCircle className='h-3 w-3 mr-1' />
+                  Historical Data
+                </Badge>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Main Content Tabs */}
-        <Tabs defaultValue="statistics" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="statistics">Today&apos;s Statistics</TabsTrigger>
-            <TabsTrigger value="pending">Pending Attendance</TabsTrigger>
+        <Tabs defaultValue='statistics' className='space-y-4'>
+          <TabsList className='grid w-full grid-cols-2'>
+            <TabsTrigger value='statistics' className='flex items-center gap-2'>
+              <TrendingUp className='h-4 w-4' />
+              {isHistoricalData
+                ? 'Historical Statistics'
+                : "Today's Statistics"}
+            </TabsTrigger>
+            <TabsTrigger
+              value='pending'
+              className='flex items-center gap-2'
+              disabled={isHistoricalData}
+            >
+              <Users className='h-4 w-4' />
+              Pending Attendance
+              {isHistoricalData && (
+                <Badge variant='secondary' className='ml-1 px-1 py-0 text-xs'>
+                  N/A
+                </Badge>
+              )}
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="statistics" className="space-y-4">
+          <TabsContent value='statistics' className='space-y-4'>
+            {/* Smart Filter System - Only for Statistics Tab */}
+            <DashboardFilters
+              canViewAllInstitutions={canViewAllInstitutions}
+              institutions={institutions}
+              userInstitutionId={profile?.institution_id || undefined}
+              onFiltersChange={handleFiltersChange}
+              onRefresh={handleRefresh}
+              isLoading={loading}
+            />
+
+            {/* Information Alert for Non-Today Data */}
+            {isHistoricalData && (
+              <Alert className='border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
+                <AlertCircle className='h-4 w-4 text-amber-600' />
+                <AlertDescription className='text-amber-800 dark:text-amber-300'>
+                  <strong>Historical Data View:</strong> You are viewing attendance
+                  data for{' '}
+                  <strong>
+                    {format(filters.selectedDate, 'EEEE, MMMM dd, yyyy')}
+                  </strong>
+                  . No pending periods will be shown for past dates.
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div>
-              <h2 className='text-xl font-semibold mb-4'>
-                Today&apos;s Attendance Statistics
-              </h2>
+              <div className='flex items-center justify-between mb-4'>
+                <h2 className='text-xl font-semibold'>
+                  {isHistoricalData ? 'Historical' : "Today's"} Attendance
+                  Statistics
+                </h2>
+                <div className='text-sm text-muted-foreground'>
+                  Last updated: {format(new Date(), 'h:mm a')}
+                </div>
+              </div>
               <p className='text-muted-foreground mb-6'>
-                Real-time overview of today&apos;s attendance statistics across institutions, departments, and sections.
+                {isHistoricalData
+                  ? `Comprehensive view of attendance statistics for ${format(
+                      filters.selectedDate,
+                      'EEEE, MMMM dd, yyyy'
+                    )} across your selected scope.`
+                  : "Real-time overview of today's attendance statistics across institutions, departments, and sections."}
               </p>
               <Suspense fallback={<StatisticsCardsSkeleton />}>
                 <StatisticsCards
-                  userInstitutionId={profile?.institution_id || undefined}
+                  userInstitutionId={
+                    filters.institutionId ||
+                    profile?.institution_id ||
+                    undefined
+                  }
                   canViewAllInstitutions={canViewAllInstitutions}
                   institutions={institutions}
+                  selectedDate={filters.selectedDate}
+                  filters={filters}
+                  refreshTrigger={refreshTrigger}
                 />
               </Suspense>
             </div>
           </TabsContent>
 
-          <TabsContent value="pending" className="space-y-4">
+          <TabsContent value='pending' className='space-y-4'>
             <div>
-              <h2 className='text-xl font-semibold mb-4'>Pending Attendance</h2>
+              <div className='flex items-center justify-between mb-4'>
+                <h2 className='text-xl font-semibold'>Pending Attendance</h2>
+                <Badge variant='outline' className='flex items-center gap-1'>
+                  <Calendar className='h-3 w-3' />
+                  {pendingFilters.attendanceDate 
+                    ? format(new Date(pendingFilters.attendanceDate + 'T00:00:00'), 'MMM dd, yyyy')
+                    : 'Today'
+                  }
+                </Badge>
+              </div>
               <p className='text-muted-foreground mb-6'>
-                Periods scheduled for today that haven&apos;t been marked yet. Take action to ensure complete attendance tracking.
+                Periods scheduled for{' '}
+                {pendingFilters.attendanceDate 
+                  ? format(new Date(pendingFilters.attendanceDate + 'T00:00:00'), 'EEEE, MMMM dd, yyyy')
+                  : 'today'
+                } that haven&apos;t been marked yet.
+                Use filters to narrow down by organizational hierarchy.
               </p>
+
+              {/* Hierarchy Filters */}
+              <PendingAttendanceHierarchyFilters
+                filters={pendingFilters}
+                onFiltersChange={handlePendingFiltersChange}
+                onReset={resetPendingFilters}
+                canViewAllInstitutions={canViewAllInstitutions}
+                userInstitutionId={profile?.institution_id || undefined}
+                dashboardInstitutionId={filters.institutionId}
+                dashboardAcademicYearId={filters.academicYearId}
+              />
+
+              {/* Statistics Cards */}
+              <PendingStatisticsCards
+                filters={pendingFilters}
+                userInstitutionId={profile?.institution_id || undefined}
+                canViewAllInstitutions={canViewAllInstitutions}
+                refreshTrigger={refreshTrigger}
+              />
+
               <Card>
                 <CardHeader>
                   <CardTitle>Unmarked Periods</CardTitle>
                   <CardDescription>
-                    Periods scheduled for today that require attendance marking
+                    Periods scheduled for{' '}
+                    {pendingFilters.attendanceDate 
+                      ? format(new Date(pendingFilters.attendanceDate + 'T00:00:00'), 'MMMM dd, yyyy')
+                      : 'today'
+                    } that require attendance marking
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Suspense fallback={<PendingAttendanceTableSkeleton />}>
                     <PendingAttendanceDataTable
-                      userInstitutionId={profile?.institution_id || undefined}
+                      userInstitutionId={
+                        pendingFilters.institutionId ||
+                        filters.institutionId ||
+                        profile?.institution_id ||
+                        undefined
+                      }
                       canViewAllInstitutions={canViewAllInstitutions}
+                      filters={{
+                        ...filters,
+                        ...pendingFilters
+                      }}
+                      refreshTrigger={refreshTrigger}
                     />
                   </Suspense>
                 </CardContent>
