@@ -18,6 +18,9 @@ export function useSessionSync() {
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Add a small delay to prevent race conditions with permission loading
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       if (event === 'SIGNED_IN') {
         await refreshUser();
         router.refresh();

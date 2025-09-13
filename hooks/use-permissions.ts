@@ -245,16 +245,23 @@ export function usePermissions(
         return true;
       }
 
-      // If permissions are still loading, log and return false to prevent premature redirects
+      // CRITICAL FIX: Don't block access while permissions are loading for non-students
+      // This prevents the race condition that causes unauthorized redirects
       if (isLoading) {
-        return false;
+        // For students, we need to be more restrictive during loading
+        if (isStudent) {
+          return false;
+        }
+        // For staff/admin users, allow temporary access during loading to prevent redirects
+        // The actual permissions will be checked once loading completes
+        return true;
       }
 
       const permKey = `${module}.${action}`;
 
       return enhancedPermissions[permKey] || false;
     },
-    [enhancedPermissions, isSuperAdmin, isLoading]
+    [enhancedPermissions, isSuperAdmin, isLoading, isStudent]
   );
 
   // Check if user has all specified actions for a module
