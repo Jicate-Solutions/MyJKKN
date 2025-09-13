@@ -47,9 +47,9 @@ export class TimetableService {
       const markedPeriods = new Set<string>();
       let totalAttendanceCount = 0;
 
-      attendanceRecords.forEach(record => {
+      attendanceRecords.forEach((record) => {
         const attendanceData = record.attendance_data || {};
-        Object.keys(attendanceData).forEach(periodId => {
+        Object.keys(attendanceData).forEach((periodId) => {
           if (attendanceData[periodId]?.students?.length > 0) {
             markedPeriods.add(periodId);
             totalAttendanceCount++;
@@ -80,8 +80,13 @@ export class TimetableService {
     attendanceDate?: string;
   }> {
     try {
-      console.log('isPeriodSlotLocked called with:', { timetableId, periodId, day, isBatch });
-      
+      console.log('isPeriodSlotLocked called with:', {
+        timetableId,
+        periodId,
+        day,
+        isBatch
+      });
+
       let attendanceQuery = this.supabase
         .from('student_attendance')
         .select('id, attendance_data, attendance_date')
@@ -93,16 +98,25 @@ export class TimetableService {
         // Validate date format to prevent SQL errors
         const isValidDate = day && /^\d{4}-\d{2}-\d{2}$/.test(day);
         if (isValidDate) {
-          console.log('isPeriodSlotLocked: Valid date for batch mode, filtering by:', day);
+          console.log(
+            'isPeriodSlotLocked: Valid date for batch mode, filtering by:',
+            day
+          );
           attendanceQuery = attendanceQuery.eq('attendance_date', day);
         } else {
-          console.warn('isPeriodSlotLocked: Batch mode but invalid/missing date:', day);
+          console.warn(
+            'isPeriodSlotLocked: Batch mode but invalid/missing date:',
+            day
+          );
           // Don't add date filter if format is invalid
         }
       } else {
         // Regular mode - day contains day of week (MONDAY, TUESDAY, etc.)
         // DO NOT filter by date - check all attendance records
-        console.log('isPeriodSlotLocked: Regular mode, checking all dates. Day of week:', day);
+        console.log(
+          'isPeriodSlotLocked: Regular mode, checking all dates. Day of week:',
+          day
+        );
       }
 
       const { data: attendanceCheck, error } = await attendanceQuery;
@@ -123,7 +137,7 @@ export class TimetableService {
 
       for (const record of attendanceCheck) {
         const attendanceData = record.attendance_data || {};
-        
+
         // Check multiple possible keys for the period
         const possibleKeys = [
           periodId,
@@ -383,7 +397,10 @@ Please select a different date period that doesn't overlap.`
           .limit(1);
 
       if (attendanceCheckError) {
-        console.error('Error checking attendance records:', attendanceCheckError);
+        console.error(
+          'Error checking attendance records:',
+          attendanceCheckError
+        );
         throw attendanceCheckError;
       }
 
@@ -741,10 +758,179 @@ Please select a different date period that doesn't overlap.`
 
       if (error) throw error;
 
+      // Enrich timetable data with course and staff details
+      if (timetable && timetable.timetable_data) {
+        const enrichedTimetable = await this.enrichTimetableWithDetails(
+          timetable
+        );
+        return enrichedTimetable;
+      }
+
       return timetable;
     } catch (error) {
       console.error('Error fetching timetable:', error);
       throw error;
+    }
+  }
+
+  // Helper method to enrich timetable data with course and staff details
+  private static async enrichTimetableWithDetails(
+    timetable: any
+  ): Promise<Timetable> {
+    try {
+      const timetableData = timetable.timetable_data;
+      if (!timetableData || typeof timetableData !== 'object') {
+        return timetable;
+      }
+
+      // Extract all unique course IDs and staff IDs from the timetable data
+      const courseIds = new Set<string>();
+      const staffIds = new Set<string>();
+
+      Object.values(timetableData).forEach((daySlots: any) => {
+        if (daySlots && typeof daySlots === 'object') {
+          Object.values(daySlots).forEach((slot: any) => {
+            if (slot && typeof slot === 'object') {
+              if (slot.course_id) {
+                courseIds.add(slot.course_id);
+              }
+              if (slot.staff_ids && Array.isArray(slot.staff_ids)) {
+                slot.staff_ids.forEach((staffId: string) =>
+                  staffIds.add(staffId)
+                );
+              }
+              if (slot.primary_staff_id) {
+                staffIds.add(slot.primary_staff_id);
+              }
+            }
+          });
+        }
+      });
+
+      // Fetch course details with institution filter for RLS
+      const coursesMap = new Map();
+      if (courseIds.size > 0) {
+        const courseIdsArray = Array.from(courseIds);
+        console.log(
+          'Fetching courses for IDs:',
+          courseIdsArray,
+          'Institution:',
+          timetable.institution_id
+        );
+
+        const { data: courses, error: coursesError } = await this.supabase
+          .from('courses')
+          .select('id, course_name, course_code, institution_id, is_active')
+          .in('id', courseIdsArray)
+          .eq('institution_id', timetable.institution_id);
+
+        if (coursesError) {
+          console.error('Error fetching courses:', coursesError);
+          console.error('Course IDs that failed:', courseIdsArray);
+        } else if (courses) {
+          console.log('Successfully fetched courses:', courses);
+          courses.forEach((course) => coursesMap.set(course.id, course));
+        }
+      }
+
+      // Fetch staff details with institution filter for RLS
+      const staffMap = new Map();
+      if (staffIds.size > 0) {
+        const staffIdsArray = Array.from(staffIds);
+        console.log(
+          'Fetching staff for IDs:',
+          staffIdsArray,
+          'Institution:',
+          timetable.institution_id
+        );
+
+        // RLS policy has been updated to allow students to view staff
+
+        const { data: staff, error: staffError } = await this.supabase
+          .from('staff')
+          .select(
+            'id, first_name, last_name, email, phone, staff_id, institution_id'
+          )
+          .in('id', staffIdsArray)
+          .eq('institution_id', timetable.institution_id);
+
+        if (staffError) {
+          console.error('Error fetching staff:', staffError);
+          console.error('Staff IDs that failed:', staffIdsArray);
+          console.error('Institution ID:', timetable.institution_id);
+        } else if (staff) {
+          console.log('Successfully fetched staff:', staff);
+          staff.forEach((staffMember) =>
+            staffMap.set(staffMember.id, staffMember)
+          );
+        } else {
+          console.warn('No staff data returned for IDs:', staffIdsArray);
+        }
+      }
+
+      // Enrich the timetable data with actual course and staff objects
+      const enrichedTimetableData = { ...timetableData };
+
+      Object.keys(enrichedTimetableData).forEach((day) => {
+        const daySlots = enrichedTimetableData[day];
+        if (daySlots && typeof daySlots === 'object') {
+          Object.keys(daySlots).forEach((periodId) => {
+            const slot = daySlots[periodId];
+            if (slot && typeof slot === 'object' && !slot.is_break_slot) {
+              // Add course details
+              if (slot.course_id && coursesMap.has(slot.course_id)) {
+                slot.course = coursesMap.get(slot.course_id);
+              }
+
+              // Add staff details
+              if (slot.staff_ids && Array.isArray(slot.staff_ids)) {
+                slot.staff_members = slot.staff_ids
+                  .map((staffId: string) => staffMap.get(staffId))
+                  .filter(Boolean);
+              }
+
+              // Add primary staff details for backward compatibility
+              if (
+                slot.primary_staff_id &&
+                staffMap.has(slot.primary_staff_id)
+              ) {
+                slot.staff = staffMap.get(slot.primary_staff_id);
+              }
+
+              // Set period_id and day_of_week for easier access
+              slot.period_id = periodId;
+              slot.day_of_week = day;
+            }
+          });
+        }
+      });
+
+      // Create slots array for compatibility with existing code
+      const slots: any[] = [];
+      Object.keys(enrichedTimetableData).forEach((day) => {
+        const daySlots = enrichedTimetableData[day];
+        if (daySlots && typeof daySlots === 'object') {
+          Object.keys(daySlots).forEach((periodId) => {
+            const slot = daySlots[periodId];
+            if (slot) {
+              slots.push({
+                ...slot,
+                day_of_week: day,
+                period_id: periodId
+              });
+            }
+          });
+        }
+      });
+
+      return {
+        ...timetable,
+        timetable_data: enrichedTimetableData,
+        slots: slots
+      };
+    } catch (error) {
+      console.error('Error enriching timetable with details:', error);
+      return timetable;
     }
   }
 
@@ -855,7 +1041,8 @@ Please select a different date period that doesn't overlap.`
         console.log('Regular mode - NOT filtering by date. Day of week:', day);
       }
 
-      const { data: attendanceCheck, error: checkError } = await attendanceQuery;
+      const { data: attendanceCheck, error: checkError } =
+        await attendanceQuery;
 
       if (checkError) {
         console.error('Error checking attendance for slot:', checkError);
@@ -868,7 +1055,7 @@ Please select a different date period that doesn't overlap.`
 
         for (const record of attendanceCheck) {
           const attendanceData = record.attendance_data || {};
-          
+
           // Check multiple possible keys for the period
           // Sometimes attendance is stored with period_id, sometimes with slot_id
           const possibleKeys = [
@@ -878,7 +1065,10 @@ Please select a different date period that doesn't overlap.`
           ];
 
           for (const key of possibleKeys) {
-            if (attendanceData[key] && attendanceData[key].students?.length > 0) {
+            if (
+              attendanceData[key] &&
+              attendanceData[key].students?.length > 0
+            ) {
               hasAttendance = true;
               attendanceDate = record.attendance_date;
               break;
@@ -970,20 +1160,30 @@ Please select a different date period that doesn't overlap.`
         // Check if day is a valid date format (YYYY-MM-DD)
         const isValidDate = day && /^\d{4}-\d{2}-\d{2}$/.test(day);
         if (isValidDate) {
-          console.log('Delete: Batch mode with valid date, adding filter:', day);
+          console.log(
+            'Delete: Batch mode with valid date, adding filter:',
+            day
+          );
           attendanceQuery = attendanceQuery.eq('attendance_date', day);
         } else {
           console.warn('Delete: Batch mode but invalid date format:', day);
         }
       } else {
         // Regular mode - day is day of week, DO NOT filter by date
-        console.log('Delete: Regular mode - NOT filtering by date. Day of week:', day);
+        console.log(
+          'Delete: Regular mode - NOT filtering by date. Day of week:',
+          day
+        );
       }
 
-      const { data: attendanceCheck, error: checkError } = await attendanceQuery;
+      const { data: attendanceCheck, error: checkError } =
+        await attendanceQuery;
 
       if (checkError) {
-        console.error('Error checking attendance for slot deletion:', checkError);
+        console.error(
+          'Error checking attendance for slot deletion:',
+          checkError
+        );
       }
 
       // Check if this specific period/slot has attendance marked
@@ -994,7 +1194,7 @@ Please select a different date period that doesn't overlap.`
 
         for (const record of attendanceCheck) {
           const attendanceData = record.attendance_data || {};
-          
+
           // Check multiple possible keys for the period
           // Sometimes attendance is stored with period_id, sometimes with slot_id
           const possibleKeys = [
@@ -1004,7 +1204,10 @@ Please select a different date period that doesn't overlap.`
           ];
 
           for (const key of possibleKeys) {
-            if (attendanceData[key] && attendanceData[key].students?.length > 0) {
+            if (
+              attendanceData[key] &&
+              attendanceData[key].students?.length > 0
+            ) {
               hasAttendance = true;
               attendanceDate = record.attendance_date;
               attendanceCount = attendanceData[key].students.length;

@@ -26,7 +26,10 @@
       "Bash(ls:*)",
       "Bash(find:*)",
       "Read(//c/Users/Boobalan/Downloads/**)",
-      "mcp__memory__create_entities"
+      "mcp__memory__create_entities",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)"
     ],
     "deny": [],
     "ask": []

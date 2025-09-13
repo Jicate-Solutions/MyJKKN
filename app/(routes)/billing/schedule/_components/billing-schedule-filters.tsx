@@ -101,12 +101,25 @@ export function BillingScheduleFilters({
   useEffect(() => {
     if (searchParams.institution_id) {
       loadDegrees(searchParams.institution_id);
+    } else {
+      // Clear dependent data when no institution is selected
+      setDegrees([]);
+      setDepartments([]);
+      setPrograms([]);
+      setSemesters([]);
+      setSections([]);
     }
   }, [searchParams.institution_id]);
 
   useEffect(() => {
     if (searchParams.degree_id && searchParams.institution_id) {
       loadDepartments(searchParams.institution_id, searchParams.degree_id);
+    } else {
+      // Clear dependent data when no degree is selected
+      setDepartments([]);
+      setPrograms([]);
+      setSemesters([]);
+      setSections([]);
     }
   }, [searchParams.degree_id, searchParams.institution_id]);
 
@@ -121,6 +134,11 @@ export function BillingScheduleFilters({
         searchParams.degree_id,
         searchParams.department_id
       );
+    } else {
+      // Clear dependent data when no department is selected
+      setPrograms([]);
+      setSemesters([]);
+      setSections([]);
     }
   }, [
     searchParams.department_id,
@@ -141,6 +159,10 @@ export function BillingScheduleFilters({
         searchParams.department_id,
         searchParams.program_id
       );
+    } else {
+      // Clear dependent data when no program is selected
+      setSemesters([]);
+      setSections([]);
     }
   }, [
     searchParams.program_id,
@@ -164,6 +186,9 @@ export function BillingScheduleFilters({
         searchParams.program_id,
         searchParams.semester_id
       );
+    } else {
+      // Clear dependent data when no semester is selected
+      setSections([]);
     }
   }, [
     searchParams.semester_id,
@@ -659,7 +684,10 @@ export function BillingScheduleFilters({
               Due Date Range
             </Label>
             <DatePickerWithRange
-              value={searchParams.dueDateRange}
+              value={searchParams.dueDateRange ? {
+                from: searchParams.dueDateRange.from,
+                to: searchParams.dueDateRange.to
+              } : undefined}
               onChange={handleDateRangeChange}
               placeholder='Select due date range'
             />

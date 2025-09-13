@@ -343,9 +343,18 @@ export class StudentBillService {
       // Apply search filter with correct syntax
       if (filters.search) {
         const searchTerm = `*${filters.search}*`;
-        query = query.or(
-          `bill_description.ilike.${searchTerm},first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},roll_number.ilike.${searchTerm}`
-        );
+
+        if (hasAcademicFilters) {
+          // When using joins, student fields are nested
+          query = query.or(
+            `bill_description.ilike.${searchTerm},student.first_name.ilike.${searchTerm},student.last_name.ilike.${searchTerm},student.roll_number.ilike.${searchTerm}`
+          );
+        } else {
+          // When using the view, fields are flattened
+          query = query.or(
+            `bill_description.ilike.${searchTerm},first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},roll_number.ilike.${searchTerm}`
+          );
+        }
       }
 
       if (filters.student_id) {
