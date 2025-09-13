@@ -211,8 +211,48 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
     async function fetchInstitutions() {
       try {
         setLoadingInstitutions(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
+        
+        // Import auth utilities
+        const { createClientSupabaseClient } = await import('@/lib/supabase/client');
+        const supabase = createClientSupabaseClient();
+        
+        // Get current user
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        // Check if user has admission role or is super admin
+        // For admission role users, we want to show all institutions
+        let shouldBypassUserFilter = false;
+        
+        if (user) {
+          // Get user profile to check role
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single();
+            
+          // Check if user has admission role or is super admin
+          shouldBypassUserFilter = profile?.role === 'super_admin' || profile?.role === 'admission';
+          
+          console.log('Course selection institution access check:', {
+            userId: user.id,
+            userRole: profile?.role,
+            shouldBypassUserFilter
+          });
+        }
+        
+        // Fetch institutions based on user role
+        if (shouldBypassUserFilter) {
+          // For admission role and super admin users, show all institutions
+          const data = await OrganizationService.getInstitutionNames(true);
+          setInstitutions(data);
+          console.log(`✅ Loaded ${data.length} institutions for admission role user`);
+        } else {
+          // For other users, apply user-based filtering
+          const data = await OrganizationService.getInstitutionNames(true, user?.id);
+          setInstitutions(data);
+          console.log(`✅ Loaded ${data.length} institutions with user filtering`);
+        }
       } catch (error) {
         console.error('Error fetching institutions:', error);
       } finally {

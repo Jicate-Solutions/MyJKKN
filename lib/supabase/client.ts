@@ -12,7 +12,16 @@ export function createClientSupabaseClient() {
   if (!clientInstance) {
     clientInstance = createBrowserClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          // Increase session refresh threshold to prevent frequent auth checks
+          flowType: 'pkce'
+        }
+      }
     );
   }
   return clientInstance;
