@@ -1112,19 +1112,24 @@ export default function AttendanceMarkPage() {
         // Close the summary modal
         setShowSummaryModal(false);
 
-        // Redirect to report page after delay
+        // Redirect to report details page after delay
         setTimeout(() => {
-          toast.success('Redirecting to reports...');
+          toast.success('Redirecting to report details...');
         }, 500);
 
         setTimeout(() => {
-          // Redirect to reports page with parameters to highlight the new record
-          const params = new URLSearchParams({
-            marked: 'true',
-            date: date || new Date().toISOString().split('T')[0],
-            section: contextData?.section_name || sectionId || ''
-          });
-          router.push(`/academic/attendance/reports?${params.toString()}`);
+          // Redirect to report details page using the attendance record ID
+          if (result.id) {
+            router.push(`/academic/attendance/reports/${result.id}`);
+          } else {
+            // Fallback to reports list page if no ID is available
+            const params = new URLSearchParams({
+              marked: 'true',
+              date: date || new Date().toISOString().split('T')[0],
+              section: contextData?.section_name || sectionId || ''
+            });
+            router.push(`/academic/attendance/reports?${params.toString()}`);
+          }
         }, 1500);
       } else {
         console.error('❌ Save result was null/undefined');
