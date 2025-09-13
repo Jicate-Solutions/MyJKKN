@@ -41,7 +41,8 @@ import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import {
   AdmissionData,
   useUpdateAdmissionStatus,
-  useDeleteAdmission
+  useDeleteAdmission,
+  useBulkDeleteAdmissions
 } from '@/hooks/admission/use-admissions';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
@@ -94,6 +95,7 @@ export function AdmissionDataTable({
   const router = useRouter();
   const updateStatus = useUpdateAdmissionStatus();
   const deleteAdmission = useDeleteAdmission();
+  const bulkDeleteAdmissions = useBulkDeleteAdmissions();
   const queryClient = useQueryClient();
 
   const [statusUpdateDialog, setStatusUpdateDialog] = useState<{
@@ -146,9 +148,12 @@ export function AdmissionDataTable({
     if (!canDelete) return;
 
     try {
-      for (const admission of admissions) {
-        await deleteAdmission.mutateAsync(admission.id);
-      }
+      // Extract IDs from the selected admissions
+      const admissionIds = admissions.map(admission => admission.id);
+      
+      // Use the bulk delete service that shows only one toast message
+      await bulkDeleteAdmissions.mutateAsync(admissionIds);
+      
       onRefresh();
     } catch (error) {
       console.error('Error deleting admissions:', error);

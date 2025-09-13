@@ -35,6 +35,51 @@ export class AdmissionService {
     }
   }
 
+  static async saveDraftAdmission(data: Partial<CreateAdmissionDto>): Promise<Admission> {
+    try {
+      const { data: admission, error } = await this.supabase
+        .from('admissions')
+        .insert([
+          {
+            ...data,
+            status: 'draft',
+            created_by: (await this.supabase.auth.getUser()).data.user?.id
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return admission;
+    } catch (error) {
+      console.error('Error saving draft admission:', error);
+      throw error;
+    }
+  }
+
+  static async updateDraftAdmission(id: string, data: Partial<CreateAdmissionDto>): Promise<Admission> {
+    try {
+      const { data: admission, error } = await this.supabase
+        .from('admissions')
+        .update({
+          ...data,
+          updated_by: (await this.supabase.auth.getUser()).data.user?.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return admission;
+    } catch (error) {
+      console.error('Error updating draft admission:', error);
+      throw error;
+    }
+  }
+
   static async updateAdmission(
     id: string,
     data: UpdateAdmissionDto
@@ -149,6 +194,24 @@ export class AdmissionService {
     } catch (error) {
       console.error('Error deleting admission:', error);
       toast.error('Failed to delete admission application');
+      throw error;
+    }
+  }
+
+  static async bulkDeleteAdmissions(ids: string[]): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from('admissions')
+        .delete()
+        .in('id', ids);
+
+      if (error) throw error;
+
+      // Single success message for bulk delete
+      toast.success(`Successfully deleted ${ids.length} admission application${ids.length > 1 ? 's' : ''}`);
+    } catch (error) {
+      console.error('Error bulk deleting admissions:', error);
+      toast.error('Failed to delete selected admission applications');
       throw error;
     }
   }

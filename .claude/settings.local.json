@@ -25,7 +25,8 @@
       "Read(//c/Users/Boobalan/Pictures/Screenshots/**)",
       "Bash(ls:*)",
       "Bash(find:*)",
-      "Read(//c/Users/Boobalan/Downloads/**)"
+      "Read(//c/Users/Boobalan/Downloads/**)",
+      "mcp__memory__create_entities"
     ],
     "deny": [],
     "ask": []

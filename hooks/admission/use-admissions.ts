@@ -107,10 +107,53 @@ export const useDeleteAdmission = () => {
   });
 };
 
+// Bulk delete admissions
+export const useBulkDeleteAdmissions = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (ids: string[]) => AdmissionService.bulkDeleteAdmissions(ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: admissionKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: admissionKeys.stats() });
+    }
+  });
+};
+
 // Get admission statistics
 export const useAdmissionStats = () => {
   return useQuery({
     queryKey: admissionKeys.stats(),
     queryFn: () => AdmissionService.getAdmissionStats()
+  });
+};
+
+// Save draft admission
+export const useSaveDraftAdmission = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: Partial<CreateAdmissionDto>) =>
+      AdmissionService.saveDraftAdmission(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: admissionKeys.all });
+      queryClient.removeQueries({ queryKey: admissionKeys.lists() });
+    }
+  });
+};
+
+// Update draft admission
+export const useUpdateDraftAdmission = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<CreateAdmissionDto> }) =>
+      AdmissionService.updateDraftAdmission(id, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: admissionKeys.detail(variables.id)
+      });
+      queryClient.invalidateQueries({ queryKey: admissionKeys.lists() });
+    }
   });
 };

@@ -445,3 +445,4 @@ Examples:
 - Combine both for maximum effectiveness
 - Always restart Claude Code after updating MCP configuration
 - Check `.claude/SUPABASE_PROMPTS.md` for detailed Supabase templates
+- add to this memory for when i create a custorm roles for organization permision access
