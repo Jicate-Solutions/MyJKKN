@@ -1111,44 +1111,83 @@ export class AttendanceReportService {
         filters.date_range?.to || new Date().toISOString().split('T')[0];
       const startDate = filters.date_range?.from || '2020-01-01'; // Broader default range
 
-      // Build base query
-      let query = this.supabase
-        .from('student_attendance')
-        .select('id, attendance_date, attendance_data, institution_id', {
-          count: 'exact'
-        });
+      let data: any[] = [];
+      let count = 0;
 
-      // Apply filters
-      if (filters.institution_id) {
-        query = query.eq('institution_id', filters.institution_id);
-      }
-      if (filters.academic_year_id) {
-        query = query.eq('academic_year_id', filters.academic_year_id);
-      }
-      if (filters.degree_id) {
-        query = query.eq('degree_id', filters.degree_id);
-      }
-      if (filters.department_id) {
-        query = query.eq('department_id', filters.department_id);
-      }
-      if (filters.program_id) {
-        query = query.eq('program_id', filters.program_id);
-      }
-      if (filters.semester_id) {
-        query = query.eq('semester_id', filters.semester_id);
-      }
-      if (filters.section_id) {
-        query = query.eq('section_id', filters.section_id);
-      }
+      // For faculty users, use the same RPC function as the table to ensure consistency
+      if (level === 'faculty' && facultyStaffId) {
+        console.log('🔄 Using RPC function for faculty statistics to match table data');
+        
+        const { data: rpcData, error } = await this.supabase.rpc(
+          'get_faculty_attendance_reports',
+          {
+            faculty_staff_id: facultyStaffId,
+            filter_institution_id: filters.institution_id || null,
+            filter_academic_year_id: filters.academic_year_id || null,
+            filter_degree_id: filters.degree_id || null,
+            filter_department_id: filters.department_id || null,
+            filter_program_id: filters.program_id || null,
+            filter_semester_id: filters.semester_id || null,
+            filter_section_id: filters.section_id || null,
+            filter_date_from: startDate,
+            filter_date_to: endDate,
+            page_offset: 0,
+            page_limit: 10000 // Large limit to get all records for statistics
+          }
+        );
 
-      query = query
-        .gte('attendance_date', startDate)
-        .lte('attendance_date', endDate);
+        if (error) {
+          console.error('Error in faculty statistics RPC:', error);
+          return { data: null, error: error.message };
+        }
 
-      const { data, count, error } = await query;
+        data = rpcData || [];
+        count = data.length > 0 ? data[0]?.total_count || data.length : 0;
+        
+        console.log(`📊 Faculty statistics: Found ${data.length} records (total count: ${count})`);
+      } else {
+        // Build base query for non-faculty users
+        let query = this.supabase
+          .from('student_attendance')
+          .select('id, attendance_date, attendance_data, institution_id', {
+            count: 'exact'
+          });
 
-      if (error) {
-        return { data: null, error: error.message };
+        // Apply filters
+        if (filters.institution_id) {
+          query = query.eq('institution_id', filters.institution_id);
+        }
+        if (filters.academic_year_id) {
+          query = query.eq('academic_year_id', filters.academic_year_id);
+        }
+        if (filters.degree_id) {
+          query = query.eq('degree_id', filters.degree_id);
+        }
+        if (filters.department_id) {
+          query = query.eq('department_id', filters.department_id);
+        }
+        if (filters.program_id) {
+          query = query.eq('program_id', filters.program_id);
+        }
+        if (filters.semester_id) {
+          query = query.eq('semester_id', filters.semester_id);
+        }
+        if (filters.section_id) {
+          query = query.eq('section_id', filters.section_id);
+        }
+
+        query = query
+          .gte('attendance_date', startDate)
+          .lte('attendance_date', endDate);
+
+        const result = await query;
+
+        if (result.error) {
+          return { data: null, error: result.error.message };
+        }
+
+        data = result.data || [];
+        count = result.count || 0;
       }
 
       // Calculate statistics
@@ -1164,17 +1203,8 @@ export class AttendanceReportService {
         // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
         let periods = attendanceData ? Object.values(attendanceData) : [];
 
-        // Filter periods for faculty users - only include periods they are assigned to
-        if (level === 'faculty' && facultyStaffId) {
-          periods = periods.filter((period: any) => {
-            if (Array.isArray(period.assigned_faculty)) {
-              return period.assigned_faculty.some(
-                (f: any) => f.faculty_id === facultyStaffId
-              );
-            }
-            return period.assigned_faculty?.faculty_id === facultyStaffId;
-          });
-        }
+        // For faculty users, the RPC function already filters records, so no need to filter again
+        // For non-faculty users, we don't need period-level filtering since they can see all periods
 
         periods.forEach((period: any) => {
           // Only count periods where attendance was actually marked (students array exists and has attendance data)
@@ -1242,17 +1272,7 @@ export class AttendanceReportService {
         const attendanceData = record.attendance_data as any;
         let periods = attendanceData ? Object.values(attendanceData) : [];
 
-        // Apply faculty filtering for today's records too
-        if (level === 'faculty' && facultyStaffId) {
-          periods = periods.filter((period: any) => {
-            if (Array.isArray(period.assigned_faculty)) {
-              return period.assigned_faculty.some(
-                (f: any) => f.faculty_id === facultyStaffId
-              );
-            }
-            return period.assigned_faculty?.faculty_id === facultyStaffId;
-          });
-        }
+        // For faculty users, the data is already filtered by the RPC function, so no additional filtering needed
 
         periods.forEach((period: any) => {
           // Only count periods where attendance was actually marked

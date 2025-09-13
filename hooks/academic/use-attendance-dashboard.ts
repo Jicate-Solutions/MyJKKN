@@ -92,12 +92,13 @@ export function usePendingAttendance(
     error,
     refetch
   } = useQuery({
-    queryKey: ['pending-attendance', queryFilters, refreshTrigger],
+    queryKey: ['pending-attendance', queryFilters, refreshTrigger], // Removed timestamp to avoid excessive requests
     queryFn: () =>
       AttendanceDashboardService.getTodayPendingAttendance(queryFilters),
     enabled: !!queryFilters.userInstitutionId,
-    refetchInterval: 3 * 60 * 1000, // Refetch every 3 minutes
-    staleTime: 1 * 60 * 1000 // Consider stale after 1 minute
+    refetchInterval: 2 * 60 * 1000, // Refetch every 2 minutes (more frequent)
+    staleTime: 30 * 1000, // Consider stale after 30 seconds (much more aggressive)
+    gcTime: 0 // Don't cache in garbage collection
   });
 
   return {
