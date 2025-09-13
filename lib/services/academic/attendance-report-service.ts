@@ -1116,8 +1116,10 @@ export class AttendanceReportService {
 
       // For faculty users, use the same RPC function as the table to ensure consistency
       if (level === 'faculty' && facultyStaffId) {
-        console.log('🔄 Using RPC function for faculty statistics to match table data');
-        
+        console.log(
+          '🔄 Using RPC function for faculty statistics to match table data'
+        );
+
         const { data: rpcData, error } = await this.supabase.rpc(
           'get_faculty_attendance_reports',
           {
@@ -1143,8 +1145,10 @@ export class AttendanceReportService {
 
         data = rpcData || [];
         count = data.length > 0 ? data[0]?.total_count || data.length : 0;
-        
-        console.log(`📊 Faculty statistics: Found ${data.length} records (total count: ${count})`);
+
+        console.log(
+          `📊 Faculty statistics: Found ${data.length} records (total count: ${count})`
+        );
       } else {
         // Build base query for non-faculty users
         let query = this.supabase
@@ -1201,7 +1205,7 @@ export class AttendanceReportService {
       (data || []).forEach((record) => {
         const attendanceData = record.attendance_data as any;
         // Convert object to array of periods (attendance_data is an object with timetable_slot_id as keys)
-        let periods = attendanceData ? Object.values(attendanceData) : [];
+        const periods = attendanceData ? Object.values(attendanceData) : [];
 
         // For faculty users, the RPC function already filters records, so no need to filter again
         // For non-faculty users, we don't need period-level filtering since they can see all periods
@@ -1270,7 +1274,7 @@ export class AttendanceReportService {
 
       todayRecords.forEach((record) => {
         const attendanceData = record.attendance_data as any;
-        let periods = attendanceData ? Object.values(attendanceData) : [];
+        const periods = attendanceData ? Object.values(attendanceData) : [];
 
         // For faculty users, the data is already filtered by the RPC function, so no additional filtering needed
 
