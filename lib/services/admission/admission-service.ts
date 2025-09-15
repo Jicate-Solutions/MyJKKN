@@ -12,13 +12,48 @@ import toast from 'react-hot-toast';
 export class AdmissionService {
   private static supabase = createClientSupabaseClient();
 
+  // Generate unique application ID
+  private static async generateApplicationId(): Promise<string> {
+    const currentYear = new Date().getFullYear();
+    const prefix = `APP${currentYear}`;
+
+    // Get the highest application ID for the current year
+    const { data, error } = await this.supabase
+      .from('admissions')
+      .select('application_id')
+      .like('application_id', `${prefix}%`)
+      .order('application_id', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error('Error getting latest application ID:', error);
+      // Fallback to timestamp-based ID
+      return `${prefix}${Date.now()}`;
+    }
+
+    let nextNumber = 1;
+    if (data && data.length > 0) {
+      const lastId = data[0].application_id;
+      const numberPart = lastId.replace(prefix, '');
+      nextNumber = parseInt(numberPart) + 1;
+    }
+
+    // Format with leading zeros (6 digits)
+    const formattedNumber = nextNumber.toString().padStart(6, '0');
+    return `${prefix}${formattedNumber}`;
+  }
+
   static async createAdmission(data: CreateAdmissionDto): Promise<Admission> {
     try {
+      // Generate a unique application ID if not provided
+      const applicationId = data.application_id || await this.generateApplicationId();
+
       const { data: admission, error } = await this.supabase
         .from('admissions')
         .insert([
           {
             ...data,
+            application_id: applicationId,
             status: data.status || 'pending',
             created_by: (await this.supabase.auth.getUser()).data.user?.id
           }
@@ -37,11 +72,15 @@ export class AdmissionService {
 
   static async saveDraftAdmission(data: Partial<CreateAdmissionDto>): Promise<Admission> {
     try {
+      // Generate a unique application ID
+      const applicationId = await this.generateApplicationId();
+
       const { data: admission, error } = await this.supabase
         .from('admissions')
         .insert([
           {
             ...data,
+            application_id: applicationId,
             status: 'draft',
             created_by: (await this.supabase.auth.getUser()).data.user?.id
           }
