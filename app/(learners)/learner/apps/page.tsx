@@ -2,7 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, TrendingUp, RefreshCw, Loader2 } from 'lucide-react';
+import {
+  Search,
+  TrendingUp,
+  RefreshCw,
+  Loader2,
+  Heart,
+  Star
+} from 'lucide-react';
 import LearnerLayout from '@/components/layout/learner-layout';
 import { LearnerPageHeader } from '@/components/layout/learner-page-header';
 import { Input } from '@/components/ui/input';
@@ -23,6 +30,7 @@ import { CategoryService } from '@/lib/services/application/category-service';
 import { Category } from '@/types/categories';
 import { LearnerAppCard } from './_components/learner-app-card';
 import { toast } from 'react-hot-toast';
+import { useFavorites } from '@/hooks/use-favorites';
 
 export default function LearnerAppsPage() {
   const { userProfile: profile, isLoading: authLoading } = usePermissions();
@@ -33,6 +41,8 @@ export default function LearnerAppsPage() {
   const [sortBy, setSortBy] = useState<'name' | 'popular' | 'recent'>(
     'popular'
   );
+
+  const { favorites, loading: favoritesLoading } = useFavorites();
 
   // Debounce search query
   const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
@@ -187,6 +197,55 @@ export default function LearnerAppsPage() {
                 Try Again
               </Button>
             </div>
+          )}
+
+          {/* Favorite Apps Section */}
+          {!isLoading && !error && favorites.length > 0 && (
+            <motion.section
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className='bg-white/80 backdrop-blur-sm rounded-2xl p-4 md:p-6 shadow-lg border border-white/50'
+            >
+              <div className='flex items-center gap-3 mb-4'>
+                <div className='flex items-center gap-2'>
+                  <Heart className='h-5 w-5 text-red-600 fill-red-600' />
+                  <h2 className='text-xl font-bold text-gray-900'>
+                    My Favorites
+                  </h2>
+                </div>
+                <Badge
+                  variant='secondary'
+                  className='bg-red-50 text-red-700 border-red-200'
+                >
+                  {favorites.length}
+                </Badge>
+              </div>
+
+              <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 md:gap-6'>
+                {favorites.slice(0, 10).map((app, index) => (
+                  <motion.div
+                    key={app.id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                    className='h-full'
+                  >
+                    <LearnerAppCard
+                      application={app}
+                      onAppOpen={handleAppOpen}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+
+              {favorites.length > 10 && (
+                <div className='text-center mt-4'>
+                  <p className='text-sm text-gray-600'>
+                    Showing 10 of {favorites.length} favorites
+                  </p>
+                </div>
+              )}
+            </motion.section>
           )}
 
           {/* Content */}

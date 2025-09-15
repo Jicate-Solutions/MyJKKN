@@ -115,6 +115,9 @@ export class AttendanceExportService {
         'Marked By Email': period.marked_by_details
           ? period.marked_by_details.marker_email
           : 'N/A',
+        'Marked At': period.marked_by_details?.marked_at
+          ? new Date(period.marked_by_details.marked_at).toLocaleString()
+          : 'N/A',
         'Total Students': period.total_count,
         'Present Count': period.present_count,
         'Absent Count': period.absent_count,
@@ -400,7 +403,9 @@ export class AttendanceExportService {
         `${period.start_time}\n${period.end_time}`,
         `${period.course_name}\n${period.course_code || 'N/A'}`,
         period.faculty.map((f) => f.faculty_name).join('\n'),
-        period.marked_by_details ? period.marked_by_details.marker_name : 'N/A',
+        period.marked_by_details
+          ? `${period.marked_by_details.marker_name}\n${period.marked_by_details.marked_at ? new Date(period.marked_by_details.marked_at).toLocaleString() : 'Time not available'}`
+          : 'N/A',
         `${period.present_count}`,
         `${period.absent_count}`,
         `${period.attendance_percentage.toFixed(1)}%`
@@ -413,7 +418,7 @@ export class AttendanceExportService {
             'Time',
             'Course\nCode',
             'Faculty',
-            'Marked By',
+            'Marked By\n& Time',
             'Present',
             'Absent',
             'Rate'
@@ -490,7 +495,7 @@ export class AttendanceExportService {
         doc.text(
           `Marked By: ${
             period.marked_by_details
-              ? period.marked_by_details.marker_name
+              ? `${period.marked_by_details.marker_name} (${period.marked_by_details.marked_at ? new Date(period.marked_by_details.marked_at).toLocaleString() : 'Time not available'})`
               : 'N/A'
           }`,
           14,

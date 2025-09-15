@@ -8,7 +8,8 @@ import {
   Users,
   ChevronRight,
   Image as ImageIcon,
-  Play
+  Play,
+  Heart
 } from 'lucide-react';
 import { Application } from '@/types/applications';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { motion } from 'framer-motion';
 import { LearnerAppDetailDialog } from './learner-app-detail-dialog';
+import { useFavorites } from '@/hooks/use-favorites';
 
 interface LearnerAppCardProps {
   application: Application;
@@ -29,12 +31,24 @@ export function LearnerAppCard({
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [imageError, setImageError] = useState(false);
 
+  const {
+    isFavorite,
+    toggleFavorite,
+    loading: favoritesLoading
+  } = useFavorites();
+
   const handleOpenApp = () => {
     if (onAppOpen) {
       onAppOpen(application);
     }
     // Open the application URL
     window.open(application.url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleToggleFavorite = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    await toggleFavorite(application.id);
   };
 
   const mockRating = 4.2 + Math.random() * 0.8; // Mock rating between 4.2-5.0
@@ -81,12 +95,33 @@ export function LearnerAppCard({
 
               {/* App Info */}
               <div className='flex-1 min-w-0'>
-                <h3 className='font-bold text-gray-900 line-clamp-1 text-lg leading-tight mb-1 group-hover:text-blue-600 transition-colors duration-200'>
-                  {application.name}
-                </h3>
-                <p className='text-sm text-gray-600 mb-2 font-medium'>
-                  {application.category?.name || 'Utilities'}
-                </p>
+                <div className='flex items-start justify-between'>
+                  <div className='flex-1 min-w-0'>
+                    <h3 className='font-bold text-gray-900 line-clamp-1 text-lg leading-tight mb-1 group-hover:text-blue-600 transition-colors duration-200'>
+                      {application.name}
+                    </h3>
+                    <p className='text-sm text-gray-600 mb-2 font-medium'>
+                      {application.category?.name || 'Utilities'}
+                    </p>
+                  </div>
+
+                  {/* Favorite Button */}
+                  <Button
+                    size='sm'
+                    variant='ghost'
+                    onClick={handleToggleFavorite}
+                    disabled={favoritesLoading}
+                    className='h-8 w-8 p-0 hover:bg-red-50 transition-colors duration-200 ml-2'
+                  >
+                    <Heart
+                      className={`h-4 w-4 transition-all duration-200 ${
+                        isFavorite(application.id)
+                          ? 'fill-red-600 text-red-600 scale-110'
+                          : 'text-gray-400 hover:text-pink-400'
+                      }`}
+                    />
+                  </Button>
+                </div>
 
                 {/* Rating and Stats */}
                 <div className='flex items-center gap-4 text-sm'>

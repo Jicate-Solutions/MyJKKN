@@ -47,6 +47,7 @@ export interface ConsolidatedAttendancePeriod {
     marker_name: string;
     marker_role: string;
     marker_email: string;
+    marked_at: string; // ISO timestamp when the period was marked
   };
 }
 

@@ -999,32 +999,48 @@ export class AttendanceService {
         };
 
         // If any academic field is missing, fetch from timetable
-        if (!data.academic_year_id || !data.degree_id || !data.program_id || !data.department_id || !data.semester_id) {
-          const { data: timetableData, error: timetableError } = await this.supabase
-            .from('timetables')
-            .select('academic_year_id, degree_id, program_id, department_id, semester_id, semester')
-            .eq('id', data.timetable_id)
-            .single();
-          
+        if (
+          !data.academic_year_id ||
+          !data.degree_id ||
+          !data.program_id ||
+          !data.department_id ||
+          !data.semester_id
+        ) {
+          const { data: timetableData, error: timetableError } =
+            await this.supabase
+              .from('timetables')
+              .select(
+                'academic_year_id, degree_id, program_id, department_id, semester_id, semester'
+              )
+              .eq('id', data.timetable_id)
+              .single();
+
           if (!timetableError && timetableData) {
-            let resolvedSemesterId = data.semester_id || timetableData.semester_id;
-            
+            let resolvedSemesterId =
+              data.semester_id || timetableData.semester_id;
+
             // If semester_id is null but we have semester name, lookup the semester_id
-            if (!resolvedSemesterId && timetableData.semester && timetableData.degree_id && timetableData.program_id) {
+            if (
+              !resolvedSemesterId &&
+              timetableData.semester &&
+              timetableData.degree_id &&
+              timetableData.program_id
+            ) {
               console.log('🔍 Looking up semester_id for:', {
                 semester_name: timetableData.semester,
                 degree_id: timetableData.degree_id,
                 program_id: timetableData.program_id
               });
-              
-              const { data: semesterData, error: semesterError } = await this.supabase
-                .from('semesters')
-                .select('id')
-                .eq('semester_name', timetableData.semester)
-                .eq('degree_id', timetableData.degree_id)
-                .eq('program_id', timetableData.program_id)
-                .single();
-              
+
+              const { data: semesterData, error: semesterError } =
+                await this.supabase
+                  .from('semesters')
+                  .select('id')
+                  .eq('semester_name', timetableData.semester)
+                  .eq('degree_id', timetableData.degree_id)
+                  .eq('program_id', timetableData.program_id)
+                  .single();
+
               if (!semesterError && semesterData) {
                 resolvedSemesterId = semesterData.id;
                 console.log('✅ Found semester_id:', resolvedSemesterId);
@@ -1037,9 +1053,10 @@ export class AttendanceService {
                 });
               }
             }
-            
+
             academicFields = {
-              academic_year_id: data.academic_year_id || timetableData.academic_year_id,
+              academic_year_id:
+                data.academic_year_id || timetableData.academic_year_id,
               degree_id: data.degree_id || timetableData.degree_id,
               program_id: data.program_id || timetableData.program_id,
               department_id: data.department_id || timetableData.department_id,
@@ -1050,12 +1067,17 @@ export class AttendanceService {
 
         // Validate required fields before insertion
         const validationErrors: string[] = [];
-        if (!academicFields.semester_id) validationErrors.push('semester_id is null or undefined');
-        if (!academicFields.academic_year_id) validationErrors.push('academic_year_id is null or undefined');
-        if (!academicFields.degree_id) validationErrors.push('degree_id is null or undefined');
-        if (!academicFields.program_id) validationErrors.push('program_id is null or undefined');
-        if (!academicFields.department_id) validationErrors.push('department_id is null or undefined');
-        
+        if (!academicFields.semester_id)
+          validationErrors.push('semester_id is null or undefined');
+        if (!academicFields.academic_year_id)
+          validationErrors.push('academic_year_id is null or undefined');
+        if (!academicFields.degree_id)
+          validationErrors.push('degree_id is null or undefined');
+        if (!academicFields.program_id)
+          validationErrors.push('program_id is null or undefined');
+        if (!academicFields.department_id)
+          validationErrors.push('department_id is null or undefined');
+
         if (validationErrors.length > 0) {
           console.error('❌ ATTENDANCE VALIDATION FAILED:', {
             errors: validationErrors,
@@ -1064,9 +1086,11 @@ export class AttendanceService {
             attendance_date: data.attendance_date,
             academicFields
           });
-          throw new Error(`Attendance validation failed: ${validationErrors.join(', ')}`);
+          throw new Error(
+            `Attendance validation failed: ${validationErrors.join(', ')}`
+          );
         }
-        
+
         console.log('✅ Attendance validation passed, inserting record:', {
           timetable_id: data.timetable_id,
           section_id: resolvedSectionId,
@@ -2148,12 +2172,17 @@ export class AttendanceService {
           const startDate = new Date(timetable.start_date);
           const endDate = new Date(timetable.end_date);
 
-          console.log('Checking date range for', timetable.timetable_format, 'timetable:', {
-            searchDate: searchDate.toISOString(),
-            startDate: startDate.toISOString(),
-            endDate: endDate.toISOString(),
-            isWithinRange: searchDate >= startDate && searchDate <= endDate
-          });
+          console.log(
+            'Checking date range for',
+            timetable.timetable_format,
+            'timetable:',
+            {
+              searchDate: searchDate.toISOString(),
+              startDate: startDate.toISOString(),
+              endDate: endDate.toISOString(),
+              isWithinRange: searchDate >= startDate && searchDate <= endDate
+            }
+          );
 
           // Skip this timetable if the date is outside its range
           if (searchDate < startDate || searchDate > endDate) {
@@ -2164,7 +2193,6 @@ export class AttendanceService {
 
         // Additional checks for batch timetables
         if (timetable.timetable_format === 'batch') {
-
           // Also check if the date is in the selected_dates array
           if (timetable.selected_dates) {
             let dateIsInRange = false;
@@ -2826,6 +2854,33 @@ export class AttendanceService {
         throw new Error('No student records provided for manual attendance');
       }
 
+      // Get current user's information for marker details
+      const { data: profileData } = await this.supabase
+        .from('profiles')
+        .select('email, full_name, role')
+        .eq('id', attendanceData.marked_by)
+        .single();
+
+      let markerName = profileData?.full_name || 'Unknown User';
+      let markerEmail = profileData?.email || '';
+      const markerRole = profileData?.role || 'faculty';
+
+      // Try to get better name from staff table if user is faculty
+      if (profileData?.role === 'faculty') {
+        const { data: staffData } = await this.supabase
+          .from('staff')
+          .select('staff_name, staff_email')
+          .eq('profile_id', attendanceData.marked_by)
+          .eq('institution_id', attendanceData.institution_id)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (staffData) {
+          markerName = staffData.staff_name;
+          markerEmail = staffData.staff_email || markerEmail;
+        }
+      }
+
       // Create attendance data structure for manual entries
       const manualAttendanceData: ConsolidatedAttendanceData = {
         'manual-entry': {
@@ -2839,7 +2894,15 @@ export class AttendanceService {
             student_id: record.student_id,
             status: record.status,
             marked_at: new Date().toISOString()
-          }))
+          })),
+          // Add marker details with timestamp
+          marked_by_details: {
+            marker_id: attendanceData.marked_by,
+            marker_name: markerName,
+            marker_role: markerRole,
+            marker_email: markerEmail,
+            marked_at: new Date().toISOString() // Add timestamp when period is marked
+          }
         }
       };
 
@@ -2973,16 +3036,19 @@ export class AttendanceService {
   }
 
   // Debug and validate attendance records
-  static async debugAttendanceRecord(recordId?: string, options?: {
-    checkDate?: string,
-    timetableId?: string,
-    sectionId?: string
-  }): Promise<{
-    record?: any,
-    issues: string[],
-    suggestions: string[],
-    timetableInfo?: any,
-    semesterInfo?: any
+  static async debugAttendanceRecord(
+    recordId?: string,
+    options?: {
+      checkDate?: string;
+      timetableId?: string;
+      sectionId?: string;
+    }
+  ): Promise<{
+    record?: any;
+    issues: string[];
+    suggestions: string[];
+    timetableInfo?: any;
+    semesterInfo?: any;
   }> {
     const issues: string[] = [];
     const suggestions: string[] = [];
@@ -3005,7 +3071,11 @@ export class AttendanceService {
         }
 
         record = data;
-      } else if (options?.checkDate && options?.timetableId && options?.sectionId) {
+      } else if (
+        options?.checkDate &&
+        options?.timetableId &&
+        options?.sectionId
+      ) {
         // Debug by criteria
         const { data, error } = await this.supabase
           .from('student_attendance')
@@ -3020,10 +3090,14 @@ export class AttendanceService {
           issues.push(`Error querying attendance: ${error.message}`);
         }
         if (!record) {
-          issues.push(`No attendance record found for date: ${options.checkDate}, timetable: ${options.timetableId}, section: ${options.sectionId}`);
+          issues.push(
+            `No attendance record found for date: ${options.checkDate}, timetable: ${options.timetableId}, section: ${options.sectionId}`
+          );
         }
       } else {
-        issues.push('Please provide either recordId or (checkDate + timetableId + sectionId)');
+        issues.push(
+          'Please provide either recordId or (checkDate + timetableId + sectionId)'
+        );
         return { issues, suggestions };
       }
 
@@ -3042,47 +3116,76 @@ export class AttendanceService {
 
         // Fetch timetable information
         if (record.timetable_id) {
-          const { data: timetableData, error: timetableError } = await this.supabase
-            .from('timetables')
-            .select('id, semester, semester_id, section, section_id, degree_id, program_id, department_id, academic_year_id')
-            .eq('id', record.timetable_id)
-            .single();
+          const { data: timetableData, error: timetableError } =
+            await this.supabase
+              .from('timetables')
+              .select(
+                'id, semester, semester_id, section, section_id, degree_id, program_id, department_id, academic_year_id'
+              )
+              .eq('id', record.timetable_id)
+              .single();
 
           if (!timetableError && timetableData) {
             timetableInfo = timetableData;
-            
+
             // Check if timetable has missing semester_id
             if (!timetableData.semester_id && timetableData.semester) {
-              issues.push(`Timetable has semester name '${timetableData.semester}' but no semester_id`);
-              suggestions.push(`Update timetable ${record.timetable_id} with correct semester_id`);
+              issues.push(
+                `Timetable has semester name '${timetableData.semester}' but no semester_id`
+              );
+              suggestions.push(
+                `Update timetable ${record.timetable_id} with correct semester_id`
+              );
             }
-            
+
             // Check if record fields match timetable
-            if (timetableData.degree_id && record.degree_id !== timetableData.degree_id) {
-              issues.push(`Degree mismatch: record=${record.degree_id}, timetable=${timetableData.degree_id}`);
+            if (
+              timetableData.degree_id &&
+              record.degree_id !== timetableData.degree_id
+            ) {
+              issues.push(
+                `Degree mismatch: record=${record.degree_id}, timetable=${timetableData.degree_id}`
+              );
             }
-            if (timetableData.program_id && record.program_id !== timetableData.program_id) {
-              issues.push(`Program mismatch: record=${record.program_id}, timetable=${timetableData.program_id}`);
+            if (
+              timetableData.program_id &&
+              record.program_id !== timetableData.program_id
+            ) {
+              issues.push(
+                `Program mismatch: record=${record.program_id}, timetable=${timetableData.program_id}`
+              );
             }
           }
         }
 
         // Try to find correct semester_id if missing
-        if (!record.semester_id && timetableInfo?.semester && timetableInfo?.degree_id && timetableInfo?.program_id) {
-          const { data: semesterData, error: semesterError } = await this.supabase
-            .from('semesters')
-            .select('id, semester_name')
-            .eq('semester_name', timetableInfo.semester)
-            .eq('degree_id', timetableInfo.degree_id)
-            .eq('program_id', timetableInfo.program_id)
-            .single();
+        if (
+          !record.semester_id &&
+          timetableInfo?.semester &&
+          timetableInfo?.degree_id &&
+          timetableInfo?.program_id
+        ) {
+          const { data: semesterData, error: semesterError } =
+            await this.supabase
+              .from('semesters')
+              .select('id, semester_name')
+              .eq('semester_name', timetableInfo.semester)
+              .eq('degree_id', timetableInfo.degree_id)
+              .eq('program_id', timetableInfo.program_id)
+              .single();
 
           if (!semesterError && semesterData) {
             semesterInfo = semesterData;
-            suggestions.push(`Record should have semester_id: ${semesterData.id} (${semesterData.semester_name})`);
-            suggestions.push(`UPDATE student_attendance SET semester_id = '${semesterData.id}' WHERE id = '${record.id}'`);
+            suggestions.push(
+              `Record should have semester_id: ${semesterData.id} (${semesterData.semester_name})`
+            );
+            suggestions.push(
+              `UPDATE student_attendance SET semester_id = '${semesterData.id}' WHERE id = '${record.id}'`
+            );
           } else {
-            issues.push(`Cannot resolve semester_id for semester '${timetableInfo.semester}'`);
+            issues.push(
+              `Cannot resolve semester_id for semester '${timetableInfo.semester}'`
+            );
           }
         }
 
@@ -3103,24 +3206,29 @@ export class AttendanceService {
         timetableInfo,
         semesterInfo
       };
-
     } catch (error) {
       console.error('Error debugging attendance record:', error);
-      issues.push(`Debug error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      issues.push(
+        `Debug error: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
       return { issues, suggestions };
     }
   }
 
   // Bulk fix attendance records with missing semester_id
-  static async fixAttendanceRecords(options: {
-    dryRun?: boolean,
-    dateRange?: { start: string, end: string },
-    limit?: number
-  } = {}): Promise<{
-    totalFound: number,
-    fixedCount: number,
-    errors: string[],
-    summary: any[]
+  static async fixAttendanceRecords(
+    options: {
+      dryRun?: boolean;
+      dateRange?: { start: string; end: string };
+      limit?: number;
+    } = {}
+  ): Promise<{
+    totalFound: number;
+    fixedCount: number;
+    errors: string[];
+    summary: any[];
   }> {
     const { dryRun = true, dateRange, limit = 100 } = options;
     const errors: string[] = [];
@@ -3128,7 +3236,11 @@ export class AttendanceService {
     let fixedCount = 0;
 
     try {
-      console.log('🔧 Starting attendance records fix...', { dryRun, dateRange, limit });
+      console.log('🔧 Starting attendance records fix...', {
+        dryRun,
+        dateRange,
+        limit
+      });
 
       // Find records with null semester_id
       let query = this.supabase
@@ -3161,7 +3273,7 @@ export class AttendanceService {
       for (const record of recordsToFix) {
         try {
           const debugResult = await this.debugAttendanceRecord(record.id);
-          
+
           if (debugResult.semesterInfo && debugResult.semesterInfo.id) {
             const recordSummary = {
               record_id: record.id,
@@ -3180,7 +3292,9 @@ export class AttendanceService {
                 .eq('id', record.id);
 
               if (updateError) {
-                errors.push(`Failed to fix record ${record.id}: ${updateError.message}`);
+                errors.push(
+                  `Failed to fix record ${record.id}: ${updateError.message}`
+                );
                 recordSummary.action = 'failed';
               } else {
                 fixedCount++;
@@ -3198,7 +3312,11 @@ export class AttendanceService {
             });
           }
         } catch (error) {
-          errors.push(`Error processing record ${record.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          errors.push(
+            `Error processing record ${record.id}: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`
+          );
         }
       }
 
@@ -3210,10 +3328,13 @@ export class AttendanceService {
       });
 
       return { totalFound, fixedCount, errors, summary };
-
     } catch (error) {
       console.error('Error in fixAttendanceRecords:', error);
-      errors.push(`Fix operation error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      errors.push(
+        `Fix operation error: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
       return { totalFound: 0, fixedCount: 0, errors, summary };
     }
   }
