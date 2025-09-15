@@ -189,7 +189,7 @@ export default function AttendancePage() {
         <div className='p-3 sm:p-4 md:p-6 animate-in fade-in-0 duration-500'>
           <Alert
             variant='destructive'
-            className='border-red-200 bg-gradient-to-r from-red-50 to-pink-50 shadow-lg'
+            className='border-red-200 bg-gradient-to-r from-red-50 to-gray-50 shadow-lg'
           >
             <div className='flex items-start gap-3'>
               <div className='relative'>
@@ -230,13 +230,13 @@ export default function AttendancePage() {
       <AttendanceErrorBoundary>
         <div className='p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 animate-in fade-in-0 duration-300'>
           {/* Quick Info Banner with Animation */}
-          <Alert className='border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm animate-in slide-in-from-top-2 duration-500 hover:shadow-md transition-shadow'>
+          <Alert className='border-green-200 bg-gradient-to-r from-green-50 to-gray-50 shadow-sm animate-in slide-in-from-top-2 duration-500 hover:shadow-md transition-shadow'>
             <div className='flex items-start sm:items-center gap-2 sm:gap-3'>
               <div className='relative'>
-                <Info className='h-4 w-4 sm:h-5 sm:w-5 text-blue-600 animate-pulse' />
-                <div className='absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-ping opacity-75'></div>
+                <Info className='h-4 w-4 sm:h-5 sm:w-5 text-[#0b6d41] animate-pulse' />
+                <div className='absolute -top-1 -right-1 w-2 h-2 bg-[#0b6d41] rounded-full animate-ping opacity-75'></div>
               </div>
-              <AlertDescription className='text-blue-800 text-sm sm:text-base leading-relaxed'>
+              <AlertDescription className='text-[#0b6d41] text-sm sm:text-base leading-relaxed'>
                 <strong className='block sm:inline'>
                   Attendance Requirement:
                 </strong>
@@ -305,7 +305,7 @@ export default function AttendancePage() {
           {/* Main Content Tabs */}
           <Tabs defaultValue='overview' className='space-y-6'>
             <div className='overflow-x-auto pb-2'>
-              <TabsList className='grid w-full min-w-[500px] sm:min-w-0 grid-cols-5 gap-1 bg-gradient-to-r from-gray-50 to-gray-100 p-1.5 rounded-lg shadow-inner'>
+              <TabsList className='grid w-full min-w-[500px] sm:min-w-0 grid-cols-5 gap-1 bg-gradient-to-r from-green-50 to-gray-100 p-1.5 rounded-lg shadow-inner'>
                 <TabsTrigger
                   value='overview'
                   className='flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3 py-2 sm:py-2.5 rounded-md transition-all duration-200 hover:scale-105 data-[state=active]:shadow-md data-[state=active]:bg-white'
@@ -403,7 +403,7 @@ export default function AttendancePage() {
                               size='lg'
                               className='mx-auto mb-3 hover:scale-105 transition-transform duration-300'
                             />
-                            <div className='absolute -bottom-1 -right-1 w-6 h-6 bg-green-500 border-2 border-white rounded-full flex items-center justify-center shadow-sm animate-pulse'>
+                            <div className='absolute -bottom-1 -right-1 w-6 h-6 bg-[#0b6d41] border-2 border-white rounded-full flex items-center justify-center shadow-sm animate-pulse'>
                               <div className='w-2 h-2 bg-white rounded-full'></div>
                             </div>
                           </div>
@@ -441,7 +441,7 @@ export default function AttendancePage() {
                             </div>
                             <div className='flex flex-col sm:flex-row sm:justify-between gap-1 sm:gap-2 p-2 rounded-md hover:bg-green-50 transition-colors'>
                               <span className='text-gray-600 font-medium flex items-center gap-2'>
-                                <div className='w-2 h-2 bg-green-400 rounded-full'></div>
+                                <div className='w-2 h-2 bg-[#0b6d41] rounded-full'></div>
                                 Semester:
                               </span>
                               <span className='font-semibold text-gray-800 sm:text-right'>
@@ -461,11 +461,11 @@ export default function AttendancePage() {
                         </div>
 
                         {attendanceData?.current_semester && (
-                          <div className='bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200'>
+                          <div className='bg-gradient-to-r from-green-50 to-gray-50 rounded-lg p-4 border border-green-200'>
                             <div className='flex items-center justify-between'>
                               <div className='flex items-center gap-2'>
-                                <Award className='h-4 w-4 text-blue-600 animate-bounce' />
-                                <span className='text-sm font-medium text-blue-800'>
+                                <Award className='h-4 w-4 text-[#0b6d41] animate-bounce' />
+                                <span className='text-sm font-medium text-[#0b6d41]'>
                                   Current Semester:
                                 </span>
                               </div>
@@ -496,8 +496,8 @@ export default function AttendancePage() {
                     <CardContent className='p-4 sm:p-6'>
                       <div className='flex items-center gap-3 mb-4 sm:mb-6'>
                         <div className='relative'>
-                          <BookOpen className='h-5 w-5 sm:h-6 sm:w-6 text-indigo-600 hover:scale-110 transition-transform duration-300' />
-                          <div className='absolute -top-1 -right-1 w-3 h-3 bg-indigo-400 rounded-full animate-ping opacity-60'></div>
+                          <BookOpen className='h-5 w-5 sm:h-6 sm:w-6 text-[#0b6d41] hover:scale-110 transition-transform duration-300' />
+                          <div className='absolute -top-1 -right-1 w-3 h-3 bg-[#0b6d41] rounded-full animate-ping opacity-60'></div>
                         </div>
                         <h4 className='font-bold text-lg text-gray-800'>
                           Course Performance
@@ -535,7 +535,7 @@ export default function AttendancePage() {
                                       <div
                                         className={`h-full transition-all duration-1000 ${
                                           course.percentage >= 75
-                                            ? 'bg-green-500'
+                                            ? 'bg-[#0b6d41]'
                                             : 'bg-red-500'
                                         }`}
                                         style={{
@@ -654,7 +654,7 @@ export default function AttendancePage() {
                                   <div
                                     className={`w-3 h-3 rounded-full ${
                                       course.percentage >= 75
-                                        ? 'bg-green-500'
+                                        ? 'bg-[#0b6d41]'
                                         : 'bg-red-500'
                                     } animate-pulse shadow-sm`}
                                   ></div>
@@ -695,7 +695,7 @@ export default function AttendancePage() {
                             <div className='grid grid-cols-1 gap-3 bg-white rounded-lg p-3 shadow-inner'>
                               <div className='flex justify-between items-center text-xs sm:text-sm p-2 rounded-md hover:bg-green-50 transition-colors'>
                                 <span className='flex items-center gap-2 text-gray-600 font-medium'>
-                                  <div className='w-2 h-2 bg-green-400 rounded-full'></div>
+                                  <div className='w-2 h-2 bg-[#0b6d41] rounded-full'></div>
                                   Attended:
                                 </span>
                                 <span className='font-bold text-green-700'>

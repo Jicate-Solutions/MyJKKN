@@ -46,16 +46,16 @@ export function AttendanceOverviewCards({ stats, loading = false }: AttendanceOv
   }
 
   const getAttendanceColor = (percentage: number) => {
-    if (percentage >= 85) return 'text-green-600';
-    if (percentage >= 75) return 'text-blue-600';
+    if (percentage >= 85) return 'text-[#0b6d41]';
+    if (percentage >= 75) return 'text-[#0b6d41]';
     if (percentage >= 60) return 'text-yellow-600';
     return 'text-red-600';
   };
 
   const getAttendanceColorBg = (percentage: number) => {
     if (percentage >= 85) return 'bg-green-100 border-green-200';
-    if (percentage >= 75) return 'bg-blue-100 border-blue-200';
-    if (percentage >= 60) return 'bg-yellow-100 border-yellow-200';
+    if (percentage >= 75) return 'bg-green-100 border-green-200';
+    if (percentage >= 60) return 'bg-[#ffde59]/20 border-yellow-200';
     return 'bg-red-100 border-red-200';
   };
 
@@ -65,12 +65,12 @@ export function AttendanceOverviewCards({ stats, loading = false }: AttendanceOv
       <Card className={`group border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-gradient-to-br from-white to-gray-50 ${getAttendanceColorBg(stats.overall_percentage)} hover:scale-105 `}>
         <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2 p-4 sm:p-6'>
           <CardTitle className='text-xs sm:text-sm font-semibold text-gray-700 flex items-center gap-2'>
-            <div className='w-2 h-2 bg-blue-500 rounded-full animate-pulse'></div>
+            <div className='w-2 h-2 bg-[#0b6d41] rounded-full animate-pulse'></div>
             Overall Attendance
           </CardTitle>
           <div className='relative'>
-            <Calendar className='h-4 w-4 sm:h-5 sm:w-5 text-blue-600 group-hover:scale-110 transition-transform duration-300' />
-            <Target className='absolute -top-1 -right-1 h-2 w-2 text-blue-400 animate-ping' />
+            <Calendar className='h-4 w-4 sm:h-5 sm:w-5 text-[#0b6d41] group-hover:scale-110 transition-transform duration-300' />
+            <Target className='absolute -top-1 -right-1 h-2 w-2 text-[#0b6d41] animate-ping' />
           </div>
         </CardHeader>
         <CardContent className='p-4 sm:p-6 pt-0'>
@@ -89,7 +89,7 @@ export function AttendanceOverviewCards({ stats, loading = false }: AttendanceOv
           </p>
           <div className='flex items-center mt-3 p-2 rounded-lg bg-white shadow-inner'>
             {stats.overall_percentage >= 75 ? (
-              <CheckCircle className='h-4 w-4 text-green-500 mr-2 animate-bounce' />
+              <CheckCircle className='h-4 w-4 text-[#0b6d41] mr-2 animate-bounce' />
             ) : (
               <AlertTriangle className='h-4 w-4 text-red-500 mr-2 animate-pulse' />
             )}
@@ -124,7 +124,7 @@ export function AttendanceOverviewCards({ stats, loading = false }: AttendanceOv
           />
           <div className='mt-3 space-y-2'>
             <p className='text-xs sm:text-sm text-gray-600 font-medium bg-white p-2 rounded-md shadow-inner'>
-              <Activity className='inline h-3 w-3 mr-1 text-green-500' />
+              <Activity className='inline h-3 w-3 mr-1 text-[#0b6d41]' />
               {stats.attended_periods} of {stats.total_periods} periods attended
             </p>
             <p className='text-xs sm:text-sm text-red-600 font-medium bg-red-50 p-2 rounded-md border border-red-200'>
@@ -191,7 +191,7 @@ export function AttendanceOverviewCards({ stats, loading = false }: AttendanceOv
             {stats.recent_trend.length > 0 && (
               stats.recent_trend[stats.recent_trend.length - 1]?.percentage >=
               stats.recent_trend[0]?.percentage ? (
-                <TrendingUp className='h-4 w-4 sm:h-5 sm:w-5 text-green-500 group-hover:scale-110 transition-transform duration-300 animate-bounce' />
+                <TrendingUp className='h-4 w-4 sm:h-5 sm:w-5 text-[#0b6d41] group-hover:scale-110 transition-transform duration-300 animate-bounce' />
               ) : (
                 <TrendingDown className='h-4 w-4 sm:h-5 sm:w-5 text-red-500 group-hover:scale-110 transition-transform duration-300 animate-bounce' />
               )

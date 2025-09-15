@@ -48,3 +48,36 @@ export async function handleApiResponse(response: Response) {
   }
   return response.json();
 }
+
+/**
+ * Formats a number as currency in Indian Rupees
+ * @param amount - The amount to format
+ * @returns Formatted currency string
+ */
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(amount);
+}
+
+/**
+ * Formats a date string or Date object as a readable date
+ * @param date - The date to format (string or Date)
+ * @returns Formatted date string
+ */
+export function formatDate(date: string | Date): string {
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+
+  if (isNaN(dateObj.getTime())) {
+    return 'Invalid Date';
+  }
+
+  return new Intl.DateTimeFormat('en-IN', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  }).format(dateObj);
+}

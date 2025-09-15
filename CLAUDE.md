@@ -446,3 +446,4 @@ Examples:
 - Always restart Claude Code after updating MCP configuration
 - Check `.claude/SUPABASE_PROMPTS.md` for detailed Supabase templates
 - add to this memory for when i create a custorm roles for organization permision access
+- add to memory for "learners module brand color schema"

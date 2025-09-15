@@ -46,59 +46,70 @@ export function StudentSearchFilters({
   const [isLoadingSemesters, setIsLoadingSemesters] = useState(false);
   const [isLoadingSections, setIsLoadingSections] = useState(false);
 
-  // Debounced search state
+  // Local form state - no longer debounced, will be applied on search button click
   const [searchInput, setSearchInput] = useState(filters.first_name || '');
   const [rollNumberInput, setRollNumberInput] = useState(
     filters.roll_number || ''
   );
   const [mobileInput, setMobileInput] = useState(filters.mobile_number || '');
 
+  // Local filter state for dropdowns - will be applied on search button click
+  const [localFilters, setLocalFilters] = useState({
+    institution_id: filters.institution_id,
+    academic_year_id: filters.academic_year_id,
+    degree_id: filters.degree_id,
+    department_id: filters.department_id,
+    program_id: filters.program_id,
+    semester_id: filters.semester_id,
+    section_id: filters.section_id
+  });
+
   useEffect(() => {
     loadInstitutions();
   }, []);
 
-  // Load hierarchical data based on selections
+  // Load hierarchical data based on local filter selections
   useEffect(() => {
-    if (filters.institution_id) {
-      loadAcademicYears(filters.institution_id);
-      loadDegrees(filters.institution_id);
+    if (localFilters.institution_id) {
+      loadAcademicYears(localFilters.institution_id);
+      loadDegrees(localFilters.institution_id);
     } else {
       setAcademicYears([]);
       setDegrees([]);
     }
-  }, [filters.institution_id]);
+  }, [localFilters.institution_id]);
 
   useEffect(() => {
-    if (filters.degree_id && filters.institution_id) {
-      loadDepartments(filters.institution_id, filters.degree_id);
+    if (localFilters.degree_id && localFilters.institution_id) {
+      loadDepartments(localFilters.institution_id, localFilters.degree_id);
     } else {
       setDepartments([]);
     }
-  }, [filters.degree_id, filters.institution_id]);
+  }, [localFilters.degree_id, localFilters.institution_id]);
 
   useEffect(() => {
-    if (filters.department_id && filters.degree_id && filters.institution_id) {
-      loadPrograms(filters.institution_id, filters.degree_id, filters.department_id);
+    if (localFilters.department_id && localFilters.degree_id && localFilters.institution_id) {
+      loadPrograms(localFilters.institution_id, localFilters.degree_id, localFilters.department_id);
     } else {
       setPrograms([]);
     }
-  }, [filters.department_id, filters.degree_id, filters.institution_id]);
+  }, [localFilters.department_id, localFilters.degree_id, localFilters.institution_id]);
 
   useEffect(() => {
-    if (filters.program_id && filters.department_id && filters.degree_id && filters.institution_id) {
-      loadSemesters(filters.institution_id, filters.degree_id, filters.department_id, filters.program_id);
+    if (localFilters.program_id && localFilters.department_id && localFilters.degree_id && localFilters.institution_id) {
+      loadSemesters(localFilters.institution_id, localFilters.degree_id, localFilters.department_id, localFilters.program_id);
     } else {
       setSemesters([]);
     }
-  }, [filters.program_id, filters.department_id, filters.degree_id, filters.institution_id]);
+  }, [localFilters.program_id, localFilters.department_id, localFilters.degree_id, localFilters.institution_id]);
 
   useEffect(() => {
-    if (filters.semester_id && filters.program_id && filters.department_id && filters.degree_id && filters.institution_id) {
-      loadSections(filters.institution_id, filters.degree_id, filters.department_id, filters.program_id, filters.semester_id);
+    if (localFilters.semester_id && localFilters.program_id && localFilters.department_id && localFilters.degree_id && localFilters.institution_id) {
+      loadSections(localFilters.institution_id, localFilters.degree_id, localFilters.department_id, localFilters.program_id, localFilters.semester_id);
     } else {
       setSections([]);
     }
-  }, [filters.semester_id, filters.program_id, filters.department_id, filters.degree_id, filters.institution_id]);
+  }, [localFilters.semester_id, localFilters.program_id, localFilters.department_id, localFilters.degree_id, localFilters.institution_id]);
 
   // Sync local input states with filter props when they change
   useEffect(() => {
@@ -113,35 +124,51 @@ export function StudentSearchFilters({
     setMobileInput(filters.mobile_number || '');
   }, [filters.mobile_number]);
 
-  // Remove this old useEffect as it's replaced by the hierarchical loading above
+  // Search button handler - applies all local filters at once
+  const handleSearch = () => {
+    onFilterChange({
+      ...localFilters,
+      first_name: searchInput || undefined,
+      roll_number: rollNumberInput || undefined,
+      mobile_number: mobileInput || undefined,
+      page: 1 // Reset to first page when searching
+    });
+  };
 
-  // Debounce search inputs
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchInput !== filters.first_name) {
-        onFilterChange({ first_name: searchInput || undefined });
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [searchInput, filters.first_name, onFilterChange]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (rollNumberInput !== filters.roll_number) {
-        onFilterChange({ roll_number: rollNumberInput || undefined });
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [rollNumberInput, filters.roll_number, onFilterChange]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (mobileInput !== filters.mobile_number) {
-        onFilterChange({ mobile_number: mobileInput || undefined });
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [mobileInput, filters.mobile_number, onFilterChange]);
+  // Handle local filter changes (dropdowns)
+  const handleLocalFilterChange = (key: keyof typeof localFilters, value: string | undefined) => {
+    setLocalFilters(prev => ({
+      ...prev,
+      [key]: value,
+      // Reset dependent filters when parent changes
+      ...(key === 'institution_id' && {
+        academic_year_id: undefined,
+        degree_id: undefined,
+        department_id: undefined,
+        program_id: undefined,
+        semester_id: undefined,
+        section_id: undefined
+      }),
+      ...(key === 'degree_id' && {
+        department_id: undefined,
+        program_id: undefined,
+        semester_id: undefined,
+        section_id: undefined
+      }),
+      ...(key === 'department_id' && {
+        program_id: undefined,
+        semester_id: undefined,
+        section_id: undefined
+      }),
+      ...(key === 'program_id' && {
+        semester_id: undefined,
+        section_id: undefined
+      }),
+      ...(key === 'semester_id' && {
+        section_id: undefined
+      })
+    }));
+  };
 
   const loadInstitutions = async () => {
     try {
@@ -267,6 +294,16 @@ export function StudentSearchFilters({
     setSearchInput('');
     setRollNumberInput('');
     setMobileInput('');
+    setLocalFilters({
+      institution_id: undefined,
+      academic_year_id: undefined,
+      degree_id: undefined,
+      department_id: undefined,
+      program_id: undefined,
+      semester_id: undefined,
+      section_id: undefined
+    });
+    // Also clear the actual filters
     onFilterChange({
       first_name: undefined,
       roll_number: undefined,
@@ -293,6 +330,18 @@ export function StudentSearchFilters({
     filters.semester_id ||
     filters.section_id;
 
+  const hasLocalChanges =
+    searchInput !== (filters.first_name || '') ||
+    rollNumberInput !== (filters.roll_number || '') ||
+    mobileInput !== (filters.mobile_number || '') ||
+    localFilters.institution_id !== filters.institution_id ||
+    localFilters.academic_year_id !== filters.academic_year_id ||
+    localFilters.degree_id !== filters.degree_id ||
+    localFilters.department_id !== filters.department_id ||
+    localFilters.program_id !== filters.program_id ||
+    localFilters.semester_id !== filters.semester_id ||
+    localFilters.section_id !== filters.section_id;
+
   return (
     <div className='space-y-4 mb-6'>
       <div className='flex items-center gap-2 mb-4'>
@@ -309,6 +358,7 @@ export function StudentSearchFilters({
             placeholder='Search by student name...'
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             className='pl-10'
           />
         </div>
@@ -319,6 +369,7 @@ export function StudentSearchFilters({
             placeholder='Search by roll number...'
             value={rollNumberInput}
             onChange={(e) => setRollNumberInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
         </div>
 
@@ -328,6 +379,7 @@ export function StudentSearchFilters({
             placeholder='Search by mobile number...'
             value={mobileInput}
             onChange={(e) => setMobileInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
         </div>
       </div>
@@ -336,17 +388,9 @@ export function StudentSearchFilters({
       <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
         {/* Institution Filter */}
         <Select
-          value={filters.institution_id || 'all'}
+          value={localFilters.institution_id || 'all'}
           onValueChange={(value) =>
-            onFilterChange({
-              institution_id: value === 'all' ? undefined : value,
-              academic_year_id: undefined,
-              degree_id: undefined,
-              department_id: undefined,
-              program_id: undefined,
-              semester_id: undefined,
-              section_id: undefined
-            })
+            handleLocalFilterChange('institution_id', value === 'all' ? undefined : value)
           }
         >
           <SelectTrigger>
@@ -370,18 +414,16 @@ export function StudentSearchFilters({
 
         {/* Academic Year Filter */}
         <Select
-          value={filters.academic_year_id || 'all'}
+          value={localFilters.academic_year_id || 'all'}
           onValueChange={(value) =>
-            onFilterChange({
-              academic_year_id: value === 'all' ? undefined : value
-            })
+            handleLocalFilterChange('academic_year_id', value === 'all' ? undefined : value)
           }
-          disabled={!filters.institution_id || isLoadingAcademicYears}
+          disabled={!localFilters.institution_id || isLoadingAcademicYears}
         >
           <SelectTrigger>
             <SelectValue
               placeholder={
-                !filters.institution_id
+                !localFilters.institution_id
                   ? 'Select institution first'
                   : isLoadingAcademicYears
                   ? 'Loading academic years...'
@@ -404,23 +446,16 @@ export function StudentSearchFilters({
       <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
         {/* Degree Filter */}
         <Select
-          value={filters.degree_id || 'all'}
-          onValueChange={(value) => {
-            const degreeId = value === 'all' ? undefined : value;
-            onFilterChange({
-              degree_id: degreeId,
-              department_id: undefined,
-              program_id: undefined,
-              semester_id: undefined,
-              section_id: undefined
-            });
-          }}
-          disabled={!filters.institution_id || isLoadingDegrees}
+          value={localFilters.degree_id || 'all'}
+          onValueChange={(value) =>
+            handleLocalFilterChange('degree_id', value === 'all' ? undefined : value)
+          }
+          disabled={!localFilters.institution_id || isLoadingDegrees}
         >
           <SelectTrigger>
             <SelectValue
               placeholder={
-                !filters.institution_id
+                !localFilters.institution_id
                   ? 'Select institution first'
                   : isLoadingDegrees
                   ? 'Loading degrees...'
@@ -440,22 +475,16 @@ export function StudentSearchFilters({
 
         {/* Department Filter */}
         <Select
-          value={filters.department_id || 'all'}
-          onValueChange={(value) => {
-            const departmentId = value === 'all' ? undefined : value;
-            onFilterChange({
-              department_id: departmentId,
-              program_id: undefined,
-              semester_id: undefined,
-              section_id: undefined
-            });
-          }}
-          disabled={!filters.degree_id || isLoadingDepartments}
+          value={localFilters.department_id || 'all'}
+          onValueChange={(value) =>
+            handleLocalFilterChange('department_id', value === 'all' ? undefined : value)
+          }
+          disabled={!localFilters.degree_id || isLoadingDepartments}
         >
           <SelectTrigger>
             <SelectValue
               placeholder={
-                !filters.degree_id
+                !localFilters.degree_id
                   ? 'Select degree first'
                   : isLoadingDepartments
                   ? 'Loading departments...'
@@ -475,21 +504,16 @@ export function StudentSearchFilters({
 
         {/* Program Filter */}
         <Select
-          value={filters.program_id || 'all'}
-          onValueChange={(value) => {
-            const programId = value === 'all' ? undefined : value;
-            onFilterChange({
-              program_id: programId,
-              semester_id: undefined,
-              section_id: undefined
-            });
-          }}
-          disabled={!filters.department_id || isLoadingPrograms}
+          value={localFilters.program_id || 'all'}
+          onValueChange={(value) =>
+            handleLocalFilterChange('program_id', value === 'all' ? undefined : value)
+          }
+          disabled={!localFilters.department_id || isLoadingPrograms}
         >
           <SelectTrigger>
             <SelectValue
               placeholder={
-                !filters.department_id
+                !localFilters.department_id
                   ? 'Select department first'
                   : isLoadingPrograms
                   ? 'Loading programs...'
@@ -512,20 +536,16 @@ export function StudentSearchFilters({
       <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
         {/* Semester Filter */}
         <Select
-          value={filters.semester_id || 'all'}
-          onValueChange={(value) => {
-            const semesterId = value === 'all' ? undefined : value;
-            onFilterChange({
-              semester_id: semesterId,
-              section_id: undefined
-            });
-          }}
-          disabled={!filters.program_id || isLoadingSemesters}
+          value={localFilters.semester_id || 'all'}
+          onValueChange={(value) =>
+            handleLocalFilterChange('semester_id', value === 'all' ? undefined : value)
+          }
+          disabled={!localFilters.program_id || isLoadingSemesters}
         >
           <SelectTrigger>
             <SelectValue
               placeholder={
-                !filters.program_id
+                !localFilters.program_id
                   ? 'Select program first'
                   : isLoadingSemesters
                   ? 'Loading semesters...'
@@ -545,18 +565,16 @@ export function StudentSearchFilters({
 
         {/* Section Filter */}
         <Select
-          value={filters.section_id || 'all'}
+          value={localFilters.section_id || 'all'}
           onValueChange={(value) =>
-            onFilterChange({
-              section_id: value === 'all' ? undefined : value
-            })
+            handleLocalFilterChange('section_id', value === 'all' ? undefined : value)
           }
-          disabled={!filters.semester_id || isLoadingSections}
+          disabled={!localFilters.semester_id || isLoadingSections}
         >
           <SelectTrigger>
             <SelectValue
               placeholder={
-                !filters.semester_id
+                !localFilters.semester_id
                   ? 'Select semester first'
                   : isLoadingSections
                   ? 'Loading sections...'
@@ -575,20 +593,40 @@ export function StudentSearchFilters({
         </Select>
       </div>
 
-      {/* Clear Filters */}
-      {hasActiveFilters && (
-        <div className='flex justify-end'>
+      {/* Search and Clear Buttons */}
+      <div className='flex justify-between items-center gap-4'>
+        <div className='flex gap-2'>
           <Button
-            variant='outline'
+            onClick={handleSearch}
             size='sm'
-            onClick={handleClearFilters}
-            className='h-8'
+            className={`h-9 px-6 ${hasLocalChanges ? 'animate-pulse bg-primary' : ''}`}
+            disabled={!searchInput && !rollNumberInput && !mobileInput && !Object.values(localFilters).some(Boolean)}
           >
-            <X className='mr-2 h-4 w-4' />
-            Clear Filters
+            <Search className='mr-2 h-4 w-4' />
+            Search Students {hasLocalChanges && '(Updated)'}
           </Button>
+
+          {hasActiveFilters && (
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={handleClearFilters}
+              className='h-9'
+            >
+              <X className='mr-2 h-4 w-4' />
+              Clear Filters
+            </Button>
+          )}
         </div>
-      )}
+
+        <div className='text-xs text-muted-foreground'>
+          {hasLocalChanges
+            ? '⚡ You have unsaved changes. Click "Search Students" to apply them.'
+            : hasActiveFilters
+            ? 'Search applied. Make changes and click "Search Students" to update results.'
+            : 'Use the search button to find students. Press Enter in search fields for quick search.'}
+        </div>
+      </div>
     </div>
   );
 }
