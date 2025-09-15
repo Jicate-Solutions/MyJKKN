@@ -18,6 +18,14 @@ import {
 } from '@/components/ui/form';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 import { BasicDetailsForm } from './form-sections/basic-details';
 import { AcademicInformationForm } from './form-sections/academic-information';
 import { ContactDetailsForm } from './form-sections/contact-details';
@@ -147,6 +155,7 @@ export function AdmissionForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingSection, setIsSavingSection] = useState(false);
   const [savedAdmissionId, setSavedAdmissionId] = useState(initialData?.id || null);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   // Use the React Query mutations
   const createAdmission = useCreateAdmission();
@@ -468,6 +477,43 @@ export function AdmissionForm({
       if (Object.keys(errors).length > 0) {
         toast.error('Please correct the format errors before continuing');
       }
+    }
+  };
+
+  // Handle cancel button click
+  const handleCancel = () => {
+    setShowCancelDialog(true);
+  };
+
+  // Handle confirmed cancellation
+  const handleConfirmCancel = async () => {
+    setShowCancelDialog(false);
+
+    try {
+      // If there's a saved admission ID, delete the draft
+      if (savedAdmissionId) {
+        const { error } = await supabase
+          .from('admissions')
+          .delete()
+          .eq('id', savedAdmissionId)
+          .eq('status', 'draft'); // Only delete if it's a draft
+
+        if (error) {
+          console.error('Error deleting draft admission:', error);
+          toast.error('Failed to cancel admission. Please try again.');
+          return;
+        }
+
+        toast.success('Draft admission cancelled successfully');
+      } else {
+        toast.success('Admission cancelled');
+      }
+
+      // Redirect back to admissions list
+      router.push('/admissions');
+    } catch (error) {
+      console.error('Error cancelling admission:', error);
+      toast.error('Failed to cancel admission. Please try again.');
     }
   };
 
@@ -863,29 +909,41 @@ export function AdmissionForm({
         </Tabs>
 
         <div className='flex justify-between'>
-          <Button
-            type='button'
-            variant='outline'
-            onClick={goToPreviousTab}
-            disabled={activeTab === formTabs[0].id || isSubmitting || isSavingSection || saveDraftAdmission.isPending || updateDraftAdmission.isPending || createAdmission.isPending || updateAdmission.isPending}
-          >
-            Previous
-          </Button>
+          <div className='flex gap-2'>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={goToPreviousTab}
+              disabled={activeTab === formTabs[0].id || isSubmitting || isSavingSection || saveDraftAdmission.isPending || updateDraftAdmission.isPending || createAdmission.isPending || updateAdmission.isPending}
+            >
+              Previous
+            </Button>
+
+            <Button
+              type='button'
+              variant='destructive'
+              onClick={handleCancel}
+              disabled={isSubmitting || isSavingSection || saveDraftAdmission.isPending || updateDraftAdmission.isPending || createAdmission.isPending || updateAdmission.isPending}
+              className='text-white'
+            >
+              Cancel
+            </Button>
+          </div>
 
           <div className='flex gap-2'>
             {activeTab !== formTabs[formTabs.length - 1].id ? (
               <>
-                <Button 
-                  type='button' 
-                  variant='outline' 
-                  onClick={handleNext} 
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={handleNext}
                   disabled={isSubmitting || isSavingSection || saveDraftAdmission.isPending || updateDraftAdmission.isPending || createAdmission.isPending || updateAdmission.isPending}
                 >
                   Next
                 </Button>
-                <Button 
-                  type='button' 
-                  onClick={handleSaveAndNext} 
+                <Button
+                  type='button'
+                  onClick={handleSaveAndNext}
                   disabled={isSubmitting || isSavingSection || saveDraftAdmission.isPending || updateDraftAdmission.isPending}
                 >
                   {(isSavingSection || saveDraftAdmission.isPending || updateDraftAdmission.isPending) ? 'Saving...' : 'Save & Next'}
@@ -905,6 +963,36 @@ export function AdmissionForm({
           </div>
         </div>
       </form>
+
+      {/* Cancel Confirmation Dialog */}
+      <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <DialogContent className='sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle>Cancel Admission</DialogTitle>
+            <DialogDescription>
+              {savedAdmissionId
+                ? 'Are you sure you want to cancel this admission? All saved data will be permanently deleted and cannot be recovered.'
+                : 'Are you sure you want to cancel this admission? Any unsaved changes will be lost.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className='flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2'>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setShowCancelDialog(false)}
+            >
+              Keep Editing
+            </Button>
+            <Button
+              type='button'
+              variant='destructive'
+              onClick={handleConfirmCancel}
+            >
+              {savedAdmissionId ? 'Delete & Cancel' : 'Cancel'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Form>
   );
 }
