@@ -1071,7 +1071,8 @@ export default function AttendanceMarkPage() {
             marker_id: profile?.id || '',
             marker_name: markerName,
             marker_role: profile?.role || 'faculty',
-            marker_email: markerEmail || profile?.email || ''
+            marker_email: markerEmail || profile?.email || '',
+            marked_at: new Date().toISOString() // Add timestamp when period is marked
           },
           students: students.map((student) => ({
             student_id: student.id,

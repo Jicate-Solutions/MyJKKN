@@ -27,10 +27,12 @@ import {
   Image as ImageIcon,
   ChevronLeft,
   ChevronRight,
-  X
+  X,
+  Heart
 } from 'lucide-react';
 import { Application } from '@/types/applications';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useFavorites } from '@/hooks/use-favorites';
 
 interface LearnerAppDetailDialogProps {
   application: Application;
@@ -47,6 +49,8 @@ export function LearnerAppDetailDialog({
 }: LearnerAppDetailDialogProps) {
   const [currentScreenshot, setCurrentScreenshot] = useState(0);
   const [imageError, setImageError] = useState(false);
+
+  const { isFavorite, toggleFavorite, loading: favoritesLoading } = useFavorites();
 
   const mockRating = 4.2 + Math.random() * 0.8;
   const mockDownloads = Math.floor(Math.random() * 5000) + 1000;
@@ -183,15 +187,31 @@ export function LearnerAppDetailDialog({
                       <Play className='h-4 w-4 mr-2' />
                       Launch App
                     </Button>
-                    <Button
-                      variant='outline'
-                      onClick={() => window.open(application.url, '_blank')}
-                      className='w-full sm:w-auto px-4 sm:px-6 py-2.5 rounded-full border-2'
-                    >
-                      <ExternalLink className='h-4 w-4 mr-2' />
-                      <span className='hidden sm:inline'>Open in New Tab</span>
-                      <span className='sm:hidden'>Open External</span>
-                    </Button>
+                    <div className='flex gap-2 w-full sm:w-auto'>
+                      <Button
+                        variant='outline'
+                        onClick={() => window.open(application.url, '_blank')}
+                        className='flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-full border-2'
+                      >
+                        <ExternalLink className='h-4 w-4 mr-2' />
+                        <span className='hidden sm:inline'>Open in New Tab</span>
+                        <span className='sm:hidden'>Open External</span>
+                      </Button>
+                      <Button
+                        variant='outline'
+                        onClick={async () => await toggleFavorite(application.id)}
+                        disabled={favoritesLoading}
+                        className='flex-shrink-0 px-3 py-2.5 rounded-full border-2 hover:bg-pink-50 hover:border-pink-300 transition-colors duration-200'
+                      >
+                        <Heart
+                          className={`h-4 w-4 transition-all duration-200 ${
+                            isFavorite(application.id)
+                              ? 'fill-pink-500 text-pink-500'
+                              : 'text-gray-400 hover:text-pink-400'
+                          }`}
+                        />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -640,6 +640,12 @@ export default function AttendanceReportDetailPage() {
                                       <Mail className='h-3 w-3' />
                                       {period.marked_by_details.marker_email}
                                     </p>
+                                    {period.marked_by_details.marked_at && (
+                                      <p className='text-xs text-gray-600 flex items-center gap-1 mt-1'>
+                                        <Clock className='h-3 w-3' />
+                                        {format(new Date(period.marked_by_details.marked_at), 'MMM dd, yyyy hh:mm a')}
+                                      </p>
+                                    )}
                                   </div>
                                 ) : (
                                   <p className='text-gray-500'>

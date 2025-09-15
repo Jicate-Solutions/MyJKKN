@@ -1761,8 +1761,33 @@ CREATE POLICY "Users can view their own permissions" ON public.user_child_app_pe
 CREATE POLICY "Admins can manage user permissions" ON public.user_child_app_permissions
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM profiles 
-            WHERE id = auth.uid() 
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND role IN ('admin', 'super_admin')
+        )
+    );
+
+-- =================================
+-- USER APP FAVORITES POLICIES
+-- Updated: 2025-01-17 - Added favorite apps functionality
+-- =================================
+
+-- Users can manage their own favorites
+CREATE POLICY "Users can view their own favorites" ON public.user_app_favorites
+    FOR SELECT USING (user_id = auth.uid());
+
+CREATE POLICY "Users can add their own favorites" ON public.user_app_favorites
+    FOR INSERT WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "Users can remove their own favorites" ON public.user_app_favorites
+    FOR DELETE USING (user_id = auth.uid());
+
+-- Admins can view all favorites for analytics
+CREATE POLICY "Admins can view all favorites" ON public.user_app_favorites
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
             AND role IN ('admin', 'super_admin')
         )
     );

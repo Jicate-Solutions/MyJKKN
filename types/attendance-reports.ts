@@ -68,6 +68,7 @@ export interface PeriodDetail {
     marker_name: string;
     marker_role: string;
     marker_email: string;
+    marked_at: string; // ISO timestamp when the period was marked
   };
   students: StudentAttendance[];
   total_students: number;
@@ -144,6 +145,7 @@ export interface DetailedAttendanceReport {
       marker_name: string;
       marker_role: string;
       marker_email: string;
+      marked_at: string; // ISO timestamp when the period was marked
     };
     students: {
       student_id: string;

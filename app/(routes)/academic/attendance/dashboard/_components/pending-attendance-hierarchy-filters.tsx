@@ -225,12 +225,10 @@ export function PendingAttendanceHierarchyFilters({
                     onSelect={handleDateSelect}
                     initialFocus
                     disabled={(date) => {
-                      // Disable dates more than 1 year in the future
-                      const oneYearFromNow = new Date();
-                      oneYearFromNow.setFullYear(
-                        oneYearFromNow.getFullYear() + 1
-                      );
-                      return date > oneYearFromNow;
+                      // Disable future dates (only allow present and past dates)
+                      const today = new Date();
+                      today.setHours(23, 59, 59, 999); // Set to end of today
+                      return date > today;
                     }}
                   />
                 </PopoverContent>

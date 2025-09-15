@@ -1202,6 +1202,32 @@ CREATE INDEX IF NOT EXISTS idx_child_app_access_logs_user_id ON public.child_app
 CREATE INDEX IF NOT EXISTS idx_child_app_access_logs_created_at ON public.child_app_access_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_user_child_app_permissions_user_id ON public.user_child_app_permissions(user_id);
 
+-- =================================
+-- LEARNER APP FAVORITES MODULE
+-- Updated: 2025-01-17 - Added app favorites functionality
+-- Purpose: Allow students to favorite and bookmark applications
+-- =================================
+
+-- Table for user app favorites
+CREATE TABLE IF NOT EXISTS public.user_app_favorites (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    application_id UUID NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+    -- Constraints
+    UNIQUE(user_id, application_id)
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_user_app_favorites_user_id ON user_app_favorites(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_app_favorites_application_id ON user_app_favorites(application_id);
+CREATE INDEX IF NOT EXISTS idx_user_app_favorites_created_at ON user_app_favorites(created_at DESC);
+
+-- Enable RLS
+ALTER TABLE user_app_favorites ENABLE ROW LEVEL SECURITY;
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================
