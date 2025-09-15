@@ -33,7 +33,7 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
     isSuperAdmin || canAccess('billing.schedule', 'create');
   const canBulkCreate = isSuperAdmin || canAccess('billing.schedule', 'create');
 
-  // Check if we have meaningful search criteria
+  // Check if we have meaningful search criteria (now optional - allows viewing all students)
   const hasSearchCriteria = React.useMemo(() => {
     return !!(
       search.institution_id ||
@@ -60,20 +60,6 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       sort_by: string;
       sort_order: string;
     }) => {
-      // Don't fetch if we don't have search criteria
-      if (!hasSearchCriteria) {
-        return {
-          success: true,
-          data: [],
-          pagination: {
-            page: 1,
-            limit: params.limit,
-            total_pages: 0,
-            total_items: 0
-          }
-        };
-      }
-
       try {
         // Map the DataTable parameters to our StudentSearchService parameters
         const filters = {
@@ -129,8 +115,7 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       search.section_id,
       search.is_profile_complete,
       isSuperAdmin,
-      userProfile?.institution_id,
-      hasSearchCriteria
+      userProfile?.institution_id
     ]
   );
 
@@ -232,18 +217,10 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
     );
   }
 
-  // Show message if no search criteria
-  if (!hasSearchCriteria) {
-    return (
-      <div className='flex flex-col justify-center items-center p-8 min-h-[200px] text-center'>
-        <Users className='h-10 w-10 text-blue-500 mb-4' />
-        <p className='text-lg font-semibold'>Begin Your Search</p>
-        <p className='text-sm text-muted-foreground'>
-          Use the filters above to find specific students.
-        </p>
-      </div>
-    );
-  }
+  // Show informational message when no search criteria are applied
+  const showSearchHint = !hasSearchCriteria;
+
+  // Note: We removed the early return here to allow viewing all students without filters
 
   return (
     <DataTable

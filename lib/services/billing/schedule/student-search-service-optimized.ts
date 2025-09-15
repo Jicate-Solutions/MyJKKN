@@ -9,19 +9,21 @@ import type {
 export class StudentSearchServiceOptimized {
   private static supabase = createClientSupabaseClient();
 
-  // Existing optimized search methods (keep original implementations)
+  // Import the regular service methods to avoid code duplication
   static async searchStudentsForBilling(
     filters: StudentSearchFilters
   ): Promise<StudentForBillingListResponse> {
-    // Keep existing implementation - it's already optimized
-    return this.searchStudentsForBilling(filters);
+    // Use the regular service implementation which is correct
+    const { StudentSearchService } = await import('./student-search-service');
+    return StudentSearchService.searchStudentsForBilling(filters);
   }
 
   static async getStudentForBilling(
     studentId: string
   ): Promise<StudentForBilling> {
-    // Keep existing implementation - it's already optimized
-    return this.getStudentForBilling(studentId);
+    // Use the regular service implementation which is correct
+    const { StudentSearchService } = await import('./student-search-service');
+    return StudentSearchService.getStudentForBilling(studentId);
   }
 
   static async searchStudentsByQuery(
@@ -29,8 +31,9 @@ export class StudentSearchServiceOptimized {
     institutionId?: string,
     limit: number = 10
   ): Promise<StudentForBilling[]> {
-    // Keep existing implementation - it's already optimized
-    return this.searchStudentsByQuery(searchQuery, institutionId, limit);
+    // Use the regular service implementation which is correct
+    const { StudentSearchService } = await import('./student-search-service');
+    return StudentSearchService.searchStudentsByQuery(searchQuery, institutionId, limit);
   }
 
   // OPTIMIZED: Fix the complex cascading query issues

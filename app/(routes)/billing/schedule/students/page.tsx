@@ -45,76 +45,25 @@ function BillingStudentsContent() {
     });
   }, [searchParams]);
 
-  // Legacy filter state for the search filters component - memoized to prevent recreation
-  const [filters, setFilters] = useState(() => {
-    const urlFilters = {
+  // Simplified filter state management - derive filters from search params
+  const filters = useMemo(() => {
+    return {
       page: search.page,
-      limit: search.pageSize
-    } as any;
-
-    // Copy search parameters to legacy filter format
-    Object.keys(search).forEach((key) => {
-      if (
-        search[key as keyof typeof search] !== undefined &&
-        key !== 'page' &&
-        key !== 'pageSize'
-      ) {
-        urlFilters[key] = search[key as keyof typeof search];
-      }
-    });
-
-    return urlFilters;
-  });
-
-  // Update filters when search params change but avoid unnecessary updates
-  useEffect(() => {
-    const newFilters = {
-      page: search.page,
-      limit: search.pageSize
-    } as any;
-
-    Object.keys(search).forEach((key) => {
-      if (
-        search[key as keyof typeof search] !== undefined &&
-        key !== 'page' &&
-        key !== 'pageSize'
-      ) {
-        newFilters[key] = search[key as keyof typeof search];
-      }
-    });
-
-    // Only update if filters actually changed
-    const hasChanged = JSON.stringify(filters) !== JSON.stringify(newFilters);
-    if (hasChanged) {
-      setFilters(newFilters);
-    }
-  }, [search, filters]);
-
-  // Update URL when filters change (debounced to prevent excessive updates)
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      const params = new URLSearchParams();
-
-      // Add filter parameters to URL
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
-          params.set(key, value.toString());
-        }
-      });
-
-      // Update URL without triggering navigation
-      const newUrl = params.toString() ? `?${params.toString()}` : '';
-      const currentUrl = window.location.search;
-
-      if (currentUrl !== newUrl) {
-        router.replace(`/billing/schedule/students${newUrl}`, {
-          scroll: false
-        });
-      }
-    }, 300); // 300ms debounce
-
-    return () => clearTimeout(timeoutId);
-  }, [filters, router]);
+      limit: search.pageSize,
+      first_name: search.first_name,
+      last_name: search.last_name,
+      roll_number: search.roll_number,
+      mobile_number: search.mobile_number,
+      institution_id: search.institution_id,
+      academic_year_id: search.academic_year_id,
+      degree_id: search.degree_id,
+      department_id: search.department_id,
+      program_id: search.program_id,
+      semester_id: search.semester_id,
+      section_id: search.section_id,
+      is_profile_complete: search.is_profile_complete
+    };
+  }, [search]);
 
   // For backward compatibility with filters component, we still need this hook
   // but the actual data fetching will be handled by the DataTable
@@ -142,19 +91,33 @@ function BillingStudentsContent() {
   const handleFilterChange = (
     newFilters: Partial<StudentSearchFiltersType>
   ) => {
-    setFilters((prev: StudentSearchFiltersType) => ({
-      ...prev,
-      ...newFilters,
-      page: newFilters.page || 1
-    }));
+    const params = new URLSearchParams(searchParams);
+
+    // Update URL params with new filter values
+    Object.entries(newFilters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.set(key, value.toString());
+      } else {
+        params.delete(key);
+      }
+    });
+
+    // Reset to page 1 when filters change (unless explicitly setting page)
+    if (!('page' in newFilters)) {
+      params.set('page', '1');
+    }
+
+    // Update URL
+    const newUrl = params.toString() ? `?${params.toString()}` : '';
+    router.replace(`/billing/schedule/students${newUrl}`, { scroll: false });
   };
 
   const handlePageChange = (page: number) => {
-    setFilters((prev: StudentSearchFiltersType) => ({ ...prev, page }));
+    handleFilterChange({ page });
   };
 
   const handleClearFilters = () => {
-    setFilters({ page: 1, limit: 20 });
+    router.replace('/billing/schedule/students', { scroll: false });
   };
 
   const handleExport = () => {
