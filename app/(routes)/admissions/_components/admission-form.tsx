@@ -33,6 +33,7 @@ import { AccommodationPreferencesForm } from './form-sections/accommodation-pref
 import { AdmissionService } from '@/lib/services/admission/admission-service';
 import {
   useCreateAdmission,
+  useCreateAdmissionFromDraft,
   useUpdateAdmission,
   useSaveDraftAdmission,
   useUpdateDraftAdmission
@@ -159,6 +160,7 @@ export function AdmissionForm({
 
   // Use the React Query mutations
   const createAdmission = useCreateAdmission();
+  const createAdmissionFromDraft = useCreateAdmissionFromDraft();
   const updateAdmission = useUpdateAdmission(initialData?.id);
   const saveDraftAdmission = useSaveDraftAdmission();
   const updateDraftAdmission = useUpdateDraftAdmission();
@@ -734,21 +736,42 @@ export function AdmissionForm({
           }
         });
       } else {
-        // Create new admission application
-        createAdmission.mutate(formattedData, {
-          onSuccess: (data) => {
-            toast.success('Admission application submitted successfully');
+        // Check if this is a conversion from draft to final
+        if (savedAdmissionId) {
+          // Convert draft to final submission
+          createAdmissionFromDraft.mutate(
+            { draftId: savedAdmissionId, data: formattedData },
+            {
+              onSuccess: (data) => {
+                toast.success('Admission application submitted successfully');
+                // Redirect to the admissions list page
+                router.push('/admissions');
+              },
+              onError: (error: Error) => {
+                console.error('Error converting draft to final admission:', error);
+                toast.error(
+                  `Failed to submit admission application: ${error.message}`
+                );
+              }
+            }
+          );
+        } else {
+          // Create new admission application (no draft exists)
+          createAdmission.mutate(formattedData, {
+            onSuccess: (data) => {
+              toast.success('Admission application submitted successfully');
 
-            // Redirect to the admissions list page
-            router.push('/admissions');
-          },
-          onError: (error: Error) => {
-            console.error('Error creating admission:', error);
-            toast.error(
-              `Failed to submit admission application: ${error.message}`
-            );
-          }
-        });
+              // Redirect to the admissions list page
+              router.push('/admissions');
+            },
+            onError: (error: Error) => {
+              console.error('Error creating admission:', error);
+              toast.error(
+                `Failed to submit admission application: ${error.message}`
+              );
+            }
+          });
+        }
       }
     } catch (error: any) {
       console.error('Error submitting form:', error);
@@ -950,8 +973,8 @@ export function AdmissionForm({
                 </Button>
               </>
             ) : (
-              <Button type='submit' disabled={isSubmitting || isSavingSection || createAdmission.isPending || updateAdmission.isPending}>
-                {(isSubmitting || createAdmission.isPending || updateAdmission.isPending)
+              <Button type='submit' disabled={isSubmitting || isSavingSection || createAdmission.isPending || createAdmissionFromDraft.isPending || updateAdmission.isPending}>
+                {(isSubmitting || createAdmission.isPending || createAdmissionFromDraft.isPending || updateAdmission.isPending)
                   ? isEditing
                     ? 'Updating...'
                     : 'Submitting...'

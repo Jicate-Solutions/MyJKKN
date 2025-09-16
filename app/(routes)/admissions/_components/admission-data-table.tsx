@@ -305,13 +305,20 @@ export function AdmissionDataTable({
       id: 'status',
       header: 'Status',
       cell: ({ row }) => (
-        <Badge
-          variant='outline'
-          className={getStatusColor(row.original.status)}
-        >
-          {row.original.status?.charAt(0).toUpperCase() +
-            row.original.status?.slice(1) || 'Unknown'}
-        </Badge>
+        <div className="flex flex-col gap-1">
+          <Badge
+            variant='outline'
+            className={getStatusColor(row.original.status)}
+          >
+            {row.original.status?.charAt(0).toUpperCase() +
+              row.original.status?.slice(1) || 'Unknown'}
+          </Badge>
+          {row.original.student?.id && (
+            <Badge variant="secondary" className="text-xs">
+              Has Student Record
+            </Badge>
+          )}
+        </div>
       )
     },
     {
@@ -327,7 +334,7 @@ export function AdmissionDataTable({
   const tableTools = (
     <div className='flex items-center gap-2'>
       <DownloadTemplateButton />
-      {canCreate && <BulkUploadAdmissions />}
+      {canCreate && <BulkUploadAdmissions onSuccess={onRefresh} />}
       {canCreate && (
         <Button onClick={() => router.push('/admissions/new')}>
           <Plus className='mr-2 h-4 w-4' />

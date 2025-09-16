@@ -84,6 +84,9 @@ export interface Admission {
     id: string;
     course_name: string;
   };
+  student?: {
+    id: string;
+  } | null;
 }
 
 export interface CreateAdmissionDto

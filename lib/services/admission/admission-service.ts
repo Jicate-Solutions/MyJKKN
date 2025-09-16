@@ -45,15 +45,18 @@ export class AdmissionService {
 
   static async createAdmission(data: CreateAdmissionDto): Promise<Admission> {
     try {
-      // Generate a unique application ID if not provided
-      const applicationId = data.application_id || await this.generateApplicationId();
+      // Database trigger will auto-generate application_id in JKKN-{counselling_code}-number format
+      console.log('Creating admission with data:', {
+        institution_id: data.institution_id,
+        first_name: data.first_name
+      });
 
       const { data: admission, error } = await this.supabase
         .from('admissions')
         .insert([
           {
             ...data,
-            application_id: applicationId,
+            // Remove application_id - let database trigger handle it
             status: data.status || 'pending',
             created_by: (await this.supabase.auth.getUser()).data.user?.id
           }
@@ -70,17 +73,60 @@ export class AdmissionService {
     }
   }
 
-  static async saveDraftAdmission(data: Partial<CreateAdmissionDto>): Promise<Admission> {
+  static async createAdmissionFromDraft(
+    draftId: string,
+    data: CreateAdmissionDto
+  ): Promise<Admission> {
     try {
-      // Generate a unique application ID
-      const applicationId = await this.generateApplicationId();
+      // Get the draft admission to preserve the application_id
+      const { data: draft, error: draftError } = await this.supabase
+        .from('admissions')
+        .select('application_id')
+        .eq('id', draftId)
+        .eq('status', 'draft')
+        .single();
+
+      if (draftError) throw draftError;
+
+      // Update the draft to final status instead of creating new record
+      const { data: admission, error } = await this.supabase
+        .from('admissions')
+        .update({
+          ...data,
+          application_id: draft.application_id, // Preserve existing application_id
+          status: 'pending',
+          updated_by: (await this.supabase.auth.getUser()).data.user?.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', draftId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return admission;
+    } catch (error) {
+      console.error('Error creating admission from draft:', error);
+      throw error;
+    }
+  }
+
+  static async saveDraftAdmission(
+    data: Partial<CreateAdmissionDto>
+  ): Promise<Admission> {
+    try {
+      // Database trigger will auto-generate application_id in JKKN-{counselling_code}-number format
+      console.log('Saving draft admission with data:', {
+        institution_id: data.institution_id,
+        first_name: data.first_name
+      });
 
       const { data: admission, error } = await this.supabase
         .from('admissions')
         .insert([
           {
             ...data,
-            application_id: applicationId,
+            // Remove application_id - let database trigger handle it
             status: 'draft',
             created_by: (await this.supabase.auth.getUser()).data.user?.id
           }
@@ -97,7 +143,10 @@ export class AdmissionService {
     }
   }
 
-  static async updateDraftAdmission(id: string, data: Partial<CreateAdmissionDto>): Promise<Admission> {
+  static async updateDraftAdmission(
+    id: string,
+    data: Partial<CreateAdmissionDto>
+  ): Promise<Admission> {
     try {
       const { data: admission, error } = await this.supabase
         .from('admissions')
@@ -222,6 +271,20 @@ export class AdmissionService {
 
   static async deleteAdmission(id: string): Promise<void> {
     try {
+      // First check if admission has associated student record
+      const { data: studentCheck } = await this.supabase
+        .from('students')
+        .select('id')
+        .eq('admission_id', id)
+        .maybeSingle();
+
+      if (studentCheck) {
+        toast.error(
+          'Cannot delete this admission - student record exists. Please handle through Student Management.'
+        );
+        throw new Error('Cannot delete admission with existing student record');
+      }
+
       const { error } = await this.supabase
         .from('admissions')
         .delete()
@@ -230,27 +293,92 @@ export class AdmissionService {
       if (error) throw error;
 
       toast.success('Admission application deleted successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting admission:', error);
-      toast.error('Failed to delete admission application');
+
+      // Handle specific foreign key constraint error
+      if (error.code === '23503') {
+        toast.error(
+          'Cannot delete this admission - it has associated student records'
+        );
+      } else if (error.message?.includes('student record exists')) {
+        // Already handled above with specific message
+      } else {
+        toast.error('Failed to delete admission application');
+      }
       throw error;
     }
   }
 
   static async bulkDeleteAdmissions(ids: string[]): Promise<void> {
     try {
-      const { error } = await this.supabase
-        .from('admissions')
-        .delete()
-        .in('id', ids);
+      // First check which admissions have associated student records
+      const { data: studentsCheck, error: checkError } = await this.supabase
+        .from('students')
+        .select('admission_id')
+        .in('admission_id', ids);
 
-      if (error) throw error;
+      if (checkError) throw checkError;
 
-      // Single success message for bulk delete
-      toast.success(`Successfully deleted ${ids.length} admission application${ids.length > 1 ? 's' : ''}`);
-    } catch (error) {
+      const admissionsWithStudents =
+        studentsCheck?.map((s) => s.admission_id) || [];
+      const admissionsToDelete = ids.filter(
+        (id) => !admissionsWithStudents.includes(id)
+      );
+
+      const results = {
+        deleted: 0,
+        skipped: admissionsWithStudents.length,
+        errors: [] as string[]
+      };
+
+      // Delete only admissions without student records
+      if (admissionsToDelete.length > 0) {
+        const { error } = await this.supabase
+          .from('admissions')
+          .delete()
+          .in('id', admissionsToDelete);
+
+        if (error) throw error;
+        results.deleted = admissionsToDelete.length;
+      }
+
+      // Show appropriate message based on results
+      if (results.deleted > 0 && results.skipped > 0) {
+        toast.success(
+          `Deleted ${results.deleted} admission(s). Skipped ${results.skipped} admission(s) with student records.`
+        );
+      } else if (results.deleted > 0) {
+        toast.success(
+          `Successfully deleted ${results.deleted} admission application${
+            results.deleted > 1 ? 's' : ''
+          }`
+        );
+      } else if (results.skipped > 0) {
+        toast.error(
+          `Cannot delete selected admissions - they have associated student records. Please handle through Student Management.`
+        );
+      }
+
+      if (results.skipped > 0) {
+        // Still throw error to indicate partial failure
+        throw new Error(
+          `${results.skipped} admission(s) could not be deleted due to existing student records`
+        );
+      }
+    } catch (error: any) {
       console.error('Error bulk deleting admissions:', error);
-      toast.error('Failed to delete selected admission applications');
+
+      // Handle specific foreign key constraint error
+      if (error.code === '23503') {
+        toast.error(
+          'Some admissions cannot be deleted - they have associated student records'
+        );
+      } else if (error.message?.includes('student records')) {
+        // Already handled above
+      } else {
+        toast.error('Failed to delete selected admission applications');
+      }
       throw error;
     }
   }
@@ -269,7 +397,8 @@ export class AdmissionService {
         `
           *,
           institution:institutions!institution_id(id, name),
-          program:programs!program_id(id, program_name)
+          program:programs!program_id(id, program_name),
+          student:students!admission_id(id)
         `,
         { count: 'exact' }
       );

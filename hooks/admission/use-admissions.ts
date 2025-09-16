@@ -60,6 +60,22 @@ export const useCreateAdmission = () => {
   });
 };
 
+// Create admission from draft (convert draft to final)
+export const useCreateAdmissionFromDraft = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ draftId, data }: { draftId: string; data: CreateAdmissionDto }) =>
+      AdmissionService.createAdmissionFromDraft(draftId, data),
+    onSuccess: () => {
+      // Invalidate all admission-related queries
+      queryClient.invalidateQueries({ queryKey: admissionKeys.all });
+      // Also remove all cached data to force fresh fetch
+      queryClient.removeQueries({ queryKey: admissionKeys.lists() });
+    }
+  });
+};
+
 // Update an existing admission
 export const useUpdateAdmission = (id: string) => {
   const queryClient = useQueryClient();
