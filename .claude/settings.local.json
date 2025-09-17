@@ -29,7 +29,11 @@
       "mcp__memory__create_entities",
       "Bash(grep:*)",
       "Bash(cat:*)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "Bash(node:*)",
+      "Bash(curl:*)",
+      "WebSearch",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []
