@@ -1,194 +1,135 @@
-// Service Worker for Push Notifications
-const CACHE_VERSION = 'v2'; // Increment this to force cache clear
-const CACHE_NAME = `myjkkn-notifications-${CACHE_VERSION}`;
-const isDevelopment = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
+const CACHE_NAME = 'myjkkn-v1';
+const urlsToCache = [
+  '/',
+  '/manifest.json',
+  '/offline',
+  '/icons/icon-192x192.png',
+  '/icons/icon-512x512.png'
+];
 
-// Install event
+// Install event - cache resources
 self.addEventListener('install', (event) => {
-  console.log('Service Worker: Install');
-  
-  // Force immediate activation
-  self.skipWaiting();
-  
-  // Clear all caches on install to prevent stale data
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          console.log('Service Worker: Clearing cache:', cacheName);
-          return caches.delete(cacheName);
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => {
+        return cache.addAll(urlsToCache);
+      })
+      .then(() => {
+        // Force the waiting service worker to become the active service worker
+        return self.skipWaiting();
+      })
+  );
+});
+
+// Activate event - clean up old caches
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((cacheNames) => {
+        return Promise.all(
+          cacheNames.map((cacheName) => {
+            if (cacheName !== CACHE_NAME) {
+              return caches.delete(cacheName);
+            }
+          })
+        );
+      })
+      .then(() => {
+        // Take control of all pages immediately
+        return self.clients.claim();
+      })
+  );
+});
+
+// Fetch event - serve from cache, fallback to network
+self.addEventListener('fetch', (event) => {
+  // Skip cross-origin requests
+  if (!event.request.url.startsWith(self.location.origin)) {
+    return;
+  }
+
+  // Handle navigation requests
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        // If network fails, serve offline page
+        return caches.match('/offline');
+      })
+    );
+    return;
+  }
+
+  // Handle other requests with cache-first strategy
+  event.respondWith(
+    caches.match(event.request).then((response) => {
+      // Return cached version or fetch from network
+      return (
+        response ||
+        fetch(event.request).then((response) => {
+          // Don't cache non-successful responses
+          if (
+            !response ||
+            response.status !== 200 ||
+            response.type !== 'basic'
+          ) {
+            return response;
+          }
+
+          // Clone the response before caching
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+
+          return response;
         })
       );
     })
   );
 });
 
-// Activate event
-self.addEventListener('activate', (event) => {
-  console.log('Service Worker: Activate');
-  
-  // Take control of all pages immediately
-  event.waitUntil(
-    Promise.all([
-      // Clear all old caches
-      caches.keys().then((cacheNames) => {
-        return Promise.all(
-          cacheNames.map((cache) => {
-            if (cache !== CACHE_NAME) {
-              console.log('Service Worker: Clearing old cache:', cache);
-              return caches.delete(cache);
-            }
-          })
-        );
-      }),
-      // Take control of all clients
-      self.clients.claim()
-    ])
-  );
+// Handle skip waiting message
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
-// Push event handler
+// Handle push notifications (optional)
 self.addEventListener('push', (event) => {
-  console.log('Service Worker: Push event received');
-
-  let notificationData;
-
-  try {
-    notificationData = event.data
-      ? event.data.json()
-      : {
-          title: 'New Notification',
-          body: 'You have a new notification',
-          icon: '/icon-192x192.png',
-          url: '/'
-        };
-  } catch (error) {
-    console.error('Error parsing push data:', error);
-    notificationData = {
-      title: 'New Notification',
-      body: 'You have a new notification',
-      icon: '/icon-192x192.png',
-      url: '/'
-    };
-  }
-
-  const notificationOptions = {
-    body: notificationData.body,
-    icon: notificationData.icon || '/icon-192x192.png',
-    badge: '/icon-192x192.png',
+  const options = {
+    body: event.data ? event.data.text() : 'New notification from MyJKKN',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-96x96.png',
+    vibrate: [100, 50, 100],
     data: {
-      url: notificationData.url || '/',
-      notification_id: notificationData.data?.notification_id,
-      priority: notificationData.data?.priority || 'normal'
+      dateOfArrival: Date.now(),
+      primaryKey: '1'
     },
-    tag: notificationData.data?.notification_id || 'general',
-    requireInteraction: notificationData.data?.priority === 'urgent',
     actions: [
       {
-        action: 'open',
-        title: 'Open',
-        icon: '/icon-192x192.png'
+        action: 'explore',
+        title: 'Open App',
+        icon: '/icons/icon-192x192.png'
       },
       {
         action: 'close',
-        title: 'Dismiss'
+        title: 'Close',
+        icon: '/icons/icon-192x192.png'
       }
     ]
   };
 
-  event.waitUntil(
-    self.registration.showNotification(
-      notificationData.title,
-      notificationOptions
-    )
-  );
+  event.waitUntil(self.registration.showNotification('MyJKKN', options));
 });
 
-// Notification click handler
+// Handle notification clicks
 self.addEventListener('notificationclick', (event) => {
-  console.log('Service Worker: Notification clicked');
+  event.notification.close();
 
-  const notification = event.notification;
-  const action = event.action;
-
-  if (action === 'close') {
-    notification.close();
-    return;
-  }
-
-  const urlToOpen = notification.data?.url || '/';
-
-  event.waitUntil(
-    clients
-      .matchAll({ type: 'window', includeUncontrolled: true })
-      .then((clientList) => {
-        // Check if the URL is already open in a tab
-        for (const client of clientList) {
-          if (client.url === urlToOpen && 'focus' in client) {
-            return client.focus();
-          }
-        }
-
-        // If no existing tab, open a new one
-        if (clients.openWindow) {
-          return clients.openWindow(urlToOpen);
-        }
-      })
-      .then(() => {
-        // Close the notification
-        notification.close();
-
-        // Mark notification as read via API if we have the notification_id
-        if (notification.data?.notification_id) {
-          fetch('/api/notifications/read', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              notification_ids: [notification.data.notification_id]
-            })
-          }).catch((error) => {
-            console.error('Error marking notification as read:', error);
-          });
-        }
-      })
-  );
-});
-
-// Fetch event handler - bypass cache in development
-self.addEventListener('fetch', (event) => {
-  // In development, always fetch from network to avoid offline issues
-  if (isDevelopment) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-  
-  // In production, use normal caching strategy
-  event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
-    })
-  );
-});
-
-// Background sync for offline notification handling
-self.addEventListener('sync', (event) => {
-  console.log('Service Worker: Background sync');
-
-  if (event.tag === 'background-sync-notifications') {
-    event.waitUntil(
-      // Handle any pending notification operations
-      console.log('Syncing notifications...')
-    );
-  }
-});
-
-// Message handler for communication with main thread
-self.addEventListener('message', (event) => {
-  console.log('Service Worker: Message received', event.data);
-
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
+  if (event.action === 'explore') {
+    event.waitUntil(clients.openWindow('/'));
   }
 });

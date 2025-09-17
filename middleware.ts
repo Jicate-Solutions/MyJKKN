@@ -9,7 +9,7 @@ const PUBLIC_PATHS = [
   '/auth/login',
   '/auth/callback',
   '/auth/complete-profile',
-  '/auth/child-app/consent',  // Add child app consent page
+  '/auth/child-app/consent', // Add child app consent page
   '/auth/child-app/authorize', // Add child app authorize page
   '/unauthorized',
   '/students/onboarding' // Add onboarding path for pending students
@@ -22,30 +22,67 @@ const isPublicPath = (path: string) =>
   path.startsWith('/api') ||
   path.includes('favicon.ico') ||
   path === '/sw.js' ||
+  path === '/manifest.json' ||
+  path === '/browserconfig.xml' ||
+  path.startsWith('/icons/') ||
+  path.startsWith('/pwa-test.html') ||
   path.endsWith('.js') ||
   path.endsWith('.css') ||
   path.endsWith('.png') ||
   path.endsWith('.ico') ||
-  path.endsWith('.svg');
+  path.endsWith('.svg') ||
+  path.endsWith('.json') ||
+  path.endsWith('.xml') ||
+  path.endsWith('.html');
 
 export async function middleware(request: NextRequest) {
   try {
     const currentPath = request.nextUrl.pathname;
-    
+
+    // Special handling for PWA files
+    if (currentPath === '/manifest.json') {
+      const response = NextResponse.next();
+      response.headers.set('Content-Type', 'application/manifest+json');
+      response.headers.set(
+        'Cache-Control',
+        'public, max-age=31536000, immutable'
+      );
+      return response;
+    }
+
+    if (currentPath === '/sw.js') {
+      const response = NextResponse.next();
+      response.headers.set(
+        'Content-Type',
+        'application/javascript; charset=utf-8'
+      );
+      response.headers.set('Service-Worker-Allowed', '/');
+      response.headers.set(
+        'Cache-Control',
+        'no-cache, no-store, must-revalidate'
+      );
+      return response;
+    }
+
     // Special handling for root path to prevent cache issues
     if (currentPath === '/') {
       const response = NextResponse.next();
-      response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+      response.headers.set(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+      );
       response.headers.set('Pragma', 'no-cache');
       response.headers.set('Expires', '0');
-      response.headers.set('X-App-Version', process.env.NEXT_PUBLIC_APP_VERSION || Date.now().toString());
+      // Use static app version to prevent refresh loops
+      const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
+      response.headers.set('X-App-Version', appVersion);
       return response;
     }
-    
+
     // Handle CORS for child-app API routes
     if (request.nextUrl.pathname.startsWith('/api/auth/child-app/')) {
       const origin = request.headers.get('origin');
-      
+
       // Handle preflight requests
       if (request.method === 'OPTIONS') {
         return new NextResponse(null, {
@@ -53,26 +90,44 @@ export async function middleware(request: NextRequest) {
           headers: {
             'Access-Control-Allow-Origin': origin || '*',
             'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+            'Access-Control-Allow-Headers':
+              'Content-Type, Authorization, X-API-Key',
             'Access-Control-Allow-Credentials': 'true',
-            'Access-Control-Max-Age': '86400',
-          },
+            'Access-Control-Max-Age': '86400'
+          }
         });
       }
 
       // For actual requests, add CORS headers
       const res = NextResponse.next();
       res.headers.set('Access-Control-Allow-Origin', origin || '*');
-      res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
+      res.headers.set(
+        'Access-Control-Allow-Methods',
+        'GET, POST, PUT, DELETE, OPTIONS'
+      );
+      res.headers.set(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, X-API-Key'
+      );
       res.headers.set('Access-Control-Allow-Credentials', 'true');
-      
+
+      return res;
+    }
+
+    // Skip middleware for public paths BEFORE creating Supabase client
+    if (isPublicPath(currentPath)) {
+      const res = NextResponse.next();
+      // Add cache headers for public paths too (but don't force reload)
+      res.headers.set('Cache-Control', 'no-store, must-revalidate');
+      // Remove dynamic timestamp that causes refreshes
+      const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
+      res.headers.set('X-App-Version', appVersion);
       return res;
     }
 
     const res = NextResponse.next();
 
-    // Create supabase client
+    // Create supabase client only for non-public paths
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -91,14 +146,6 @@ export async function middleware(request: NextRequest) {
         }
       }
     );
-
-    // Skip middleware for public paths
-    if (isPublicPath(currentPath)) {
-      // Add cache headers for public paths too
-      res.headers.set('Cache-Control', 'no-store, must-revalidate');
-      res.headers.set('X-App-Version', process.env.NEXT_PUBLIC_APP_VERSION || Date.now().toString());
-      return res;
-    }
 
     // Get and verify user - this sends a request to Supabase Auth server every time
     const {
@@ -296,7 +343,10 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/', request.url));
       }
       // Admin users trying to access guest or driver pages should be redirected to dashboard
-      if (currentPath.startsWith('/guest') || currentPath.startsWith('/driver')) {
+      if (
+        currentPath.startsWith('/guest') ||
+        currentPath.startsWith('/driver')
+      ) {
         return NextResponse.redirect(new URL('/', request.url));
       }
     }
@@ -326,6 +376,10 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    // PWA files (must be explicitly handled)
+    '/manifest.json',
+    '/sw.js',
+    '/browserconfig.xml',
     // API routes for child app authentication (CORS handling)
     '/api/auth/child-app/:path*',
     // Protected routes
@@ -343,6 +397,6 @@ export const config = {
     '/guest/:path*',
     '/driver/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|icons|pwa-test.html).*)'
   ]
 };

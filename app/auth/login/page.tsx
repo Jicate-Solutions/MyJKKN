@@ -97,8 +97,14 @@ export default function LoginPage() {
   // Combined auth check and child app detection
   useEffect(() => {
     let isMounted = true;
+    let hasRun = false; // Prevent multiple runs
 
     const initializeAuth = async () => {
+      if (hasRun) {
+        console.log('[Login Page] Auth check already running, skipping');
+        return;
+      }
+      hasRun = true;
       const params = new URLSearchParams(window.location.search);
 
       // Check if this is a child app authentication request
@@ -263,6 +269,23 @@ export default function LoginPage() {
             destination = redirectedFrom;
           }
 
+          // CRITICAL: Check if destination is the current login page to prevent loops
+          const currentPath = window.location.pathname;
+          if (destination === currentPath || destination === '/auth/login') {
+            console.warn('[Login Page] Preventing redirect loop to:', destination);
+            // Default to role-based dashboard instead
+            if (profile?.role === 'guest') {
+              destination = '/guest';
+            } else if (profile?.role === 'student') {
+              destination = '/learner';
+            } else if (profile?.role === 'driver') {
+              destination = '/driver';
+            } else {
+              destination = '/';
+            }
+          }
+
+          console.log('[Login Page] Redirecting authenticated user to:', destination);
           router.push(destination);
         } else {
           // User is not authenticated, just update state
