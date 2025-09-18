@@ -75,7 +75,42 @@ export function ItemCategoryList({
     isSuperAdmin || canAccess('billing.item_categories', 'delete');
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+    // Create a more user-friendly toast confirmation
+    const confirmed = await new Promise((resolve) => {
+      toast((t) => (
+        <div className="flex flex-col gap-3 max-w-xs">
+          <div className="font-semibold text-sm">Delete "{name}"?</div>
+          <div className="text-xs text-gray-600">
+            This action cannot be undone.
+          </div>
+          <div className="flex gap-2">
+            <button
+              className="px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve(true);
+              }}
+            >
+              Delete
+            </button>
+            <button
+              className="px-3 py-1 bg-gray-300 text-gray-700 text-xs rounded hover:bg-gray-400"
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ), {
+        duration: Infinity,
+        position: 'top-center'
+      });
+    });
+
+    if (!confirmed) return;
 
     try {
       setDeletingId(id);

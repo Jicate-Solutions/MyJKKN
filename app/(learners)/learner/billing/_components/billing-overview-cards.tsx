@@ -24,14 +24,12 @@ import type { LearnerBillingStats } from '@/types/learner-billing';
 interface BillingOverviewCardsProps {
   stats: LearnerBillingStats;
   loading?: boolean;
-  onPayNow?: (amount: number) => void;
   onViewDetails?: (type: 'overdue' | 'unpaid' | 'paid') => void;
 }
 
 export function BillingOverviewCards({
   stats,
   loading = false,
-  onPayNow,
   onViewDetails
 }: BillingOverviewCardsProps) {
   if (loading) {
@@ -55,11 +53,11 @@ export function BillingOverviewCards({
     );
   }
 
-  const paymentPercentage = stats.total_amount_billed > 0
-    ? (stats.total_amount_paid / stats.total_amount_billed) * 100
+  const paymentPercentage = (stats.total_amount_billed || 0) > 0
+    ? ((stats.total_amount_paid || 0) / (stats.total_amount_billed || 1)) * 100
     : 0;
 
-  const overallHealthScore = Math.max(0, 100 - (stats.overdue_bills * 25));
+  const overallHealthScore = Math.max(0, 100 - ((stats.overdue_bills || 0) * 25));
 
   const cards = [
     {
@@ -90,27 +88,25 @@ export function BillingOverviewCards({
       value: formatCurrency(stats.outstanding_amount),
       subtitle: `${stats.unpaid_bills + stats.overdue_bills} pending`,
       icon: Wallet,
-      iconColor: stats.outstanding_amount > 0 ? 'text-yellow-600' : 'text-[#0b6d41]',
-      iconBg: stats.outstanding_amount > 0 ? 'bg-[#ffde59]/20' : 'bg-green-100',
+      iconColor: (stats.outstanding_amount || 0) > 0 ? 'text-yellow-600' : 'text-[#0b6d41]',
+      iconBg: (stats.outstanding_amount || 0) > 0 ? 'bg-[#ffde59]/20' : 'bg-green-100',
       trend: {
         value: stats.overdue_amount,
-        label: stats.overdue_bills > 0
-          ? `₹${stats.overdue_amount.toFixed(0)} overdue`
+        label: (stats.overdue_bills || 0) > 0
+          ? `₹${(stats.overdue_amount || 0).toFixed(0)} overdue`
           : 'All up to date',
-        isPositive: stats.overdue_bills === 0
+        isPositive: (stats.overdue_bills || 0) === 0
       },
       progress: {
-        value: stats.outstanding_amount > 0
-          ? (stats.overdue_amount / stats.outstanding_amount) * 100
+        value: (stats.outstanding_amount || 0) > 0
+          ? ((stats.overdue_amount || 0) / (stats.outstanding_amount || 1)) * 100
           : 0,
-        color: stats.overdue_bills > 0 ? 'bg-red-500' : 'bg-[#0b6d41]'
+        color: (stats.overdue_bills || 0) > 0 ? 'bg-red-500' : 'bg-[#0b6d41]'
       },
       action: {
-        label: stats.outstanding_amount > 0 ? 'Pay Now' : 'View Details',
-        onClick: stats.outstanding_amount > 0
-          ? () => onPayNow?.(stats.outstanding_amount)
-          : () => onViewDetails?.('unpaid'),
-        variant: stats.outstanding_amount > 0 ? 'default' : 'outline'
+        label: 'View Details',
+        onClick: () => onViewDetails?.('unpaid'),
+        variant: 'outline'
       }
     },
     {
@@ -119,20 +115,20 @@ export function BillingOverviewCards({
       value: stats.overdue_bills.toString(),
       subtitle: formatCurrency(stats.overdue_amount),
       icon: AlertTriangle,
-      iconColor: stats.overdue_bills > 0 ? 'text-red-600' : 'text-[#0b6d41]',
-      iconBg: stats.overdue_bills > 0 ? 'bg-red-100' : 'bg-green-100',
+      iconColor: (stats.overdue_bills || 0) > 0 ? 'text-red-600' : 'text-[#0b6d41]',
+      iconBg: (stats.overdue_bills || 0) > 0 ? 'bg-red-100' : 'bg-green-100',
       trend: {
         value: stats.overdue_bills,
-        label: stats.overdue_bills > 0
+        label: (stats.overdue_bills || 0) > 0
           ? 'Immediate action required'
           : 'No overdue payments',
-        isPositive: stats.overdue_bills === 0
+        isPositive: (stats.overdue_bills || 0) === 0
       },
-      alert: stats.overdue_bills > 0,
+      alert: (stats.overdue_bills || 0) > 0,
       action: {
-        label: stats.overdue_bills > 0 ? 'Pay Overdue' : 'All Clear',
+        label: (stats.overdue_bills || 0) > 0 ? 'View Overdue' : 'All Clear',
         onClick: () => onViewDetails?.('overdue'),
-        variant: stats.overdue_bills > 0 ? 'destructive' : 'outline'
+        variant: 'outline'
       }
     },
     {
@@ -160,11 +156,11 @@ export function BillingOverviewCards({
   ];
 
   return (
-    <div className='grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-6'>
+    <div className='grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6'>
       {cards.map((card) => (
         <Card
           key={card.id}
-          className={`border-0 shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105 ${
+          className={`border-0 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 rounded-2xl overflow-hidden ${
             card.alert
               ? 'ring-2 ring-red-300 bg-gradient-to-br from-red-50 via-rose-50 to-pink-50'
               : getCardGradient(card.id)
@@ -241,7 +237,7 @@ export function BillingOverviewCards({
                   size='sm'
                   variant={card.action.variant as any || 'outline'}
                   onClick={card.action.onClick}
-                  className='w-full mt-2 sm:mt-3 text-xs sm:text-sm py-2 sm:py-3 font-medium shadow-md hover:shadow-lg transition-all duration-200'
+                  className='w-full mt-2 sm:mt-3 text-xs sm:text-sm py-3 sm:py-4 font-semibold shadow-lg hover:shadow-xl transition-all duration-200 rounded-xl'
                 >
                   {card.action.label}
                 </Button>

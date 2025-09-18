@@ -82,7 +82,10 @@ export const ROLE_LABELS: Record<string, string> = {
   [SYSTEM_ROLES.ADMINISTRATOR]: 'Administrator',
   [SYSTEM_ROLES.SUPER_ADMIN]: 'Super Administrator',
   [SYSTEM_ROLES.STAFF]: 'Staff',
-  [SYSTEM_ROLES.GUEST]: 'Guest'
+  [SYSTEM_ROLES.GUEST]: 'Guest',
+  [SYSTEM_ROLES.PARENT]: 'Parent',
+  [SYSTEM_ROLES.HOD]: 'HOD',
+  [SYSTEM_ROLES.PRINCIPAL]: 'Principal'
 } as const;
 
 // Default permissions for new roles

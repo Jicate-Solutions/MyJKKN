@@ -8,7 +8,15 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 import Link from 'next/link';
-import { User, Building, Calendar, DollarSign, RefreshCw } from 'lucide-react';
+import {
+  User,
+  Building,
+  Calendar,
+  DollarSign,
+  RefreshCw,
+  GraduationCap,
+  BookOpen
+} from 'lucide-react';
 
 export const columns: ColumnDef<StudentBill>[] = [
   {
@@ -50,7 +58,9 @@ export const columns: ColumnDef<StudentBill>[] = [
           <div>
             <div className='font-medium hover:text-primary hover:underline'>
               <Link href={`/billing/schedule/students/${bill.student_id}`}>
-                {`${bill.student?.first_name || ''} ${bill.student?.last_name || ''}`.trim()}
+                {`${bill.student?.first_name || ''} ${
+                  bill.student?.last_name || ''
+                }`.trim()}
               </Link>
             </div>
             <div className='text-sm text-muted-foreground'>
@@ -61,8 +71,12 @@ export const columns: ColumnDef<StudentBill>[] = [
       );
     },
     sortingFn: (rowA, rowB) => {
-      const nameA = `${rowA.original.student?.first_name || ''} ${rowA.original.student?.last_name || ''}`.trim();
-      const nameB = `${rowB.original.student?.first_name || ''} ${rowB.original.student?.last_name || ''}`.trim();
+      const nameA = `${rowA.original.student?.first_name || ''} ${
+        rowA.original.student?.last_name || ''
+      }`.trim();
+      const nameB = `${rowB.original.student?.first_name || ''} ${
+        rowB.original.student?.last_name || ''
+      }`.trim();
       return nameA.localeCompare(nameB);
     }
   },
@@ -90,24 +104,35 @@ export const columns: ColumnDef<StudentBill>[] = [
     }
   },
   {
-    accessorKey: 'bill_description',
+    accessorKey: 'department_semester',
+    id: 'department_semester',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Description' />
+      <DataTableColumnHeader column={column} title='Department / Semester' />
     ),
     size: 200,
-    minSize: 150,
-    maxSize: 300,
+    minSize: 180,
+    maxSize: 250,
     cell: ({ row }) => {
       const bill = row.original;
       return (
-        <div className='font-medium hover:text-primary hover:underline'>
-          <Link href={`/billing/schedule/${bill.id}`}>
-            <div className='max-w-[200px] truncate' title={bill.bill_description}>
-              {bill.bill_description}
+        <div className='flex items-center gap-2'>
+          <GraduationCap className='h-4 w-4 text-muted-foreground' />
+          <div>
+            <div className='font-medium'>
+              {bill.student?.department?.department_name || 'N/A'}
             </div>
-          </Link>
+            <div className='text-sm text-muted-foreground flex items-center gap-1'>
+              <BookOpen className='h-3 w-3' />
+              {bill.student?.semester?.semester_name || 'N/A'}
+            </div>
+          </div>
         </div>
       );
+    },
+    sortingFn: (rowA, rowB) => {
+      const deptA = rowA.original.student?.department?.department_name || '';
+      const deptB = rowB.original.student?.department?.department_name || '';
+      return deptA.localeCompare(deptB);
     }
   },
   {
@@ -201,13 +226,18 @@ export const columns: ColumnDef<StudentBill>[] = [
       const statusConfig = {
         paid: { label: 'Paid', variant: 'default' as const },
         unpaid: { label: 'Unpaid', variant: 'secondary' as const },
-        partially_paid: { label: 'Partially Paid', variant: 'outline' as const },
+        partially_paid: {
+          label: 'Partially Paid',
+          variant: 'outline' as const
+        },
         overdue: { label: 'Overdue', variant: 'destructive' as const },
         cancelled: { label: 'Cancelled', variant: 'secondary' as const },
         refunded: { label: 'Refunded', variant: 'outline' as const }
       };
 
-      const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.unpaid;
+      const config =
+        statusConfig[status as keyof typeof statusConfig] ||
+        statusConfig.unpaid;
 
       return <Badge variant={config.variant}>{config.label}</Badge>;
     },
@@ -215,31 +245,7 @@ export const columns: ColumnDef<StudentBill>[] = [
       return value.includes(row.getValue(id));
     }
   },
-  {
-    accessorKey: 'is_recurring',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Recurring' />
-    ),
-    size: 120,
-    minSize: 100,
-    maxSize: 150,
-    cell: ({ row }) => {
-      const bill = row.original;
-      return (
-        <div className='flex items-center gap-2'>
-          {bill.is_recurring && (
-            <>
-              <RefreshCw className='h-4 w-4 text-muted-foreground' />
-              <span className='text-sm'>
-                {bill.recurrence_pattern}
-              </span>
-            </>
-          )}
-          {!bill.is_recurring && <span className='text-sm text-muted-foreground'>One-time</span>}
-        </div>
-      );
-    }
-  },
+
   {
     accessorKey: 'created_at',
     header: ({ column }) => (

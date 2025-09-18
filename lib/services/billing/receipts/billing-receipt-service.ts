@@ -52,6 +52,10 @@ export class BillingReceiptService {
     receiptData: CreateReceiptDto
   ): Promise<BillingReceipt> {
     try {
+      // Get current user ID
+      const { data: userData } = await this.supabase.auth.getUser();
+      const currentUserId = userData?.user?.id;
+
       // Generate receipt number
       const receiptNumber = await this.generateReceiptNumber();
 
@@ -76,7 +80,8 @@ export class BillingReceiptService {
           payer_name: receiptData.payer_name,
           payer_contact: receiptData.payer_contact,
           accountant_id: receiptData.accountant_id,
-          payment_remarks: receiptData.payment_remarks
+          payment_remarks: receiptData.payment_remarks,
+          created_by: currentUserId
         })
         .select(
           `

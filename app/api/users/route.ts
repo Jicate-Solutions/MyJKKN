@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     );
 
     const json = await request.json();
-    const { email, full_name, role, phone_number, institution_id } =
+    const { email, full_name, role, phone_number, institution_id, department_id } =
       json as CreateUserRequest;
 
     // Validate required fields (no password needed for OAuth-only system)
@@ -252,6 +252,7 @@ export async function POST(request: Request) {
         role: role,
         phone_number: phone_number,
         institution_id: institution_id,
+        department_id: department_id,
         profile_completed: true,
         is_active: true,
         is_pre_registered: true, // Flag to indicate this is a pre-registered user

@@ -113,9 +113,10 @@ export const columns: ColumnDef<StudentForBilling>[] = [
         'N/A';
       return (
         <div className='space-y-1'>
-          <Link 
+          <Link
             href={`/billing/schedule/new?student_id=${student.id}`}
-            className='font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer'
+            className='font-medium text-primary hover:text-primary/80 hover:underline cursor-pointer'
+            target='_blank'
           >
             {fullName}
           </Link>

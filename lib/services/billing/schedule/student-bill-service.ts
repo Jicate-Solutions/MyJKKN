@@ -16,6 +16,10 @@ export class StudentBillService {
     billData: CreateStudentBillDto
   ): Promise<StudentBill> {
     try {
+      // Get current user ID
+      const { data: userData } = await this.supabase.auth.getUser();
+      const currentUserId = userData?.user?.id;
+
       // Calculate final amount if not provided
       const finalAmount =
         billData.final_amount ||
@@ -28,7 +32,8 @@ export class StudentBillService {
           final_amount: finalAmount,
           balance_amount: finalAmount,
           quantity: billData.quantity || 1,
-          tax_amount: billData.tax_amount || 0
+          tax_amount: billData.tax_amount || 0,
+          created_by: currentUserId
         })
         .select(
           `
@@ -285,7 +290,7 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
-            student:students!billing_student_bills_student_id_fkey(
+            student:students(
               first_name,
               last_name,
               roll_number,
@@ -294,7 +299,9 @@ export class StudentBillService {
               department_id,
               program_id,
               semester_id,
-              section_id
+              section_id,
+              department:departments(id, department_name),
+              semester:semesters(id, semester_name)
             ),
             institution:institutions(
               id,
@@ -309,7 +316,8 @@ export class StudentBillService {
         );
       } else {
         // Use the optimized view that pre-joins all data when no academic filters are needed
-        query = this.supabase.from('v_bill_details').select(
+        // Note: For now, let's use the full query to ensure we get all necessary data
+        query = this.supabase.from('billing_student_bills').select(
           `
             id,
             student_id,
@@ -332,9 +340,21 @@ export class StudentBillService {
             created_by,
             created_at,
             updated_at,
-            student_name,
-            roll_number,
-            institution_name
+            student:students(
+              first_name,
+              last_name,
+              roll_number,
+              department:departments(id, department_name),
+              semester:semesters(id, semester_name)
+            ),
+            institution:institutions(
+              id,
+              name
+            ),
+            item_category:billing_item_categories(
+              id,
+              item_category_name
+            )
           `,
           { count: 'exact' }
         );
@@ -352,7 +372,7 @@ export class StudentBillService {
         } else {
           // When using the view, fields are flattened
           query = query.or(
-            `bill_description.ilike.${searchTerm},first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},roll_number.ilike.${searchTerm}`
+            `bill_description.ilike.${searchTerm},student_name.ilike.${searchTerm},roll_number.ilike.${searchTerm}`
           );
         }
       }
@@ -420,9 +440,22 @@ export class StudentBillService {
         }
       }
 
-      // Apply sorting
-      const sortBy = filters.sortBy || 'created_at';
+      // Apply sorting with proper column mapping
+      let sortBy = filters.sortBy || 'created_at';
       const sortDirection = filters.sortDirection || 'desc';
+
+      // Map sort columns based on query type
+      if (!hasAcademicFilters) {
+        // When using view, map student fields appropriately
+        if (sortBy === 'first_name' || sortBy === 'last_name' || sortBy === 'student_name') {
+          sortBy = 'student_name';
+        } else if (sortBy === 'student.first_name' || sortBy === 'student.last_name') {
+          sortBy = 'student_name';
+        } else if (sortBy === 'student' || sortBy === 'student.name') {
+          sortBy = 'student_name';
+        }
+      }
+
       query = query.order(sortBy, { ascending: sortDirection === 'asc' });
 
       // Apply pagination
@@ -462,51 +495,30 @@ export class StudentBillService {
             updated_at: bill.updated_at,
           };
 
-          if (hasAcademicFilters && bill.student) {
-            // Data from joined query with full student object
-            return {
-              ...baseBill,
-              student: {
-                id: bill.student_id,
-                first_name: bill.student.first_name || '',
-                last_name: bill.student.last_name || '',
-                roll_number: bill.student.roll_number || '',
-                college_email: '', // Not queried to keep it light
-                student_mobile: '' // Not queried to keep it light
-              },
-              institution: {
-                id: bill.institution_id,
-                name: bill.institution?.name || '',
-                counselling_code: '' // Not queried to keep it light
-              },
-              item_category: {
-                id: bill.item_category_id,
-                item_category_name: bill.item_category?.item_category_name || ''
-              }
-            };
-          } else {
-            // Data from optimized view (flattened structure)
-            return {
-              ...baseBill,
-              student: {
-                id: bill.student_id,
-                first_name: bill.student_name?.split(' ')[0] || '',
-                last_name: bill.student_name?.split(' ').slice(1).join(' ') || '',
-                roll_number: bill.roll_number,
-                college_email: '', // Not available in view, would need separate query if needed
-                student_mobile: '' // Not available in view, would need separate query if needed
-              },
-              institution: {
-                id: bill.institution_id,
-                name: bill.institution_name,
-                counselling_code: '' // Not available in view
-              },
-              item_category: {
-                id: bill.item_category_id,
-                item_category_name: '' // Not available in view, would need separate query if needed
-              }
-            };
-          }
+          // Since we're now using the same query structure for both cases,
+          // we can simplify the transformation logic
+          return {
+            ...baseBill,
+            student: {
+              id: bill.student_id,
+              first_name: bill.student?.first_name || '',
+              last_name: bill.student?.last_name || '',
+              roll_number: bill.student?.roll_number || '',
+              college_email: '', // Not queried to keep it light
+              student_mobile: '', // Not queried to keep it light
+              department: bill.student?.department || undefined,
+              semester: bill.student?.semester || undefined
+            },
+            institution: {
+              id: bill.institution_id,
+              name: bill.institution?.name || '',
+              counselling_code: '' // Not queried to keep it light
+            },
+            item_category: {
+              id: bill.item_category_id,
+              item_category_name: bill.item_category?.item_category_name || ''
+            }
+          };
         }
       );
 

@@ -11,6 +11,7 @@ import { StudentSearchService } from '@/lib/services/billing/schedule/student-se
 import { StudentForBilling } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
+import toast from 'react-hot-toast';
 
 interface StudentDataTableProps {
   search: StudentBillingSearchParams;
@@ -123,13 +124,10 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
     async (selectedRows: StudentForBilling[], resetSelection: () => void) => {
       if (selectedRows.length === 0) return;
 
-      const confirmed = window.confirm(
-        `Are you sure you want to create bills for ${
-          selectedRows.length
-        } student${selectedRows.length > 1 ? 's' : ''}?`
+      // Use toast for confirmation instead of window.confirm
+      const createToast = toast.loading(
+        `Creating bills for ${selectedRows.length} student${selectedRows.length > 1 ? 's' : ''}...`
       );
-
-      if (!confirmed) return;
 
       try {
         // Navigate to bulk create page with selected student IDs
@@ -139,8 +137,19 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
 
         router.push(`/billing/schedule/bulk-create?${queryParams.toString()}`);
         resetSelection();
+
+        // Success toast
+        toast.success(
+          `Redirecting to create bills for ${selectedRows.length} student${selectedRows.length > 1 ? 's' : ''}`,
+          { id: createToast }
+        );
       } catch (error) {
         console.error('Error navigating to bulk create:', error);
+
+        // Error toast
+        toast.error('Failed to navigate to bulk create page. Please try again.', {
+          id: createToast
+        });
       }
     },
     [router]

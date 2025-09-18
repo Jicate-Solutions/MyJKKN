@@ -155,8 +155,8 @@ export type CreateUserRequest = Pick<
   Profile,
   'email' | 'full_name' | 'role' | 'phone_number'
 > & {
-  password: string;
   institution_id?: string | null;
+  department_id?: string | null;
 };
 
 export type UpdateUserRequest = Partial<CreateUserRequest> & {
@@ -165,4 +165,5 @@ export type UpdateUserRequest = Partial<CreateUserRequest> & {
   designation?: string | null;
   bio?: string | null;
   gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null;
+  department_id?: string | null;
 };

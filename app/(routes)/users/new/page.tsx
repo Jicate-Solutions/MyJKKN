@@ -37,14 +37,18 @@ import { useUsers } from '@/hooks/use-users';
 import { useEmailValidation } from '@/hooks/use-email-validation';
 import { Input } from '@/components/ui/input';
 import { CustomRole } from '@/types/auth';
+import { Institution } from '@/types/organizations';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
 const formSchema = z.object({
   email: z.string().email('Invalid email address').min(1, 'Email is required'),
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
   role: z.string().min(1, 'Please select a role'),
-  phone_number: z.string().nullable()
+  phone_number: z.string().nullable(),
+  institution_id: z.string().nullable(),
+  department_id: z.string().nullable()
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -55,7 +59,11 @@ export default function NewUserPage() {
   const { isChecking, validationResult, validateEmail, clearValidation } =
     useEmailValidation();
   const [roles, setRoles] = useState<CustomRole[]>([]);
+  const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
   const [rolesLoading, setRolesLoading] = useState(true);
+  const [institutionsLoading, setInstitutionsLoading] = useState(true);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -63,7 +71,9 @@ export default function NewUserPage() {
       email: '',
       full_name: '',
       role: '',
-      phone_number: ''
+      phone_number: '',
+      institution_id: 'none',
+      department_id: 'none'
     }
   });
 
@@ -85,6 +95,60 @@ export default function NewUserPage() {
     fetchRoles();
   }, []);
 
+  // Fetch institutions on component mount
+  useEffect(() => {
+    const fetchInstitutions = async () => {
+      try {
+        setInstitutionsLoading(true);
+        const result = await OrganizationService.getInstitutions({
+          limit: 1000
+        });
+        console.log('Institutions loaded:', result.data?.length || 0);
+        setInstitutions(result.data);
+      } catch (error) {
+        console.error('Error fetching institutions:', error);
+        console.log('Institutions loading failed');
+        toast.error('Failed to load institutions');
+      } finally {
+        setInstitutionsLoading(false);
+      }
+    };
+
+    fetchInstitutions();
+  }, []);
+
+  // Fetch departments when institution changes
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      const institutionId = form.watch('institution_id');
+      if (!institutionId || institutionId === 'none') {
+        setDepartments([]);
+        return;
+      }
+
+      try {
+        setDepartmentsLoading(true);
+        console.log('Fetching departments for institution:', institutionId);
+        const response = await fetch(`/api/departments?institution_id=${institutionId}`);
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Departments loaded:', data?.length || 0, data);
+          setDepartments(data || []);
+        } else {
+          console.error('Failed to fetch departments:', response.status, response.statusText);
+          setDepartments([]);
+        }
+      } catch (error) {
+        console.error('Error fetching departments:', error);
+        setDepartments([]);
+      } finally {
+        setDepartmentsLoading(false);
+      }
+    };
+
+    fetchDepartments();
+  }, [form.watch('institution_id')]);
+
   const onSubmit = async (data: FormValues) => {
     // Check if email is available before submitting
     if (validationResult && !validationResult.available) {
@@ -93,7 +157,15 @@ export default function NewUserPage() {
     }
 
     try {
-      const result = await createUser(data);
+      // Prepare the data with proper null handling
+      const userData = {
+        ...data,
+        institution_id: data.institution_id === 'none' ? null : data.institution_id,
+        department_id: data.department_id === 'none' ? null : data.department_id,
+        phone_number: data.phone_number || null
+      };
+
+      const result = await createUser(userData);
       if (result.error) throw result.error;
       toast.success('User pre-registered successfully. They can now login with Google.');
       clearValidation(); // Clear validation state
@@ -319,6 +391,103 @@ export default function NewUserPage() {
                           value={field.value || ''}
                         />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='institution_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Institution</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value || 'none'}
+                        disabled={institutionsLoading || loading}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                institutionsLoading
+                                  ? 'Loading institutions...'
+                                  : 'Select an institution'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value='none'>No Institution</SelectItem>
+                          {institutionsLoading ? (
+                            <SelectItem value='loading' disabled>
+                              Loading institutions...
+                            </SelectItem>
+                          ) : institutions.length === 0 ? (
+                            <SelectItem value='no-institutions' disabled>
+                              No institutions available
+                            </SelectItem>
+                          ) : (
+                            institutions.map((institution) => (
+                              <SelectItem key={institution.id} value={institution.id}>
+                                {institution.name}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='department_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Department</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value || 'none'}
+                        disabled={departmentsLoading || loading || form.watch('institution_id') === 'none'}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                form.watch('institution_id') === 'none'
+                                  ? 'Select institution first'
+                                  : departmentsLoading
+                                  ? 'Loading departments...'
+                                  : 'Select a department'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value='none'>No Department</SelectItem>
+                          {departmentsLoading ? (
+                            <SelectItem value='loading' disabled>
+                              Loading departments...
+                            </SelectItem>
+                          ) : departments.length === 0 ? (
+                            <SelectItem value='no-departments' disabled>
+                              {form.watch('institution_id') === 'none'
+                                ? 'Select institution first'
+                                : 'No departments available'
+                              }
+                            </SelectItem>
+                          ) : (
+                            departments.map((department) => (
+                              <SelectItem key={department.id} value={department.id}>
+                                {department.name}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}

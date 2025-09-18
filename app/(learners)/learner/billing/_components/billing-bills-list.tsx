@@ -46,12 +46,73 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import type { BillRecord } from '@/types/learner-billing';
+import type { LearnerBillRecord } from '@/types/learner-billing';
+
+// Transform LearnerBillRecord to BillRecord format for UI compatibility
+function transformBillRecord(learnerBill: LearnerBillRecord): BillRecord {
+  // Map status values to match BillRecord type
+  let mappedStatus: 'paid' | 'unpaid' | 'overdue' | 'partially_paid' = 'unpaid';
+  switch (learnerBill.status) {
+    case 'paid':
+      mappedStatus = 'paid';
+      break;
+    case 'unpaid':
+      mappedStatus = 'unpaid';
+      break;
+    case 'overdue':
+      mappedStatus = 'overdue';
+      break;
+    case 'partially_paid':
+      mappedStatus = 'partially_paid';
+      break;
+    case 'cancelled':
+    case 'refunded':
+      mappedStatus = 'unpaid'; // Map cancelled/refunded to unpaid
+      break;
+  }
+
+  return {
+    id: learnerBill.id,
+    bill_number: `BILL-${learnerBill.id.substring(0, 8).toUpperCase()}`,
+    student_id: '', // Not needed for display
+    category_id: learnerBill.item_category?.id || '',
+    category_name: learnerBill.item_category?.item_category_name || 'Unknown Category',
+    description: learnerBill.bill_description,
+    base_amount: learnerBill.total_amount || 0,
+    additional_charges: learnerBill.tax_amount || 0,
+    discount_amount: learnerBill.discounts?.reduce((sum, discount) => sum + (discount.discount_amount || 0), 0) || 0,
+    final_amount: learnerBill.final_amount || 0,
+    amount_paid: (learnerBill.final_amount || 0) - (learnerBill.balance_amount || 0),
+    remaining_amount: learnerBill.balance_amount || 0,
+    due_date: learnerBill.due_date,
+    status: mappedStatus,
+    created_at: learnerBill.created_at,
+    updated_at: learnerBill.updated_at
+  };
+}
+
+interface BillRecord {
+  id: string;
+  bill_number: string;
+  student_id: string;
+  category_id: string;
+  category_name: string;
+  description?: string;
+  base_amount: number;
+  additional_charges: number;
+  discount_amount: number;
+  final_amount: number;
+  amount_paid: number;
+  remaining_amount: number;
+  due_date: string;
+  status: 'paid' | 'unpaid' | 'overdue' | 'partially_paid';
+  created_at: string;
+  updated_at: string;
+}
 
 interface BillingBillsListProps {
-  bills: BillRecord[];
+  bills: LearnerBillRecord[];
   loading?: boolean;
-  onPayBill?: (amount?: number) => void;
   selectedBills: string[];
   onSelectionChange: (billIds: string[]) => void;
 }
@@ -59,10 +120,12 @@ interface BillingBillsListProps {
 export function BillingBillsList({
   bills,
   loading = false,
-  onPayBill,
   selectedBills,
   onSelectionChange
 }: BillingBillsListProps) {
+  // Transform LearnerBillRecord to BillRecord for UI compatibility
+  const transformedBills = bills.map(transformBillRecord);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortField, setSortField] = useState<keyof BillRecord>('created_at');
@@ -71,7 +134,7 @@ export function BillingBillsList({
   const [showBillDetails, setShowBillDetails] = useState(false);
 
   const filteredAndSortedBills = useMemo(() => {
-    let filtered = bills;
+    let filtered = transformedBills;
 
     // Filter by search term
     if (searchTerm) {
@@ -100,7 +163,7 @@ export function BillingBillsList({
     });
 
     return filtered;
-  }, [bills, searchTerm, statusFilter, sortField, sortDirection]);
+  }, [transformedBills, searchTerm, statusFilter, sortField, sortDirection]);
 
   const handleSort = (field: keyof BillRecord) => {
     if (sortField === field) {
@@ -172,10 +235,10 @@ export function BillingBillsList({
 
   const selectedAmount = useMemo(() => {
     return selectedBills.reduce((total, billId) => {
-      const bill = bills.find(b => b.id === billId);
+      const bill = transformedBills.find(b => b.id === billId);
       return total + (bill?.remaining_amount || 0);
     }, 0);
-  }, [selectedBills, bills]);
+  }, [selectedBills, transformedBills]);
 
   if (loading) {
     return (
@@ -200,44 +263,40 @@ export function BillingBillsList({
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-4">
+    <Card className="bg-white shadow-xl border-0 rounded-2xl overflow-hidden">
+      <CardHeader className="pb-4 bg-gradient-to-r from-[#0b6d41] to-green-600 text-white">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Receipt className="h-5 w-5 text-[#0b6d41]" />
+          <CardTitle className="flex items-center gap-2 text-white">
+            <Receipt className="h-5 w-5 text-white" />
             Bills & Invoices
-            <Badge variant="outline" className="ml-2">
+            <Badge variant="secondary" className="ml-2 bg-white/20 text-white border-white/30">
               {filteredAndSortedBills.length} bills
             </Badge>
           </CardTitle>
 
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             {selectedBills.length > 0 && (
-              <Button
-                onClick={() => onPayBill?.(selectedAmount)}
-                className="whitespace-nowrap"
-              >
-                <CreditCard className="h-4 w-4 mr-2" />
-                Pay Selected ({formatCurrency(selectedAmount)})
-              </Button>
+              <div className="text-sm text-gray-600 whitespace-nowrap">
+                Selected: {selectedBills.length} bills ({formatCurrency(selectedAmount)})
+              </div>
             )}
           </div>
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t">
+        <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t border-white/20">
           <div className="relative flex-1">
             <Search className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
             <Input
               placeholder="Search bills by number, description, or category..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
+              className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/70 focus:bg-white focus:text-gray-900 focus:placeholder:text-gray-500 transition-all"
             />
           </div>
 
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-40">
+            <SelectTrigger className="w-full sm:w-40 bg-white/10 border-white/20 text-white focus:bg-white focus:text-gray-900">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -253,19 +312,106 @@ export function BillingBillsList({
 
       <CardContent className="p-0">
         {filteredAndSortedBills.length === 0 ? (
-          <div className="text-center py-12">
-            <Receipt className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Bills Found</h3>
-            <p className="text-gray-600">
+          <div className="text-center py-12 bg-gradient-to-br from-gray-50 to-blue-50 rounded-xl mx-4 mb-4">
+            <Receipt className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-xl font-bold text-gray-800 mb-2">No Bills Found</h3>
+            <p className="text-gray-600 max-w-sm mx-auto">
               {searchTerm || statusFilter !== 'all'
-                ? 'No bills match your current filters.'
-                : 'No bills have been generated yet.'
+                ? 'No bills match your current filters. Try adjusting your search criteria.'
+                : 'No bills have been generated yet. Check back later for updates.'
               }
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <>
+            {/* Mobile Card View */}
+            <div className="block sm:hidden space-y-4 p-4">
+              {filteredAndSortedBills.map((bill) => {
+                const isPayable = bill.status === 'unpaid' || bill.status === 'overdue';
+                const isSelected = selectedBills.includes(bill.id);
+
+                return (
+                  <Card key={bill.id} className={`transition-all duration-200 hover:shadow-lg ${
+                    isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''
+                  } ${
+                    bill.status === 'overdue' ? 'ring-2 ring-red-300 bg-red-50' : ''
+                  }`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          {getStatusIcon(bill.status)}
+                          <div>
+                            <div className="font-semibold text-sm">{bill.bill_number}</div>
+                            <div className="text-xs text-gray-500">{formatDate(bill.created_at)}</div>
+                          </div>
+                        </div>
+                        {getStatusBadge(bill.status)}
+                      </div>
+
+                      <div className="space-y-2 mb-4">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Category:</span>
+                          <span className="font-medium">{bill.category_name}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Due Date:</span>
+                          <span className={bill.status === 'overdue' ? 'text-red-600 font-medium' : 'font-medium'}>
+                            {formatDate(bill.due_date)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Amount:</span>
+                          <span className="font-bold text-[#0b6d41]">{formatCurrency(bill.final_amount)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Remaining:</span>
+                          <span className={`font-bold ${
+                            bill.remaining_amount > 0 ? 'text-red-600' : 'text-[#0b6d41]'
+                          }`}>
+                            {formatCurrency(bill.remaining_amount)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <div className="flex items-center gap-2">
+                          {isPayable && (
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={(checked) => handleBillSelect(bill.id, checked as boolean)}
+                            />
+                          )}
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="ghost" size="sm" onClick={() => setSelectedBill(bill)}>
+                                <Eye className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-2xl">
+                              <DialogHeader>
+                                <DialogTitle>Bill Details - {bill.bill_number}</DialogTitle>
+                              </DialogHeader>
+                              {selectedBill && (
+                                <BillDetailsView bill={selectedBill} />
+                              )}
+                            </DialogContent>
+                          </Dialog>
+                        </div>
+
+                        <div className="text-xs text-gray-500">
+                          {isPayable ? 'Action Required' : 'Completed'}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden sm:block overflow-x-auto">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">
@@ -396,15 +542,9 @@ export function BillingBillsList({
                             </DialogContent>
                           </Dialog>
 
-                          {isPayable && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => onPayBill?.(bill.remaining_amount)}
-                            >
-                              <CreditCard className="h-4 w-4" />
-                            </Button>
-                          )}
+                          <div className="text-sm text-gray-500">
+                            {isPayable ? 'Action Required' : 'Completed'}
+                          </div>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -412,7 +552,8 @@ export function BillingBillsList({
                 })}
               </TableBody>
             </Table>
-          </div>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -488,12 +629,9 @@ function BillDetailsView({ bill }: { bill: BillRecord }) {
           <Download className="h-4 w-4 mr-2" />
           Download PDF
         </Button>
-        {(bill.status === 'unpaid' || bill.status === 'overdue') && (
-          <Button className="flex-1">
-            <CreditCard className="h-4 w-4 mr-2" />
-            Pay Now
-          </Button>
-        )}
+        <div className="text-sm text-gray-600">
+          Payment will be available in the main application
+        </div>
       </div>
     </div>
   );

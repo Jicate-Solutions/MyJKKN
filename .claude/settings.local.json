@@ -33,7 +33,9 @@
       "Bash(node:*)",
       "Bash(curl:*)",
       "WebSearch",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)"
     ],
     "deny": [],
     "ask": []

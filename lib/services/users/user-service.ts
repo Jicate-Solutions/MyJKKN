@@ -291,31 +291,19 @@ export class UserService {
 
   static async getUserById(id: string): Promise<Profile | null> {
     try {
-      const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(
-          `
-          *,
-          institutions (
-            id,
-            name,
-            category,
-            institution_type,
-            website,
-            email,
-            phone,
-            city,
-            state,
-            country
-          )
-        `
-        )
-        .eq('id', id)
-        .single();
+      const response = await fetch(`/api/users/${id}`);
 
-      if (error) throw error;
-      return data;
+      if (!response.ok) {
+        throw new Error('Failed to fetch user');
+      }
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch user');
+      }
+
+      return result.data;
     } catch (error) {
       throw error;
     }

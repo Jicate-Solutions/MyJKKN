@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -12,14 +12,18 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Settings2, Filter } from 'lucide-react';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { BillingScheduleDataTable } from './_components/billing-schedule-data-table';
 import { billingScheduleSearchParamsSchema } from './_components/data-table-schema';
 import { BillingScheduleFilters } from './_components/billing-schedule-filters';
+import { AdvancedBillingScheduleFilters } from './_components/advanced-billing-schedule-filters';
 
 export default function BillingSchedulePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [useAdvancedFilters, setUseAdvancedFilters] = useState(false);
 
   // Parse current search parameters
   const search = billingScheduleSearchParamsSchema.parse(
@@ -78,11 +82,32 @@ export default function BillingSchedulePage() {
           </Breadcrumb>
 
           {/* Header Section */}
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Billing Schedule Management</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage student bills, track payments, and schedule recurring billing
-            </p>
+          <div className='flex items-center justify-between'>
+            <div>
+              <h1 className='text-2xl font-bold py-1'>Billing Schedule Management</h1>
+              <p className='text-sm sm:text-base text-muted-foreground'>
+                Manage student bills, track payments, and schedule recurring billing
+              </p>
+            </div>
+
+            <Button
+              variant={useAdvancedFilters ? "default" : "outline"}
+              size="sm"
+              onClick={() => setUseAdvancedFilters(!useAdvancedFilters)}
+              className="flex items-center gap-2"
+            >
+              {useAdvancedFilters ? (
+                <>
+                  <Settings2 className="h-4 w-4" />
+                  Advanced Filters
+                </>
+              ) : (
+                <>
+                  <Filter className="h-4 w-4" />
+                  Basic Filters
+                </>
+              )}
+            </Button>
           </div>
 
           {/* Main Content */}
@@ -90,11 +115,19 @@ export default function BillingSchedulePage() {
             <CardContent className='p-6'>
               <div className='space-y-6'>
                 {/* Filters */}
-                <BillingScheduleFilters
-                  searchParams={search}
-                  onFilterChange={handleFilterChange}
-                  onClearFilters={handleClearFilters}
-                />
+                {useAdvancedFilters ? (
+                  <AdvancedBillingScheduleFilters
+                    searchParams={search}
+                    onFilterChange={handleFilterChange}
+                    onClearFilters={handleClearFilters}
+                  />
+                ) : (
+                  <BillingScheduleFilters
+                    searchParams={search}
+                    onFilterChange={handleFilterChange}
+                    onClearFilters={handleClearFilters}
+                  />
+                )}
 
                 {/* Data Table */}
                 <BillingScheduleDataTable search={search} />
