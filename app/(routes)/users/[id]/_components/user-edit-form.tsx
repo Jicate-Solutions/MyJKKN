@@ -42,6 +42,7 @@ const formSchema = z.object({
   phone_number: z.string().nullable(),
   role: z.string().min(1, 'Please select a role'),
   institution_id: z.string(),
+  department_id: z.string().nullable(),
   designation: z.string().nullable(),
   bio: z.string().nullable(),
   gender: z.enum(['male', 'female', 'other', 'prefer_not_to_say']).nullable(),
@@ -60,8 +61,10 @@ export function UserEditForm({ user }: UserEditFormProps) {
   const [loading, setLoading] = useState(false);
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
   const [rolesLoading, setRolesLoading] = useState(true);
   const [institutionsLoading, setInstitutionsLoading] = useState(true);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -71,6 +74,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
       phone_number: user.phone_number || '',
       role: user.role || '',
       institution_id: user.institution_id || 'none',
+      department_id: user.department_id || 'none',
       designation: user.designation || '',
       bio: user.bio || '',
       gender: user.gender || null,
@@ -117,6 +121,33 @@ export function UserEditForm({ user }: UserEditFormProps) {
     fetchInstitutions();
   }, []);
 
+  // Fetch departments when institution changes
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      const institutionId = form.watch('institution_id');
+      if (!institutionId || institutionId === 'none') {
+        setDepartments([]);
+        return;
+      }
+
+      try {
+        setDepartmentsLoading(true);
+        const response = await fetch(`/api/departments?institution_id=${institutionId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setDepartments(data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching departments:', error);
+        setDepartments([]);
+      } finally {
+        setDepartmentsLoading(false);
+      }
+    };
+
+    fetchDepartments();
+  }, [form.watch('institution_id')]);
+
   const onSubmit = async (data: FormValues) => {
     try {
       setLoading(true);
@@ -129,7 +160,11 @@ export function UserEditForm({ user }: UserEditFormProps) {
         role: data.role,
         institution_id:
           data.institution_id === 'none' ? null : data.institution_id,
-        // Note: These fields may need to be handled differently based on your API structure
+        department_id:
+          data.department_id === 'none' ? null : data.department_id,
+        designation: data.designation || null,
+        bio: data.bio || null,
+        gender: data.gender || null,
         profile_complete: data.profile_completed
       };
 
@@ -342,6 +377,50 @@ export function UserEditForm({ user }: UserEditFormProps) {
                       </Select>
                       <FormDescription>
                         Select the institution this user belongs to (optional)
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='department_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Department</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || 'none'}
+                        disabled={departmentsLoading || !form.watch('institution_id') || form.watch('institution_id') === 'none'}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                departmentsLoading
+                                  ? 'Loading departments...'
+                                  : !form.watch('institution_id') || form.watch('institution_id') === 'none'
+                                  ? 'Select institution first'
+                                  : 'Select department (optional)'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value='none'>No Department</SelectItem>
+                          {departments.map((department) => (
+                            <SelectItem
+                              key={department.id}
+                              value={department.id}
+                            >
+                              {department.department_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Select the department within the institution (especially for HOD role)
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

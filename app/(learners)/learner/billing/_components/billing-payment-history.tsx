@@ -44,10 +44,51 @@ import {
   Smartphone
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import type { PaymentRecord } from '@/types/learner-billing';
+import type { LearnerPaymentRecord } from '@/types/learner-billing';
+
+// Transform LearnerPaymentRecord to PaymentRecord format for UI compatibility
+function transformPaymentRecord(learnerPayment: LearnerPaymentRecord): PaymentRecord {
+  return {
+    id: learnerPayment.id,
+    receipt_number: learnerPayment.receipt_number,
+    student_id: '', // Not needed for display
+    payment_date: learnerPayment.receipt_date,
+    payment_amount: learnerPayment.payment_amount,
+    payment_mode: learnerPayment.payment_mode,
+    transaction_id: learnerPayment.payment_reference_number,
+    reference_number: learnerPayment.payment_reference_number,
+    bank_name: undefined,
+    gateway_name: undefined,
+    gateway_response: undefined,
+    charges: 0,
+    status: 'completed', // Assume completed if in payment history
+    remarks: learnerPayment.payment_remarks,
+    created_at: learnerPayment.created_at,
+    updated_at: learnerPayment.created_at
+  };
+}
+
+interface PaymentRecord {
+  id: string;
+  receipt_number: string;
+  student_id: string;
+  payment_date: string;
+  payment_amount: number;
+  payment_mode: 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque';
+  transaction_id?: string;
+  reference_number?: string;
+  bank_name?: string;
+  gateway_name?: string;
+  gateway_response?: any;
+  charges?: number;
+  status: 'completed' | 'pending' | 'failed' | 'refunded';
+  remarks?: string;
+  created_at: string;
+  updated_at: string;
+}
 
 interface BillingPaymentHistoryProps {
-  payments: PaymentRecord[];
+  payments: LearnerPaymentRecord[];
   loading?: boolean;
 }
 
@@ -63,8 +104,13 @@ export function BillingPaymentHistory({
   const [selectedPayment, setSelectedPayment] = useState<PaymentRecord | null>(null);
   const [showPaymentDetails, setShowPaymentDetails] = useState(false);
 
+  // Transform LearnerPaymentRecord to PaymentRecord
+  const transformedPayments = useMemo(() => {
+    return payments.map(transformPaymentRecord);
+  }, [payments]);
+
   const filteredAndSortedPayments = useMemo(() => {
-    let filtered = payments;
+    let filtered = transformedPayments;
 
     // Filter by search term
     if (searchTerm) {
@@ -96,7 +142,7 @@ export function BillingPaymentHistory({
     });
 
     return filtered;
-  }, [payments, searchTerm, statusFilter, paymentModeFilter, sortField, sortDirection]);
+  }, [transformedPayments, searchTerm, statusFilter, paymentModeFilter, sortField, sortDirection]);
 
   const handleSort = (field: keyof PaymentRecord) => {
     if (sortField === field) {

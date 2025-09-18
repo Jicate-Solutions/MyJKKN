@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import toast from 'react-hot-toast';
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { BillingScheduleSearchParams } from './data-table-schema';
@@ -11,6 +12,7 @@ import { StudentBillService } from '@/lib/services/billing/schedule/student-bill
 import { StudentBill } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DeleteConfirmationModal } from '@/components/billing/delete-confirmation-modal';
 
 interface BillingScheduleDataTableProps {
   search: BillingScheduleSearchParams;
@@ -122,35 +124,95 @@ export function BillingScheduleDataTable({
     ]
   );
 
+  // State for deletion modal
+  const [deleteModal, setDeleteModal] = React.useState<{
+    isOpen: boolean;
+    selectedBills: StudentBill[];
+    resetSelection?: () => void;
+    isLoading: boolean;
+  }>({
+    isOpen: false,
+    selectedBills: [],
+    resetSelection: undefined,
+    isLoading: false
+  });
+
   const handleBulkDelete = React.useCallback(
     async (selectedRows: StudentBill[], resetSelection: () => void) => {
       if (selectedRows.length === 0) return;
 
-      const confirmed = window.confirm(
-        `Are you sure you want to delete ${selectedRows.length} bill${
-          selectedRows.length > 1 ? 's' : ''
-        }? This action cannot be undone.`
-      );
-
-      if (!confirmed) return;
-
-      try {
-        // Delete all selected bills
-        await Promise.all(
-          selectedRows.map((bill: StudentBill) =>
-            StudentBillService.deleteStudentBill(bill.id)
-          )
-        );
-
-        // Reset selection and refresh data
-        resetSelection();
-        // The DataTable will automatically refetch data after this
-      } catch (error) {
-        console.error('Error deleting bills:', error);
-      }
+      // Open custom confirmation modal instead of window.confirm
+      setDeleteModal({
+        isOpen: true,
+        selectedBills: selectedRows,
+        resetSelection,
+        isLoading: false
+      });
     },
     []
   );
+
+  const handleConfirmDelete = React.useCallback(async () => {
+    const { selectedBills, resetSelection } = deleteModal;
+    if (selectedBills.length === 0) return;
+
+    setDeleteModal((prev) => ({ ...prev, isLoading: true }));
+
+    try {
+      // Show loading toast
+      const loadingToast = toast.loading(
+        `Deleting ${selectedBills.length} bill${
+          selectedBills.length > 1 ? 's' : ''
+        }...`
+      );
+
+      // Delete all selected bills
+      await Promise.all(
+        selectedBills.map((bill: StudentBill) =>
+          StudentBillService.deleteStudentBill(bill.id)
+        )
+      );
+
+      // Success toast
+      toast.success(
+        `Successfully deleted ${selectedBills.length} bill${
+          selectedBills.length > 1 ? 's' : ''
+        }!`,
+        { id: loadingToast }
+      );
+
+      // Reset selection and refresh data
+      resetSelection?.();
+      setDeleteModal({
+        isOpen: false,
+        selectedBills: [],
+        resetSelection: undefined,
+        isLoading: false
+      });
+    } catch (error) {
+      console.error('Error deleting bills:', error);
+
+      // Error toast
+      toast.error(
+        `Failed to delete ${selectedBills.length} bill${
+          selectedBills.length > 1 ? 's' : ''
+        }. Please try again.`
+      );
+
+      setDeleteModal((prev) => ({ ...prev, isLoading: false }));
+    }
+  }, [deleteModal]);
+
+  const handleCloseDeleteModal = React.useCallback(() => {
+    if (!deleteModal.isLoading) {
+      setDeleteModal({
+        isOpen: false,
+        selectedBills: [],
+        resetSelection: undefined,
+        isLoading: false
+      });
+    }
+  }, [deleteModal.isLoading]);
 
   const renderCustomToolbar = React.useCallback(
     (props: {
@@ -221,58 +283,89 @@ export function BillingScheduleDataTable({
   }
 
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      exportConfig={{
-        entityName: 'student-bills',
-        columnMapping: {
-          student_name: 'Student',
-          'institution.name': 'Institution',
-          bill_description: 'Description',
-          'item_category.item_category_name': 'Category',
-          due_date: 'Due Date',
-          final_amount: 'Amount',
-          status: 'Status',
-          is_recurring: 'Type',
-          created_at: 'Created At'
-        },
-        columnWidths: [
-          { wch: 20 },
-          { wch: 25 },
-          { wch: 30 },
-          { wch: 20 },
-          { wch: 15 },
-          { wch: 15 },
-          { wch: 10 },
-          { wch: 10 },
-          { wch: 15 }
-        ],
-        headers: [
-          'Student',
-          'Institution',
-          'Description',
-          'Category',
-          'Due Date',
-          'Amount',
-          'Status',
-          'Type',
-          'Created At'
-        ]
-      }}
-      idField='id'
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: true,
-        enableRowSelection: true,
-        enableSearch: true,
-        enableColumnFilters: false,
-        enableColumnVisibility: true,
-        enableColumnResizing: true,
-        columnResizingTableId: 'billing-schedule-table'
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <>
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        exportConfig={{
+          entityName: 'student-bills',
+          columnMapping: {
+            student_name: 'Student',
+            'institution.name': 'Institution',
+            department_semester: 'Department / Semester',
+            'item_category.item_category_name': 'Category',
+            due_date: 'Due Date',
+            final_amount: 'Amount',
+            status: 'Status',
+            is_recurring: 'Type',
+            created_at: 'Created At'
+          },
+          columnWidths: [
+            { wch: 20 },
+            { wch: 25 },
+            { wch: 25 },
+            { wch: 20 },
+            { wch: 15 },
+            { wch: 15 },
+            { wch: 10 },
+            { wch: 10 },
+            { wch: 15 }
+          ],
+          headers: [
+            'Student',
+            'Institution',
+            'Department / Semester',
+            'Category',
+            'Due Date',
+            'Amount',
+            'Status',
+            'Type',
+            'Created At'
+          ]
+        }}
+        idField='id'
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: true,
+          enableRowSelection: true,
+          enableSearch: true,
+          enableColumnFilters: false,
+          enableColumnVisibility: true,
+          enableColumnResizing: true,
+          columnResizingTableId: 'billing-schedule-table'
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Custom Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={handleCloseDeleteModal}
+        onConfirm={handleConfirmDelete}
+        title={`Delete ${deleteModal.selectedBills.length} Bill${
+          deleteModal.selectedBills.length > 1 ? 's' : ''
+        }?`}
+        description={`You are about to delete ${
+          deleteModal.selectedBills.length
+        } student bill${
+          deleteModal.selectedBills.length > 1 ? 's' : ''
+        }. All related data including payments, discounts, receipts, and refunds will also be removed.`}
+        items={deleteModal.selectedBills.map((bill) => ({
+          id: bill.id,
+          title: `${bill.student?.first_name || ''} ${bill.student?.last_name || ''} - ${bill.bill_description}`,
+          subtitle: `Bill ID: ${bill.id.slice(-8)} | Due: ${new Date(
+            bill.due_date
+          ).toLocaleDateString()}`,
+          amount: bill.final_amount,
+          status: bill.status,
+          type: 'bill' as const
+        }))}
+        itemType={deleteModal.selectedBills.length > 1 ? 'bills' : 'bill'}
+        isLoading={deleteModal.isLoading}
+        showCascadeWarning
+        warningMessage='This will permanently remove all payment history, discounts, and related financial records.'
+      />
+    </>
   );
 }

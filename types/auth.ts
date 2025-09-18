@@ -9,7 +9,10 @@ export const SYSTEM_ROLES = {
   STUDENT: 'student',
   STAFF: 'staff',
   GUEST: 'guest',
-  DRIVER: 'driver'
+  DRIVER: 'driver',
+  PARENT: 'parent',
+  HOD: 'hod',
+  PRINCIPAL: 'principal'
 } as const;
 
 export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
@@ -34,6 +37,13 @@ export interface Institution {
   country: string | null;
 }
 
+// Department interface for profile relations
+export interface Department {
+  id: string;
+  department_name: string;
+  department_code: string;
+}
+
 // Base Profile interface
 export interface Profile {
   id: string;
@@ -49,7 +59,9 @@ export interface Profile {
   is_active: boolean;
   is_super_admin?: boolean;
   institution_id: string | null;
+  department_id: string | null;
   institutions?: Institution | null;
+  departments?: Department | null;
   created_at: string;
   updated_at: string;
   last_login: string | null;

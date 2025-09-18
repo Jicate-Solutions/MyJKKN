@@ -54,8 +54,18 @@ export default function NewReceiptPage() {
     payment_amount: 0,
     student_id: studentId || ''
   });
+  const [studentRollNumber, setStudentRollNumber] = useState<string>('');
 
   const createReceiptMutation = useCreateBillingReceipt();
+
+  // Function to format Bill No. into a unique format
+  const formatBillNumber = (billId: string) => {
+    // Extract timestamp and create readable format: BILL-YYYY-MM-XXXXX
+    const shortId = billId.substring(0, 8).toUpperCase();
+    const currentYear = new Date().getFullYear();
+    const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
+    return `BILL-${currentYear}-${currentMonth}-${shortId}`;
+  };
 
   const {
     canAccess,
@@ -98,11 +108,17 @@ export default function NewReceiptPage() {
   };
 
   useEffect(() => {
+    // Redirect to student search if no bill parameters provided
+    if (!billId && !billIds && !studentId) {
+      router.push('/billing/schedule/students?action=generate_receipt');
+      return;
+    }
+
     loadInstitutions();
     if (billId || billIds) {
       loadBillDetails();
     }
-  }, [billId, billIds]);
+  }, [billId, billIds, studentId, router]);
 
   const loadInstitutions = async () => {
     try {
@@ -153,6 +169,9 @@ export default function NewReceiptPage() {
         institution_id:
           firstBill?.student?.institution_id || prev.institution_id
       }));
+
+      // Set student roll number for display
+      setStudentRollNumber(firstBill?.student?.roll_number || '');
     } catch (error) {
       console.error('Error loading bill details:', error);
       toast.error('Failed to load bill details');
@@ -196,6 +215,11 @@ export default function NewReceiptPage() {
 
     if (!formData.student_id) {
       toast.error('Please select a student');
+      return;
+    }
+
+    if (!studentRollNumber && selectedBills.length === 0) {
+      toast.error('Please enter student roll number');
       return;
     }
 
@@ -321,7 +345,11 @@ export default function NewReceiptPage() {
                       {selectedBills.map((bill) => (
                         <TableRow key={bill.id}>
                           <TableCell className='font-medium'>
-                            {bill.id}
+                            <div className='space-y-1'>
+                              <div className='text-sm font-medium'>
+                                {formatBillNumber(bill.id)}
+                              </div>
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className='space-y-1'>
@@ -506,18 +534,24 @@ export default function NewReceiptPage() {
                   />
                 </div>
 
-                {/* Student ID */}
+                {/* Student Roll Number */}
                 <div className='space-y-2'>
-                  <Label htmlFor='student_id'>Student ID *</Label>
+                  <Label htmlFor='student_roll_number'>
+                    Student Roll Number *
+                  </Label>
                   <Input
-                    id='student_id'
-                    placeholder='Enter student ID'
-                    value={formData.student_id || ''}
-                    onChange={(e) =>
-                      handleInputChange('student_id', e.target.value)
-                    }
-                    required
+                    id='student_roll_number'
+                    placeholder='Student roll number'
+                    value={studentRollNumber || ''}
+                    onChange={(e) => setStudentRollNumber(e.target.value)}
+                    disabled={selectedBills.length > 0} // Disable if bills are loaded
+                    className={selectedBills.length > 0 ? 'bg-muted' : ''}
                   />
+                  {selectedBills.length > 0 && (
+                    <p className='text-xs text-muted-foreground'>
+                      Roll number from selected bill
+                    </p>
+                  )}
                 </div>
 
                 {/* Institution */}
@@ -528,8 +562,13 @@ export default function NewReceiptPage() {
                     onValueChange={(value) =>
                       handleInputChange('institution_id', value)
                     }
+                    disabled={selectedBills.length > 0} // Lock when bills are loaded
                   >
-                    <SelectTrigger>
+                    <SelectTrigger
+                      className={
+                        selectedBills.length > 0 ? 'bg-muted opacity-60' : ''
+                      }
+                    >
                       <SelectValue
                         placeholder={
                           isLoadingInstitutions

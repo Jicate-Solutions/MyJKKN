@@ -5,6 +5,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { LearnerProfileHeader } from '@/components/layout/learner-profile-header';
 import { LearnerBannerCarousel } from '@/components/layout/learner-banner-carousel';
 import { LearnerServiceCategories } from '@/components/layout/learner-service-categories';
+import { LearnerDashboardCards } from '@/components/layout/learner-dashboard-cards';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFavorites } from '@/hooks/use-favorites';
 import { motion } from 'framer-motion';
@@ -56,10 +57,14 @@ export default function LearnerDashboardPage() {
   }
 
   return (
-    <div className='min-h-screen bg-gray-50 relative'>
+    <div className='min-h-screen bg-gray-50 dark:bg-gray-900 relative transition-colors duration-200'>
       <div className='pb-20 relative'>
         {/* Add padding for bottom navigation */}
-        <LearnerProfileHeader user={user} currentTime={currentTime} />
+        {/* <LearnerProfileHeader user={user} currentTime={currentTime} /> */}
+
+        {/* Dashboard Cards - Featured prominently */}
+        <LearnerDashboardCards />
+
         <LearnerBannerCarousel />
 
         {/* Favorite Apps Section - Play Store Style */}

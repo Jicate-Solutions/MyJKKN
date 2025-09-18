@@ -16,7 +16,8 @@ import {
   MapPin,
   UserCircle2,
   Briefcase,
-  FileText
+  FileText,
+  GraduationCap
 } from 'lucide-react';
 
 interface UserDetailsProps {
@@ -204,6 +205,37 @@ export function UserDetails({ user }: UserDetailsProps) {
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Department Information Card */}
+      {user.departments && (
+        <Card>
+          <CardHeader className='pb-4'>
+            <CardTitle>Department Information</CardTitle>
+          </CardHeader>
+          <CardContent className='grid gap-4'>
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+              <div className='flex items-center gap-3'>
+                <GraduationCap className='h-4 w-4 text-muted-foreground' />
+                <div className='grid gap-0.5'>
+                  <span className='text-sm font-medium'>Department</span>
+                  <span className='text-sm text-muted-foreground'>
+                    {user.departments.department_name}
+                  </span>
+                </div>
+              </div>
+              <div className='flex items-center gap-3'>
+                <BookOpen className='h-4 w-4 text-muted-foreground' />
+                <div className='grid gap-0.5'>
+                  <span className='text-sm font-medium'>Department Code</span>
+                  <span className='text-sm text-muted-foreground'>
+                    {user.departments.department_code}
+                  </span>
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

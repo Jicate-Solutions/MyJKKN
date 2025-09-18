@@ -83,7 +83,7 @@ export async function GET(
     }
 
     // Get user by ID with institution data
-    const { data, error } = await supabase
+    const { data: userData, error } = await supabase
       .from('profiles')
       .select(
         `
@@ -109,6 +109,38 @@ export async function GET(
       console.error('Error fetching user:', error);
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
+
+    // If user has a department_id, fetch department data separately
+    let departmentData = null;
+    if (userData.department_id) {
+      console.log('Fetching department for user:', userData.email, 'department_id:', userData.department_id);
+      const { data: dept, error: deptError } = await supabase
+        .from('departments')
+        .select('id, department_name, department_code')
+        .eq('id', userData.department_id)
+        .single();
+
+      if (deptError) {
+        console.error('Department fetch error:', deptError);
+      } else if (dept) {
+        console.log('Department fetched successfully:', dept);
+        departmentData = dept;
+      } else {
+        console.log('No department data returned');
+      }
+    } else {
+      console.log('User has no department_id:', userData.email);
+    }
+
+    // Combine the data
+    const data = {
+      ...userData,
+      departments: departmentData
+    };
+
+    console.log('Final API response for user:', userData.email);
+    console.log('Has departments data:', !!departmentData);
+    console.log('Department data:', departmentData);
 
     return NextResponse.json(
       {
@@ -237,21 +269,27 @@ export async function PATCH(
       }
     }
 
-    // Update the user profile
-    const { data, error } = await supabase
+    // Prepare update data, only include non-undefined fields
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (body.email !== undefined) updateData.email = body.email;
+    if (body.full_name !== undefined) updateData.full_name = body.full_name;
+    if (body.phone_number !== undefined) updateData.phone_number = body.phone_number;
+    if (body.role !== undefined) updateData.role = body.role;
+    if (body.institution_id !== undefined) updateData.institution_id = body.institution_id;
+    if (body.department_id !== undefined) updateData.department_id = body.department_id;
+    if (body.designation !== undefined) updateData.designation = body.designation;
+    if (body.bio !== undefined) updateData.bio = body.bio;
+    if (body.gender !== undefined) updateData.gender = body.gender;
+    if (body.profile_complete !== undefined) updateData.profile_completed = body.profile_complete;
+
+    // Update the user profile - use admin client for cross-user updates
+    const updateClient = user.id === userId ? supabase : supabaseAdmin;
+    const { data, error } = await updateClient
       .from('profiles')
-      .update({
-        email: body.email,
-        full_name: body.full_name,
-        phone_number: body.phone_number,
-        role: body.role,
-        institution_id: body.institution_id,
-        designation: body.designation,
-        bio: body.bio,
-        gender: body.gender,
-        profile_completed: body.profile_complete,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', userId)
       .select()
       .single();

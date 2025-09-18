@@ -64,229 +64,157 @@ export function BillingScheduleFilters({
   const { canAccess, isSuperAdmin, userProfile } = usePermissions();
 
   useEffect(() => {
-    async function loadFilters() {
+    async function loadInstitutions() {
       try {
         setLoading(true);
-        const [institutionsData, categoriesData, academicYearsData] =
-          await Promise.all([
-            OrganizationService.getInstitutionNames(true),
-            BillingItemCategoryService.getBillingItemCategories({
-              institution_id: userProfile?.institution_id || undefined,
-              limit: 1000,
-              isActive: true
-            }),
-            AcademicYearService.getAcademicYears({
-              institution_id: userProfile?.institution_id || undefined,
-              limit: 1000,
-              isActive: true
-            })
-          ]);
-
-        setInstitutions(institutionsData);
-        setCategories(categoriesData.data);
-        setAcademicYears(academicYearsData.data);
+        const data = await OrganizationService.getInstitutionNames(true);
+        setInstitutions(data);
       } catch (error) {
-        console.error('Error loading filter data:', error);
+        console.error('Error loading institutions:', error);
       } finally {
         setLoading(false);
       }
     }
+    loadInstitutions();
+  }, []);
 
-    if (userProfile) {
-      loadFilters();
-    }
-  }, [userProfile]);
-
-  // Load hierarchical data based on selections
   useEffect(() => {
-    if (searchParams.institution_id) {
-      loadDegrees(searchParams.institution_id);
-    } else {
-      // Clear dependent data when no institution is selected
-      setDegrees([]);
-      setDepartments([]);
-      setPrograms([]);
-      setSemesters([]);
-      setSections([]);
+    async function loadCategories() {
+      try {
+        const data = await BillingItemCategoryService.getBillingItemCategories();
+        setCategories(data.data); // Note: service returns { data, metadata }
+      } catch (error) {
+        console.error('Error loading categories:', error);
+      }
     }
+    loadCategories();
+  }, []);
+
+  // Auto-set institution filter for non-super admin users
+  useEffect(() => {
+    if (
+      !isSuperAdmin &&
+      userProfile?.institution_id &&
+      !searchParams.institution_id &&
+      !loading
+    ) {
+      onFilterChange('institution_id', userProfile.institution_id);
+    }
+  }, [
+    userProfile,
+    isSuperAdmin,
+    searchParams.institution_id,
+    onFilterChange,
+    loading
+  ]);
+
+  useEffect(() => {
+    async function loadDegrees() {
+      if (searchParams.institution_id) {
+        try {
+          const data = await DegreeService.getDegreesByInstitution(
+            searchParams.institution_id
+          );
+          setDegrees(data);
+        } catch (error) {
+          console.error('Error loading degrees:', error);
+        }
+      } else {
+        setDegrees([]);
+      }
+    }
+    loadDegrees();
   }, [searchParams.institution_id]);
 
   useEffect(() => {
-    if (searchParams.degree_id && searchParams.institution_id) {
-      loadDepartments(searchParams.institution_id, searchParams.degree_id);
-    } else {
-      // Clear dependent data when no degree is selected
-      setDepartments([]);
-      setPrograms([]);
-      setSemesters([]);
-      setSections([]);
+    async function loadDepartments() {
+      if (searchParams.degree_id) {
+        try {
+          const data = await DepartmentService.getDepartmentsByDegree(
+            searchParams.degree_id
+          );
+          setDepartments(data);
+        } catch (error) {
+          console.error('Error loading departments:', error);
+        }
+      } else {
+        setDepartments([]);
+      }
     }
-  }, [searchParams.degree_id, searchParams.institution_id]);
+    loadDepartments();
+  }, [searchParams.degree_id]);
 
   useEffect(() => {
-    if (
-      searchParams.department_id &&
-      searchParams.degree_id &&
-      searchParams.institution_id
-    ) {
-      loadPrograms(
-        searchParams.institution_id,
-        searchParams.degree_id,
-        searchParams.department_id
-      );
-    } else {
-      // Clear dependent data when no department is selected
-      setPrograms([]);
-      setSemesters([]);
-      setSections([]);
+    async function loadPrograms() {
+      if (searchParams.department_id) {
+        try {
+          const data = await ProgramService.getProgramsByDepartment(
+            searchParams.department_id
+          );
+          setPrograms(data);
+        } catch (error) {
+          console.error('Error loading programs:', error);
+        }
+      } else {
+        setPrograms([]);
+      }
     }
-  }, [
-    searchParams.department_id,
-    searchParams.degree_id,
-    searchParams.institution_id
-  ]);
+    loadPrograms();
+  }, [searchParams.department_id]);
 
   useEffect(() => {
-    if (
-      searchParams.program_id &&
-      searchParams.department_id &&
-      searchParams.degree_id &&
-      searchParams.institution_id
-    ) {
-      loadSemesters(
-        searchParams.institution_id,
-        searchParams.degree_id,
-        searchParams.department_id,
-        searchParams.program_id
-      );
-    } else {
-      // Clear dependent data when no program is selected
-      setSemesters([]);
-      setSections([]);
+    async function loadSemesters() {
+      if (searchParams.program_id) {
+        try {
+          const data = await SemesterService.getSemestersByProgram(
+            searchParams.program_id
+          );
+          setSemesters(data);
+        } catch (error) {
+          console.error('Error loading semesters:', error);
+        }
+      } else {
+        setSemesters([]);
+      }
     }
-  }, [
-    searchParams.program_id,
-    searchParams.department_id,
-    searchParams.degree_id,
-    searchParams.institution_id
-  ]);
+    loadSemesters();
+  }, [searchParams.program_id]);
 
   useEffect(() => {
-    if (
-      searchParams.semester_id &&
-      searchParams.program_id &&
-      searchParams.department_id &&
-      searchParams.degree_id &&
-      searchParams.institution_id
-    ) {
-      loadSections(
-        searchParams.institution_id,
-        searchParams.degree_id,
-        searchParams.department_id,
-        searchParams.program_id,
-        searchParams.semester_id
-      );
-    } else {
-      // Clear dependent data when no semester is selected
-      setSections([]);
+    async function loadSections() {
+      if (searchParams.semester_id) {
+        try {
+          const data = await SectionService.getSectionsBySemester(
+            searchParams.semester_id
+          );
+          setSections(data);
+        } catch (error) {
+          console.error('Error loading sections:', error);
+        }
+      } else {
+        setSections([]);
+      }
     }
-  }, [
-    searchParams.semester_id,
-    searchParams.program_id,
-    searchParams.department_id,
-    searchParams.degree_id,
-    searchParams.institution_id
-  ]);
+    loadSections();
+  }, [searchParams.semester_id]);
 
-  const loadDegrees = async (institutionId: string) => {
-    try {
-      const data = await DegreeService.getDegrees({
-        institution_id: institutionId,
-        limit: 1000,
-        isActive: true
-      });
-      setDegrees(data.data);
-    } catch (error) {
-      console.error('Error loading degrees:', error);
+  useEffect(() => {
+    async function loadAcademicYears() {
+      if (searchParams.institution_id) {
+        try {
+          const data = await AcademicYearService.getAcademicYearsByInstitution(
+            searchParams.institution_id
+          );
+          setAcademicYears(data);
+        } catch (error) {
+          console.error('Error loading academic years:', error);
+        }
+      } else {
+        setAcademicYears([]);
+      }
     }
-  };
-
-  const loadDepartments = async (institutionId: string, degreeId: string) => {
-    try {
-      const data = await DepartmentService.getDepartments({
-        institution_id: institutionId,
-        degree_id: degreeId,
-        limit: 1000,
-        isActive: true
-      });
-      setDepartments(data.data);
-    } catch (error) {
-      console.error('Error loading departments:', error);
-    }
-  };
-
-  const loadPrograms = async (
-    institutionId: string,
-    degreeId: string,
-    departmentId: string
-  ) => {
-    try {
-      const data = await ProgramService.getPrograms({
-        institution_id: institutionId,
-        degree_id: degreeId,
-        department_id: departmentId,
-        limit: 1000,
-        isActive: true
-      });
-      setPrograms(data.data);
-    } catch (error) {
-      console.error('Error loading programs:', error);
-    }
-  };
-
-  const loadSemesters = async (
-    institutionId: string,
-    degreeId: string,
-    departmentId: string,
-    programId: string
-  ) => {
-    try {
-      const data = await SemesterService.getSemesters({
-        institution_id: institutionId,
-        degree_id: degreeId,
-        department_id: departmentId,
-        program_id: programId,
-        limit: 1000,
-        isActive: true
-      });
-      setSemesters(data.data);
-    } catch (error) {
-      console.error('Error loading semesters:', error);
-    }
-  };
-
-  const loadSections = async (
-    institutionId: string,
-    degreeId: string,
-    departmentId: string,
-    programId: string,
-    semesterId: string
-  ) => {
-    try {
-      const data = await SectionService.getSections({
-        institution_id: institutionId,
-        degree_id: degreeId,
-        department_id: departmentId,
-        program_id: programId,
-        semester_id: semesterId,
-        limit: 1000,
-        isActive: true
-      });
-      setSections(data.data);
-    } catch (error) {
-      console.error('Error loading sections:', error);
-    }
-  };
+    loadAcademicYears();
+  }, [searchParams.institution_id]);
 
   // Auto-set institution filter for non-super admin users
   useEffect(() => {
@@ -337,362 +265,260 @@ export function BillingScheduleFilters({
   );
 
   return (
-    <div className='space-y-6'>
-      {/* Header */}
-      <div className='flex items-center justify-between'>
-        <h3 className='text-lg font-semibold'>Advanced Search & Filters</h3>
-        {hasActiveFilters && (
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={onClearFilters}
-            className='h-8 px-3'
-          >
-            <RotateCcw className='mr-2 h-3 w-3' />
-            Clear Filters
-          </Button>
-        )}
-      </div>
-
-      {/* Filter Grid */}
-      <div className='space-y-4'>
-        {/* First Row - Basic Filters */}
-        <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4'>
-          {/* Institution Filter - Only show for super admins */}
+    <div className='space-y-4'>
+      <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
+        <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
           {isSuperAdmin && (
-            <div>
-              <Label className='text-xs font-medium text-muted-foreground mb-1'>
-                Institution
-              </Label>
-              <Select
-                value={searchParams.institution_id || 'all'}
-                onValueChange={(value) =>
-                  onFilterChange(
-                    'institution_id',
-                    value === 'all' ? undefined : value
-                  )
+            <Select
+              value={searchParams.institution_id || 'all'}
+              onValueChange={(value) => {
+                const newValue = value === 'all' ? undefined : value;
+                onFilterChange('institution_id', newValue);
+                // Clear dependent filters
+                if (!newValue) {
+                  onFilterChange('degree_id', undefined);
+                  onFilterChange('department_id', undefined);
+                  onFilterChange('program_id', undefined);
+                  onFilterChange('semester_id', undefined);
+                  onFilterChange('section_id', undefined);
+                  onFilterChange('academic_year_id', undefined);
+                  onFilterChange('item_category_id', undefined);
                 }
-                disabled={loading}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={loading ? 'Loading...' : 'All Institutions'}
-                  />
-                </SelectTrigger>
-                <SelectContent className='max-h-60 overflow-y-auto'>
-                  <SelectItem value='all'>All Institutions</SelectItem>
-                  {institutions.map((inst) => (
-                    <SelectItem key={inst.id} value={inst.id}>
-                      {inst.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+              }}
+            >
+              <SelectTrigger className='w-full sm:w-[200px]'>
+                <SelectValue placeholder='Select institution' />
+              </SelectTrigger>
+              <SelectContent className='max-h-60 overflow-y-auto'>
+                <SelectItem value='all'>All Institutions</SelectItem>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
 
-          {/* Degree Filter */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Degree
-            </Label>
-            <Select
-              value={searchParams.degree_id || 'all'}
-              onValueChange={(value) => {
-                const degreeId = value === 'all' ? undefined : value;
-                onFilterChange('degree_id', degreeId);
-                // Reset dependent filters
+          <Select
+            value={searchParams.degree_id || 'all'}
+            onValueChange={(value) => {
+              const newValue = value === 'all' ? undefined : value;
+              onFilterChange('degree_id', newValue);
+              // Clear dependent filters
+              if (!newValue) {
                 onFilterChange('department_id', undefined);
                 onFilterChange('program_id', undefined);
                 onFilterChange('semester_id', undefined);
                 onFilterChange('section_id', undefined);
-              }}
-              disabled={loading || !searchParams.institution_id}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All Degrees' />
-              </SelectTrigger>
-              <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Degrees</SelectItem>
-                {degrees.map((degree) => (
-                  <SelectItem key={degree.id} value={degree.id}>
-                    {degree.degree_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+              }
+            }}
+            disabled={!searchParams.institution_id}
+          >
+            <SelectTrigger className='w-full sm:w-[180px]'>
+              <SelectValue placeholder='Select degree' />
+            </SelectTrigger>
+            <SelectContent className='max-h-60 overflow-y-auto'>
+              <SelectItem value='all'>All Degrees</SelectItem>
+              {degrees.map((degree) => (
+                <SelectItem key={degree.id} value={degree.id}>
+                  {degree.degree_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          {/* Department Filter */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Department
-            </Label>
-            <Select
-              value={searchParams.department_id || 'all'}
-              onValueChange={(value) => {
-                const departmentId = value === 'all' ? undefined : value;
-                onFilterChange('department_id', departmentId);
-                // Reset dependent filters
+          <Select
+            value={searchParams.department_id || 'all'}
+            onValueChange={(value) => {
+              const newValue = value === 'all' ? undefined : value;
+              onFilterChange('department_id', newValue);
+              // Clear dependent filters
+              if (!newValue) {
                 onFilterChange('program_id', undefined);
                 onFilterChange('semester_id', undefined);
                 onFilterChange('section_id', undefined);
-              }}
-              disabled={loading || !searchParams.degree_id}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All Departments' />
-              </SelectTrigger>
-              <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Departments</SelectItem>
-                {departments.map((dept) => (
-                  <SelectItem key={dept.id} value={dept.id}>
-                    {dept.department_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+              }
+            }}
+            disabled={!searchParams.degree_id}
+          >
+            <SelectTrigger className='w-full sm:w-[180px]'>
+              <SelectValue placeholder='Select department' />
+            </SelectTrigger>
+            <SelectContent className='max-h-60 overflow-y-auto'>
+              <SelectItem value='all'>All Departments</SelectItem>
+              {departments.map((dept) => (
+                <SelectItem key={dept.id} value={dept.id}>
+                  {dept.department_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          {/* Program Filter */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Program
-            </Label>
-            <Select
-              value={searchParams.program_id || 'all'}
-              onValueChange={(value) => {
-                const programId = value === 'all' ? undefined : value;
-                onFilterChange('program_id', programId);
-                // Reset dependent filters
+          <Select
+            value={searchParams.program_id || 'all'}
+            onValueChange={(value) => {
+              const newValue = value === 'all' ? undefined : value;
+              onFilterChange('program_id', newValue);
+              // Clear dependent filters
+              if (!newValue) {
                 onFilterChange('semester_id', undefined);
                 onFilterChange('section_id', undefined);
-              }}
-              disabled={loading || !searchParams.department_id}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All Programs' />
-              </SelectTrigger>
-              <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Programs</SelectItem>
-                {programs.map((program) => (
-                  <SelectItem key={program.id} value={program.id}>
-                    {program.program_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Semester Filter */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Semester
-            </Label>
-            <Select
-              value={searchParams.semester_id || 'all'}
-              onValueChange={(value) => {
-                const semesterId = value === 'all' ? undefined : value;
-                onFilterChange('semester_id', semesterId);
-                // Reset dependent filters
-                onFilterChange('section_id', undefined);
-              }}
-              disabled={loading || !searchParams.program_id}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All Semesters' />
-              </SelectTrigger>
-              <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Semesters</SelectItem>
-                {semesters.map((semester) => (
-                  <SelectItem key={semester.id} value={semester.id}>
-                    {semester.semester_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Section Filter */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Section
-            </Label>
-            <Select
-              value={searchParams.section_id || 'all'}
-              onValueChange={(value) =>
-                onFilterChange(
-                  'section_id',
-                  value === 'all' ? undefined : value
-                )
               }
-              disabled={loading || !searchParams.semester_id}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All Sections' />
-              </SelectTrigger>
-              <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Sections</SelectItem>
-                {sections.map((section) => (
-                  <SelectItem key={section.id} value={section.id}>
-                    {section.section_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Academic Year Filter */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Academic Year
-            </Label>
-            <Select
-              value={searchParams.academic_year_id || 'all'}
-              onValueChange={(value) =>
-                onFilterChange(
-                  'academic_year_id',
-                  value === 'all' ? undefined : value
-                )
-              }
-              disabled={loading}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All Academic Years' />
-              </SelectTrigger>
-              <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Academic Years</SelectItem>
-                {academicYears.map((year) => (
-                  <SelectItem key={year.id} value={year.id}>
-                    {year.academic_year_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Category Filter */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Category
-            </Label>
-            <Select
-              value={searchParams.item_category_id || 'all'}
-              onValueChange={(value) =>
-                onFilterChange(
-                  'item_category_id',
-                  value === 'all' ? undefined : value
-                )
-              }
-              disabled={loading}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All Categories' />
-              </SelectTrigger>
-              <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Categories</SelectItem>
-                {categories.map((category) => (
-                  <SelectItem key={category.id} value={category.id}>
-                    {category.item_category_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Recurring Filter */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Type
-            </Label>
-            <Select
-              value={searchParams.is_recurring || 'all'}
-              onValueChange={(value) =>
-                onFilterChange(
-                  'is_recurring',
-                  value === 'all' ? undefined : value
-                )
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All Types' />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>All Types</SelectItem>
-                <SelectItem value='false'>One-time</SelectItem>
-                <SelectItem value='true'>Recurring</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Status Filter */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Status
-            </Label>
-            <Select
-              value={searchParams.status || 'all'}
-              onValueChange={(value) =>
-                onFilterChange('status', value === 'all' ? undefined : value)
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder='All Status' />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>All Status</SelectItem>
-                <SelectItem value='unpaid'>Unpaid</SelectItem>
-                <SelectItem value='paid'>Paid</SelectItem>
-                <SelectItem value='partially_paid'>Partially Paid</SelectItem>
-                <SelectItem value='overdue'>Overdue</SelectItem>
-                <SelectItem value='cancelled'>Cancelled</SelectItem>
-                <SelectItem value='refunded'>Refunded</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {/* Amount Range */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Amount From
-            </Label>
-            <Input
-              type='number'
-              placeholder='0'
-              value={searchParams.amount_from || ''}
-              onChange={(e) =>
-                onFilterChange('amount_from', e.target.value || undefined)
-              }
-            />
-          </div>
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Amount To
-            </Label>
-            <Input
-              type='number'
-              placeholder='0'
-              value={searchParams.amount_to || ''}
-              onChange={(e) =>
-                onFilterChange('amount_to', e.target.value || undefined)
-              }
-            />
-          </div>
-
-          {/* Due Date Range */}
-          <div>
-            <Label className='text-xs font-medium text-muted-foreground mb-1'>
-              Due Date Range
-            </Label>
-            <DatePickerWithRange
-              value={searchParams.dueDateRange ? {
-                from: searchParams.dueDateRange.from,
-                to: searchParams.dueDateRange.to
-              } : undefined}
-              onChange={handleDateRangeChange}
-              placeholder='Select due date range'
-            />
-          </div>
+            }}
+            disabled={!searchParams.department_id}
+          >
+            <SelectTrigger className='w-full sm:w-[180px]'>
+              <SelectValue placeholder='Select program' />
+            </SelectTrigger>
+            <SelectContent className='max-h-60 overflow-y-auto'>
+              <SelectItem value='all'>All Programs</SelectItem>
+              {programs.map((program) => (
+                <SelectItem key={program.id} value={program.id}>
+                  {program.program_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+        {hasActiveFilters && (
+          <Button variant='ghost' onClick={onClearFilters} className='h-8 px-2 lg:px-3'>
+            Reset
+            <RotateCcw className='ml-2 h-4 w-4' />
+          </Button>
+        )}
+      </div>
+
+      <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+        <Select
+          value={searchParams.semester_id || 'all'}
+          onValueChange={(value) => {
+            const newValue = value === 'all' ? undefined : value;
+            onFilterChange('semester_id', newValue);
+            // Clear dependent filters
+            if (!newValue) {
+              onFilterChange('section_id', undefined);
+            }
+          }}
+          disabled={!searchParams.program_id}
+        >
+          <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectValue placeholder='Select semester' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Semesters</SelectItem>
+            {semesters.map((semester) => (
+              <SelectItem key={semester.id} value={semester.id}>
+                {semester.semester_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.section_id || 'all'}
+          onValueChange={(value) =>
+            onFilterChange(
+              'section_id',
+              value === 'all' ? undefined : value
+            )
+          }
+          disabled={!searchParams.semester_id}
+        >
+          <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectValue placeholder='Select section' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Sections</SelectItem>
+            {sections.map((section) => (
+              <SelectItem key={section.id} value={section.id}>
+                {section.section_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.academic_year_id || 'all'}
+          onValueChange={(value) => {
+            onFilterChange('academic_year_id', value === 'all' ? undefined : value);
+          }}
+          disabled={!searchParams.institution_id}
+        >
+          <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectValue placeholder='Select academic year' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Academic Years</SelectItem>
+            {academicYears.map((year) => (
+              <SelectItem key={year.id} value={year.id}>
+                {year.academic_year_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.item_category_id || 'all'}
+          onValueChange={(value) =>
+            onFilterChange(
+              'item_category_id',
+              value === 'all' ? undefined : value
+            )
+          }
+          disabled={loading}
+        >
+          <SelectTrigger className='w-full sm:w-[200px]'>
+            <SelectValue placeholder='Select category' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Categories</SelectItem>
+            {categories.map((category) => (
+              <SelectItem key={category.id} value={category.id}>
+                {category.item_category_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.status || 'all'}
+          onValueChange={(value) =>
+            onFilterChange('status', value === 'all' ? undefined : value)
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[140px]'>
+            <SelectValue placeholder='Filter by status' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Status</SelectItem>
+            <SelectItem value='unpaid'>Unpaid</SelectItem>
+            <SelectItem value='paid'>Paid</SelectItem>
+            <SelectItem value='partially_paid'>Partially Paid</SelectItem>
+            <SelectItem value='overdue'>Overdue</SelectItem>
+            <SelectItem value='cancelled'>Cancelled</SelectItem>
+            <SelectItem value='refunded'>Refunded</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.is_recurring || 'all'}
+          onValueChange={(value) =>
+            onFilterChange(
+              'is_recurring',
+              value === 'all' ? undefined : value
+            )
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[140px]'>
+            <SelectValue placeholder='Filter by type' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Types</SelectItem>
+            <SelectItem value='false'>One-time</SelectItem>
+            <SelectItem value='true'>Recurring</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
     </div>
   );

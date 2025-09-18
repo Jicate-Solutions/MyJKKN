@@ -94,27 +94,10 @@ export default function BillingReceiptsPage() {
           <div>
             <h1 className='text-2xl font-bold py-1'>Receipt Management</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
-              Manage payment receipts, templates, and generation workflows
+              View payment receipts and manage receipt templates. Generate receipts from student billing details.
             </p>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
-            {canCreateReceipts ? (
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/billing/receipts/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Generate Receipt
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                className='w-full sm:w-auto opacity-50'
-                disabled
-                variant='outline'
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Generate Receipt
-              </Button>
-            )}
             <Button variant='outline' asChild>
               <Link href='/billing/receipts/templates'>
                 <Receipt className='mr-2 h-4 w-4' />
