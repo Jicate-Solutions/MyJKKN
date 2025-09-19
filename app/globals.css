@@ -94,6 +94,9 @@ body {
     --sidebar-border: 240 4% 15%;
     --sidebar-ring: 150 70% 35%;
   }
+  .theme {
+    --animate-aurora: aurora 8s ease-in-out infinite alternate;
+  }
 }
 
 @layer base {
@@ -258,4 +261,29 @@ body {
 .animate-float-c {
   animation: float-c 7s ease-in-out infinite;
   animation-delay: 0.5s;
+}
+
+@theme inline {
+  @keyframes aurora {
+  0% {
+    background-position: 0% 50%;
+    transform: rotate(-5deg) scale(0.9);
+    }
+  25% {
+    background-position: 50% 100%;
+    transform: rotate(5deg) scale(1.1);
+    }
+  50% {
+    background-position: 100% 50%;
+    transform: rotate(-3deg) scale(0.95);
+    }
+  75% {
+    background-position: 50% 0%;
+    transform: rotate(3deg) scale(1.05);
+    }
+  100% {
+    background-position: 0% 50%;
+    transform: rotate(-5deg) scale(0.9);
+    }
+  }
 }

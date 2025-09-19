@@ -57,16 +57,17 @@ export default function LearnerLayout({ children }: LearnerLayoutProps) {
         "flex flex-col min-h-screen transition-all duration-300",
         !isMobile && (isCollapsed ? 'lg:ml-[90px]' : 'lg:ml-72')
       )}>
-        {/* Desktop Header */}
-        {!isMobile && (
-          <LearnerHeader />
-        )}
+        {/* Header - Show on all devices */}
+        <LearnerHeader
+          isMobile={isMobile}
+          onMenuClick={() => setIsSidebarOpen(true)}
+        />
 
         {/* Main content area */}
         <main
           className={cn(
             'relative flex-1',
-            isMobile ? 'pb-24 px-4 pt-4' : 'p-6'
+            isMobile ? 'pb-24 px-4 pt-2' : 'p-6'
           )}
         >
           <div className="relative z-10">

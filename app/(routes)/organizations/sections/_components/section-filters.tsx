@@ -11,6 +11,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DegreeService } from '@/lib/services/organization/degree-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionsSearchParams } from './data-table-schema';
@@ -32,6 +34,12 @@ export function SectionFilters({
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string; counselling_code: string }>
   >([]);
+  const [degrees, setDegrees] = useState<
+    Array<{ id: string; degree_name: string }>
+  >([]);
+  const [departments, setDepartments] = useState<
+    Array<{ id: string; department_name: string }>
+  >([]);
   const [programs, setPrograms] = useState<
     Array<{ id: string; program_name: string }>
   >([]);
@@ -44,6 +52,7 @@ export function SectionFilters({
   const canEditSections =
     isSuperAdmin || canAccess('organizations.sections', 'edit');
 
+  // Load institutions on component mount
   useEffect(() => {
     async function loadInstitutions() {
       try {
@@ -59,13 +68,60 @@ export function SectionFilters({
     loadInstitutions();
   }, []);
 
+  // Load degrees when institution changes
   useEffect(() => {
-    async function loadPrograms() {
+    async function loadDegrees() {
       if (searchParams.institution_id) {
         try {
           setLoading(true);
-          const { data } = await ProgramService.getPrograms({
+          const { data } = await DegreeService.getDegrees({
             institution_id: searchParams.institution_id,
+            isActive: true
+          });
+          setDegrees(data);
+        } catch (error) {
+          console.error('Error loading degrees:', error);
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        setDegrees([]);
+      }
+    }
+    loadDegrees();
+  }, [searchParams.institution_id]);
+
+  // Load departments when degree changes
+  useEffect(() => {
+    async function loadDepartments() {
+      if (searchParams.degree_id) {
+        try {
+          setLoading(true);
+          const { data } = await DepartmentService.getDepartments({
+            degree_id: searchParams.degree_id,
+            isActive: true
+          });
+          setDepartments(data);
+        } catch (error) {
+          console.error('Error loading departments:', error);
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        setDepartments([]);
+      }
+    }
+    loadDepartments();
+  }, [searchParams.degree_id]);
+
+  // Load programs when department changes
+  useEffect(() => {
+    async function loadPrograms() {
+      if (searchParams.department_id) {
+        try {
+          setLoading(true);
+          const { data } = await ProgramService.getPrograms({
+            department_id: searchParams.department_id,
             isActive: true
           });
           setPrograms(data);
@@ -79,8 +135,9 @@ export function SectionFilters({
       }
     }
     loadPrograms();
-  }, [searchParams.institution_id]);
+  }, [searchParams.department_id]);
 
+  // Load semesters when program changes
   useEffect(() => {
     async function loadSemesters() {
       if (searchParams.program_id) {
@@ -105,7 +162,38 @@ export function SectionFilters({
 
   const handleInstitutionChange = (value: string) => {
     onFilterChange('institution_id', value === 'all' ? undefined : value);
-    // Reset dependent filters when institution changes
+    // Reset all dependent filters when institution changes
+    if (searchParams.degree_id) {
+      onFilterChange('degree_id', undefined);
+    }
+    if (searchParams.department_id) {
+      onFilterChange('department_id', undefined);
+    }
+    if (searchParams.program_id) {
+      onFilterChange('program_id', undefined);
+    }
+    if (searchParams.semester_id) {
+      onFilterChange('semester_id', undefined);
+    }
+  };
+
+  const handleDegreeChange = (value: string) => {
+    onFilterChange('degree_id', value === 'all' ? undefined : value);
+    // Reset dependent filters when degree changes
+    if (searchParams.department_id) {
+      onFilterChange('department_id', undefined);
+    }
+    if (searchParams.program_id) {
+      onFilterChange('program_id', undefined);
+    }
+    if (searchParams.semester_id) {
+      onFilterChange('semester_id', undefined);
+    }
+  };
+
+  const handleDepartmentChange = (value: string) => {
+    onFilterChange('department_id', value === 'all' ? undefined : value);
+    // Reset dependent filters when department changes
     if (searchParams.program_id) {
       onFilterChange('program_id', undefined);
     }
@@ -124,6 +212,8 @@ export function SectionFilters({
 
   const hasActiveFilters = !!(
     searchParams.institution_id ||
+    searchParams.degree_id ||
+    searchParams.department_id ||
     searchParams.program_id ||
     searchParams.semester_id ||
     searchParams.status
@@ -134,7 +224,7 @@ export function SectionFilters({
       {/* Filters and Actions */}
       <div className='space-y-4'>
         {/* First Row - Filters */}
-        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4'>
+        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4'>
           {/* Institution Filter */}
           <div className='w-full'>
             <Select
@@ -158,12 +248,54 @@ export function SectionFilters({
             </Select>
           </div>
 
+          {/* Degree Filter */}
+          <div className='w-full'>
+            <Select
+              value={searchParams.degree_id || 'all'}
+              onValueChange={handleDegreeChange}
+              disabled={!searchParams.institution_id || loading}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue placeholder='All Degrees' />
+              </SelectTrigger>
+              <SelectContent className='max-h-60 overflow-y-auto'>
+                <SelectItem value='all'>All Degrees</SelectItem>
+                {degrees.map((degree) => (
+                  <SelectItem key={degree.id} value={degree.id}>
+                    {degree.degree_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Department Filter */}
+          <div className='w-full'>
+            <Select
+              value={searchParams.department_id || 'all'}
+              onValueChange={handleDepartmentChange}
+              disabled={!searchParams.degree_id || loading}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue placeholder='All Departments' />
+              </SelectTrigger>
+              <SelectContent className='max-h-60 overflow-y-auto'>
+                <SelectItem value='all'>All Departments</SelectItem>
+                {departments.map((department) => (
+                  <SelectItem key={department.id} value={department.id}>
+                    {department.department_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Program Filter */}
           <div className='w-full'>
             <Select
               value={searchParams.program_id || 'all'}
               onValueChange={handleProgramChange}
-              disabled={!searchParams.institution_id || loading}
+              disabled={!searchParams.department_id || loading}
             >
               <SelectTrigger className='w-full'>
                 <SelectValue placeholder='All Programs' />
