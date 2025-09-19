@@ -71,9 +71,9 @@ export function LearnerAnalyticsSection() {
     >
       <Card className='border-0 shadow-sm'>
         <CardHeader className='pb-4'>
-          <div className='flex items-center justify-between'>
+          <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-4'>
             <div className='flex items-center gap-3'>
-              <CardTitle className='text-lg font-semibold text-gray-900'>
+              <CardTitle className='text-base sm:text-lg font-semibold text-gray-900'>
                 Attendance Analytics
               </CardTitle>
               {loading && (
@@ -87,7 +87,7 @@ export function LearnerAnalyticsSection() {
                   setTimeframe(value)
                 }
               >
-                <SelectTrigger className='w-28 h-8 text-sm'>
+                <SelectTrigger className='w-24 sm:w-28 h-8 text-sm'>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -126,21 +126,23 @@ export function LearnerAnalyticsSection() {
               </div>
             </div>
           ) : (
-            <div className='relative h-64'>
-              {/* Chart Background */}
-              <div className='absolute inset-0 flex flex-col justify-between'>
-                {[100, 80, 60, 40, 20, 0].map((value) => (
-                  <div key={value} className='flex items-center'>
-                    <span className='text-xs text-gray-500 w-8'>{value}%</span>
-                    <div className='flex-1 border-t border-gray-100 ml-2' />
-                  </div>
-                ))}
-              </div>
+            <div className='flex flex-col'>
+              {/* Chart Area */}
+              <div className='relative h-40 sm:h-56 mb-4'>
+                {/* Chart Background */}
+                <div className='absolute inset-0 flex flex-col justify-between'>
+                  {[100, 80, 60, 40, 20, 0].map((value) => (
+                    <div key={value} className='flex items-center'>
+                      <span className='text-xs text-gray-500 w-6 sm:w-8'>{value}%</span>
+                      <div className='flex-1 border-t border-gray-100 ml-2' />
+                    </div>
+                  ))}
+                </div>
 
-              {/* Chart Bars */}
-              <div className='absolute inset-0 flex items-end justify-between px-10 pb-6'>
-                {chartData.map((data, index) => {
-                  const height = (data.attendanceRate / 100) * 200;
+                {/* Chart Bars */}
+                <div className='absolute inset-0 flex items-end justify-center gap-1 sm:gap-4 px-2 sm:px-10 pb-2'>
+                {chartData.slice(0, 5).map((data, index) => { // Limit to 5 items for better mobile display
+                  const height = (data.attendanceRate / 100) * 100; // Fixed height for mobile
                   const isGoodAttendance = data.attendanceRate >= 75;
 
                   return (
@@ -149,11 +151,11 @@ export function LearnerAnalyticsSection() {
                       className='flex flex-col items-center group relative'
                     >
                       {/* Tooltip */}
-                      <div className='absolute -top-16 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-10'>
+                      <div className='absolute -top-16 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs rounded-lg px-2 sm:px-3 py-1 sm:py-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-10'>
                         <div className='text-center'>
                           <div className='font-semibold'>{data.period}</div>
                           <div>Attendance: {data.attendanceRate}%</div>
-                          <div>
+                          <div className='hidden sm:block'>
                             Classes: {data.attendedClasses}/{data.totalClasses}
                           </div>
                         </div>
@@ -165,7 +167,7 @@ export function LearnerAnalyticsSection() {
                         initial={{ height: 0 }}
                         animate={{ height: `${height}px` }}
                         transition={{ duration: 0.8, delay: index * 0.1 }}
-                        className={`w-8 sm:w-10 md:w-12 rounded-t-lg transition-all duration-300 hover:scale-105 cursor-pointer relative ${
+                        className={`w-8 sm:w-10 md:w-12 lg:w-14 rounded-t-lg transition-all duration-300 hover:scale-105 cursor-pointer relative ${
                           isGoodAttendance
                             ? 'bg-gradient-to-t from-green-500 to-green-400'
                             : data.attendanceRate >= 60
@@ -180,8 +182,8 @@ export function LearnerAnalyticsSection() {
                       </motion.div>
 
                       {/* Period Label */}
-                      <span className='text-xs text-gray-600 mt-2 font-medium text-center max-w-16 truncate'>
-                        {data.period}
+                      <span className='text-xs text-gray-600 mt-1 font-medium text-center w-8 sm:w-10 md:w-12 lg:w-14 truncate'>
+                        {data.period.length > 4 ? data.period.substring(0, 3) + '.' : data.period}
                       </span>
 
                       {/* Trend indicator */}
@@ -201,19 +203,21 @@ export function LearnerAnalyticsSection() {
                 })}
               </div>
 
-              {/* Legend */}
-              <div className='absolute bottom-0 right-0 flex items-center gap-4 text-xs'>
+              </div>
+
+              {/* Legend - Moved outside chart area */}
+              <div className='flex justify-center items-center gap-4 text-xs pt-2 border-t border-gray-100'>
                 <div className='flex items-center gap-1'>
-                  <div className='w-3 h-3 bg-gradient-to-t from-green-500 to-green-400 rounded'></div>
-                  <span className='text-gray-600'>Good (≥75%)</span>
+                  <div className='w-2 h-2 bg-gradient-to-t from-green-500 to-green-400 rounded'></div>
+                  <span className='text-gray-600 text-xs'>Good</span>
                 </div>
                 <div className='flex items-center gap-1'>
-                  <div className='w-3 h-3 bg-gradient-to-t from-yellow-500 to-yellow-400 rounded'></div>
-                  <span className='text-gray-600'>Average (60-74%)</span>
+                  <div className='w-2 h-2 bg-gradient-to-t from-yellow-500 to-yellow-400 rounded'></div>
+                  <span className='text-gray-600 text-xs'>Avg</span>
                 </div>
                 <div className='flex items-center gap-1'>
-                  <div className='w-3 h-3 bg-gradient-to-t from-red-500 to-red-400 rounded'></div>
-                  <span className='text-gray-600'>Low (&lt;60%)</span>
+                  <div className='w-2 h-2 bg-gradient-to-t from-red-500 to-red-400 rounded'></div>
+                  <span className='text-gray-600 text-xs'>Low</span>
                 </div>
               </div>
             </div>

@@ -112,7 +112,7 @@ export function LearnerSidebar({
       <aside
         className={cn(
           'fixed top-0 left-0 z-50 h-screen transition-[width,transform] ease-in-out duration-300',
-          'bg-sidebar-background border-r border-sidebar-border shadow-md dark:shadow-zinc-800',
+          'bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 shadow-md dark:shadow-zinc-800',
           // Mobile behavior - slide in/out
           isMobile && (isOpen ? 'translate-x-0' : '-translate-x-full'),
           // Desktop behavior - always visible but collapsible width
