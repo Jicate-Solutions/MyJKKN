@@ -120,7 +120,7 @@ export function LearnerWelcomeHeader() {
       </div>
 
       {/* Content */}
-      <div className='relative z-10 p-3 sm:p-4 lg:p-6 xl:p-8 bg-secondary'>
+      <div className='relative z-10 p-3 sm:p-4 lg:p-6 xl:p-8 bg-[#FEF3E2]'>
         <div className='max-w-6xl mx-auto'>
           <div className='grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-0 xl:gap-0 items-center'>
             {/* Left Side - Welcome Message */}
@@ -455,14 +455,14 @@ export function LearnerWelcomeHeader() {
                 </div>
               </div>
 
-              <h1 className='text-3xl lg:text-4xl xl:text-[2.8rem] font-bold mb-3 sm:mb-4 leading-tight text-gray-900'>
+              <h1 className='text-[1.9rem] lg:text-4xl xl:text-[2.8rem] font-bold mb-3 sm:mb-4 leading-relaxed text-gray-900 pt-4'>
                 Ready to{' '}
-                <AuroraText colors={['#3B82F6', '#1D4ED8', '#2563EB']}>
+                <AuroraText colors={['#ffde59', '#ff9900', '#ff5733']}>
                   Learn
                 </AuroraText>{' '}
                 & <br />
                 <AuroraText
-                  colors={['#10B981', '#059669', '#047857']}
+                  colors={['#195dba', '#0b8793']}
                   className='lg:leading-snug'
                 >
                   Achieve Great Things
@@ -470,7 +470,7 @@ export function LearnerWelcomeHeader() {
                 ?
               </h1>
 
-              <div className='flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-gray-900'>
+              <div className='flex sm:flex-row sm:items-center gap-2 sm:gap-4 text-gray-900'>
                 <div className='flex items-center gap-2'>
                   <div className='w-6 h-6 sm:w-8 sm:h-8 bg-yellow-100 rounded-full flex items-center justify-center'>
                     <Star className='h-3 w-3 sm:h-4 sm:w-4 text-green-600' />
@@ -487,7 +487,7 @@ export function LearnerWelcomeHeader() {
               initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.4 }}
-              className='order-2 xl:order-2'
+              className='order-2 xl:order-2 mt-4'
             >
               <div className='max-w-sm xl:max-w-none mx-auto'>
                 <AIChip />
