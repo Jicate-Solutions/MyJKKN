@@ -24,6 +24,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface LearnerHeaderProps {
   isMobile?: boolean;
@@ -35,8 +36,40 @@ export function LearnerHeader({
   onMenuClick
 }: LearnerHeaderProps): JSX.Element {
   const [isClient, setIsClient] = useState(false);
+  const [studentPhotoUrl, setStudentPhotoUrl] = useState<string | null>(null);
   const { profile } = useAuth();
   const { theme, setTheme } = useTheme();
+
+  // Fetch student photo from students table
+  useEffect(() => {
+    const fetchStudentPhoto = async () => {
+      if (!profile?.email) return;
+
+      try {
+        const supabase = createClientSupabaseClient();
+
+        // Find the student record using email matching
+        const { data: studentRecord, error: studentRecordError } = await supabase
+          .from('students')
+          .select('student_photo_url')
+          .or(`student_email.eq.${profile.email},college_email.eq.${profile.email}`)
+          .eq('status', 'active')
+          .single();
+
+        if (studentRecordError || !studentRecord) {
+          console.log('Header - No student record found:', studentRecordError);
+          return;
+        }
+
+        console.log('Header - Student photo URL:', studentRecord.student_photo_url);
+        setStudentPhotoUrl(studentRecord.student_photo_url);
+      } catch (error) {
+        console.error('Header - Error fetching student photo:', error);
+      }
+    };
+
+    fetchStudentPhoto();
+  }, [profile?.email]);
 
   useEffect(() => {
     setIsClient(true);
@@ -44,6 +77,22 @@ export function LearnerHeader({
 
   // Use the passed isMobile prop to avoid hydration mismatch
   const currentIsMobile = isMobile;
+
+  const getStudentAvatarUrl = () => {
+    if (!studentPhotoUrl) return '';
+
+    // If it's already a full URL, return it
+    if (studentPhotoUrl.startsWith('http')) {
+      return studentPhotoUrl;
+    }
+
+    // If it's a Supabase storage path, construct the full URL using student-photos bucket
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const fullUrl = `${supabaseUrl}/storage/v1/object/public/student-photos/${studentPhotoUrl}`;
+
+    console.log('Header - Constructed student photo URL:', fullUrl);
+    return fullUrl;
+  };
 
   // Prevent hydration mismatch for theme-dependent elements
   if (!isClient) {
@@ -152,7 +201,7 @@ export function LearnerHeader({
               <DropdownMenuTrigger asChild>
                 <Button variant='ghost' className='p-1'>
                   <Avatar className='h-7 w-7'>
-                    <AvatarImage src={profile?.avatar_url || ''} />
+                    <AvatarImage src={getStudentAvatarUrl()} />
                     <AvatarFallback className='bg-gradient-to-br from-green-500 to-blue-600 text-white text-xs'>
                       {profile?.full_name?.charAt(0) || 'U'}
                     </AvatarFallback>
@@ -207,7 +256,7 @@ export function LearnerHeader({
                   className='flex items-center space-x-2 hover:bg-transparent'
                 >
                   <Avatar className='h-8 w-8'>
-                    <AvatarImage src={profile?.avatar_url || ''} />
+                    <AvatarImage src={getStudentAvatarUrl()} />
                     <AvatarFallback className='bg-gradient-to-br from-green-500 to-blue-600 text-white'>
                       {profile?.full_name?.charAt(0) || 'U'}
                     </AvatarFallback>
