@@ -115,7 +115,8 @@ export default function CompleteProfile() {
             if (profile.role === 'guest') {
               router.push('/guest');
             } else if (profile.role === 'student') {
-              router.push('/learner');
+              // Students are not allowed - redirect to login with message
+              router.push('/auth/login?reason=student_redirect');
             } else if (profile.role === 'driver') {
               router.push('/driver');
             } else {
@@ -185,7 +186,8 @@ export default function CompleteProfile() {
       if (updatedProfile?.role === 'guest') {
         router.push('/guest');
       } else if (updatedProfile?.role === 'student') {
-        router.push('/learner');
+        // Students are not allowed - redirect to login with message
+        router.push('/auth/login?reason=student_redirect');
       } else if (updatedProfile?.role === 'driver') {
         router.push('/driver');
       } else {

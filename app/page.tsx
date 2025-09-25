@@ -62,8 +62,9 @@ export default function RootPage() {
 
         switch (profile.role) {
           case 'student':
-            destination = '/learner';
-            break;
+            // Students are not allowed in this application - redirect to login
+            router.replace('/auth/login?reason=student_redirect');
+            return;
           case 'guest':
             destination = '/guest';
             break;

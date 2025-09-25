@@ -129,7 +129,14 @@ export function GoogleOneTap() {
           if (profile.role === 'guest') {
             router.push('/guest');
           } else if (profile.role === 'student') {
-            router.push('/learner');
+            // Students are not allowed - sign out and stay on login page
+            await supabase.auth.signOut();
+            // Add reason to URL without redirecting
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.set('reason', 'student_redirect');
+            window.history.replaceState({}, '', newUrl.toString());
+            window.location.reload();
+            return;
           } else {
             router.push('/');
           }

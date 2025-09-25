@@ -191,83 +191,36 @@ export async function middleware(request: NextRequest) {
       return response;
     }
 
-    // Student Status Logic (Task 2: High-level access control)
+    // Student Role Access Control - Students are not allowed to access this application
     if (profile.role === 'student') {
-      try {
-        // Fetch student record to get status
-        const { data: studentData, error: studentError } = await supabase
-          .from('students')
-          .select('id, status, is_profile_complete')
-          .eq('college_email', profile.email)
-          .single();
+      // If already on login page, don't redirect to avoid infinite loop
+      if (currentPath === '/auth/login') {
+        // Just sign out the user and let them stay on login page
+        const response = NextResponse.next();
 
-        if (!studentError && studentData) {
-          // Handle student status-based redirects
-          switch (studentData.status) {
-            case 'pending':
-              // Redirect pending students to learner dashboard instead of onboarding
-              if (
-                !currentPath.startsWith('/learner') &&
-                !currentPath.startsWith('/students/onboarding')
-              ) {
-                return NextResponse.redirect(new URL('/learner', request.url));
-              }
-              break;
+        // Clear all auth cookies
+        response.cookies.delete('sb-access-token');
+        response.cookies.delete('sb-refresh-token');
 
-            case 'exited':
-              // Sign out and redirect to login
-              const logoutResponse = NextResponse.redirect(
-                new URL('/auth/login?reason=exited', request.url)
-              );
+        // Sign out from Supabase
+        await supabase.auth.signOut();
 
-              // Clear all auth cookies
-              logoutResponse.cookies.delete('sb-access-token');
-              logoutResponse.cookies.delete('sb-refresh-token');
-
-              // Also sign out from Supabase
-              await supabase.auth.signOut();
-
-              return logoutResponse;
-
-            case 'active':
-            case 'inactive':
-            case 'graduated':
-              // These statuses are handled by fine-grained permissions (Task 3)
-              // Let them through for now
-              break;
-
-            default:
-              // Unknown status - treat as inactive for safety
-              console.warn(`Unknown student status: ${studentData.status}`);
-              break;
-          }
-
-          // Add student info to headers for downstream components
-          res.headers.set('x-student-id', studentData.id);
-          res.headers.set('x-student-status', studentData.status);
-          res.headers.set(
-            'x-student-profile-complete',
-            studentData.is_profile_complete.toString()
-          );
-        } else {
-          // Student record not found - this might be a new student
-          console.warn(
-            'Student profile found but no student record:',
-            profile.email
-          );
-
-          // Redirect to learner dashboard instead of onboarding
-          if (
-            !currentPath.startsWith('/learner') &&
-            !currentPath.startsWith('/students/onboarding')
-          ) {
-            return NextResponse.redirect(new URL('/learner', request.url));
-          }
-        }
-      } catch (studentFetchError) {
-        // Log error but don't block access - fallback to profile-based logic
-        console.error('Error fetching student status:', studentFetchError);
+        return response;
       }
+
+      // For other pages, redirect to login with message
+      const studentBlockedResponse = NextResponse.redirect(
+        new URL('/auth/login?reason=student_redirect', request.url)
+      );
+
+      // Clear all auth cookies
+      studentBlockedResponse.cookies.delete('sb-access-token');
+      studentBlockedResponse.cookies.delete('sb-refresh-token');
+
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+
+      return studentBlockedResponse;
     }
 
     // Check for disabled user accounts (applies to all users)
@@ -317,31 +270,7 @@ export async function middleware(request: NextRequest) {
       ) {
         return NextResponse.redirect(new URL('/driver', request.url));
       }
-    } else if (profile.role === 'student') {
-      // If student is trying to access admin routes, redirect to learner dashboard
-      if (
-        currentPath.startsWith('/users') ||
-        currentPath.startsWith('/system') ||
-        currentPath.startsWith('/organizations') ||
-        currentPath.startsWith('/staff') ||
-        currentPath.startsWith('/admissions') ||
-        currentPath.startsWith('/admin') ||
-        currentPath.startsWith('/billing') ||
-        currentPath.startsWith('/academic') ||
-        currentPath.startsWith('/resources') ||
-        currentPath.startsWith('/application-hub') ||
-        currentPath.startsWith('/bug-leaderboard') ||
-        currentPath.startsWith('/my-bug-reports') ||
-        currentPath === '/'
-      ) {
-        // Redirect to learner dashboard
-        return NextResponse.redirect(new URL('/learner', request.url));
-      }
     } else {
-      // Non-student, non-guest users (admin roles) trying to access learner routes should be redirected to admin dashboard
-      if (currentPath.startsWith('/learner')) {
-        return NextResponse.redirect(new URL('/', request.url));
-      }
       // Admin users trying to access guest or driver pages should be redirected to dashboard
       if (
         currentPath.startsWith('/guest') ||
@@ -392,7 +321,6 @@ export const config = {
     '/courses/:path*',
     '/profile/:path*',
     '/users/:path*',
-    '/learner/:path*',
     '/students/:path*',
     '/guest/:path*',
     '/driver/:path*',

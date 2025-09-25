@@ -107,6 +107,13 @@ export default function LoginPage() {
       hasRun = true;
       const params = new URLSearchParams(window.location.search);
 
+      // If this is a student redirect, stop auth checking immediately
+      if (params.get('reason') === 'student_redirect') {
+        console.log('[Login Page] Student redirect detected, stopping auth check');
+        setIsCheckingAuth(false);
+        return;
+      }
+
       // Check if this is a child app authentication request
       const isChildApp = params.get('child_app_auth') === 'true';
       const returnUrl = params.get('return_to');
@@ -239,33 +246,43 @@ export default function LoginPage() {
             .eq('id', data.user.id)
             .single();
 
-          // Determine destination based on role
+          // Handle student role - sign them out and stay on login page
+          if (profile?.role === 'student') {
+            console.log('[Login Page] Student detected - signing out and staying on login page');
+
+            // Sign out the student
+            await supabase.auth.signOut();
+
+            // If reason is already in URL, just stop loading and show the page
+            if (window.location.search.includes('reason=student_redirect')) {
+              setIsCheckingAuth(false);
+              return;
+            }
+
+            // Add reason to URL for message display without redirecting
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.set('reason', 'student_redirect');
+            window.history.replaceState({}, '', newUrl.toString());
+
+            // Set loading to false to show the page with the error message
+            setIsCheckingAuth(false);
+            return;
+          }
+
+          // Determine destination based on role (non-students only)
           let destination = '/';
           if (profile?.role === 'guest') {
             destination = '/guest';
-          } else if (profile?.role === 'student') {
-            destination = '/learner';
           } else if (profile?.role === 'driver') {
             destination = '/driver';
           }
 
-          // For students, only override with redirectedFrom if it's a learner-specific route
-          // This prevents students from being redirected to admin pages after login
-          if (redirectedFrom && profile?.role === 'student') {
-            // Only allow redirect to learner routes or onboarding for students
-            if (
-              redirectedFrom.startsWith('/learner') ||
-              redirectedFrom.startsWith('/students/onboarding')
-            ) {
-              destination = redirectedFrom;
-            }
-            // Otherwise, keep the default '/learner' destination
-          } else if (
+          // For non-student, non-guest users, allow redirectedFrom as before
+          if (
             redirectedFrom &&
             profile?.role !== 'guest' &&
             profile?.role !== 'student'
           ) {
-            // For non-student, non-guest users, allow redirectedFrom as before
             destination = redirectedFrom;
           }
 
@@ -276,8 +293,6 @@ export default function LoginPage() {
             // Default to role-based dashboard instead
             if (profile?.role === 'guest') {
               destination = '/guest';
-            } else if (profile?.role === 'student') {
-              destination = '/learner';
             } else if (profile?.role === 'driver') {
               destination = '/driver';
             } else {
@@ -307,10 +322,12 @@ export default function LoginPage() {
     };
   }, [router, supabase]);
 
-  // Check for error params
+  // Check for error and reason params
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const error = params.get('error');
+    const reason = params.get('reason');
+
     if (error) {
       const errorMessages: Record<string, string> = {
         no_code: 'Authentication code missing',
@@ -320,6 +337,16 @@ export default function LoginPage() {
         callback: 'Authentication callback failed'
       };
       toast.error(errorMessages[error] || `Login error: ${error}`);
+    }
+
+    if (reason) {
+      const reasonMessages: Record<string, string> = {
+        student_redirect: 'Student accounts should use the separate MyJKKN Learners application. This portal is for administrators and staff only.',
+        exited: 'Your account has been marked as exited.',
+        disabled: 'Your account has been disabled.',
+        inactive: 'Your account is currently inactive.'
+      };
+      toast.error(reasonMessages[reason] || `Access restricted: ${reason}`);
     }
   }, []);
 
