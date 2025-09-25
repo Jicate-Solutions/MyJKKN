@@ -80,10 +80,10 @@ const timetableFormSchema = z
     department_id: z.string().min(1, {
       message: 'Please select a department.'
     }),
-    semester: z.string().min(1, {
+    semester_id: z.string().min(1, {
       message: 'Please select a semester.'
     }),
-    section: z.string().min(1, {
+    section_id: z.string().min(1, {
       message: 'Please select a section.'
     }),
     start_date: z.date().optional(),
@@ -125,8 +125,8 @@ export default function NewTimetablePage() {
       degree_id: '',
       program_id: '',
       department_id: '',
-      semester: '',
-      section: '',
+      semester_id: '',
+      section_id: '',
       is_active: true,
       is_template: false,
       template_name: '',
@@ -142,8 +142,8 @@ export default function NewTimetablePage() {
   const watchDegreeId = form.watch('degree_id');
   const watchProgramId = form.watch('program_id');
   const watchDepartmentId = form.watch('department_id');
-  const watchSemesterId = form.watch('semester');
-  const watchSectionId = form.watch('section');
+  const watchSemesterId = form.watch('semester_id');
+  const watchSectionId = form.watch('section_id');
   const watchStartDate = form.watch('start_date');
   const watchEndDate = form.watch('end_date');
   const watchSelectedTemplateId = form.watch('selected_template_id');
@@ -265,10 +265,8 @@ export default function NewTimetablePage() {
       .map((s) => ({ id: s.id, name: s.semester_name }))
   });
 
-  // Find the actual semester ID for the selected semester name
-  const selectedSemesterId = watchSemesterId
-    ? allSemesters.find((s) => s.semester_name === watchSemesterId)?.id
-    : undefined;
+  // Since watchSemesterId now contains the actual UUID, use it directly
+  const selectedSemesterId = watchSemesterId || undefined;
 
   // Deduplicate semesters by name for display (keep the first one)
   const uniqueSemesters = allSemesters.filter(
@@ -317,7 +315,11 @@ export default function NewTimetablePage() {
 
   // Handle template selection to prefill timetable format
   useEffect(() => {
-    if (watchSelectedTemplateId && watchSelectedTemplateId !== 'no-template' && availableTemplates.length > 0) {
+    if (
+      watchSelectedTemplateId &&
+      watchSelectedTemplateId !== 'no-template' &&
+      availableTemplates.length > 0
+    ) {
       const selectedTemplate = availableTemplates.find(
         (t: any) => t.id === watchSelectedTemplateId
       );
@@ -353,8 +355,8 @@ export default function NewTimetablePage() {
       !values.degree_id ||
       !values.program_id ||
       !values.department_id ||
-      !values.semester ||
-      !values.section
+      !values.semester_id ||
+      !values.section_id
     ) {
       return;
     }
@@ -384,8 +386,8 @@ export default function NewTimetablePage() {
         degree_id: values.degree_id,
         program_id: values.program_id,
         department_id: values.department_id,
-        semester: values.semester,
-        section: values.section,
+        semester_id: values.semester_id,
+        section_id: values.section_id,
         start_date: formatDateForAPI(values.start_date),
         end_date: formatDateForAPI(values.end_date)
       });
@@ -450,7 +452,10 @@ export default function NewTimetablePage() {
       let createdTimetable;
 
       // Check if creating from template
-      if (values.selected_template_id && values.selected_template_id !== 'no-template') {
+      if (
+        values.selected_template_id &&
+        values.selected_template_id !== 'no-template'
+      ) {
         createdTimetable = await createFromTemplate.mutateAsync({
           templateId: values.selected_template_id,
           timetableData: {
@@ -460,8 +465,8 @@ export default function NewTimetablePage() {
             degree_id: formattedValues.degree_id,
             program_id: formattedValues.program_id,
             department_id: formattedValues.department_id,
-            semester: formattedValues.semester,
-            section: formattedValues.section,
+            semester_id: formattedValues.semester_id,
+            section_id: formattedValues.section_id,
             start_date: formattedValues.start_date,
             end_date: formattedValues.end_date,
             is_active: formattedValues.is_active
@@ -474,9 +479,11 @@ export default function NewTimetablePage() {
       }
 
       if (createdTimetable) {
-        const successMessage = (values.selected_template_id && values.selected_template_id !== 'no-template')
-          ? 'Timetable created from template successfully!'
-          : 'Timetable created successfully!';
+        const successMessage =
+          values.selected_template_id &&
+          values.selected_template_id !== 'no-template'
+            ? 'Timetable created from template successfully!'
+            : 'Timetable created successfully!';
         toast.success(successMessage);
         // Redirect to the newly created timetable's details page
         router.push(`/academic/timetables/${(createdTimetable as any)?.id}`);
@@ -497,7 +504,7 @@ export default function NewTimetablePage() {
           // Show toast for duplicate error
           toast.error(error.message);
           // Also set form error for visual feedback
-          form.setError('semester', {
+          form.setError('semester_id', {
             type: 'manual',
             message: error.message
           });
@@ -861,7 +868,7 @@ export default function NewTimetablePage() {
 
                   <FormField
                     control={form.control}
-                    name='semester'
+                    name='semester_id'
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Semester</FormLabel>
@@ -884,7 +891,7 @@ export default function NewTimetablePage() {
                               uniqueSemesters.map((semester) => (
                                 <SelectItem
                                   key={semester.id}
-                                  value={semester.semester_name}
+                                  value={semester.id}
                                 >
                                   {semester.semester_name}
                                 </SelectItem>
@@ -906,7 +913,7 @@ export default function NewTimetablePage() {
 
                   <FormField
                     control={form.control}
-                    name='section'
+                    name='section_id'
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Section</FormLabel>
@@ -928,7 +935,7 @@ export default function NewTimetablePage() {
                             {uniqueSections.map((section, index) => (
                               <SelectItem
                                 key={`section-${section.id}-${index}`}
-                                value={section.section_name}
+                                value={section.id}
                               >
                                 {section.section_name}
                               </SelectItem>
@@ -1165,7 +1172,8 @@ export default function NewTimetablePage() {
                     ) : (
                       <>
                         <Save className='mr-2 h-4 w-4' />
-                        {(watchSelectedTemplateId && watchSelectedTemplateId !== 'no-template')
+                        {watchSelectedTemplateId &&
+                        watchSelectedTemplateId !== 'no-template'
                           ? 'Create from Template'
                           : 'Create Timetable'}
                       </>

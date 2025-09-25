@@ -109,8 +109,8 @@ export interface Timetable {
   degree_id: string;
   program_id: string;
   department_id: string;
-  semester: string | number;
-  section?: string;
+  semester_id: string;
+  section_id?: string;
   timetable_name: string;
   version: number;
   is_active: boolean;
@@ -149,6 +149,14 @@ export interface Timetable {
     id: string;
     department_name: string;
   };
+  semesters?: {
+    id: string;
+    semester_name: string;
+  };
+  sections?: {
+    id: string;
+    section_name: string;
+  };
   slots?: any[];
   timetable_format: 'regular' | 'batch';
   timetable_data?: any;
@@ -161,8 +169,8 @@ export interface CreateTimetableDto {
   degree_id: string;
   program_id: string;
   department_id: string;
-  semester: string | number;
-  section?: string; // Made optional
+  semester_id: string;
+  section_id?: string;
   timetable_name: string;
   is_active?: boolean;
   is_template?: boolean;
@@ -188,8 +196,8 @@ export interface TimetableFilters {
   degree_id?: string;
   program_id?: string;
   department_id?: string;
-  semester?: string | number;
-  section?: string;
+  semester?: string; // UUID of semester (semester_id)
+  section?: string; // Section name (section_name)
   is_active?: boolean;
   is_template?: boolean;
   page?: number;
@@ -213,8 +221,8 @@ export interface TimetableContextType {
   degree_id: string | null;
   program_id: string | null;
   department_id: string | null;
-  semester: string | number | null;
-  section?: string | null; // Made optional
+  semester_id: string | null;
+  section_id?: string | null; // Made optional
 }
 
 // Template-specific types
@@ -238,8 +246,8 @@ export interface CreateTemplateDto {
   degree_id?: string;
   program_id?: string;
   department_id?: string;
-  semester?: string | number;
-  section?: string;
+  semester_id?: string;
+  section_id?: string;
   timetable_format?: 'regular' | 'batch';
   periods?: any;
   timetable_data?: any;
@@ -279,8 +287,8 @@ export interface CreateFromTemplateDto {
   degree_id: string;
   program_id: string;
   department_id: string;
-  semester: string | number;
-  section?: string;
+  semester_id: string;
+  section_id?: string;
   start_date?: string;
   end_date?: string;
   is_active?: boolean;

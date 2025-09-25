@@ -130,14 +130,17 @@ export default function TimetableDetailPage({
   const unwrappedParams = use(params);
   const timetableId = unwrappedParams.id;
   const { saveTimetableAsTemplate } = useTimetables();
-  
+
   // Get permissions for role-based access control
   const { canAccess, isSuperAdmin } = usePermissions();
-  
+
   // Permission checks for different actions
-  const canEditTimetable = isSuperAdmin || canAccess('academic.timetables', 'edit');
-  const canDeleteTimetable = isSuperAdmin || canAccess('academic.timetables', 'delete');
-  const canCreateTimetable = isSuperAdmin || canAccess('academic.timetables', 'create');
+  const canEditTimetable =
+    isSuperAdmin || canAccess('academic.timetables', 'edit');
+  const canDeleteTimetable =
+    isSuperAdmin || canAccess('academic.timetables', 'delete');
+  const canCreateTimetable =
+    isSuperAdmin || canAccess('academic.timetables', 'create');
 
   // Add ref for timetable grid capture
   const timetableGridRef = useRef<HTMLDivElement>(null);
@@ -266,21 +269,17 @@ export default function TimetableDetailPage({
       // Timetable is semester-specific, so only courses from that same semester's staff planning should be shown
       let semesterIdForStaffPlan: string | undefined;
 
-      // If timetable has semester as object with id, use it directly
-      if (
-        typeof timetable.semester === 'object' &&
-        timetable.semester &&
-        'id' in timetable.semester
-      ) {
-        semesterIdForStaffPlan = (timetable.semester as any).id;
-        console.log('Using semester object ID:', semesterIdForStaffPlan);
-      }
-      // If timetable has semester as string, find the matching semester ID
-      else if (typeof timetable.semester === 'string') {
+      // The timetable.semester_id should now always be a UUID after normalization
+      if (typeof timetable.semester_id === 'string' && timetable.semester_id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)) {
+        // It's already a UUID, use it directly
+        semesterIdForStaffPlan = timetable.semester_id;
+        console.log('Using semester UUID:', semesterIdForStaffPlan);
+      } else if (typeof timetable.semester_id === 'string') {
+        // Fallback: if it's still a string name, look it up (for backwards compatibility)
         try {
           console.log(
             'Looking up semester ID for timetable semester:',
-            timetable.semester
+            timetable.semester_id
           );
 
           // Find the semester ID by matching semester name within the same program/department context
@@ -292,7 +291,7 @@ export default function TimetableDetailPage({
           });
 
           const matchingSemester = semestersResponse.data.find(
-            (semester) => semester.semester_name === timetable.semester
+            (semester) => semester.semester_name === timetable.semester_id
           );
 
           if (matchingSemester) {
@@ -301,12 +300,12 @@ export default function TimetableDetailPage({
               '✓ Found matching semester ID:',
               semesterIdForStaffPlan,
               'for semester:',
-              timetable.semester
+              timetable.semester_id
             );
           } else {
             console.warn(
               '✗ No matching semester found for:',
-              timetable.semester
+              timetable.semester_id
             );
             console.log(
               'Available semesters:',
@@ -474,13 +473,15 @@ export default function TimetableDetailPage({
       setLoadingFilteredSections(true);
 
       // Find the semester ID based on the timetable's semester name and context
+      // After normalization, semester_id should be a UUID
       let semesterId: string | null = null;
 
-      if (
-        typeof timetable.semester === 'string' ||
-        typeof timetable.semester === 'number'
-      ) {
-        // Find the semester ID by matching semester name with timetable context
+      if (typeof timetable.semester_id === 'string' && timetable.semester_id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)) {
+        // It's already a UUID, use it directly
+        semesterId = timetable.semester_id;
+        console.log('Using semester UUID for sections:', semesterId);
+      } else if (typeof timetable.semester_id === 'string') {
+        // Fallback: if it's still a string name, look it up (for backwards compatibility)
         try {
           const semestersResponse = await SemesterService.getSemesters({
             institution_id: timetable.institution_id,
@@ -492,7 +493,7 @@ export default function TimetableDetailPage({
           });
 
           const matchingSemester = semestersResponse.data.find(
-            (semester) => semester.semester_name === timetable.semester
+            (semester) => semester.semester_name === timetable.semester_id
           );
 
           if (matchingSemester) {
@@ -504,18 +505,14 @@ export default function TimetableDetailPage({
               semesterId
             );
           } else {
-            console.warn('No matching semester found for:', timetable.semester);
+            console.warn(
+              'No matching semester found for:',
+              timetable.semester_id
+            );
           }
         } catch (error) {
           console.error('Error finding semester ID:', error);
         }
-      } else if (
-        typeof timetable.semester === 'object' &&
-        timetable.semester !== null &&
-        'id' in timetable.semester
-      ) {
-        // If semester is already an object with ID (unlikely but handle it)
-        semesterId = (timetable.semester as any).id;
       }
 
       let sectionsData: any[] = [];
@@ -757,7 +754,9 @@ export default function TimetableDetailPage({
       setTimetable(timetableData);
 
       // Check if attendance has been marked for this timetable
-      const attendanceStatus = await TimetableService.hasAttendanceMarked(timetableId);
+      const attendanceStatus = await TimetableService.hasAttendanceMarked(
+        timetableId
+      );
       setHasAttendance(attendanceStatus.hasAttendance);
       setMarkedPeriods(attendanceStatus.markedPeriods);
 
@@ -878,11 +877,12 @@ export default function TimetableDetailPage({
   ) => {
     // Check if this period has attendance marked (but allow super admins to override)
     const isPeriodLocked = markedPeriods.includes(period.id);
-    
+
     if (isPeriodLocked && !isSuperAdmin) {
       toast({
         title: 'Period Locked',
-        description: 'This period cannot be modified because attendance has been marked. Staff changes should be made through the Staff Planning module.',
+        description:
+          'This period cannot be modified because attendance has been marked. Staff changes should be made through the Staff Planning module.',
         variant: 'destructive'
       });
       return;
@@ -891,7 +891,7 @@ export default function TimetableDetailPage({
     // For viewing existing slots, allow users with view permission
     // For creating/editing, require edit permission
     let isReadOnly = false;
-    
+
     if (existingSlot) {
       // Viewing existing slot - allow with view permission
       // Dialog will be in read-only mode if user doesn't have edit permission
@@ -907,7 +907,7 @@ export default function TimetableDetailPage({
         return;
       }
     }
-    
+
     // Prevent slot creation for break periods (but allow viewing)
     if (period.is_break && !existingSlot) {
       toast({
@@ -960,7 +960,7 @@ export default function TimetableDetailPage({
       period,
       existingSlot
     });
-    
+
     // Show confirmation dialog
     setDeleteDialogOpen(true);
   };
@@ -968,7 +968,7 @@ export default function TimetableDetailPage({
   // Actual deletion function called after confirmation
   const confirmSlotDeletion = async () => {
     if (!slotToDelete) return;
-    
+
     const { day, period, existingSlot } = slotToDelete;
 
     // Real-time check if this specific period slot has attendance marked
@@ -985,8 +985,12 @@ export default function TimetableDetailPage({
         if (lockStatus.isLocked) {
           toast({
             title: 'Cannot Delete Slot',
-            description: `This period slot cannot be deleted. Attendance has been marked for ${lockStatus.attendanceCount} students${
-              lockStatus.attendanceDate ? ` on ${lockStatus.attendanceDate}` : ''
+            description: `This period slot cannot be deleted. Attendance has been marked for ${
+              lockStatus.attendanceCount
+            } students${
+              lockStatus.attendanceDate
+                ? ` on ${lockStatus.attendanceDate}`
+                : ''
             }. Deleting would lose attendance records.`,
             variant: 'destructive',
             duration: 6000
@@ -1017,7 +1021,7 @@ export default function TimetableDetailPage({
         });
       }
     }
-    
+
     try {
       // Check if this is a range operation
       if (typeof day === 'string' && day.startsWith('RANGE:')) {
@@ -1085,7 +1089,7 @@ export default function TimetableDetailPage({
       }
     } catch (err) {
       console.error('Error deleting slot:', err);
-      
+
       // Check if it's an attendance-related error
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       if (errorMessage.includes('attendance')) {
@@ -1667,7 +1671,7 @@ export default function TimetableDetailPage({
       // Set document properties
       pdf.setProperties({
         title: `Timetable - ${timetable.timetable_name}`,
-        subject: `Timetable for ${timetable.semester}`,
+        subject: `Timetable for ${timetable.semesters?.semester_name || 'Semester'}`,
         creator: 'JKKN Timetable System'
       });
 
@@ -1693,12 +1697,8 @@ export default function TimetableDetailPage({
         yPosition += 7;
       }
 
-      if (timetable.semester) {
-        const semesterName =
-          typeof timetable.semester === 'string'
-            ? timetable.semester
-            : 'Semester';
-        pdf.text(`Semester: ${semesterName}`, margin, yPosition);
+      if (timetable.semesters?.semester_name) {
+        pdf.text(`Semester: ${timetable.semesters.semester_name}`, margin, yPosition);
         yPosition += 7;
       }
 
@@ -1987,311 +1987,343 @@ export default function TimetableDetailPage({
             isSuperAdmin={isSuperAdmin}
           />
 
-        {/* Unsaved Changes Indicator */}
-        {hasUnsavedChanges && (
-          <div className='bg-amber-50 border border-amber-200 rounded-lg p-4'>
-            <div className='flex items-center gap-3'>
-              <AlertCircle className='h-5 w-5 text-amber-600 flex-shrink-0' />
-              <div className='flex-1'>
-                <p className='text-sm font-medium text-amber-800'>
-                  You have unsaved changes
-                </p>
-                <p className='text-sm text-amber-700 mt-1'>
-                  Your timetable configuration changes haven&apos;t been saved
-                  yet. Click &quot;Save Configuration&quot; to save your
-                  changes.
-                </p>
-              </div>
-              <Button
-                size='sm'
-                onClick={savePeriodSelections}
-                disabled={savingPeriods}
-                className='bg-amber-600 hover:bg-amber-700 text-white'
-              >
-                {savingPeriods ? (
-                  <>
-                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className='mr-2 h-4 w-4' />
-                    Save Now
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Timetable Section */}
-        <div className='bg-white rounded-lg shadow-sm border'>
-          <div className='p-6'>
-            <div className='flex flex-col gap-4 mb-6'>
-              <div>
-                <h2 className='text-lg font-semibold text-gray-900'>
-                  Timetable
-                </h2>
-                <p className='text-sm text-gray-500'>
-                  Schedule for{' '}
-                  {typeof timetable.semester === 'object' &&
-                  timetable.semester &&
-                  'semester_name' in timetable.semester
-                    ? (timetable.semester as any).semester_name
-                    : typeof timetable.semester === 'string'
-                    ? timetable.semester
-                    : 'Semester'}
-                  {timetable.section && ` - Section ${timetable.section}`}
-                </p>
-              </div>
-              <div className='flex items-center gap-2'>
-                {canEditTimetable && (
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={() => {
-                      if (hasAttendance && !isSuperAdmin) {
-                        toast({
-                          title: 'Timetable Locked',
-                          description: 'Cannot configure periods. Attendance has been marked for this timetable.',
-                          variant: 'destructive'
-                        });
-                        return;
-                      }
-                      setPeriodSelectorOpen(true);
-                    }}
-                    disabled={hasAttendance && !isSuperAdmin}
-                  >
-                    {hasAttendance && !isSuperAdmin && <Lock className='h-3 w-3 mr-1' />}
-                    <Settings className='h-4 w-4 mr-2' />
-                    Configure Periods
-                    <Badge variant='secondary' className='ml-2'>
-                      {selectedPeriods.length}
-                    </Badge>
-                  </Button>
-                )}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div>
-                        <Select
-                          value={timetableFormat}
-                          onValueChange={(value) => {
-                            const newFormat = value as 'regular' | 'batch';
-                            if (newFormat !== timetableFormat) {
-                              setTimetableFormat(newFormat);
-                              setHasUnsavedChanges(true);
-                            }
-                          }}
-                          disabled={slots.length > 0}
-                        >
-                          <SelectTrigger
-                            className={cn(
-                              'w-[180px] h-9',
-                              slots.length > 0 &&
-                                'cursor-not-allowed opacity-60'
-                            )}
-                          >
-                            <SelectValue placeholder='Timetable Format' />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value='regular'>
-                              Regular (Day-wise)
-                            </SelectItem>
-                            <SelectItem value='batch'>
-                              Batch (Date-wise)
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </TooltipTrigger>
-                    {slots.length > 0 && (
-                      <TooltipContent>
-                        <p>
-                          Cannot change format when slots exist. Delete all
-                          slots first to change format.
-                        </p>
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                </TooltipProvider>
-                {timetableFormat === 'regular' && canEditTimetable && (
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={() => setDayConfigOpen(true)}
-                  >
-                    <Calendar className='h-4 w-4 mr-2' />
-                    Configure Days
-                    <Badge variant='secondary' className='ml-2'>
-                      {selectedDays.length}
-                    </Badge>
-                  </Button>
-                )}
-                {canEditTimetable && (!hasAttendance || isSuperAdmin) && (
-                  <Button
-                    variant='default'
-                    size='sm'
-                    onClick={savePeriodSelections}
-                    disabled={savingPeriods || (hasAttendance && !isSuperAdmin)}
-                    className='bg-green-600 hover:bg-green-700'
-                  >
-                    <Save className='h-4 w-4 mr-2' />
-                    Save Configuration
-                  </Button>
-                )}
-                <Button variant='outline' size='sm' onClick={exportToPDF}>
-                  <Download className='h-4 w-4 mr-2' />
-                  Export PDF
+          {/* Unsaved Changes Indicator */}
+          {hasUnsavedChanges && (
+            <div className='bg-amber-50 border border-amber-200 rounded-lg p-4'>
+              <div className='flex items-center gap-3'>
+                <AlertCircle className='h-5 w-5 text-amber-600 flex-shrink-0' />
+                <div className='flex-1'>
+                  <p className='text-sm font-medium text-amber-800'>
+                    You have unsaved changes
+                  </p>
+                  <p className='text-sm text-amber-700 mt-1'>
+                    Your timetable configuration changes haven&apos;t been saved
+                    yet. Click &quot;Save Configuration&quot; to save your
+                    changes.
+                  </p>
+                </div>
+                <Button
+                  size='sm'
+                  onClick={savePeriodSelections}
+                  disabled={savingPeriods}
+                  className='bg-amber-600 hover:bg-amber-700 text-white'
+                >
+                  {savingPeriods ? (
+                    <>
+                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className='mr-2 h-4 w-4' />
+                      Save Now
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
+          )}
 
-            {timetableFormat === 'regular' ? (
-              <TimetableGrid
-                ref={timetableGridRef}
-                selectedDays={selectedDays}
-                selectedPeriods={selectedPeriods}
-                slots={slots}
-                lockedPeriods={markedPeriods}
-                onSlotClick={openSlotDialog}
-                onSlotDelete={handleSlotDelete}
-                isSuperAdmin={isSuperAdmin}
-              />
-            ) : (
-              <BatchTimetableGrid
-                ref={timetableGridRef}
-                selectedDates={selectedDates}
-                selectedPeriods={selectedPeriods}
-                slots={slots}
-                onSlotClick={(date, period, existingSlot) => {
-                  console.log('BatchTimetableGrid onSlotClick called:', {
-                    date,
-                    period: period?.period_name,
-                    existingSlot: !!existingSlot,
-                    slotDialogOpen: slotDialogOpen
-                  });
+          {/* Timetable Section */}
+          <div className='bg-white rounded-lg shadow-sm border'>
+            <div className='p-6'>
+              <div className='flex flex-col gap-4 mb-6'>
+                <div>
+                  <h2 className='text-lg font-semibold text-gray-900'>
+                    Timetable
+                  </h2>
+                  <p className='text-sm text-gray-500'>
+                    Schedule for{' '}
+                    {timetable.semesters?.semester_name || 'Semester'}
+                    {timetable.sections?.section_name &&
+                      ` - ${timetable.sections.section_name}`}
+                  </p>
+                </div>
+                <div className='flex items-center gap-2'>
+                  {canEditTimetable && (
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => {
+                        if (hasAttendance && !isSuperAdmin) {
+                          toast({
+                            title: 'Timetable Locked',
+                            description:
+                              'Cannot configure periods. Attendance has been marked for this timetable.',
+                            variant: 'destructive'
+                          });
+                          return;
+                        }
+                        setPeriodSelectorOpen(true);
+                      }}
+                      disabled={hasAttendance && !isSuperAdmin}
+                    >
+                      {hasAttendance && !isSuperAdmin && (
+                        <Lock className='h-3 w-3 mr-1' />
+                      )}
+                      <Settings className='h-4 w-4 mr-2' />
+                      Configure Periods
+                      <Badge variant='secondary' className='ml-2'>
+                        {selectedPeriods.length}
+                      </Badge>
+                    </Button>
+                  )}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <Select
+                            value={timetableFormat}
+                            onValueChange={(value) => {
+                              const newFormat = value as 'regular' | 'batch';
+                              if (newFormat !== timetableFormat) {
+                                setTimetableFormat(newFormat);
+                                setHasUnsavedChanges(true);
+                              }
+                            }}
+                            disabled={slots.length > 0}
+                          >
+                            <SelectTrigger
+                              className={cn(
+                                'w-[180px] h-9',
+                                slots.length > 0 &&
+                                  'cursor-not-allowed opacity-60'
+                              )}
+                            >
+                              <SelectValue placeholder='Timetable Format' />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value='regular'>
+                                Regular (Day-wise)
+                              </SelectItem>
+                              <SelectItem value='batch'>
+                                Batch (Date-wise)
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TooltipTrigger>
+                      {slots.length > 0 && (
+                        <TooltipContent>
+                          <p>
+                            Cannot change format when slots exist. Delete all
+                            slots first to change format.
+                          </p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
+                  {timetableFormat === 'regular' && canEditTimetable && (
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => setDayConfigOpen(true)}
+                    >
+                      <Calendar className='h-4 w-4 mr-2' />
+                      Configure Days
+                      <Badge variant='secondary' className='ml-2'>
+                        {selectedDays.length}
+                      </Badge>
+                    </Button>
+                  )}
+                  {canEditTimetable && (!hasAttendance || isSuperAdmin) && (
+                    <Button
+                      variant='default'
+                      size='sm'
+                      onClick={savePeriodSelections}
+                      disabled={
+                        savingPeriods || (hasAttendance && !isSuperAdmin)
+                      }
+                      className='bg-green-600 hover:bg-green-700'
+                    >
+                      <Save className='h-4 w-4 mr-2' />
+                      Save Configuration
+                    </Button>
+                  )}
+                  <Button variant='outline' size='sm' onClick={exportToPDF}>
+                    <Download className='h-4 w-4 mr-2' />
+                    Export PDF
+                  </Button>
+                </div>
+              </div>
 
-                  // For batch mode, store the date range info
-                  if (typeof window !== 'undefined') {
-                    sessionStorage.setItem('batchSelectedDate', date);
-                  }
-
-                  // Prevent slot creation/editing for break periods
-                  if (period.is_break && !existingSlot) {
-                    console.log('Preventing break period slot creation');
-                    toast({
-                      title: 'Break Period',
-                      description:
-                        'Slots cannot be created during break periods. Break periods are reserved for breaks across all days.',
-                      variant: 'default'
+              {timetableFormat === 'regular' ? (
+                <TimetableGrid
+                  ref={timetableGridRef}
+                  selectedDays={selectedDays}
+                  selectedPeriods={selectedPeriods}
+                  slots={slots}
+                  lockedPeriods={markedPeriods}
+                  onSlotClick={openSlotDialog}
+                  onSlotDelete={handleSlotDelete}
+                  isSuperAdmin={isSuperAdmin}
+                />
+              ) : (
+                <BatchTimetableGrid
+                  ref={timetableGridRef}
+                  selectedDates={selectedDates}
+                  selectedPeriods={selectedPeriods}
+                  slots={slots}
+                  onSlotClick={(date, period, existingSlot) => {
+                    console.log('BatchTimetableGrid onSlotClick called:', {
+                      date,
+                      period: period?.period_name,
+                      existingSlot: !!existingSlot,
+                      slotDialogOpen: slotDialogOpen
                     });
-                    return;
-                  }
 
-                  // For batch mode, store the date in selectedDay even though it's not a day of week
-                  // This will be used in saveSlot function
-                  setSelectedDay(date as any); // Store the date string for batch mode
-                  setSelectedPeriod(period);
+                    // For batch mode, store the date range info
+                    if (typeof window !== 'undefined') {
+                      sessionStorage.setItem('batchSelectedDate', date);
+                    }
 
-                  if (existingSlot) {
-                    setSelectedSlot(existingSlot);
-                    setEditingSlot(existingSlot);
-                    setIsCombinedClass(existingSlot.is_combined || false);
+                    // Prevent slot creation/editing for break periods
+                    if (period.is_break && !existingSlot) {
+                      console.log('Preventing break period slot creation');
+                      toast({
+                        title: 'Break Period',
+                        description:
+                          'Slots cannot be created during break periods. Break periods are reserved for breaks across all days.',
+                        variant: 'default'
+                      });
+                      return;
+                    }
 
-                    if (existingSlot.is_combined && existingSlot.sub_slots) {
-                      // Handle combined slot with sub-slots
+                    // For batch mode, store the date in selectedDay even though it's not a day of week
+                    // This will be used in saveSlot function
+                    setSelectedDay(date as any); // Store the date string for batch mode
+                    setSelectedPeriod(period);
+
+                    if (existingSlot) {
+                      setSelectedSlot(existingSlot);
+                      setEditingSlot(existingSlot);
+                      setIsCombinedClass(existingSlot.is_combined || false);
+
+                      if (existingSlot.is_combined && existingSlot.sub_slots) {
+                        // Handle combined slot with sub-slots
+                        setSlotType('regular');
+                        setIsBreakSlot(false);
+                        setBreakDescription('');
+                        setSelectedCourseId('');
+                        setSelectedStaffIds([]);
+                        setSelectedSectionIds([]);
+
+                        // Populate sub-slots
+                        const updatedSubSlots = [
+                          {
+                            sub_slot_order: 1 as const,
+                            course_id:
+                              existingSlot.sub_slots.find(
+                                (ss: any) => ss.sub_slot_order === 1
+                              )?.course_id || '',
+                            staff_ids:
+                              existingSlot.sub_slots
+                                .find((ss: any) => ss.sub_slot_order === 1)
+                                ?.staff_members?.map((s: any) => s.id) || [],
+                            section_ids:
+                              existingSlot.sub_slots
+                                .find((ss: any) => ss.sub_slot_order === 1)
+                                ?.sections?.map((s: any) => s.id) || [],
+                            is_break_slot:
+                              existingSlot.sub_slots.find(
+                                (ss: any) => ss.sub_slot_order === 1
+                              )?.is_break_slot || false,
+                            break_description:
+                              existingSlot.sub_slots.find(
+                                (ss: any) => ss.sub_slot_order === 1
+                              )?.break_description || ''
+                          },
+                          {
+                            sub_slot_order: 2 as const,
+                            course_id:
+                              existingSlot.sub_slots.find(
+                                (ss: any) => ss.sub_slot_order === 2
+                              )?.course_id || '',
+                            staff_ids:
+                              existingSlot.sub_slots
+                                .find((ss: any) => ss.sub_slot_order === 2)
+                                ?.staff_members?.map((s: any) => s.id) || [],
+                            section_ids:
+                              existingSlot.sub_slots
+                                .find((ss: any) => ss.sub_slot_order === 2)
+                                ?.sections?.map((s: any) => s.id) || [],
+                            is_break_slot:
+                              existingSlot.sub_slots.find(
+                                (ss: any) => ss.sub_slot_order === 2
+                              )?.is_break_slot || false,
+                            break_description:
+                              existingSlot.sub_slots.find(
+                                (ss: any) => ss.sub_slot_order === 2
+                              )?.break_description || ''
+                          }
+                        ];
+                        setSubSlots(updatedSubSlots);
+                      } else {
+                        // Handle regular slot
+                        setSlotType(
+                          existingSlot.is_break_slot ? 'break' : 'regular'
+                        );
+                        setIsBreakSlot(existingSlot.is_break_slot);
+                        setBreakDescription(
+                          existingSlot.break_description || ''
+                        );
+                        setSelectedCourseId(existingSlot.course_id || '');
+
+                        // Handle both legacy single staff and new multiple staff
+                        if (
+                          existingSlot.staff_members &&
+                          existingSlot.staff_members.length > 0
+                        ) {
+                          setSelectedStaffIds(
+                            existingSlot.staff_members.map((s: any) => s.id)
+                          );
+                        } else {
+                          setSelectedStaffIds([]);
+                        }
+
+                        // Handle sections
+                        if (
+                          existingSlot.sections &&
+                          existingSlot.sections.length > 0
+                        ) {
+                          setSelectedSectionIds(
+                            existingSlot.sections.map((s: any) => s.id)
+                          );
+                        } else {
+                          setSelectedSectionIds([]);
+                        }
+
+                        // Reset sub-slots to default
+                        setSubSlots([
+                          {
+                            sub_slot_order: 1,
+                            course_id: '',
+                            staff_ids: [],
+                            section_ids: [],
+                            is_break_slot: false,
+                            break_description: ''
+                          },
+                          {
+                            sub_slot_order: 2,
+                            course_id: '',
+                            staff_ids: [],
+                            section_ids: [],
+                            is_break_slot: false,
+                            break_description: ''
+                          }
+                        ]);
+                      }
+                    } else {
+                      // Creating new slot - reset everything
+                      setSelectedSlot(null);
+                      setEditingSlot(null);
                       setSlotType('regular');
+                      setIsCombinedClass(false);
                       setIsBreakSlot(false);
                       setBreakDescription('');
                       setSelectedCourseId('');
                       setSelectedStaffIds([]);
                       setSelectedSectionIds([]);
-
-                      // Populate sub-slots
-                      const updatedSubSlots = [
-                        {
-                          sub_slot_order: 1 as const,
-                          course_id:
-                            existingSlot.sub_slots.find(
-                              (ss: any) => ss.sub_slot_order === 1
-                            )?.course_id || '',
-                          staff_ids:
-                            existingSlot.sub_slots
-                              .find((ss: any) => ss.sub_slot_order === 1)
-                              ?.staff_members?.map((s: any) => s.id) || [],
-                          section_ids:
-                            existingSlot.sub_slots
-                              .find((ss: any) => ss.sub_slot_order === 1)
-                              ?.sections?.map((s: any) => s.id) || [],
-                          is_break_slot:
-                            existingSlot.sub_slots.find(
-                              (ss: any) => ss.sub_slot_order === 1
-                            )?.is_break_slot || false,
-                          break_description:
-                            existingSlot.sub_slots.find(
-                              (ss: any) => ss.sub_slot_order === 1
-                            )?.break_description || ''
-                        },
-                        {
-                          sub_slot_order: 2 as const,
-                          course_id:
-                            existingSlot.sub_slots.find(
-                              (ss: any) => ss.sub_slot_order === 2
-                            )?.course_id || '',
-                          staff_ids:
-                            existingSlot.sub_slots
-                              .find((ss: any) => ss.sub_slot_order === 2)
-                              ?.staff_members?.map((s: any) => s.id) || [],
-                          section_ids:
-                            existingSlot.sub_slots
-                              .find((ss: any) => ss.sub_slot_order === 2)
-                              ?.sections?.map((s: any) => s.id) || [],
-                          is_break_slot:
-                            existingSlot.sub_slots.find(
-                              (ss: any) => ss.sub_slot_order === 2
-                            )?.is_break_slot || false,
-                          break_description:
-                            existingSlot.sub_slots.find(
-                              (ss: any) => ss.sub_slot_order === 2
-                            )?.break_description || ''
-                        }
-                      ];
-                      setSubSlots(updatedSubSlots);
-                    } else {
-                      // Handle regular slot
-                      setSlotType(
-                        existingSlot.is_break_slot ? 'break' : 'regular'
-                      );
-                      setIsBreakSlot(existingSlot.is_break_slot);
-                      setBreakDescription(existingSlot.break_description || '');
-                      setSelectedCourseId(existingSlot.course_id || '');
-
-                      // Handle both legacy single staff and new multiple staff
-                      if (
-                        existingSlot.staff_members &&
-                        existingSlot.staff_members.length > 0
-                      ) {
-                        setSelectedStaffIds(
-                          existingSlot.staff_members.map((s: any) => s.id)
-                        );
-                      } else {
-                        setSelectedStaffIds([]);
-                      }
-
-                      // Handle sections
-                      if (
-                        existingSlot.sections &&
-                        existingSlot.sections.length > 0
-                      ) {
-                        setSelectedSectionIds(
-                          existingSlot.sections.map((s: any) => s.id)
-                        );
-                      } else {
-                        setSelectedSectionIds([]);
-                      }
-
-                      // Reset sub-slots to default
                       setSubSlots([
                         {
                           sub_slot_order: 1,
@@ -2311,583 +2343,555 @@ export default function TimetableDetailPage({
                         }
                       ]);
                     }
-                  } else {
-                    // Creating new slot - reset everything
-                    setSelectedSlot(null);
-                    setEditingSlot(null);
-                    setSlotType('regular');
-                    setIsCombinedClass(false);
-                    setIsBreakSlot(false);
-                    setBreakDescription('');
-                    setSelectedCourseId('');
-                    setSelectedStaffIds([]);
-                    setSelectedSectionIds([]);
-                    setSubSlots([
-                      {
-                        sub_slot_order: 1,
-                        course_id: '',
-                        staff_ids: [],
-                        section_ids: [],
-                        is_break_slot: false,
-                        break_description: ''
-                      },
-                      {
-                        sub_slot_order: 2,
-                        course_id: '',
-                        staff_ids: [],
-                        section_ids: [],
-                        is_break_slot: false,
-                        break_description: ''
+
+                    console.log('Setting slotDialogOpen to true');
+                    setSlotDialogOpen(true);
+                    console.log(
+                      'slotDialogOpen set, current state:',
+                      slotDialogOpen
+                    );
+                  }}
+                  onSlotDelete={handleSlotDelete}
+                  onRemoveDate={(rangeMarker) => {
+                    // Remove the specific range marker
+                    const newDates = selectedDates.filter(
+                      (d) => d !== rangeMarker
+                    );
+                    setSelectedDates(newDates);
+
+                    // Also update dateRanges state
+                    if (rangeMarker.startsWith('RANGE:')) {
+                      const parts = rangeMarker.split(':');
+                      if (parts.length === 3) {
+                        setDateRanges((prev) =>
+                          prev.filter(
+                            (r) => !(r.start === parts[1] && r.end === parts[2])
+                          )
+                        );
                       }
-                    ]);
-                  }
-
-                  console.log('Setting slotDialogOpen to true');
-                  setSlotDialogOpen(true);
-                  console.log(
-                    'slotDialogOpen set, current state:',
-                    slotDialogOpen
-                  );
-                }}
-                onSlotDelete={handleSlotDelete}
-                onRemoveDate={(rangeMarker) => {
-                  // Remove the specific range marker
-                  const newDates = selectedDates.filter(
-                    (d) => d !== rangeMarker
-                  );
-                  setSelectedDates(newDates);
-
-                  // Also update dateRanges state
-                  if (rangeMarker.startsWith('RANGE:')) {
-                    const parts = rangeMarker.split(':');
-                    if (parts.length === 3) {
-                      setDateRanges((prev) =>
-                        prev.filter(
-                          (r) => !(r.start === parts[1] && r.end === parts[2])
-                        )
-                      );
                     }
-                  }
 
-                  setHasUnsavedChanges(true);
-                  toast({
-                    title: 'Date Range Removed',
-                    description:
-                      "Date range has been removed from the timetable. Click 'Save Configuration' to confirm."
-                  });
-                }}
-                lockedPeriods={lockedPeriods}
-              />
-            )}
+                    setHasUnsavedChanges(true);
+                    toast({
+                      title: 'Date Range Removed',
+                      description:
+                        "Date range has been removed from the timetable. Click 'Save Configuration' to confirm."
+                    });
+                  }}
+                  lockedPeriods={lockedPeriods}
+                />
+              )}
 
-            {/* Add Period/Date Range Button */}
-            <div className='mt-4'>
-              {timetableFormat === 'regular' ? (
-                getAvailablePeriods().length > 0 && canEditTimetable && (
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={() => setAddPeriodDialogOpen(true)}
-                    className='bg-green-600 text-white hover:bg-green-700 border-green-600 hover:text-white'
-                  >
-                    <Plus className='h-4 w-4 mr-2' />
-                    Add Period
-                  </Button>
-                )
-              ) : (
-                canEditTimetable && (
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={() => setAddDateRangeOpen(true)}
-                    className='bg-blue-600 text-white hover:bg-blue-700 border-blue-600 hover:text-white'
-                  >
-                    <Plus className='h-4 w-4 mr-2' />
-                    Add Date Range
-                  </Button>
-                )
+              {/* Add Period/Date Range Button */}
+              <div className='mt-4'>
+                {timetableFormat === 'regular'
+                  ? getAvailablePeriods().length > 0 &&
+                    canEditTimetable && (
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() => setAddPeriodDialogOpen(true)}
+                        className='bg-green-600 text-white hover:bg-green-700 border-green-600 hover:text-white'
+                      >
+                        <Plus className='h-4 w-4 mr-2' />
+                        Add Period
+                      </Button>
+                    )
+                  : canEditTimetable && (
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() => setAddDateRangeOpen(true)}
+                        className='bg-blue-600 text-white hover:bg-blue-700 border-blue-600 hover:text-white'
+                      >
+                        <Plus className='h-4 w-4 mr-2' />
+                        Add Date Range
+                      </Button>
+                    )}
+              </div>
+
+              {/* Course Reference Section */}
+              {getCoursesInTimetable().length > 0 && (
+                <div className='mt-6 border-t pt-4'>
+                  <h3 className='text-sm font-medium text-gray-600 mb-3'>
+                    Course Reference ({getCoursesInTimetable().length})
+                  </h3>
+                  <div className='grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2'>
+                    {getCoursesInTimetable().map((course) => (
+                      <div
+                        key={course.id}
+                        className='flex items-center gap-3 text-sm'
+                      >
+                        <span className='font-mono bg-gray-100 px-2 py-1 rounded text-xs font-medium min-w-16 text-center'>
+                          {course.course_code}
+                        </span>
+                        <span className='text-gray-700 flex-1'>
+                          {course.course_name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
+          </div>
+        </div>
 
-            {/* Course Reference Section */}
-            {getCoursesInTimetable().length > 0 && (
-              <div className='mt-6 border-t pt-4'>
-                <h3 className='text-sm font-medium text-gray-600 mb-3'>
-                  Course Reference ({getCoursesInTimetable().length})
-                </h3>
-                <div className='grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2'>
-                  {getCoursesInTimetable().map((course) => (
+        {/* Keep existing dialogs */}
+        <SlotDialog
+          isOpen={slotDialogOpen}
+          onClose={closeSlotDialog}
+          timetable={timetable}
+          existingSlot={selectedSlot}
+          onSave={saveSlot}
+          onDelete={deleteSlot}
+          courses={courses}
+          staff={staff}
+          sections={sections}
+          filteredSections={filteredSections}
+          loadingFilteredSections={loadingFilteredSections}
+          isUsingStaffPlanningData={staffPlanningCourses.length > 0}
+          loadingStaffPlanData={loadingStaffPlanData}
+          readOnly={slotDialogReadOnly}
+        />
+
+        {/* Period Configuration Component */}
+        <PeriodConfiguration
+          isOpen={periodSelectorOpen}
+          onClose={() => setPeriodSelectorOpen(false)}
+          selectedPeriods={selectedPeriods}
+          periods={periods}
+          lockedPeriods={lockedPeriods}
+          hasUnsavedChanges={hasUnsavedChanges}
+          savingPeriods={savingPeriods}
+          onDragEnd={handleDragEnd}
+          onRemovePeriod={handleRemovePeriod}
+          onToggleLock={toggleLockPeriod}
+          onSelectAllClassPeriods={() => {
+            setSelectedPeriods(
+              sortPeriodsByName(periods.filter((p) => !p.is_break))
+            );
+            setHasUnsavedChanges(true);
+          }}
+          onClearAllPeriods={() => {
+            setSelectedPeriods([]);
+            setLockedPeriods([]);
+            setHasUnsavedChanges(true);
+          }}
+          onAddPeriod={addPeriod}
+          onSave={savePeriodSelections}
+        />
+
+        {/* Add Period Dialog */}
+        <Dialog
+          open={addPeriodDialogOpen}
+          onOpenChange={setAddPeriodDialogOpen}
+        >
+          <DialogContent className='sm:max-w-md'>
+            <DialogHeader>
+              <DialogTitle>Add Period to Timetable</DialogTitle>
+              <DialogDescription>
+                Select a period to add to your timetable.
+              </DialogDescription>
+            </DialogHeader>
+            <div className='space-y-4 py-4 max-h-[60vh] overflow-y-auto'>
+              {getAvailablePeriods().length > 0 ? (
+                <div className='space-y-2'>
+                  {getAvailablePeriods().map((period) => (
                     <div
-                      key={course.id}
-                      className='flex items-center gap-3 text-sm'
+                      key={period.id}
+                      className='flex items-center justify-between p-3 border rounded-md hover:bg-slate-50 transition-colors cursor-pointer'
+                      onClick={async () => {
+                        await addPeriod(period);
+                        setAddPeriodDialogOpen(false);
+                      }}
                     >
-                      <span className='font-mono bg-gray-100 px-2 py-1 rounded text-xs font-medium min-w-16 text-center'>
-                        {course.course_code}
-                      </span>
-                      <span className='text-gray-700 flex-1'>
-                        {course.course_name}
-                      </span>
+                      <div className='flex-1'>
+                        <h4 className='font-medium text-sm'>
+                          {period.period_name}
+                        </h4>
+                        <p className='text-xs text-slate-500 mt-1'>
+                          {new Date(
+                            `2000-01-01T${period.start_time}`
+                          ).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}{' '}
+                          -{' '}
+                          {new Date(
+                            `2000-01-01T${period.end_time}`
+                          ).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}
+                        </p>
+                      </div>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='h-8 w-8 p-0 rounded-full'
+                      >
+                        <Plus className='h-4 w-4' />
+                      </Button>
                     </div>
                   ))}
                 </div>
+              ) : (
+                <div className='text-center py-8'>
+                  <p className='text-sm text-slate-500'>
+                    No periods available to add
+                  </p>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant='outline'
+                onClick={() => setAddPeriodDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Day Configuration Dialog */}
+        <Dialog open={dayConfigOpen} onOpenChange={setDayConfigOpen}>
+          <DialogContent className='sm:max-w-[400px]'>
+            <DialogHeader>
+              <DialogTitle>Configure Timetable Days</DialogTitle>
+              <DialogDescription>
+                Select which days to display in your timetable.
+              </DialogDescription>
+            </DialogHeader>
+            <div className='space-y-4 py-4'>
+              <div className='flex justify-between'>
+                <Button variant='outline' size='sm' onClick={selectAllDays}>
+                  Select All
+                </Button>
+                <Button variant='outline' size='sm' onClick={clearAllDays}>
+                  Clear All
+                </Button>
               </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Keep existing dialogs */}
-      <SlotDialog
-        isOpen={slotDialogOpen}
-        onClose={closeSlotDialog}
-        timetable={timetable}
-        existingSlot={selectedSlot}
-        onSave={saveSlot}
-        onDelete={deleteSlot}
-        courses={courses}
-        staff={staff}
-        sections={sections}
-        filteredSections={filteredSections}
-        loadingFilteredSections={loadingFilteredSections}
-        isUsingStaffPlanningData={staffPlanningCourses.length > 0}
-        loadingStaffPlanData={loadingStaffPlanData}
-        readOnly={slotDialogReadOnly}
-      />
-
-      {/* Period Configuration Component */}
-      <PeriodConfiguration
-        isOpen={periodSelectorOpen}
-        onClose={() => setPeriodSelectorOpen(false)}
-        selectedPeriods={selectedPeriods}
-        periods={periods}
-        lockedPeriods={lockedPeriods}
-        hasUnsavedChanges={hasUnsavedChanges}
-        savingPeriods={savingPeriods}
-        onDragEnd={handleDragEnd}
-        onRemovePeriod={handleRemovePeriod}
-        onToggleLock={toggleLockPeriod}
-        onSelectAllClassPeriods={() => {
-          setSelectedPeriods(
-            sortPeriodsByName(periods.filter((p) => !p.is_break))
-          );
-          setHasUnsavedChanges(true);
-        }}
-        onClearAllPeriods={() => {
-          setSelectedPeriods([]);
-          setLockedPeriods([]);
-          setHasUnsavedChanges(true);
-        }}
-        onAddPeriod={addPeriod}
-        onSave={savePeriodSelections}
-      />
-
-      {/* Add Period Dialog */}
-      <Dialog open={addPeriodDialogOpen} onOpenChange={setAddPeriodDialogOpen}>
-        <DialogContent className='sm:max-w-md'>
-          <DialogHeader>
-            <DialogTitle>Add Period to Timetable</DialogTitle>
-            <DialogDescription>
-              Select a period to add to your timetable.
-            </DialogDescription>
-          </DialogHeader>
-          <div className='space-y-4 py-4 max-h-[60vh] overflow-y-auto'>
-            {getAvailablePeriods().length > 0 ? (
-              <div className='space-y-2'>
-                {getAvailablePeriods().map((period) => (
+              <div className='grid grid-cols-1 gap-2'>
+                {ALL_DAYS_OF_WEEK.map((day) => (
                   <div
-                    key={period.id}
-                    className='flex items-center justify-between p-3 border rounded-md hover:bg-slate-50 transition-colors cursor-pointer'
-                    onClick={async () => {
-                      await addPeriod(period);
-                      setAddPeriodDialogOpen(false);
-                    }}
+                    key={day}
+                    className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer ${
+                      selectedDays.includes(day)
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
+                    onClick={() => handleDayToggle(day)}
                   >
-                    <div className='flex-1'>
-                      <h4 className='font-medium text-sm'>
-                        {period.period_name}
-                      </h4>
-                      <p className='text-xs text-slate-500 mt-1'>
-                        {new Date(
-                          `2000-01-01T${period.start_time}`
-                        ).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                          hour12: true
-                        })}{' '}
-                        -{' '}
-                        {new Date(
-                          `2000-01-01T${period.end_time}`
-                        ).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                          hour12: true
-                        })}
-                      </p>
-                    </div>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      className='h-8 w-8 p-0 rounded-full'
-                    >
-                      <Plus className='h-4 w-4' />
-                    </Button>
+                    <input
+                      type='checkbox'
+                      checked={selectedDays.includes(day)}
+                      onChange={() => handleDayToggle(day)}
+                      className='rounded'
+                    />
+                    <span className='font-medium text-sm'>
+                      {day.charAt(0) + day.slice(1).toLowerCase()}
+                    </span>
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className='text-center py-8'>
-                <p className='text-sm text-slate-500'>
-                  No periods available to add
-                </p>
+            </div>
+            <DialogFooter>
+              <Button variant='outline' onClick={() => setDayConfigOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  await savePeriodSelections();
+                  setDayConfigOpen(false);
+                }}
+                disabled={savingPeriods}
+              >
+                Save Days
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Date Range Dialog */}
+        <Dialog open={addDateRangeOpen} onOpenChange={setAddDateRangeOpen}>
+          <DialogContent className='sm:max-w-md'>
+            <DialogHeader>
+              <DialogTitle>Add Date Range to Timetable</DialogTitle>
+              <DialogDescription>
+                Select a date range to add to your batch timetable.
+              </DialogDescription>
+            </DialogHeader>
+            <div className='space-y-4 py-4'>
+              <div className='grid gap-1'>
+                <Label htmlFor='new-start-date'>Start Date</Label>
+                <DatePicker
+                  date={newStartDate}
+                  setDate={(date) => setNewStartDate(date ?? undefined)}
+                />
               </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant='outline'
-              onClick={() => setAddPeriodDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Day Configuration Dialog */}
-      <Dialog open={dayConfigOpen} onOpenChange={setDayConfigOpen}>
-        <DialogContent className='sm:max-w-[400px]'>
-          <DialogHeader>
-            <DialogTitle>Configure Timetable Days</DialogTitle>
-            <DialogDescription>
-              Select which days to display in your timetable.
-            </DialogDescription>
-          </DialogHeader>
-          <div className='space-y-4 py-4'>
-            <div className='flex justify-between'>
-              <Button variant='outline' size='sm' onClick={selectAllDays}>
-                Select All
-              </Button>
-              <Button variant='outline' size='sm' onClick={clearAllDays}>
-                Clear All
-              </Button>
+              <div className='grid gap-1'>
+                <Label htmlFor='new-end-date'>End Date</Label>
+                <DatePicker
+                  date={newEndDate}
+                  setDate={(date) => setNewEndDate(date ?? undefined)}
+                />
+              </div>
             </div>
-            <div className='grid grid-cols-1 gap-2'>
-              {ALL_DAYS_OF_WEEK.map((day) => (
-                <div
-                  key={day}
-                  className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer ${
-                    selectedDays.includes(day)
-                      ? 'bg-green-50 border-green-200'
-                      : 'bg-slate-50 border-slate-200'
-                  }`}
-                  onClick={() => handleDayToggle(day)}
-                >
-                  <input
-                    type='checkbox'
-                    checked={selectedDays.includes(day)}
-                    onChange={() => handleDayToggle(day)}
-                    className='rounded'
-                  />
-                  <span className='font-medium text-sm'>
-                    {day.charAt(0) + day.slice(1).toLowerCase()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant='outline' onClick={() => setDayConfigOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                await savePeriodSelections();
-                setDayConfigOpen(false);
-              }}
-              disabled={savingPeriods}
-            >
-              Save Days
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Date Range Dialog */}
-      <Dialog open={addDateRangeOpen} onOpenChange={setAddDateRangeOpen}>
-        <DialogContent className='sm:max-w-md'>
-          <DialogHeader>
-            <DialogTitle>Add Date Range to Timetable</DialogTitle>
-            <DialogDescription>
-              Select a date range to add to your batch timetable.
-            </DialogDescription>
-          </DialogHeader>
-          <div className='space-y-4 py-4'>
-            <div className='grid gap-1'>
-              <Label htmlFor='new-start-date'>Start Date</Label>
-              <DatePicker
-                date={newStartDate}
-                setDate={(date) => setNewStartDate(date ?? undefined)}
-              />
-            </div>
-            <div className='grid gap-1'>
-              <Label htmlFor='new-end-date'>End Date</Label>
-              <DatePicker
-                date={newEndDate}
-                setDate={(date) => setNewEndDate(date ?? undefined)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant='outline'
-              onClick={() => {
-                setAddDateRangeOpen(false);
-                setNewStartDate(undefined);
-                setNewEndDate(undefined);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (newStartDate && newEndDate) {
-                  const startDateStr = newStartDate.toISOString().split('T')[0];
-                  const endDateStr = newEndDate.toISOString().split('T')[0];
-
-                  // Generate all dates in the new range to check for conflicts
-                  const newRangeDates: string[] = [];
-                  const current = new Date(startDateStr);
-                  const end = new Date(endDateStr);
-
-                  while (current <= end) {
-                    newRangeDates.push(current.toISOString().split('T')[0]);
-                    current.setDate(current.getDate() + 1);
-                  }
-
-                  // Check if any date in the new range already exists in current ranges
-                  const existingDates: string[] = [];
-                  selectedDates.forEach((item) => {
-                    if (item.startsWith('RANGE:')) {
-                      const parts = item.split(':');
-                      if (parts.length === 3) {
-                        const existingStart = parts[1];
-                        const existingEnd = parts[2];
-
-                        const existingCurrent = new Date(existingStart);
-                        const existingEndDate = new Date(existingEnd);
-
-                        while (existingCurrent <= existingEndDate) {
-                          existingDates.push(
-                            existingCurrent.toISOString().split('T')[0]
-                          );
-                          existingCurrent.setDate(
-                            existingCurrent.getDate() + 1
-                          );
-                        }
-                      }
-                    } else if (!item.includes('RANGE')) {
-                      existingDates.push(item);
-                    }
-                  });
-
-                  // Check for overlaps
-                  const overlappingDates = newRangeDates.filter((date) =>
-                    existingDates.includes(date)
-                  );
-
-                  if (overlappingDates.length > 0) {
-                    toast({
-                      title: 'Date Range Conflict',
-                      description: `The selected range overlaps with existing dates: ${overlappingDates
-                        .slice(0, 3)
-                        .join(', ')}${
-                        overlappingDates.length > 3
-                          ? ` and ${overlappingDates.length - 3} more`
-                          : ''
-                      }. Please choose a different range.`,
-                      variant: 'destructive'
-                    });
-                    return;
-                  }
-
-                  // Check if any dates in the new range already have slots
-                  const datesWithSlots = newRangeDates.filter((date) =>
-                    slots.some((slot) => slot.slot_date === date)
-                  );
-
-                  if (datesWithSlots.length > 0) {
-                    toast({
-                      title: 'Existing Slots Found',
-                      description: `Some dates in this range already have slots created: ${datesWithSlots
-                        .slice(0, 3)
-                        .join(', ')}${
-                        datesWithSlots.length > 3
-                          ? ` and ${datesWithSlots.length - 3} more`
-                          : ''
-                      }. Please save your current changes first or choose a different range.`,
-                      variant: 'destructive'
-                    });
-                    return;
-                  }
-
-                  // Store the range as a JSON string in the selectedDates array
-                  // Format: "RANGE:start:end"
-                  const rangeMarker = `RANGE:${startDateStr}:${endDateStr}`;
-
-                  // Add the range marker to selectedDates
-                  const newDates = [...selectedDates, rangeMarker];
-                  setSelectedDates(newDates);
-
-                  // Also update the dateRanges state for tracking
-                  setDateRanges((prev) => [
-                    ...prev,
-                    { start: startDateStr, end: endDateStr }
-                  ]);
-
-                  setHasUnsavedChanges(true);
+            <DialogFooter>
+              <Button
+                variant='outline'
+                onClick={() => {
                   setAddDateRangeOpen(false);
                   setNewStartDate(undefined);
                   setNewEndDate(undefined);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (newStartDate && newEndDate) {
+                    const startDateStr = newStartDate
+                      .toISOString()
+                      .split('T')[0];
+                    const endDateStr = newEndDate.toISOString().split('T')[0];
 
-                  // Calculate number of days in range
-                  const days =
-                    Math.ceil(
-                      (new Date(endDateStr).getTime() -
-                        new Date(startDateStr).getTime()) /
-                        (1000 * 3600 * 24)
-                    ) + 1;
+                    // Generate all dates in the new range to check for conflicts
+                    const newRangeDates: string[] = [];
+                    const current = new Date(startDateStr);
+                    const end = new Date(endDateStr);
 
-                  toast({
-                    title: 'Date Range Added',
-                    description: `Date range from ${startDateStr} to ${endDateStr} (${days} days) has been added as a separate row. Click 'Save Configuration' to confirm.`
-                  });
-                }
-              }}
-              disabled={!newStartDate || !newEndDate}
-            >
-              Add Date Range
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                    while (current <= end) {
+                      newRangeDates.push(current.toISOString().split('T')[0]);
+                      current.setDate(current.getDate() + 1);
+                    }
 
-      {/* Unsaved Changes Warning Dialog */}
-      <Dialog open={showUnsavedChangesDialog} onOpenChange={() => {}}>
-        <DialogContent className='sm:max-w-md'>
-          <DialogHeader>
-            <DialogTitle className='flex items-center gap-2 text-amber-600'>
-              <AlertCircle className='h-5 w-5' />
-              Unsaved Changes
-            </DialogTitle>
-            <DialogDescription asChild>
-              <div>
-                <p className='text-sm text-muted-foreground'>
-                  You have unsaved changes to your timetable configuration
-                  including:
-                </p>
-                {timetableFormat === 'batch' ? (
-                  <ul className='mt-2 list-disc list-inside text-sm space-y-1 text-muted-foreground'>
-                    <li>Date ranges configuration</li>
-                    <li>Period selections</li>
-                    <li>Timetable format settings</li>
-                  </ul>
+                    // Check if any date in the new range already exists in current ranges
+                    const existingDates: string[] = [];
+                    selectedDates.forEach((item) => {
+                      if (item.startsWith('RANGE:')) {
+                        const parts = item.split(':');
+                        if (parts.length === 3) {
+                          const existingStart = parts[1];
+                          const existingEnd = parts[2];
+
+                          const existingCurrent = new Date(existingStart);
+                          const existingEndDate = new Date(existingEnd);
+
+                          while (existingCurrent <= existingEndDate) {
+                            existingDates.push(
+                              existingCurrent.toISOString().split('T')[0]
+                            );
+                            existingCurrent.setDate(
+                              existingCurrent.getDate() + 1
+                            );
+                          }
+                        }
+                      } else if (!item.includes('RANGE')) {
+                        existingDates.push(item);
+                      }
+                    });
+
+                    // Check for overlaps
+                    const overlappingDates = newRangeDates.filter((date) =>
+                      existingDates.includes(date)
+                    );
+
+                    if (overlappingDates.length > 0) {
+                      toast({
+                        title: 'Date Range Conflict',
+                        description: `The selected range overlaps with existing dates: ${overlappingDates
+                          .slice(0, 3)
+                          .join(', ')}${
+                          overlappingDates.length > 3
+                            ? ` and ${overlappingDates.length - 3} more`
+                            : ''
+                        }. Please choose a different range.`,
+                        variant: 'destructive'
+                      });
+                      return;
+                    }
+
+                    // Check if any dates in the new range already have slots
+                    const datesWithSlots = newRangeDates.filter((date) =>
+                      slots.some((slot) => slot.slot_date === date)
+                    );
+
+                    if (datesWithSlots.length > 0) {
+                      toast({
+                        title: 'Existing Slots Found',
+                        description: `Some dates in this range already have slots created: ${datesWithSlots
+                          .slice(0, 3)
+                          .join(', ')}${
+                          datesWithSlots.length > 3
+                            ? ` and ${datesWithSlots.length - 3} more`
+                            : ''
+                        }. Please save your current changes first or choose a different range.`,
+                        variant: 'destructive'
+                      });
+                      return;
+                    }
+
+                    // Store the range as a JSON string in the selectedDates array
+                    // Format: "RANGE:start:end"
+                    const rangeMarker = `RANGE:${startDateStr}:${endDateStr}`;
+
+                    // Add the range marker to selectedDates
+                    const newDates = [...selectedDates, rangeMarker];
+                    setSelectedDates(newDates);
+
+                    // Also update the dateRanges state for tracking
+                    setDateRanges((prev) => [
+                      ...prev,
+                      { start: startDateStr, end: endDateStr }
+                    ]);
+
+                    setHasUnsavedChanges(true);
+                    setAddDateRangeOpen(false);
+                    setNewStartDate(undefined);
+                    setNewEndDate(undefined);
+
+                    // Calculate number of days in range
+                    const days =
+                      Math.ceil(
+                        (new Date(endDateStr).getTime() -
+                          new Date(startDateStr).getTime()) /
+                          (1000 * 3600 * 24)
+                      ) + 1;
+
+                    toast({
+                      title: 'Date Range Added',
+                      description: `Date range from ${startDateStr} to ${endDateStr} (${days} days) has been added as a separate row. Click 'Save Configuration' to confirm.`
+                    });
+                  }
+                }}
+                disabled={!newStartDate || !newEndDate}
+              >
+                Add Date Range
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Unsaved Changes Warning Dialog */}
+        <Dialog open={showUnsavedChangesDialog} onOpenChange={() => {}}>
+          <DialogContent className='sm:max-w-md'>
+            <DialogHeader>
+              <DialogTitle className='flex items-center gap-2 text-amber-600'>
+                <AlertCircle className='h-5 w-5' />
+                Unsaved Changes
+              </DialogTitle>
+              <DialogDescription asChild>
+                <div>
+                  <p className='text-sm text-muted-foreground'>
+                    You have unsaved changes to your timetable configuration
+                    including:
+                  </p>
+                  {timetableFormat === 'batch' ? (
+                    <ul className='mt-2 list-disc list-inside text-sm space-y-1 text-muted-foreground'>
+                      <li>Date ranges configuration</li>
+                      <li>Period selections</li>
+                      <li>Timetable format settings</li>
+                    </ul>
+                  ) : (
+                    <ul className='mt-2 list-disc list-inside text-sm space-y-1 text-muted-foreground'>
+                      <li>Day selections</li>
+                      <li>Period selections</li>
+                      <li>Timetable format settings</li>
+                    </ul>
+                  )}
+                  <p className='mt-3 text-amber-700 font-medium'>
+                    Do you want to save these changes before leaving?
+                  </p>
+                </div>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className='flex-col sm:flex-row gap-2'>
+              <Button
+                variant='outline'
+                onClick={handleCancelNavigation}
+                className='w-full sm:w-auto'
+              >
+                Cancel
+              </Button>
+              <Button
+                variant='destructive'
+                onClick={handleDiscardAndContinue}
+                className='w-full sm:w-auto'
+              >
+                Discard Changes
+              </Button>
+              <Button
+                onClick={handleSaveAndContinue}
+                disabled={savingPeriods}
+                className='w-full sm:w-auto bg-green-600 hover:bg-green-700'
+              >
+                {savingPeriods ? (
+                  <>
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    Saving...
+                  </>
                 ) : (
-                  <ul className='mt-2 list-disc list-inside text-sm space-y-1 text-muted-foreground'>
-                    <li>Day selections</li>
-                    <li>Period selections</li>
-                    <li>Timetable format settings</li>
-                  </ul>
+                  <>
+                    <Save className='mr-2 h-4 w-4' />
+                    Save & Continue
+                  </>
                 )}
-                <p className='mt-3 text-amber-700 font-medium'>
-                  Do you want to save these changes before leaving?
-                </p>
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className='flex-col sm:flex-row gap-2'>
-            <Button
-              variant='outline'
-              onClick={handleCancelNavigation}
-              className='w-full sm:w-auto'
-            >
-              Cancel
-            </Button>
-            <Button
-              variant='destructive'
-              onClick={handleDiscardAndContinue}
-              className='w-full sm:w-auto'
-            >
-              Discard Changes
-            </Button>
-            <Button
-              onClick={handleSaveAndContinue}
-              disabled={savingPeriods}
-              className='w-full sm:w-auto bg-green-600 hover:bg-green-700'
-            >
-              {savingPeriods ? (
-                <>
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className='mr-2 h-4 w-4' />
-                  Save & Continue
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Slot Deletion</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this timetable slot?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-4 space-y-2">
-            {slotToDelete?.existingSlot?.course?.course_name && (
-              <div className="font-medium">
-                Course: {slotToDelete.existingSlot.course.course_name}
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm Slot Deletion</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete this timetable slot?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className='py-4 space-y-2'>
+              {slotToDelete?.existingSlot?.course?.course_name && (
+                <div className='font-medium'>
+                  Course: {slotToDelete.existingSlot.course.course_name}
+                </div>
+              )}
+              {slotToDelete?.period?.period_name && (
+                <div className='text-sm'>
+                  Period: {slotToDelete.period.period_name} (
+                  {slotToDelete.period.start_time} -{' '}
+                  {slotToDelete.period.end_time})
+                </div>
+              )}
+              {timetableFormat === 'regular' && slotToDelete?.day && (
+                <div className='text-sm'>Day: {slotToDelete.day}</div>
+              )}
+              {timetableFormat === 'batch' && slotToDelete?.day && (
+                <div className='text-sm'>Date: {slotToDelete.day}</div>
+              )}
+              <div className='mt-3 text-sm text-amber-600 font-medium'>
+                ⚠️ This action cannot be undone.
               </div>
-            )}
-            {slotToDelete?.period?.period_name && (
-              <div className="text-sm">
-                Period: {slotToDelete.period.period_name} ({slotToDelete.period.start_time} - {slotToDelete.period.end_time})
-              </div>
-            )}
-            {timetableFormat === 'regular' && slotToDelete?.day && (
-              <div className="text-sm">
-                Day: {slotToDelete.day}
-              </div>
-            )}
-            {timetableFormat === 'batch' && slotToDelete?.day && (
-              <div className="text-sm">
-                Date: {slotToDelete.day}
-              </div>
-            )}
-            <div className="mt-3 text-sm text-amber-600 font-medium">
-              ⚠️ This action cannot be undone.
             </div>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setSlotToDelete(null)}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={confirmSlotDeletion}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              Delete Slot
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </ContentLayout>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setSlotToDelete(null)}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmSlotDeletion}
+                className='bg-red-600 hover:bg-red-700 text-white'
+              >
+                Delete Slot
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </ContentLayout>
     </PermissionGuard>
   );
 }

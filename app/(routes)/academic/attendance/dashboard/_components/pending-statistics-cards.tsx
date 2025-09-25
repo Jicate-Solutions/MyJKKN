@@ -83,8 +83,12 @@ export function PendingStatisticsCards({
 
         // Calculate statistics
         const uniqueSections = new Set(periods.map(p => p.section_id)).size;
-        const uniqueSubjects = new Set(periods.map(p => p.course_id)).size;
-        const uniqueStaff = new Set(periods.map(p => p.primary_staff_id).filter(Boolean)).size;
+        const uniqueSubjects = new Set(periods.map(p => p.course_name)).size;
+        const uniqueStaff = new Set(
+          periods
+            .flatMap(p => p.assigned_staff?.map(staff => staff.staff_id) || [])
+            .filter(Boolean)
+        ).size;
 
         setStats({
           totalPeriods: periods.length,

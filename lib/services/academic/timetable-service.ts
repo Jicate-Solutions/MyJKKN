@@ -175,8 +175,8 @@ export class TimetableService {
     degree_id: string;
     program_id: string;
     department_id: string;
-    semester: string;
-    section?: string;
+    semester_id: string; // UUID
+    section_id?: string; // UUID
     start_date?: string;
     end_date?: string;
   }): Promise<{
@@ -199,14 +199,14 @@ export class TimetableService {
         .eq('degree_id', data.degree_id)
         .eq('program_id', data.program_id)
         .eq('department_id', data.department_id)
-        .eq('semester', data.semester)
+        .eq('semester_id', data.semester_id)
         .eq('is_active', true);
 
       // Handle section parameter correctly
-      if (data.section) {
-        query = query.eq('section', data.section);
+      if (data.section_id) {
+        query = query.eq('section_id', data.section_id);
       } else {
-        query = query.is('section', null);
+        query = query.is('section_id', null);
       }
 
       const { data: existingTimetables, error } = await query;
@@ -231,12 +231,17 @@ export class TimetableService {
           if (hasOverlap) {
             const formatDate = (dateStr: string) =>
               new Date(dateStr).toLocaleDateString();
+
+            const semesterName =
+              existing.semesters?.semester_name || 'Unknown Semester';
+            const sectionName = existing.sections?.section_name || null;
+
             return {
               exists: true,
               existingTimetable: existing,
-              message: `A timetable already exists for ${data.semester}${
-                data.section ? ` - Section ${data.section}` : ''
-              } with overlapping date period. 
+              message: `A timetable already exists for ${semesterName}${
+                sectionName ? ` - Section ${sectionName}` : ''
+              } with overlapping date period.
 
 Existing: "${existing.timetable_name}" (${formatDate(
                 existing.start_date
@@ -265,8 +270,8 @@ Please select a different date period that doesn't overlap.`
         degree_id: data.degree_id,
         program_id: data.program_id,
         department_id: data.department_id,
-        semester: data.semester.toString(), // Ensure string type
-        section: data.section || undefined, // Handle optional section
+        semester_id: data.semester_id!, // Use semester_id instead of semester text
+        section_id: data.section_id || undefined, // Use section_id instead of section text
         start_date: data.start_date,
         end_date: data.end_date
       });
@@ -301,8 +306,8 @@ Please select a different date period that doesn't overlap.`
         degree_id,
         program_id,
         department_id,
-        semester,
-        section,
+        semester_id,
+        section_id,
         timetable_name,
         is_active,
         is_template,
@@ -325,8 +330,8 @@ Please select a different date period that doesn't overlap.`
         degree_id,
         program_id,
         department_id,
-        semester,
-        section,
+        semester_id,
+        section_id,
         timetable_name,
         is_active: is_active ?? true,
         is_template: is_template ?? false,
@@ -372,9 +377,6 @@ Please select a different date period that doesn't overlap.`
         }
         throw new Error('Failed to create timetable.');
       }
-
-      // Show success toast
-      const sectionText = data.section ? ` - Section ${data.section}` : '';
 
       return timetable;
     } catch (error) {
@@ -423,54 +425,66 @@ Please select a different date period that doesn't overlap.`
         throw new Error(errorMessage);
       }
 
-      // If updating dates, check for conflicts with existing timetables
-      if (data.start_date && data.end_date) {
-        // Get current timetable info
-        const { data: currentTimetable, error: fetchError } =
-          await this.supabase
-            .from('timetables')
-            .select('*')
-            .eq('id', id)
-            .single();
+      // Get current timetable info for conflict checking
+      const { data: currentTimetable, error: fetchError } = await this.supabase
+        .from('timetables')
+        .select('*')
+        .eq('id', id)
+        .single();
 
-        if (fetchError) throw fetchError;
+      if (fetchError) throw fetchError;
 
-        // Check for date overlap with other timetables (excluding current one)
-        const existingCheck = await this.checkExistingTimetable({
-          institution_id: currentTimetable.institution_id,
-          academic_year_id: currentTimetable.academic_year_id,
-          degree_id: currentTimetable.degree_id,
-          program_id: currentTimetable.program_id,
-          department_id: currentTimetable.department_id,
-          semester: currentTimetable.semester.toString(), // Ensure string type
-          section: currentTimetable.section || undefined, // Handle optional section
-          start_date: data.start_date,
-          end_date: data.end_date
-        });
+      // Build the updated timetable data by merging current with updates
+      const updatedTimetableData = {
+        institution_id: data.institution_id || currentTimetable.institution_id,
+        academic_year_id:
+          data.academic_year_id || currentTimetable.academic_year_id,
+        degree_id: data.degree_id || currentTimetable.degree_id,
+        program_id: data.program_id || currentTimetable.program_id,
+        department_id: data.department_id || currentTimetable.department_id,
+        semester_id: data.semester_id || currentTimetable.semester_id,
+        section_id:
+          data.section_id !== undefined
+            ? data.section_id
+            : currentTimetable.section_id || undefined,
+        start_date: data.start_date || currentTimetable.start_date,
+        end_date: data.end_date || currentTimetable.end_date
+      };
 
-        // Filter out the current timetable from conflicts
-        if (
-          existingCheck.exists &&
-          existingCheck.existingTimetable?.id !== id
-        ) {
-          toast.error(
-            `⚠️ Date Period Conflict Detected!\n\n${existingCheck.message}`,
-            {
-              duration: 8000,
-              position: 'top-center',
-              style: {
-                background: '#FEF2F2',
-                color: '#991B1B',
-                border: '1px solid #FCA5A5',
-                maxWidth: '500px',
-                whiteSpace: 'pre-line'
+      // Check for conflicts only if both dates are provided
+      if (updatedTimetableData.start_date && updatedTimetableData.end_date) {
+        try {
+          const existingCheck = await this.checkExistingTimetable(
+            updatedTimetableData
+          );
+
+          // Filter out the current timetable from conflicts
+          if (
+            existingCheck.exists &&
+            existingCheck.existingTimetable?.id !== id
+          ) {
+            toast.error(
+              `⚠️ Date Period Conflict Detected!\n\n${existingCheck.message}`,
+              {
+                duration: 8000,
+                position: 'top-center',
+                style: {
+                  background: '#FEF2F2',
+                  color: '#991B1B',
+                  border: '1px solid #FCA5A5',
+                  maxWidth: '500px',
+                  whiteSpace: 'pre-line'
+                }
               }
-            }
-          );
-          throw new Error(
-            existingCheck.message ||
-              'Date period overlaps with existing timetable.'
-          );
+            );
+            throw new Error(
+              existingCheck.message ||
+                'Date period overlaps with existing timetable.'
+            );
+          }
+        } catch (conflictError) {
+          console.error('Error during conflict checking:', conflictError);
+          throw conflictError;
         }
       }
 
@@ -486,7 +500,20 @@ Please select a different date period that doesn't overlap.`
         'end_date',
         'selected_dates',
         'timetable_name',
-        'selected_days'
+        'selected_days',
+        'institution_id',
+        'academic_year_id',
+        'degree_id',
+        'program_id',
+        'department_id',
+        'semester_id',
+        'section_id',
+        'is_active',
+        'is_template',
+        'template_name',
+        'template_description',
+        'template_category',
+        'template_tags'
       ];
 
       for (const field of allowedFields) {
@@ -653,10 +680,148 @@ Please select a different date period that doesn't overlap.`
     return { success, failed };
   }
 
+  // Helper method to get available semesters that have timetables
+  static async getAvailableSemesters(institutionId?: string): Promise<
+    Array<{
+      id: string;
+      semester_name: string;
+      institution_id: string;
+      degree_id: string;
+      department_id: string;
+      program_id: string;
+    }>
+  > {
+    try {
+      const { data, error } = await this.supabase
+        .from('timetables')
+        .select(
+          `
+          semester_id,
+          semesters:semester_id(id, semester_name, institution_id, degree_id, department_id, program_id)
+        `
+        )
+        .eq('is_active', true)
+        .not('semester_id', 'is', null)
+        .then((result) => {
+          if (result.error) return result;
+
+          // Extract unique semesters
+          const uniqueSemesters = new Map();
+          result.data?.forEach((item: any) => {
+            if (item.semesters) {
+              uniqueSemesters.set(item.semesters.id, item.semesters);
+            }
+          });
+
+          return {
+            data: Array.from(uniqueSemesters.values()),
+            error: result.error
+          };
+        });
+
+      if (error) {
+        console.error('Error fetching available semesters:', error);
+        return [];
+      }
+
+      let filteredData = data || [];
+
+      if (institutionId) {
+        filteredData = filteredData.filter(
+          (sem) => sem.institution_id === institutionId
+        );
+      }
+
+      return filteredData;
+    } catch (error) {
+      console.error('Error in getAvailableSemesters:', error);
+      return [];
+    }
+  }
+
+  // Helper method to get available sections that have timetables
+  static async getAvailableSections(
+    institutionId?: string,
+    semesterId?: string
+  ): Promise<
+    Array<{
+      id: string;
+      section_name: string;
+      institution_id: string;
+      semester_id: string;
+    }>
+  > {
+    try {
+      let query = this.supabase
+        .from('timetables')
+        .select(
+          `
+          section_id,
+          sections:section_id(id, section_name, institution_id, semester_id)
+        `
+        )
+        .eq('is_active', true)
+        .not('section_id', 'is', null);
+
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      if (semesterId) {
+        query = query.eq('semester_id', semesterId);
+      }
+
+      const { data, error } = await query.then((result) => {
+        if (result.error) return result;
+
+        // Extract unique sections
+        const uniqueSections = new Map();
+        result.data?.forEach((item: any) => {
+          if (item.sections) {
+            uniqueSections.set(item.sections.id, item.sections);
+          }
+        });
+
+        return {
+          data: Array.from(uniqueSections.values()),
+          error: result.error
+        };
+      });
+
+      if (error) {
+        console.error('Error fetching available sections:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error in getAvailableSections:', error);
+      return [];
+    }
+  }
+
   static async getTimetables(
     filters: TimetableFilters = {}
   ): Promise<TimetableListResponse> {
     try {
+      // Check authentication status first
+      const {
+        data: { user },
+        error: authError
+      } = await this.supabase.auth.getUser();
+
+      if (authError) {
+        console.error('🔐 Authentication error:', authError);
+        throw new Error(`Authentication error: ${authError.message}`);
+      }
+
+      if (!user) {
+        console.error('🔐 No authenticated user found');
+        throw new Error('User not authenticated');
+      }
+
+      console.log('🔍 Authenticated user:', { id: user.id, email: user.email });
+
       let query = this.supabase.from('timetables').select(
         `
           *,
@@ -664,7 +829,9 @@ Please select a different date period that doesn't overlap.`
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
-          department:department_id(id, department_name)
+          department:department_id(id, department_name),
+          semesters:semester_id(id, semester_name),
+          sections:section_id(id, section_name)
         `,
         { count: 'exact' }
       );
@@ -695,11 +862,15 @@ Please select a different date period that doesn't overlap.`
       }
 
       if (filters.semester) {
-        query = query.eq('semester', filters.semester);
+        // Frontend sends semester.id (UUID), so filter by semester_id
+        query = query.eq('semester_id', filters.semester);
       }
 
       if (filters.section) {
-        query = query.eq('section', filters.section);
+        // Frontend sends section.section_name (string), so filter by joined field name
+        // Try PostgREST syntax for filtering on joined fields
+        query = query.eq('sections.section_name', filters.section);
+        console.log('🔍 Applied section filter:', filters.section);
       }
 
       if (filters.is_active !== undefined) {
@@ -709,6 +880,19 @@ Please select a different date period that doesn't overlap.`
       if (filters.is_template !== undefined) {
         query = query.eq('is_template', filters.is_template);
       }
+
+      console.log('🔍 Applied filters:', {
+        search: filters.search,
+        institution_id: filters.institution_id,
+        academic_year_id: filters.academic_year_id,
+        degree_id: filters.degree_id,
+        program_id: filters.program_id,
+        department_id: filters.department_id,
+        semester: filters.semester,
+        section: filters.section,
+        is_active: filters.is_active,
+        is_template: filters.is_template
+      });
 
       // Apply pagination
       const page = filters.page || 1;
@@ -720,11 +904,173 @@ Please select a different date period that doesn't overlap.`
       // Default order by timetable_name
       query = query.order('timetable_name', { ascending: true });
 
+      console.log('🔍 Executing query with pagination:', {
+        page,
+        limit,
+        start
+      });
+
       const { data, error, count } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Database query error:', error);
+        console.error('❌ Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
 
-      return {
+        // If it's a PostgREST syntax error, try alternative syntax
+        if (
+          error.code === '42601' ||
+          error.message.includes('syntax') ||
+          error.message.includes('relation')
+        ) {
+          console.log('🔄 Trying alternative section filter syntax...');
+
+          // Reset query and try different syntax
+          let retryQuery = this.supabase.from('timetables').select(
+            `
+              *,
+              institution:institution_id(id, name),
+              academic_year:academic_year_id(id, academic_year_name),
+              degree:degree_id(id, degree_name),
+              program:program_id(id, program_name),
+              department:department_id(id, department_name),
+              semesters:semester_id(id, semester_name),
+              sections:section_id(id, section_name)
+            `,
+            { count: 'exact' }
+          );
+
+          // Reapply all filters except section with alternative syntax
+          if (filters.search) {
+            retryQuery = retryQuery.ilike(
+              'timetable_name',
+              `%${filters.search}%`
+            );
+          }
+          if (filters.institution_id) {
+            retryQuery = retryQuery.eq(
+              'institution_id',
+              filters.institution_id
+            );
+          }
+          if (filters.academic_year_id) {
+            retryQuery = retryQuery.eq(
+              'academic_year_id',
+              filters.academic_year_id
+            );
+          }
+          if (filters.degree_id) {
+            retryQuery = retryQuery.eq('degree_id', filters.degree_id);
+          }
+          if (filters.program_id) {
+            retryQuery = retryQuery.eq('program_id', filters.program_id);
+          }
+          if (filters.department_id) {
+            retryQuery = retryQuery.eq('department_id', filters.department_id);
+          }
+          if (filters.semester) {
+            retryQuery = retryQuery.eq('semester_id', filters.semester);
+          }
+          if (filters.section) {
+            // Try filtering on the foreign key by doing a subquery
+            try {
+              const sectionsResponse = await this.supabase
+                .from('sections')
+                .select('id')
+                .eq('section_name', filters.section);
+
+              if (sectionsResponse.data && sectionsResponse.data.length > 0) {
+                const sectionIds = sectionsResponse.data.map((s) => s.id);
+                retryQuery = retryQuery.in('section_id', sectionIds);
+                console.log('🔄 Using section IDs for filtering:', sectionIds);
+              } else {
+                console.log('⚠️ No sections found with name:', filters.section);
+              }
+            } catch (sectionError) {
+              console.error('❌ Error fetching section IDs:', sectionError);
+            }
+          }
+          if (filters.is_active !== undefined) {
+            retryQuery = retryQuery.eq('is_active', filters.is_active);
+          }
+          if (filters.is_template !== undefined) {
+            retryQuery = retryQuery.eq('is_template', filters.is_template);
+          }
+
+          retryQuery = retryQuery.range(start, start + limit - 1);
+          retryQuery = retryQuery.order('timetable_name', { ascending: true });
+
+          const {
+            data: retryData,
+            error: retryError,
+            count: retryCount
+          } = await retryQuery;
+
+          if (retryError) {
+            console.error('❌ Retry query also failed:', retryError);
+            throw new Error(
+              `Database error: ${error.message}${
+                error.hint ? ` (Hint: ${error.hint})` : ''
+              }`
+            );
+          }
+
+          console.log('✅ Retry query succeeded');
+
+          // Debug logging for retry data
+          console.log(
+            '🔍 TimetableService.getTimetables - Retry Supabase response:',
+            {
+              dataCount: retryData?.length || 0,
+              firstItem: retryData?.[0] || null,
+              hasSemestersOnFirst:
+                retryData?.[0]?.semesters || 'no semesters property',
+              hasSectionsOnFirst:
+                retryData?.[0]?.sections || 'no sections property',
+              semesterValue:
+                retryData?.[0]?.semesters?.semester_name || 'no semester_name',
+              sectionValue:
+                retryData?.[0]?.sections?.section_name || 'no section_name'
+            }
+          );
+
+          return {
+            data: retryData || [],
+            metadata: {
+              total: retryCount || 0,
+              page,
+              limit,
+              totalPages: Math.ceil((retryCount || 0) / limit)
+            }
+          };
+        }
+
+        throw new Error(
+          `Database error: ${error.message}${
+            error.hint ? ` (Hint: ${error.hint})` : ''
+          }`
+        );
+      }
+
+      // Debug logging - check what Supabase actually returns
+      console.log(
+        '🔍 TimetableService.getTimetables - Raw Supabase response:',
+        {
+          dataCount: data?.length || 0,
+          firstItem: data?.[0] || null,
+          hasSemestersOnFirst: data?.[0]?.semesters || 'no semesters property',
+          hasSectionsOnFirst: data?.[0]?.sections || 'no sections property',
+          semesterValue:
+            data?.[0]?.semesters?.semester_name || 'no semester_name',
+          sectionValue: data?.[0]?.sections?.section_name || 'no section_name'
+        }
+      );
+
+      const result = {
         data: data || [],
         metadata: {
           total: count || 0,
@@ -733,6 +1079,29 @@ Please select a different date period that doesn't overlap.`
           totalPages: count ? Math.ceil(count / limit) : 0
         }
       };
+
+      // Add helpful message when no data is found
+      if ((count || 0) === 0) {
+        console.log('ℹ️ No timetables found for the current filters.');
+        console.log('💡 This could mean:');
+        console.log(
+          '   • No timetables have been created for this semester/section yet'
+        );
+        console.log(
+          "   • The selected semester/section combination doesn't exist"
+        );
+        console.log(
+          '   • You may need to create timetables for this combination'
+        );
+
+        if (filters.semester || filters.section) {
+          console.log(
+            '🔧 Suggestion: Try removing semester/section filters to see available timetables'
+          );
+        }
+      }
+
+      return result;
     } catch (error) {
       console.error('Error fetching timetables:', error);
       throw error;
@@ -750,7 +1119,9 @@ Please select a different date period that doesn't overlap.`
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
-          department:department_id(id, department_name)
+          department:department_id(id, department_name),
+          semesters:semester_id(id, semester_name),
+          sections:section_id(id, section_name)
         `
         )
         .eq('id', id)
@@ -1500,8 +1871,8 @@ Please select a different date period that doesn't overlap.`
           degree_id: timetableData.degree_id,
           program_id: timetableData.program_id,
           department_id: timetableData.department_id,
-          semester: timetableData.semester.toString(),
-          section: timetableData.section || undefined,
+          semester_id: timetableData.semester_id!,
+          section_id: timetableData.section_id || undefined,
           start_date: timetableData.start_date,
           end_date: timetableData.end_date
         });
@@ -1613,7 +1984,9 @@ Please select a different date period that doesn't overlap.`
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
-          department:department_id(id, department_name)
+          department:department_id(id, department_name),
+          semesters:semester_id(id, semester_name),
+          sections:section_id(id, section_name)
         `,
         { count: 'exact' }
       );
@@ -1747,7 +2120,9 @@ Please select a different date period that doesn't overlap.`
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
-          department:department_id(id, department_name)
+          department:department_id(id, department_name),
+          semesters:semester_id(id, semester_name),
+          sections:section_id(id, section_name)
         `
         )
         .eq('id', id)
@@ -1773,8 +2148,8 @@ Please select a different date period that doesn't overlap.`
         degree_id: data.degree_id || null,
         program_id: data.program_id || null,
         department_id: data.department_id || null,
-        semester: data.semester?.toString() || null,
-        section: data.section || null,
+        semester_id: data.semester_id || null,
+        section_id: data.section_id || null,
         timetable_name: data.timetable_name,
         template_name: data.template_name,
         template_description: data.template_description || null,
@@ -1807,7 +2182,9 @@ Please select a different date period that doesn't overlap.`
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
-          department:department_id(id, department_name)
+          department:department_id(id, department_name),
+          semesters:semester_id(id, semester_name),
+          sections:section_id(id, section_name)
         `
         )
         .single();
@@ -1843,7 +2220,9 @@ Please select a different date period that doesn't overlap.`
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
-          department:department_id(id, department_name)
+          department:department_id(id, department_name),
+          semesters:semester_id(id, semester_name),
+          sections:section_id(id, section_name)
         `
         )
         .single();
@@ -1894,7 +2273,9 @@ Please select a different date period that doesn't overlap.`
           academic_year:academic_year_id(id, academic_year_name),
           degree:degree_id(id, degree_name),
           program:program_id(id, program_name),
-          department:department_id(id, department_name)
+          department:department_id(id, department_name),
+          semesters:semester_id(id, semester_name),
+          sections:section_id(id, section_name)
         `
         )
         .single();

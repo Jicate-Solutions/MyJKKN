@@ -58,7 +58,7 @@ export default function TemplatePage() {
     isLoading,
     hasError: !!error,
     hasTemplate: !!template,
-    errorMessage: error?.message
+    errorMessage: (error as any)?.message || String(error || '')
   });
 
   const canEdit = isSuperAdmin || canAccess('academic.timetables', 'edit');
@@ -112,8 +112,8 @@ export default function TemplatePage() {
   }
 
   return (
-    <PermissionGuard 
-      module='academic.timetables' 
+    <PermissionGuard
+      module='academic.timetables'
       action='view'
       fallback={
         <ContentLayout title='Access Denied'>
@@ -121,14 +121,19 @@ export default function TemplatePage() {
             <div className='p-4 border rounded-md'>
               <h3 className='text-lg font-semibold mb-2'>Debug Information</h3>
               <pre className='text-sm bg-gray-100 p-2 rounded'>
-                {JSON.stringify({
-                  isSuperAdmin,
-                  templateId,
-                  canEdit,
-                  canCreate,
-                  errorMessage: error?.message,
-                  hasTemplate: !!template
-                }, null, 2)}
+                {JSON.stringify(
+                  {
+                    isSuperAdmin,
+                    templateId,
+                    canEdit,
+                    canCreate,
+                    errorMessage:
+                      (error as any)?.message || String(error || ''),
+                    hasTemplate: !!template
+                  },
+                  null,
+                  2
+                )}
               </pre>
             </div>
             <Button variant='outline' onClick={() => router.back()}>
@@ -277,8 +282,8 @@ export default function TemplatePage() {
                         <Hash className='h-4 w-4 text-muted-foreground' />
                         <span className='text-sm font-medium'>Semester:</span>
                         <Badge variant='secondary'>
-                          Sem {template.semester}
-                          {template.section && ` - ${template.section}`}
+                          Sem {template.semester_id}
+                          {template.section_id && ` - ${template.section_id}`}
                         </Badge>
                       </div>
 

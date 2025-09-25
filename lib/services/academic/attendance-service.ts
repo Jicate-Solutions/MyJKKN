@@ -1010,49 +1010,15 @@ export class AttendanceService {
             await this.supabase
               .from('timetables')
               .select(
-                'academic_year_id, degree_id, program_id, department_id, semester_id, semester'
+                'academic_year_id, degree_id, program_id, department_id, semester_id'
               )
               .eq('id', data.timetable_id)
               .single();
 
           if (!timetableError && timetableData) {
-            let resolvedSemesterId =
+            // Use semester_id from data or timetableData (should always be available now)
+            const resolvedSemesterId =
               data.semester_id || timetableData.semester_id;
-
-            // If semester_id is null but we have semester name, lookup the semester_id
-            if (
-              !resolvedSemesterId &&
-              timetableData.semester &&
-              timetableData.degree_id &&
-              timetableData.program_id
-            ) {
-              console.log('🔍 Looking up semester_id for:', {
-                semester_name: timetableData.semester,
-                degree_id: timetableData.degree_id,
-                program_id: timetableData.program_id
-              });
-
-              const { data: semesterData, error: semesterError } =
-                await this.supabase
-                  .from('semesters')
-                  .select('id')
-                  .eq('semester_name', timetableData.semester)
-                  .eq('degree_id', timetableData.degree_id)
-                  .eq('program_id', timetableData.program_id)
-                  .single();
-
-              if (!semesterError && semesterData) {
-                resolvedSemesterId = semesterData.id;
-                console.log('✅ Found semester_id:', resolvedSemesterId);
-              } else {
-                console.error('❌ Could not resolve semester_id:', {
-                  error: semesterError,
-                  semester_name: timetableData.semester,
-                  degree_id: timetableData.degree_id,
-                  program_id: timetableData.program_id
-                });
-              }
-            }
 
             academicFields = {
               academic_year_id:
@@ -1672,28 +1638,7 @@ export class AttendanceService {
     date: string
   ): Promise<any[]> {
     try {
-      // First, convert semester_id to semester_name if it's a UUID
-      let semesterFilter = filters.semester;
-
-      // Check if semester is a UUID (if it contains hyphens and is 36 chars)
-      if (
-        typeof filters.semester === 'string' &&
-        filters.semester.includes('-') &&
-        filters.semester.length === 36
-      ) {
-        const { data: semesterData, error: semesterError } = await this.supabase
-          .from('semesters')
-          .select('semester_name')
-          .eq('id', filters.semester)
-          .single();
-
-        if (semesterError) {
-          console.error('Error fetching semester name:', semesterError);
-          throw semesterError;
-        }
-
-        semesterFilter = semesterData.semester_name;
-      }
+      // Now using semester_id directly - no conversion needed
 
       // First, find the active timetable for the given filters that includes the selected date
       console.log('Searching for timetable with date:', date);
@@ -1703,7 +1648,7 @@ export class AttendanceService {
         degree_id: filters.degree_id,
         program_id: filters.program_id,
         department_id: filters.department_id,
-        semester: semesterFilter
+        semester_id: filters.semester
       });
 
       const timetableQuery = this.supabase
@@ -1714,7 +1659,7 @@ export class AttendanceService {
         .eq('degree_id', filters.degree_id)
         .eq('program_id', filters.program_id)
         .eq('department_id', filters.department_id)
-        .eq('semester', semesterFilter) // Use converted semester name
+        .eq('semester_id', filters.semester) // Use semester_id column directly
         .eq('is_active', true)
         .lte('start_date', date) // start_date <= selected date
         .gte('end_date', date); // end_date >= selected date
@@ -1749,7 +1694,7 @@ export class AttendanceService {
           .eq('degree_id', filters.degree_id)
           .eq('program_id', filters.program_id)
           .eq('department_id', filters.department_id)
-          .eq('semester', semesterFilter);
+          .eq('semester_id', filters.semester);
 
         if (!allError && allTimetables) {
           console.log('All timetables for this configuration:', allTimetables);
@@ -2061,60 +2006,22 @@ export class AttendanceService {
       const dayOfWeek = this.getDayOfWeekFromDate(date);
       console.log('Day of week for date:', dayOfWeek);
 
-      // First, check if the semester filter is an ID and get the actual semester name
-      let semesterName = String(filters.semester);
-
-      // Check if it looks like a UUID (semester ID)
-      const isUUID =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          String(filters.semester)
-        );
-
-      if (isUUID) {
-        console.log(
-          'Semester appears to be an ID, fetching semester details...'
-        );
-        // Fetch the semester details to get the name
-        const { data: semesterData, error: semesterError } = await this.supabase
-          .from('semesters')
-          .select('semester_name')
-          .eq('id', filters.semester)
-          .single();
-
-        if (semesterData && !semesterError) {
-          semesterName = semesterData.semester_name;
-          console.log('Found semester name:', semesterName);
-        } else {
-          console.log('Could not fetch semester name, using ID as-is');
-        }
-      }
-
-      // Similarly check for section
-      let sectionName = filters.section;
-      if (
-        filters.section &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          String(filters.section)
-        )
-      ) {
-        console.log('Section appears to be an ID, fetching section details...');
-        const { data: sectionData, error: sectionError } = await this.supabase
-          .from('sections')
-          .select('section_name')
-          .eq('id', filters.section)
-          .single();
-
-        if (sectionData && !sectionError) {
-          sectionName = sectionData.section_name;
-          console.log('Found section name:', sectionName);
-        }
+      // Note: Database expects UUIDs directly, no name resolution needed
+      console.log('Using semester UUID directly:', filters.semester);
+      if (filters.section) {
+        console.log('Using section UUID directly:', filters.section);
       }
 
       // Fetch all active timetables for the given context (both regular and batch)
       let timetableQuery = this.supabase
         .from('timetables')
         .select(
-          'id, timetable_format, start_date, end_date, selected_dates, section, semester, timetable_data'
+          `id, timetable_format, start_date, end_date, selected_dates, section_id, semester_id, timetable_data,
+           degrees(degree_name),
+           programs(program_name),
+           departments(department_name),
+           semesters(semester_name),
+           sections(section_name)`
         )
         .eq('institution_id', filters.institution_id)
         .eq('academic_year_id', filters.academic_year_id)
@@ -2123,14 +2030,14 @@ export class AttendanceService {
         .eq('department_id', filters.department_id)
         .eq('is_active', true);
 
-      // Use the semester name for comparison
-      timetableQuery = timetableQuery.eq('semester', semesterName);
-      console.log('Querying with semester name:', semesterName);
+      // Use the semester_id column for comparison (timetables table stores semester_id as UUID)
+      timetableQuery = timetableQuery.eq('semester_id', filters.semester);
+      console.log('Querying with semester_id:', filters.semester);
 
-      // For section filtering, use the section name if we have it
-      if (sectionName) {
-        console.log('Filtering by section name:', sectionName);
-        timetableQuery = timetableQuery.eq('section', sectionName);
+      // For section filtering, use the section_id column directly (timetables table stores section_id as UUID)
+      if (filters.section) {
+        console.log('Filtering by section_id:', filters.section);
+        timetableQuery = timetableQuery.eq('section_id', filters.section);
       } else {
         console.log(
           'No section filter specified - getting all timetables regardless of section'
@@ -2524,6 +2431,8 @@ export class AttendanceService {
         .map((slot: any) => {
           // Find the period data for this slot
           const periodData = periodsData.find((p) => p.id === slot.period_id);
+          // Find the timetable for this slot to get related names
+          const timetableData = timetables.find((t: any) => t.id === slot.timetable_id);
 
           return {
             timetable_slot_id: slot.slot_id || slot.id,
@@ -2533,6 +2442,12 @@ export class AttendanceService {
             start_time: periodData?.start_time || '',
             end_time: periodData?.end_time || '',
             is_break: periodData?.is_break || false,
+            // Add the hierarchy names from timetable relations
+            degree_name: timetableData?.degrees?.degree_name || '',
+            program_name: timetableData?.programs?.program_name || '',
+            department_name: timetableData?.departments?.department_name || '',
+            semester_name: timetableData?.semesters?.semester_name || '',
+            section_name: timetableData?.sections?.section_name || '',
             course: slot.course
               ? {
                   id: slot.course.id,
@@ -3129,9 +3044,9 @@ export class AttendanceService {
             timetableInfo = timetableData;
 
             // Check if timetable has missing semester_id
-            if (!timetableData.semester_id && timetableData.semester) {
+            if (!timetableData.semester_id) {
               issues.push(
-                `Timetable has semester name '${timetableData.semester}' but no semester_id`
+                `Timetable ${record.timetable_id} is missing semester_id`
               );
               suggestions.push(
                 `Update timetable ${record.timetable_id} with correct semester_id`

@@ -90,14 +90,14 @@ export function TemplateLibraryDataTable({
         <Checkbox
           checked={table.getIsAllPageRowsSelected()}
           onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
+          aria-label='Select all'
         />
       ),
       cell: ({ row }) => (
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
+          aria-label='Select row'
         />
       ),
       enableSorting: false,
@@ -106,20 +106,20 @@ export function TemplateLibraryDataTable({
     {
       accessorKey: 'template_name',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Template Name" />
+        <DataTableColumnHeader column={column} title='Template Name' />
       ),
       cell: ({ row }) => {
         const template = row.original;
         return (
-          <div className="space-y-1">
-            <div className="font-medium text-sm">{template.template_name}</div>
+          <div className='space-y-1'>
+            <div className='font-medium text-sm'>{template.template_name}</div>
             {template.template_description && (
-              <div className="text-xs text-muted-foreground line-clamp-2">
+              <div className='text-xs text-muted-foreground line-clamp-2'>
                 {template.template_description}
               </div>
             )}
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Calendar className="h-3 w-3" />
+            <div className='flex items-center gap-1 text-xs text-muted-foreground'>
+              <Calendar className='h-3 w-3' />
               Created {format(new Date(template.created_at), 'MMM dd, yyyy')}
             </div>
           </div>
@@ -129,28 +129,28 @@ export function TemplateLibraryDataTable({
     {
       accessorKey: 'template_category',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Category" />
+        <DataTableColumnHeader column={column} title='Category' />
       ),
       cell: ({ row }) => {
         const category = row.getValue('template_category') as string;
         return category ? (
-          <Badge variant="outline">{category}</Badge>
+          <Badge variant='outline'>{category}</Badge>
         ) : (
-          <span className="text-muted-foreground">-</span>
+          <span className='text-muted-foreground'>-</span>
         );
       }
     },
     {
       accessorKey: 'program.program_name',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Program" />
+        <DataTableColumnHeader column={column} title='Program' />
       ),
       cell: ({ row }) => {
         const template = row.original;
         return (
-          <div className="space-y-1 text-sm">
+          <div className='space-y-1 text-sm'>
             <div>{template.program?.program_name || '-'}</div>
-            <div className="text-xs text-muted-foreground">
+            <div className='text-xs text-muted-foreground'>
               {template.department?.department_name || '-'}
             </div>
           </div>
@@ -158,17 +158,17 @@ export function TemplateLibraryDataTable({
       }
     },
     {
-      accessorKey: 'semester',
+      accessorKey: 'semesters',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Semester" />
+        <DataTableColumnHeader column={column} title='Semester' />
       ),
       cell: ({ row }) => {
         const template = row.original;
         return (
-          <div className="space-y-1">
-            <Badge variant="secondary">
-              Sem {template.semester}
-              {template.section && ` - ${template.section}`}
+          <div className='space-y-1'>
+            <Badge variant='secondary'>
+              {template.semesters?.semester_name || 'Semester'}
+              {template.sections?.section_name && ` - ${template.sections.section_name}`}
             </Badge>
           </div>
         );
@@ -180,36 +180,34 @@ export function TemplateLibraryDataTable({
       cell: ({ row }) => {
         const tags = row.getValue('template_tags') as string[];
         return tags && tags.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
+          <div className='flex flex-wrap gap-1'>
             {tags.slice(0, 2).map((tag) => (
-              <Badge key={tag} variant="outline" className="text-xs">
+              <Badge key={tag} variant='outline' className='text-xs'>
                 {tag}
               </Badge>
             ))}
             {tags.length > 2 && (
-              <Badge variant="outline" className="text-xs">
+              <Badge variant='outline' className='text-xs'>
                 +{tags.length - 2}
               </Badge>
             )}
           </div>
         ) : (
-          <span className="text-muted-foreground">-</span>
+          <span className='text-muted-foreground'>-</span>
         );
       }
     },
     {
       accessorKey: 'usage_count',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Usage" />
+        <DataTableColumnHeader column={column} title='Usage' />
       ),
       cell: ({ row }) => {
         const count = row.getValue('usage_count') as number;
         return (
-          <div className="flex items-center gap-1">
-            <Users className="h-3 w-3 text-muted-foreground" />
-            <span className="text-sm font-medium">
-              {count || 0} times
-            </span>
+          <div className='flex items-center gap-1'>
+            <Users className='h-3 w-3 text-muted-foreground' />
+            <span className='text-sm font-medium'>{count || 0} times</span>
           </div>
         );
       }
@@ -217,13 +215,13 @@ export function TemplateLibraryDataTable({
     {
       accessorKey: 'timetable_format',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Format" />
+        <DataTableColumnHeader column={column} title='Format' />
       ),
       cell: ({ row }) => {
         const format = row.getValue('timetable_format') as string;
         return (
-          <Badge variant="outline" className="capitalize">
-            <Clock className="h-3 w-3 mr-1" />
+          <Badge variant='outline' className='capitalize'>
+            <Clock className='h-3 w-3 mr-1' />
             {format || 'regular'}
           </Badge>
         );
@@ -232,7 +230,7 @@ export function TemplateLibraryDataTable({
     {
       accessorKey: 'institution.name',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Institution" />
+        <DataTableColumnHeader column={column} title='Institution' />
       ),
       cell: ({ row }) => {
         const template = row.original;
@@ -242,7 +240,7 @@ export function TemplateLibraryDataTable({
     {
       accessorKey: 'is_active',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Status" />
+        <DataTableColumnHeader column={column} title='Status' />
       ),
       cell: ({ row }) => {
         const isActive = row.getValue('is_active') as boolean;
@@ -294,7 +292,7 @@ export function TemplateLibraryDataTable({
 
   if (error) {
     return (
-      <Alert variant="destructive">
+      <Alert variant='destructive'>
         <AlertDescription>
           Failed to load templates. Please try again later.
         </AlertDescription>
@@ -303,27 +301,32 @@ export function TemplateLibraryDataTable({
   }
 
   return (
-    <div className="space-y-4">
+    <div className='space-y-4'>
       {/* Table Controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className='flex items-center justify-between'>
+        <div className='flex items-center gap-2'>
           <Input
-            placeholder="Search templates..."
-            value={(table.getColumn('template_name')?.getFilterValue() as string) ?? ''}
-            onChange={(event) =>
-              table.getColumn('template_name')?.setFilterValue(event.target.value)
+            placeholder='Search templates...'
+            value={
+              (table.getColumn('template_name')?.getFilterValue() as string) ??
+              ''
             }
-            className="max-w-sm"
+            onChange={(event) =>
+              table
+                .getColumn('template_name')
+                ?.setFilterValue(event.target.value)
+            }
+            className='max-w-sm'
           />
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1">
-              <Settings2 className="h-4 w-4" />
+            <Button variant='outline' size='sm' className='gap-1'>
+              <Settings2 className='h-4 w-4' />
               View
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[150px]">
+          <DropdownMenuContent align='end' className='w-[150px]'>
             {table
               .getAllColumns()
               .filter((column) => column.getCanHide())
@@ -331,9 +334,11 @@ export function TemplateLibraryDataTable({
                 return (
                   <DropdownMenuCheckboxItem
                     key={column.id}
-                    className="capitalize"
+                    className='capitalize'
                     checked={column.getIsVisible()}
-                    onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                    onCheckedChange={(value) =>
+                      column.toggleVisibility(!!value)
+                    }
                   >
                     {column.id}
                   </DropdownMenuCheckboxItem>
@@ -344,13 +349,13 @@ export function TemplateLibraryDataTable({
       </div>
 
       {/* Table */}
-      <div className="rounded-md border">
+      <div className='rounded-md border'>
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} className="px-4">
+                  <TableHead key={header.id} className='px-4'>
                     {header.isPlaceholder
                       ? null
                       : flexRender(
@@ -368,10 +373,10 @@ export function TemplateLibraryDataTable({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && 'selected'}
-                  className="hover:bg-muted/50"
+                  className='hover:bg-muted/50'
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="px-4">
+                    <TableCell key={cell.id} className='px-4'>
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext()
@@ -384,7 +389,7 @@ export function TemplateLibraryDataTable({
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="h-24 text-center"
+                  className='h-24 text-center'
                 >
                   No templates found.
                 </TableCell>

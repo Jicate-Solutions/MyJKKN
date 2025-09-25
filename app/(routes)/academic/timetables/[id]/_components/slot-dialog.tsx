@@ -255,10 +255,10 @@ export function SlotDialog({
           ...(timetable?.institution_id && {
             institution_id: timetable.institution_id
           }),
-          ...(timetable?.semester &&
-            typeof timetable.semester === 'object' &&
-            'id' in timetable.semester && {
-              semester_id: (timetable.semester as { id: string }).id
+          ...(timetable?.semester_id &&
+            typeof timetable.semester_id === 'object' &&
+            'id' in timetable.semester_id && {
+              semester_id: (timetable.semester_id as { id: string }).id
             }),
           ...(timetable?.department_id && {
             department_id: timetable.department_id
@@ -526,14 +526,14 @@ export function SlotDialog({
                   {!isUsingStaffPlanningData && courses?.length > 0 && (
                     <p className='text-xs text-amber-600'>
                       ⚠️ No staff planning found for semester &quot;
-                      {timetable?.semester}&quot;. Showing all available
+                      {timetable?.semester_id}&quot;. Showing all available
                       courses.
                     </p>
                   )}
                   {isUsingStaffPlanningData && (
                     <p className='text-xs text-green-600'>
                       ✓ Showing courses from staff planning for semester &quot;
-                      {timetable?.semester}&quot;
+                      {timetable?.semester_id}&quot;
                     </p>
                   )}
                 </div>
@@ -627,15 +627,15 @@ export function SlotDialog({
                     <p className='text-xs text-red-600'>
                       ❌ No staff assigned to this course in staff planning for
                       semester &quot;
-                      {timetable?.semester}&quot;. Please assign staff in Staff
-                      Planning module first.
+                      {timetable?.semester_id}&quot;. Please assign staff in
+                      Staff Planning module first.
                     </p>
                   )}
                   {displayStaff?.length > 0 && (
                     <p className='text-xs text-green-600'>
                       ✓ Showing staff assigned to this course from staff
                       planning for semester &quot;
-                      {timetable?.semester}&quot;
+                      {timetable?.semester_id}&quot;
                     </p>
                   )}
                 </div>
@@ -698,7 +698,7 @@ export function SlotDialog({
                       !loadingFilteredSections && (
                         <div className='text-center py-4 text-gray-500 text-sm'>
                           <div className='mb-1'>
-                            No sections found for {timetable?.semester}
+                            No sections found for {timetable?.semester_id}
                           </div>
                           <div className='text-xs text-gray-400'>
                             Please create sections for this semester first
@@ -963,7 +963,7 @@ export function SlotDialog({
                               <div className='text-center py-2 text-gray-500 text-xs'>
                                 <div className='mb-1'>
                                   No sections available for{' '}
-                                  {timetable?.semester}
+                                  {timetable?.semester_id}
                                 </div>
                                 <div className='text-xs text-gray-400'>
                                   Create sections for this semester first

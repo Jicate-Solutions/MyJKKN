@@ -191,24 +191,17 @@ export function TimetableFilters({
     async function loadSections() {
       if (searchParams.semester && searchParams.program_id) {
         try {
-          // Find the semester ID from the semester name
-          const selectedSemester = semesters.find(
-            (s) => s.semester_name === searchParams.semester
-          );
+          const filters = {
+            institution_id: searchParams.institution_id,
+            degree_id: searchParams.degree_id,
+            department_id: searchParams.department_id,
+            program_id: searchParams.program_id,
+            semester_id: searchParams.semester, // semester param now holds the ID
+            isActive: true
+          };
 
-          if (selectedSemester) {
-            const filters = {
-              institution_id: searchParams.institution_id,
-              degree_id: searchParams.degree_id,
-              department_id: searchParams.department_id,
-              program_id: searchParams.program_id,
-              semester_id: selectedSemester.id,
-              isActive: true
-            };
-
-            const response = await SectionService.getSections(filters);
-            setSections(response.data);
-          }
+          const response = await SectionService.getSections(filters);
+          setSections(response.data);
         } catch (error) {
           console.error('Error loading sections:', error);
         }
@@ -222,8 +215,7 @@ export function TimetableFilters({
     searchParams.program_id,
     searchParams.institution_id,
     searchParams.degree_id,
-    searchParams.department_id,
-    semesters
+    searchParams.department_id
   ]);
 
   useEffect(() => {
@@ -419,7 +411,7 @@ export function TimetableFilters({
           <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Semesters</SelectItem>
             {semesters.map((semester) => (
-              <SelectItem key={semester.id} value={semester.semester_name}>
+              <SelectItem key={semester.id} value={semester.id}>
                 {semester.semester_name}
               </SelectItem>
             ))}

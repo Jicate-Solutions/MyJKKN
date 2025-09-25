@@ -52,6 +52,7 @@ import { useDegrees } from '@/hooks/organization/use-degrees';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
+import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useToast } from '@/hooks/use-toast';
 import { Timetable, UpdateTimetableDto } from '@/types/academics';
@@ -78,9 +79,10 @@ const timetableFormSchema = z
     department_id: z.string().min(1, {
       message: 'Please select a department.'
     }),
-    semester: z.string().min(1, {
+    semester_id: z.string().min(1, {
       message: 'Please select a semester.'
     }),
+    section_id: z.string().optional(),
     start_date: z.date().optional(),
     end_date: z.date().optional(),
     is_active: z.boolean().default(true),
@@ -160,6 +162,11 @@ export default function EditTimetablePage({
     userId: userProfile?.id,
     limit: 1000
   });
+  const sectionsQuery = useSections({
+    bypassInstitutionFilter: isSuperAdmin,
+    userId: userProfile?.id,
+    limit: 1000
+  });
 
   // Extract data and loading states
   const allDegrees = degreesQuery.data?.data || [];
@@ -178,6 +185,10 @@ export default function EditTimetablePage({
   const loadingSemesters = semestersQuery.isLoading;
   const fetchSemesters = semestersQuery.refetch;
 
+  const allSections = sectionsQuery.data?.data || [];
+  const loadingSections = sectionsQuery.isLoading;
+  const fetchSections = sectionsQuery.refetch;
+
   // Apply hierarchical filtering based on current selections
   let degrees = allDegrees;
   let programs = allPrograms;
@@ -194,7 +205,8 @@ export default function EditTimetablePage({
       degree_id: '',
       program_id: '',
       department_id: '',
-      semester: '',
+      semester_id: '',
+      section_id: '',
       start_date: undefined,
       end_date: undefined,
       is_active: true,
@@ -209,6 +221,7 @@ export default function EditTimetablePage({
   const watchDegreeId = form.watch('degree_id');
   const watchProgramId = form.watch('program_id');
   const watchDepartmentId = form.watch('department_id');
+  const watchSemesterId = form.watch('semester_id');
 
   // Apply hierarchical filtering based on current selections
   degrees = allDegrees.filter(
@@ -227,6 +240,11 @@ export default function EditTimetablePage({
 
   filteredSemesters = allSemesters.filter(
     (semester) => !watchProgramId || semester.program_id === watchProgramId
+  );
+
+  // Filter sections based on semester selection (sections belong to semesters)
+  const filteredSections = allSections.filter(
+    (section) => !watchSemesterId || section.semester_id === watchSemesterId
   );
 
   // Deduplicate semesters by semester_name to avoid duplicate keys
@@ -253,7 +271,8 @@ export default function EditTimetablePage({
           degree_id: timetableData.degree_id,
           program_id: timetableData.program_id,
           department_id: timetableData.department_id,
-          semester: String(timetableData.semester),
+          semester_id: timetableData.semester_id || '',
+          section_id: timetableData.section_id || '',
           start_date: timetableData.start_date
             ? new Date(timetableData.start_date)
             : undefined,
@@ -293,6 +312,7 @@ export default function EditTimetablePage({
     fetchPrograms();
     fetchDepartments();
     fetchSemesters();
+    fetchSections();
     // Academic years will be fetched when institution is selected
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -311,6 +331,7 @@ export default function EditTimetablePage({
         fetchDepartments();
         fetchPrograms();
         fetchSemesters();
+        fetchSections();
       } else {
         // Clear academic years when no institution is selected - pass empty string
         fetchAcademicYears('');
@@ -326,7 +347,8 @@ export default function EditTimetablePage({
       form.setValue('degree_id', '');
       form.setValue('department_id', '');
       form.setValue('program_id', '');
-      form.setValue('semester', '');
+      form.setValue('semester_id', '');
+      form.setValue('section_id', '');
 
       // Show notification when resetting dependent fields
       if (watchInstitutionId) {
@@ -347,6 +369,7 @@ export default function EditTimetablePage({
     fetchDepartments,
     fetchPrograms,
     fetchSemesters,
+    fetchSections,
     toast
   ]);
 
@@ -365,7 +388,8 @@ export default function EditTimetablePage({
       // Clear form values for all dependent fields
       form.setValue('department_id', '');
       form.setValue('program_id', '');
-      form.setValue('semester', '');
+      form.setValue('semester_id', '');
+      form.setValue('section_id', '');
 
       // Show notification when resetting dependent fields
       if (watchDegreeId) {
@@ -389,7 +413,8 @@ export default function EditTimetablePage({
 
       // Clear form values for all dependent fields
       form.setValue('program_id', '');
-      form.setValue('semester', '');
+      form.setValue('semester_id', '');
+      form.setValue('section_id', '');
 
       // Show notification when resetting dependent fields
       if (watchDepartmentId) {
@@ -408,19 +433,29 @@ export default function EditTimetablePage({
     if (watchProgramId !== selectedProgramId) {
       setSelectedProgramId(watchProgramId || '');
 
-      // Reset semester when program changes
-      form.setValue('semester', '');
+      // Reset semester and section when program changes
+      form.setValue('semester_id', '');
+      form.setValue('section_id', '');
 
       // Show notification when resetting dependent fields
       if (watchProgramId) {
         toast({
-          title: 'Field Reset',
-          description: 'Changing program has reset the semester field.',
+          title: 'Fields Reset',
+          description:
+            'Changing program has reset semester and section fields.',
           duration: 1500
         });
       }
     }
   }, [watchProgramId, selectedProgramId, form, toast]);
+
+  // Update state when semester changes - reset section
+  useEffect(() => {
+    if (watchSemesterId) {
+      // Reset section when semester changes (section depends on semester)
+      form.setValue('section_id', '');
+    }
+  }, [watchSemesterId, form]);
 
   // Form submission handler
   const onSubmit = async (values: TimetableFormValues) => {
@@ -444,13 +479,25 @@ export default function EditTimetablePage({
         degree_id: values.degree_id,
         program_id: values.program_id,
         department_id: values.department_id,
-        semester: values.semester as string | number,
+        // Fix: use correct field names for UUIDs
+        semester_id: values.semester_id || undefined,
+        section_id: values.section_id || undefined,
         start_date: formatDateForDB(values.start_date),
         end_date: formatDateForDB(values.end_date),
         is_active: values.is_active,
         is_template: values.is_template,
         template_name: values.is_template ? values.template_name : undefined
       };
+
+      // Debug logging to verify the fix
+      console.log('🔧 Edit form - Form values:', {
+        semester_id: values.semester_id,
+        section_id: values.section_id
+      });
+      console.log('🔧 Edit form - Update data being sent:', {
+        semester_id: updateData.semester_id,
+        section_id: updateData.section_id
+      });
 
       const success = await updateTimetable(timetableId, updateData);
       if (success) {
@@ -472,7 +519,8 @@ export default function EditTimetablePage({
     loadingDegrees ||
     loadingPrograms ||
     loadingDepartments ||
-    loadingSemesters;
+    loadingSemesters ||
+    loadingSections;
 
   if (isLoading) {
     return <Loading title='Loading timetable data...' />;
@@ -772,7 +820,7 @@ export default function EditTimetablePage({
                     {/* Semester Field */}
                     <FormField
                       control={form.control}
-                      name='semester'
+                      name='semester_id'
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Semester</FormLabel>
@@ -800,7 +848,7 @@ export default function EditTimetablePage({
                               {uniqueSemesters.map((semester) => (
                                 <SelectItem
                                   key={semester.id}
-                                  value={semester.semester_name}
+                                  value={semester.id}
                                 >
                                   {semester.semester_name}
                                 </SelectItem>
@@ -809,6 +857,51 @@ export default function EditTimetablePage({
                           </Select>
                           <FormDescription>
                             The semester for this timetable
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Section Field */}
+                    <FormField
+                      control={form.control}
+                      name='section_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Section</FormLabel>
+                          <Select
+                            onValueChange={(value) =>
+                              field.onChange(value || undefined)
+                            }
+                            value={field.value || undefined}
+                            disabled={
+                              loadingSections ||
+                              !watchSemesterId ||
+                              filteredSections.length === 0
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchSemesterId
+                                      ? 'First select a semester'
+                                      : 'Choose section (optional)'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
+                              {filteredSections.map((section) => (
+                                <SelectItem key={section.id} value={section.id}>
+                                  {section.section_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            The section for this timetable (optional)
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

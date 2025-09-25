@@ -266,10 +266,19 @@ export class FacultyTimetableService {
         );
       }
       if (filters.semester_id) {
-        timetableQuery = timetableQuery.eq('semester', filters.semester_id);
+        timetableQuery = timetableQuery.eq('semester_id', filters.semester_id);
       }
       if (filters.section_name) {
-        timetableQuery = timetableQuery.eq('section', filters.section_name);
+        // Convert section_name to section_id first
+        const { data: sectionData } = await this.supabase
+          .from('sections')
+          .select('id')
+          .eq('section_name', filters.section_name)
+          .single();
+
+        if (sectionData) {
+          timetableQuery = timetableQuery.eq('section_id', sectionData.id);
+        }
       }
 
       // Apply date range filter

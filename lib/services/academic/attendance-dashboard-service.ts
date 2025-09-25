@@ -677,7 +677,7 @@ export class AttendanceDashboardService {
       console.log(`📅 Found ${timetables?.length || 0} active timetables`);
       console.log(`📊 Date range: ${queryStartDate} to ${queryEndDate}`);
       console.log(`📊 Querying for dates:`, dates);
-      
+
       // Debug: Check the structure of the first timetable
       if (timetables && timetables.length > 0) {
         console.log('🔍 Sample timetable structure:', {
@@ -752,10 +752,10 @@ export class AttendanceDashboardService {
 
         timetables?.forEach((timetable) => {
           // Check if timetable is valid for the current date
-          const isValidForDate = 
+          const isValidForDate =
             (!timetable.start_date || timetable.start_date <= date) &&
             (!timetable.end_date || timetable.end_date >= date);
-          
+
           if (!isValidForDate) {
             return; // Skip this timetable for this date
           }
@@ -789,14 +789,16 @@ export class AttendanceDashboardService {
                       })
                       .filter(Boolean);
 
-                    // IMPORTANT: The period key should use the slot_id if available, 
+                    // IMPORTANT: The period key should use the slot_id if available,
                     // because attendance is stored using slot_id, not period_id
                     const actualPeriodId = slot.slot_id || periodId;
                     const periodKey = `${date}_${timetable.id}_${actualPeriodId}`;
-                    
+
                     // Debug logging for period ID mapping
                     if (slot.slot_id && slot.slot_id !== periodId) {
-                      console.log(`🔄 Period ID mapping: ${periodId} -> ${slot.slot_id} for ${periodInfo.period_name}`);
+                      console.log(
+                        `🔄 Period ID mapping: ${periodId} -> ${slot.slot_id} for ${periodInfo.period_name}`
+                      );
                     }
 
                     // Apply staff filter if provided
@@ -826,7 +828,8 @@ export class AttendanceDashboardService {
                         'Unknown Institution',
                       degree_id: timetable.degree_id,
                       degree_name:
-                        (timetable.degree as any)?.degree_name || 'Unknown Degree',
+                        (timetable.degree as any)?.degree_name ||
+                        'Unknown Degree',
                       department_id: timetable.department_id,
                       department_name:
                         (timetable.department as any)?.department_name ||
@@ -862,7 +865,9 @@ export class AttendanceDashboardService {
                     };
 
                     allScheduledPeriods.set(periodKey, pendingPeriod);
-                    console.log(`📋 Scheduled period key: ${periodKey} for date ${date}, timetable ${timetable.id}`);
+                    console.log(
+                      `📋 Scheduled period key: ${periodKey} for date ${date}, timetable ${timetable.id}`
+                    );
                   }
                 }
               }
@@ -874,8 +879,11 @@ export class AttendanceDashboardService {
       console.log(
         `📋 Found ${allScheduledPeriods.size} scheduled periods across date range`
       );
-      console.log(`📋 Sample scheduled periods:`, Array.from(allScheduledPeriods.keys()).slice(0, 5));
-      
+      console.log(
+        `📋 Sample scheduled periods:`,
+        Array.from(allScheduledPeriods.keys()).slice(0, 5)
+      );
+
       // Debug: Log first few scheduled periods
       let count = 0;
       allScheduledPeriods.forEach((period, key) => {
@@ -917,14 +925,19 @@ export class AttendanceDashboardService {
       // Create set of marked periods with enhanced validation
       const markedPeriods = new Set<string>();
       const markedPeriodsDetails = new Map<string, any>(); // For debugging
-      
+
       markedAttendance?.forEach((record) => {
         const attendanceData = record.attendance_data as any;
         if (attendanceData && typeof attendanceData === 'object') {
           Object.keys(attendanceData).forEach((periodId) => {
             // Validate that the period actually has attendance data
             const periodData = attendanceData[periodId];
-            if (periodData && periodData.students && Array.isArray(periodData.students) && periodData.students.length > 0) {
+            if (
+              periodData &&
+              periodData.students &&
+              Array.isArray(periodData.students) &&
+              periodData.students.length > 0
+            ) {
               const periodKey = `${record.attendance_date}_${record.timetable_id}_${periodId}`;
               markedPeriods.add(periodKey);
               markedPeriodsDetails.set(periodKey, {
@@ -934,27 +947,43 @@ export class AttendanceDashboardService {
                 studentsCount: periodData.students.length,
                 updatedAt: record.updated_at
               });
-              console.log(`✅ Marked period key: ${periodKey} for date ${record.attendance_date} (${periodData.students.length} students, updated: ${record.updated_at})`);
+              console.log(
+                `✅ Marked period key: ${periodKey} for date ${record.attendance_date} (${periodData.students.length} students, updated: ${record.updated_at})`
+              );
             } else {
-              console.warn(`⚠️ Period ${periodId} exists but has no valid student data for timetable ${record.timetable_id} on ${record.attendance_date}`);
+              console.warn(
+                `⚠️ Period ${periodId} exists but has no valid student data for timetable ${record.timetable_id} on ${record.attendance_date}`
+              );
             }
           });
         }
       });
 
-      console.log(`✅ Found ${markedPeriods.size} marked periods with valid attendance data`);
-      console.log(`✅ Sample marked periods:`, Array.from(markedPeriods).slice(0, 5));
-      
+      console.log(
+        `✅ Found ${markedPeriods.size} marked periods with valid attendance data`
+      );
+      console.log(
+        `✅ Sample marked periods:`,
+        Array.from(markedPeriods).slice(0, 5)
+      );
+
       // Enhanced debugging - show most recent marked periods
       const recentMarked = Array.from(markedPeriodsDetails.entries())
-        .sort((a, b) => new Date(b[1].updatedAt).getTime() - new Date(a[1].updatedAt).getTime())
+        .sort(
+          (a, b) =>
+            new Date(b[1].updatedAt).getTime() -
+            new Date(a[1].updatedAt).getTime()
+        )
         .slice(0, 3);
-      console.log(`📋 Most recent marked periods:`, recentMarked.map(([key, details]) => ({
-        key,
-        date: details.date,
-        students: details.studentsCount,
-        updated: details.updatedAt
-      })));
+      console.log(
+        `📋 Most recent marked periods:`,
+        recentMarked.map(([key, details]) => ({
+          key,
+          date: details.date,
+          students: details.studentsCount,
+          updated: details.updatedAt
+        }))
+      );
 
       // Step 5: Find pending periods (scheduled but not marked)
       const pendingPeriods: PendingAttendancePeriod[] = [];
@@ -963,20 +992,28 @@ export class AttendanceDashboardService {
 
       allScheduledPeriods.forEach((period, periodKey) => {
         const isMarked = markedPeriods.has(periodKey);
-        
+
         if (!isMarked) {
           debugPendingPeriods.push(periodKey);
-          if (debugPendingPeriods.length <= 5) { // Only log first 5 to avoid spam
-            console.log(`🔍 Processing pending period: ${periodKey} (not marked) - ${period.period_name} ${period.course_name}`);
+          if (debugPendingPeriods.length <= 5) {
+            // Only log first 5 to avoid spam
+            console.log(
+              `🔍 Processing pending period: ${periodKey} (not marked) - ${period.period_name} ${period.course_name}`
+            );
           }
         } else {
           skippedMarkedCount.count++;
           const markedDetails = markedPeriodsDetails.get(periodKey);
-          if (skippedMarkedCount.count <= 3) { // Only log first 3 to avoid spam
-            console.log(`⏭️ Skipping marked period: ${periodKey} (${markedDetails?.studentsCount || 0} students marked)`);
+          if (skippedMarkedCount.count <= 3) {
+            // Only log first 3 to avoid spam
+            console.log(
+              `⏭️ Skipping marked period: ${periodKey} (${
+                markedDetails?.studentsCount || 0
+              } students marked)`
+            );
           }
         }
-        
+
         if (!isMarked) {
           // Apply search filter
           if (search) {
@@ -1005,8 +1042,10 @@ export class AttendanceDashboardService {
         }
       });
 
-      console.log(`⏳ Found ${pendingPeriods.length} pending periods (${skippedMarkedCount.count} periods already marked)`);
-      
+      console.log(
+        `⏳ Found ${pendingPeriods.length} pending periods (${skippedMarkedCount.count} periods already marked)`
+      );
+
       // Final summary for debugging
       console.log(`📊 ATTENDANCE SUMMARY:`, {
         totalScheduledPeriods: allScheduledPeriods.size,

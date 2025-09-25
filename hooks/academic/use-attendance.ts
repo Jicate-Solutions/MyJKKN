@@ -603,7 +603,8 @@ export function useConsolidatedAttendanceRoster() {
               marker_id: marked_by, // This is the profile ID passed to the function
               marker_name: markerName,
               marker_role: user?.user_metadata?.role || 'faculty',
-              marker_email: markerEmail
+              marker_email: markerEmail,
+              marked_at: new Date().toISOString()
             },
             students: rosterData.students.map((student) => ({
               student_id: student.id,
@@ -723,6 +724,23 @@ export function useAttendancePeriods(
 
   const fetchPeriods = useCallback(
     async (context: AttendanceSearchContext) => {
+      console.log('🔍 useAttendancePeriods fetchPeriods called with context:', context);
+      console.log('🔍 enabled:', enabled);
+
+      // Check which fields are missing
+      const missing = [];
+      if (!context.institution_id) missing.push('institution_id');
+      if (!context.academic_year_id) missing.push('academic_year_id');
+      if (!context.degree_id) missing.push('degree_id');
+      if (!context.program_id) missing.push('program_id');
+      if (!context.department_id) missing.push('department_id');
+      if (!context.semester_id) missing.push('semester_id');
+      if (!context.attendance_date) missing.push('attendance_date');
+
+      if (missing.length > 0) {
+        console.log('❌ Missing required fields:', missing);
+      }
+
       if (
         !enabled ||
         !context.institution_id ||
@@ -733,11 +751,13 @@ export function useAttendancePeriods(
         !context.semester_id ||
         !context.attendance_date
       ) {
+        console.log('⚠️ Skipping periods fetch - missing required fields or disabled');
         setPeriods([]);
         return;
       }
 
       try {
+        console.log('✅ All required fields present, fetching periods...');
         setLoading(true);
         setError(null);
 
@@ -748,8 +768,8 @@ export function useAttendancePeriods(
             degree_id: context.degree_id,
             program_id: context.program_id,
             department_id: context.department_id,
-            semester: context.semester_id,
-            section: context.section_id || undefined
+            semester: context.semester_id, // Service expects 'semester' but uses it as semester_id
+            section: context.section_id || undefined // Service expects 'section' but uses it as section_id
           },
           context.attendance_date,
           {
@@ -758,9 +778,11 @@ export function useAttendancePeriods(
           }
         );
 
+        console.log('🎯 Service returned periods:', periods);
+        console.log('🎯 Number of periods found:', periods?.length || 0);
         setPeriods(periods);
       } catch (err) {
-        console.error('Error fetching periods:', err);
+        console.error('❌ Error fetching periods:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
         setPeriods([]);
       } finally {
