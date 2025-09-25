@@ -243,8 +243,11 @@ export default function EditTimetablePage({
   );
 
   // Filter sections based on semester selection (sections belong to semesters)
+  // For edit mode: if no semester is selected via watch but we have a timetable with semester_id, use that
+  const effectiveSemesterId = watchSemesterId || (timetable && !loading ? timetable.semester_id : null);
+
   const filteredSections = allSections.filter(
-    (section) => !watchSemesterId || section.semester_id === watchSemesterId
+    (section) => !effectiveSemesterId || section.semester_id === effectiveSemesterId
   );
 
   // Deduplicate semesters by semester_name to avoid duplicate keys
@@ -451,11 +454,21 @@ export default function EditTimetablePage({
 
   // Update state when semester changes - reset section
   useEffect(() => {
-    if (watchSemesterId) {
-      // Reset section when semester changes (section depends on semester)
-      form.setValue('section_id', '');
+    // Only reset section if semester actually changed from a previous value
+    // Don't reset on initial load when timetable data is being set
+    if (watchSemesterId && timetable) {
+      const currentSectionId = form.getValues('section_id');
+
+      // Check if the current section belongs to the selected semester
+      if (currentSectionId) {
+        const currentSection = allSections.find(s => s.id === currentSectionId);
+        if (currentSection && currentSection.semester_id !== watchSemesterId) {
+          // Reset section only if it doesn't belong to the selected semester
+          form.setValue('section_id', '');
+        }
+      }
     }
-  }, [watchSemesterId, form]);
+  }, [watchSemesterId, form, allSections, timetable]);
 
   // Form submission handler
   const onSubmit = async (values: TimetableFormValues) => {
@@ -489,15 +502,6 @@ export default function EditTimetablePage({
         template_name: values.is_template ? values.template_name : undefined
       };
 
-      // Debug logging to verify the fix
-      console.log('🔧 Edit form - Form values:', {
-        semester_id: values.semester_id,
-        section_id: values.section_id
-      });
-      console.log('🔧 Edit form - Update data being sent:', {
-        semester_id: updateData.semester_id,
-        section_id: updateData.section_id
-      });
 
       const success = await updateTimetable(timetableId, updateData);
       if (success) {
@@ -877,7 +881,7 @@ export default function EditTimetablePage({
                             value={field.value || undefined}
                             disabled={
                               loadingSections ||
-                              !watchSemesterId ||
+                              !effectiveSemesterId ||
                               filteredSections.length === 0
                             }
                           >
@@ -885,7 +889,7 @@ export default function EditTimetablePage({
                               <SelectTrigger>
                                 <SelectValue
                                   placeholder={
-                                    !watchSemesterId
+                                    !effectiveSemesterId
                                       ? 'First select a semester'
                                       : 'Choose section (optional)'
                                   }
