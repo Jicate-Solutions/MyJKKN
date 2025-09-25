@@ -455,7 +455,7 @@ export function AttendanceFilters({
 
           <div className='space-y-2'>
             <Label htmlFor='date'>Attendance Date</Label>
-            <div className='flex gap-2 w-[400px]'>
+            <div className='flex gap-4 w-[280px]'>
               <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
                 <PopoverTrigger asChild>
                   <Button

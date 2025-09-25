@@ -172,8 +172,8 @@ export default function AttendanceMarkPage() {
             degree_id,
             program_id,
             department_id,
-            semester,
-            section,
+            semester_id,
+            section_id,
             timetable_data,
             academic_years(id, academic_year_name),
             degrees(id, degree_name),
@@ -213,173 +213,36 @@ export default function AttendanceMarkPage() {
         let sectionData = null;
 
         console.log('Initial sectionId from URL:', sectionId);
-        console.log('Section from timetable:', timetableData.section);
+        console.log('Section ID from timetable:', timetableData.section_id);
 
-        // Priority 1: If we have a section name from timetable, resolve it to UUID
-        // This is the most common case since timetables store section names like "A", "B", etc.
-        if (timetableData.section) {
+        // Priority 1: If we have a section_id from timetable, use it directly
+        // Since timetables now store UUIDs instead of section names
+        if (timetableData.section_id) {
           console.log(
-            `🔍 Resolving section name "${timetableData.section}" with timetable hierarchy...`
+            `🔍 Using section_id from timetable: ${timetableData.section_id}`
           );
 
-          // First, let's see how many sections match our criteria
-          const { data: allMatchingSections, error: countError } =
-            await supabase
-              .from('sections')
-              .select(
-                'id, section_name, degree_id, program_id, department_id, semester_id'
-              )
-              .eq('institution_id', timetableData.institution_id)
-              .eq('section_name', timetableData.section)
-              .eq('degree_id', timetableData.degree_id)
-              .eq('program_id', timetableData.program_id)
-              .eq('department_id', timetableData.department_id)
-              .eq('is_active', true);
+          // Fetch section data using the UUID directly
+          const { data: sectionFromDb, error: countError } = await supabase
+            .from('sections')
+            .select(
+              'id, section_name, degree_id, program_id, department_id, semester_id'
+            )
+            .eq('id', timetableData.section_id)
+            .single();
 
-          console.log(
-            `📊 Found ${allMatchingSections?.length || 0} sections named "${
-              timetableData.section
-            }":`,
-            allMatchingSections
-          );
-
-          // If multiple sections found, try to disambiguate by semester
-          let sections = allMatchingSections?.[0];
-          if (
-            allMatchingSections &&
-            allMatchingSections.length > 1 &&
-            timetableData.semester
-          ) {
+          if (!countError && sectionFromDb) {
+            resolvedSectionId = timetableData.section_id;
+            sectionData = sectionFromDb;
             console.log(
-              `🎯 Multiple sections found, trying to match by semester: "${timetableData.semester}"`
+              `✅ Successfully fetched section data for UUID: ${resolvedSectionId}`,
+              sectionFromDb
             );
-
-            try {
-              // Fetch semester information for all matching sections to find the correct one
-              const sectionIds = allMatchingSections.map((s) => s.id);
-              const { data: sectionsWithSemesters, error: semesterError } =
-                await supabase
-                  .from('sections')
-                  .select(
-                    `
-                  id,
-                  section_name,
-                  semesters(id, semester_name)
-                `
-                  )
-                  .in('id', sectionIds);
-
-              if (!semesterError && sectionsWithSemesters) {
-                console.log(
-                  '📚 Sections with semester info:',
-                  sectionsWithSemesters
-                );
-
-                // Find the section that matches the timetable semester
-                const semesterMatch = sectionsWithSemesters.find(
-                  (sectionData: any) => {
-                    const semesterName = sectionData.semesters?.semester_name;
-                    console.log(
-                      `Comparing: "${semesterName}" with "${timetableData.semester}"`
-                    );
-
-                    // Case-insensitive comparison
-                    return (
-                      semesterName &&
-                      semesterName.toLowerCase() ===
-                        timetableData.semester.toLowerCase()
-                    );
-                  }
-                );
-
-                if (semesterMatch) {
-                  // Find the corresponding section from our original list
-                  sections =
-                    allMatchingSections.find(
-                      (s) => s.id === semesterMatch.id
-                    ) || sections;
-                  console.log(
-                    `✅ Selected section based on semester match: ${
-                      (semesterMatch as any).semesters?.semester_name
-                    }`,
-                    sections
-                  );
-                } else {
-                  console.log(
-                    `⚠️ No semester match found for "${timetableData.semester}", using first section:`,
-                    sections
-                  );
-                }
-              } else {
-                console.error('Error fetching semester info:', semesterError);
-                console.log(
-                  '⚠️ Using first section due to semester query error:',
-                  sections
-                );
-              }
-            } catch (error) {
-              console.error('Error in semester disambiguation:', error);
-              console.log('⚠️ Using first section due to error:', sections);
-            }
-          }
-
-          const sectionError = countError;
-
-          if (!sectionError && sections) {
-            resolvedSectionId = sections.id;
-            sectionData = sections;
-            console.log(
-              `✅ Resolved section "${timetableData.section}" to UUID: ${resolvedSectionId}`
-            );
-            console.log('Section data:', sections);
           } else {
             console.error(
-              '❌ Failed to resolve section name to UUID:',
-              sectionError
+              '❌ Failed to fetch section data for section_id:',
+              countError
             );
-            console.log('Search criteria:', {
-              institution_id: timetableData.institution_id,
-              section_name: timetableData.section,
-              degree_id: timetableData.degree_id,
-              program_id: timetableData.program_id,
-              department_id: timetableData.department_id
-            });
-
-            // Fallback: Try without department filter (sometimes departments don't match exactly)
-            console.log(
-              '🔄 Trying fallback section resolution without department...'
-            );
-            const { data: allFallbackSections, error: fallbackCountError } =
-              await supabase
-                .from('sections')
-                .select(
-                  'id, section_name, degree_id, program_id, department_id, semester_id'
-                )
-                .eq('institution_id', timetableData.institution_id)
-                .eq('section_name', timetableData.section)
-                .eq('degree_id', timetableData.degree_id)
-                .eq('program_id', timetableData.program_id)
-                .eq('is_active', true);
-
-            console.log(
-              `📊 Fallback found ${allFallbackSections?.length || 0} sections:`,
-              allFallbackSections
-            );
-
-            // Take the first matching section from fallback
-            const fallbackSections = allFallbackSections?.[0];
-            const fallbackError = fallbackCountError;
-
-            if (!fallbackError && fallbackSections) {
-              resolvedSectionId = fallbackSections.id;
-              sectionData = fallbackSections;
-              console.log(
-                `✅ Fallback resolved section "${timetableData.section}" to UUID: ${resolvedSectionId}`
-              );
-              console.log('Fallback section data:', fallbackSections);
-            } else {
-              console.error('❌ Fallback also failed:', fallbackError);
-            }
           }
         } else if (resolvedSectionId) {
           // Check if provided section ID is a UUID or name
@@ -425,16 +288,37 @@ export default function AttendanceMarkPage() {
           console.error('❌ Unable to resolve section information');
           console.log('Available data:', {
             sectionFromUrl: sectionId,
-            sectionFromTimetable: timetableData.section,
+            sectionIdFromTimetable: timetableData.section_id,
             resolvedSectionId
           });
           toast.error(
-            `Unable to resolve section information. Section: ${
-              timetableData.section || sectionId || 'Unknown'
+            `Unable to resolve section information. Section ID: ${
+              timetableData.section_id || sectionId || 'Unknown'
             }`
           );
           setLoadingContext(false);
           return;
+        }
+
+        // Fetch semester name if we have semester_id
+        let semesterName = null;
+        if (sectionData?.semester_id) {
+          try {
+            const { data: semesterData, error: semesterError } = await supabase
+              .from('semesters')
+              .select('id, semester_name')
+              .eq('id', sectionData.semester_id)
+              .single();
+
+            if (!semesterError && semesterData) {
+              semesterName = semesterData.semester_name;
+              console.log('✅ Fetched semester name:', semesterName);
+            } else {
+              console.error('❌ Failed to fetch semester name:', semesterError);
+            }
+          } catch (error) {
+            console.error('Error fetching semester data:', error);
+          }
         }
 
         // Build complete context similar to search classes
@@ -456,7 +340,8 @@ export default function AttendanceMarkPage() {
           degree_name: (timetableData as any).degrees?.degree_name,
           program_name: (timetableData as any).programs?.program_name,
           department_name: (timetableData as any).departments?.department_name,
-          section_name: sectionData?.section_name || timetableData.section
+          section_name: sectionData?.section_name || 'Unknown Section',
+          semester_name: semesterName || 'Unknown Semester'
         };
 
         setContextData(context);
@@ -638,16 +523,23 @@ export default function AttendanceMarkPage() {
           .toUpperCase();
 
         // Access the actual timetable data - it's nested in timetable_data.timetable_data
-        // The contextData.timetable_data contains the full timetable record, 
+        // The contextData.timetable_data contains the full timetable record,
         // and the actual schedule is in its timetable_data property
         let actualTimetableData = contextData.timetable_data?.timetable_data;
-        
+
         // Fallback: Check if the days are directly in timetable_data (for backward compatibility)
         if (!actualTimetableData && contextData.timetable_data) {
           // Check if timetable_data has day keys directly
-          const hasDirectDays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']
-            .some(day => contextData.timetable_data[day]);
-          
+          const hasDirectDays = [
+            'MONDAY',
+            'TUESDAY',
+            'WEDNESDAY',
+            'THURSDAY',
+            'FRIDAY',
+            'SATURDAY',
+            'SUNDAY'
+          ].some((day) => contextData.timetable_data[day]);
+
           if (hasDirectDays) {
             actualTimetableData = contextData.timetable_data;
             console.log('📋 Using direct timetable structure (legacy format)');
@@ -659,14 +551,31 @@ export default function AttendanceMarkPage() {
           periodId,
           hasTimetableData: !!actualTimetableData,
           timetableDataType: typeof actualTimetableData,
-          availableDays: actualTimetableData ? Object.keys(actualTimetableData).filter(key => 
-            ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'].includes(key)
-          ) : []
+          availableDays: actualTimetableData
+            ? Object.keys(actualTimetableData).filter((key) =>
+                [
+                  'MONDAY',
+                  'TUESDAY',
+                  'WEDNESDAY',
+                  'THURSDAY',
+                  'FRIDAY',
+                  'SATURDAY',
+                  'SUNDAY'
+                ].includes(key)
+              )
+            : []
         });
 
         if (!actualTimetableData) {
-          console.log('❌ No timetable schedule data found. Check timetable structure.');
-          console.log('Context timetable_data keys:', contextData.timetable_data ? Object.keys(contextData.timetable_data) : 'No timetable_data');
+          console.log(
+            '❌ No timetable schedule data found. Check timetable structure.'
+          );
+          console.log(
+            'Context timetable_data keys:',
+            contextData.timetable_data
+              ? Object.keys(contextData.timetable_data)
+              : 'No timetable_data'
+          );
           return;
         }
 
@@ -680,7 +589,7 @@ export default function AttendanceMarkPage() {
         // Find the specific period slot
         // The periodId might be used as a key directly OR it might be a slot_id within the period data
         let periodSlot = dayData[periodId];
-        
+
         // If not found directly, search for it as a slot_id
         if (!periodSlot) {
           // Search through all periods in the day to find one with matching slot_id
@@ -688,13 +597,15 @@ export default function AttendanceMarkPage() {
             if (slot && typeof slot === 'object' && 'slot_id' in slot) {
               if ((slot as any).slot_id === periodId) {
                 periodSlot = slot as any;
-                console.log(`✅ Found period by slot_id match: periodKey=${periodKey}, slot_id=${periodId}`);
+                console.log(
+                  `✅ Found period by slot_id match: periodKey=${periodKey}, slot_id=${periodId}`
+                );
                 break;
               }
             }
           }
         }
-        
+
         if (!periodSlot) {
           console.log('❌ No period slot found for periodId:', periodId);
           console.log('Available period keys:', Object.keys(dayData));
@@ -702,7 +613,7 @@ export default function AttendanceMarkPage() {
           // Log first few slots to debug structure
           const sampleSlots = Object.entries(dayData).slice(0, 2);
           sampleSlots.forEach(([key, slot]) => {
-            console.log(`Sample slot ${key}:`, { 
+            console.log(`Sample slot ${key}:`, {
               slot_id: (slot as any)?.slot_id,
               course_id: (slot as any)?.course_id,
               staff_ids: (slot as any)?.staff_ids
@@ -979,11 +890,11 @@ export default function AttendanceMarkPage() {
       // The periodId is actually the slot_id from the timetable_data
       let slotData = null;
       let courseId = null;
-      
+
       // Search through all days to find the slot with matching slot_id
       if (contextData?.timetable_data?.timetable_data && periodId) {
         const timetableJsonData = contextData.timetable_data.timetable_data;
-        
+
         // Search through each day
         for (const day of Object.keys(timetableJsonData)) {
           for (const periodKey of Object.keys(timetableJsonData[day])) {
@@ -997,22 +908,24 @@ export default function AttendanceMarkPage() {
           if (slotData) break;
         }
       }
-      
+
       console.log('🔍 Found slot data:', { periodId, slotData, courseId });
-      
+
       // Fetch course details if we have a course_id
       let courseDetails = null;
       if (courseId) {
         try {
-          const { createClientSupabaseClient } = await import('@/lib/supabase/client');
+          const { createClientSupabaseClient } = await import(
+            '@/lib/supabase/client'
+          );
           const supabase = createClientSupabaseClient();
-          
+
           const { data: course } = await supabase
             .from('courses')
             .select('id, course_name, course_code')
             .eq('id', courseId)
             .single();
-            
+
           if (course) {
             courseDetails = course;
           }
@@ -1020,10 +933,11 @@ export default function AttendanceMarkPage() {
           console.warn('Failed to fetch course details:', error);
         }
       }
-      
+
       const correctCourseInfo = {
         course_id: courseDetails?.id || courseId || null,
-        course_name: courseDetails?.course_name || courseName || 'Unknown Course',
+        course_name:
+          courseDetails?.course_name || courseName || 'Unknown Course',
         course_code: courseDetails?.course_code || 'N/A'
       };
 
@@ -1038,9 +952,11 @@ export default function AttendanceMarkPage() {
       let assignedFacultyData;
       if (assignedStaff.length > 1) {
         // Multiple faculty - store as array
-        assignedFacultyData = assignedStaff.map(staff => ({
+        assignedFacultyData = assignedStaff.map((staff) => ({
           faculty_id: staff.id,
-          faculty_name: staff.full_name || `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
+          faculty_name:
+            staff.full_name ||
+            `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
           faculty_email: staff.email || staff.institution_email || '',
           is_primary: staff.is_primary || false
         }));
@@ -1049,11 +965,13 @@ export default function AttendanceMarkPage() {
         const faculty = assignedStaff[0];
         assignedFacultyData = {
           faculty_id: faculty.id,
-          faculty_name: faculty.full_name || `${faculty.first_name || ''} ${faculty.last_name || ''}`.trim(),
+          faculty_name:
+            faculty.full_name ||
+            `${faculty.first_name || ''} ${faculty.last_name || ''}`.trim(),
           faculty_email: faculty.email || faculty.institution_email || ''
         };
       }
-      
+
       // Prepare attendance data with proper structure
       const attendancePayload = {
         [periodId || 'default']: {
@@ -1370,7 +1288,7 @@ export default function AttendanceMarkPage() {
                       </h4>
                     </div>
                   </div>
-                  
+
                   {/* Content with better spacing */}
                   <div className='p-6 space-y-6'>
                     {/* Basic Info Grid */}
@@ -1386,27 +1304,24 @@ export default function AttendanceMarkPage() {
                         </div>
                       )}
 
-                      {contextData?.timetable_data?.semester && (
+                      {contextData?.semester_name && (
                         <div className='bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700'>
                           <span className='text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold'>
                             Semester
                           </span>
                           <p className='text-sm font-bold text-gray-900 dark:text-gray-100 mt-1'>
-                            {contextData.timetable_data.semester}
+                            {contextData.semester_name}
                           </p>
                         </div>
                       )}
 
-                      {(contextData?.timetable_data?.section ||
-                        contextData?.section_name) && (
+                      {contextData?.section_name && (
                         <div className='bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700'>
                           <span className='text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold'>
                             Section
                           </span>
                           <p className='text-sm font-bold text-gray-900 dark:text-gray-100 mt-1'>
-                            Section{' '}
-                            {contextData.timetable_data?.section ||
-                              contextData.section_name}
+                            Section {contextData.section_name}
                           </p>
                         </div>
                       )}
@@ -1420,7 +1335,7 @@ export default function AttendanceMarkPage() {
                           Assigned Faculty
                         </span>
                       </div>
-                      
+
                       {loadingStaff ? (
                         <div className='flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg'>
                           <div className='animate-spin h-5 w-5 border-3 border-blue-600 border-t-transparent rounded-full'></div>
@@ -1439,16 +1354,20 @@ export default function AttendanceMarkPage() {
                                   : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                               }`}
                             >
-                              <div className={`p-2 rounded-full ${
-                                staff.is_primary 
-                                  ? 'bg-blue-100 dark:bg-blue-800' 
-                                  : 'bg-gray-100 dark:bg-gray-700'
-                              }`}>
-                                <User className={`h-4 w-4 ${
-                                  staff.is_primary 
-                                    ? 'text-blue-600 dark:text-blue-400' 
-                                    : 'text-gray-600 dark:text-gray-400'
-                                }`} />
+                              <div
+                                className={`p-2 rounded-full ${
+                                  staff.is_primary
+                                    ? 'bg-blue-100 dark:bg-blue-800'
+                                    : 'bg-gray-100 dark:bg-gray-700'
+                                }`}
+                              >
+                                <User
+                                  className={`h-4 w-4 ${
+                                    staff.is_primary
+                                      ? 'text-blue-600 dark:text-blue-400'
+                                      : 'text-gray-600 dark:text-gray-400'
+                                  }`}
+                                />
                               </div>
                               <div className='flex-1 min-w-0'>
                                 <p className='text-sm font-semibold text-gray-900 dark:text-gray-100 truncate'>
@@ -1536,6 +1455,14 @@ export default function AttendanceMarkPage() {
                   </span>
                   <span className='text-gray-900 dark:text-gray-200 font-semibold'>
                     {contextData.department_name || 'N/A'}
+                  </span>
+                </div>
+                <div className='flex flex-col items-start gap-2'>
+                  <span className='text-gray-600 dark:text-gray-400 font-medium'>
+                    Semester:
+                  </span>
+                  <span className='text-gray-900 dark:text-gray-200 font-semibold'>
+                    {contextData.semester_name || 'N/A'}
                   </span>
                 </div>
                 <div className='flex flex-col items-start gap-2'>

@@ -14,8 +14,8 @@ interface TimetableHeaderProps {
   isSuperAdmin?: boolean;
 }
 
-export function TimetableHeader({ 
-  timetable, 
+export function TimetableHeader({
+  timetable,
   onBack,
   hasAttendance = false,
   attendanceCount = 0,
@@ -30,21 +30,24 @@ export function TimetableHeader({
               <h1 className='text-2xl font-bold text-gray-900'>
                 {timetable.timetable_name}
               </h1>
-              {timetable.section && (
+              {timetable.sections?.section_name && (
                 <Badge variant='secondary' className='text-sm'>
-                  Section {timetable.section}
+                  Section {timetable.sections.section_name}
                 </Badge>
               )}
               {hasAttendance && (
-                <Badge variant='outline' className='text-sm border-orange-500 text-orange-700'>
+                <Badge
+                  variant='outline'
+                  className='text-sm border-orange-500 text-orange-700'
+                >
                   <Lock className='h-3 w-3 mr-1' />
                   Locked - Attendance Marked
                 </Badge>
               )}
             </div>
             <p className='text-sm text-gray-500 mt-1'>
-              {timetable.section 
-                ? `Manage and view the timetable details for Section ${timetable.section}`
+              {timetable.sections?.section_name
+                ? `Manage and view the timetable details for Section ${timetable.sections.section_name}`
                 : 'Manage and view the timetable details'}
             </p>
           </div>
@@ -58,19 +61,37 @@ export function TimetableHeader({
 
         {/* Attendance Lock Warning */}
         {hasAttendance && (
-          <Alert className={isSuperAdmin ? 'mb-4 border-blue-200 bg-blue-50' : 'mb-4 border-orange-200 bg-orange-50'}>
-            <AlertCircle className={isSuperAdmin ? 'h-4 w-4 text-blue-600' : 'h-4 w-4 text-orange-600'} />
-            <AlertDescription className={isSuperAdmin ? 'text-blue-800' : 'text-orange-800'}>
+          <Alert
+            className={
+              isSuperAdmin
+                ? 'mb-4 border-blue-200 bg-blue-50'
+                : 'mb-4 border-orange-200 bg-orange-50'
+            }
+          >
+            <AlertCircle
+              className={
+                isSuperAdmin
+                  ? 'h-4 w-4 text-blue-600'
+                  : 'h-4 w-4 text-orange-600'
+              }
+            />
+            <AlertDescription
+              className={isSuperAdmin ? 'text-blue-800' : 'text-orange-800'}
+            >
               {isSuperAdmin ? (
                 <>
-                  <strong>Super Admin Override:</strong> Attendance has been marked for {attendanceCount || 'some'} period(s). 
-                  As a super admin, you can still modify this timetable, but please be aware that changes may affect existing attendance records.
+                  <strong>Super Admin Override:</strong> Attendance has been
+                  marked for {attendanceCount || 'some'} period(s). As a super
+                  admin, you can still modify this timetable, but please be
+                  aware that changes may affect existing attendance records.
                 </>
               ) : (
                 <>
-                  <strong>This timetable is locked for editing.</strong> Attendance has been marked for {attendanceCount || 'some'} period(s). 
-                  You cannot modify or delete this timetable to preserve attendance data integrity. 
-                  Staff changes should be made through the Staff Planning module if needed.
+                  <strong>This timetable is locked for editing.</strong>{' '}
+                  Attendance has been marked for {attendanceCount || 'some'}{' '}
+                  period(s). You cannot modify or delete this timetable to
+                  preserve attendance data integrity. Staff changes should be
+                  made through the Staff Planning module if needed.
                 </>
               )}
             </AlertDescription>
@@ -152,19 +173,13 @@ export function TimetableHeader({
               <div>
                 <span className='text-gray-500'>Semester</span>
                 <p className='font-medium'>
-                  {typeof timetable.semester === 'object' &&
-                  timetable.semester &&
-                  'semester_name' in timetable.semester
-                    ? (timetable.semester as any).semester_name
-                    : typeof timetable.semester === 'string'
-                    ? timetable.semester
-                    : 'Semester'}
+                  {timetable.semesters?.semester_name || 'N/A'}
                 </p>
               </div>
               <div>
                 <span className='text-gray-500'>Section</span>
                 <p className='font-medium'>
-                  {timetable.section || 'N/A'}
+                  {timetable.sections?.section_name || 'N/A'}
                 </p>
               </div>
             </div>

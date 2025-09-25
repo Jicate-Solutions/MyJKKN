@@ -132,7 +132,7 @@ export class FacultyAttendanceService {
       const { data: timetables, error: timetableError } = await this.supabase
         .from('timetables')
         .select(
-          'id, timetable_format, start_date, end_date, selected_dates, section, semester, timetable_data, degree_id, program_id, department_id'
+          'id, timetable_format, start_date, end_date, selected_dates, section_id, semester_id, timetable_data, degree_id, program_id, department_id'
         )
         .eq('institution_id', staffData.institution_id)
         .eq('academic_year_id', academicYear.id)
@@ -157,8 +157,8 @@ export class FacultyAttendanceService {
             degree_id: timetable.degree_id,
             program_id: timetable.program_id,
             department_id: timetable.department_id,
-            semester: timetable.semester,
-            section: timetable.section
+            semester: timetable.semester_id,
+            section: timetable.section_id
           };
 
           console.log('Getting periods for timetable:', timetable.id, filters);
@@ -189,16 +189,20 @@ export class FacultyAttendanceService {
 
       // Deduplicate periods based on unique combination of key fields
       const periodMap = new Map<string, AttendancePeriodOption>();
-      
+
       for (const period of allPeriods) {
         // Create a unique key based on:
         // - course ID (if available)
         // - start time
-        // - end time  
+        // - end time
         // - period name
         // - section name
-        const uniqueKey = `${period.course?.id || 'no-course'}_${period.start_time}_${period.end_time}_${period.period_name}_${period.section_name || 'no-section'}`;
-        
+        const uniqueKey = `${period.course?.id || 'no-course'}_${
+          period.start_time
+        }_${period.end_time}_${period.period_name}_${
+          period.section_name || 'no-section'
+        }`;
+
         // Only add if we haven't seen this period before
         if (!periodMap.has(uniqueKey)) {
           periodMap.set(uniqueKey, period);
@@ -211,7 +215,7 @@ export class FacultyAttendanceService {
           });
         }
       }
-      
+
       const facultyPeriods = Array.from(periodMap.values());
 
       console.log(

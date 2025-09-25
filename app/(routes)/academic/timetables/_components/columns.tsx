@@ -77,14 +77,17 @@ export const columns: ColumnDef<Timetable>[] = [
     }
   },
   {
-    accessorKey: 'semester',
+    accessorFn: (row) => row.semesters?.semester_name || 'Semester',
+    id: 'semester',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Semester' />
+      <DataTableColumnHeader column={column} title='Semester / Section' />
     ),
     cell: ({ row }) => {
       const timetable = row.original;
-      return `${timetable.semester}${
-        timetable.section ? ` / ${timetable.section}` : ''
+      return `${timetable.semesters?.semester_name || ''}${
+        timetable.sections?.section_name
+          ? ` / ${timetable.sections.section_name}`
+          : ''
       }`;
     }
   },

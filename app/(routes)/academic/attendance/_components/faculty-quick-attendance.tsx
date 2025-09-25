@@ -219,7 +219,7 @@ export function FacultyQuickAttendance({
   return (
     <Card>
       <CardHeader>
-        <div className='flex items-start justify-between'>
+        <div className='flex flex-col lg:flex-row gap-4 items-start justify-between'>
           <div>
             <CardTitle className='flex items-center gap-2'>
               <Calendar className='h-5 w-5' />
@@ -247,77 +247,93 @@ export function FacultyQuickAttendance({
                   isMarked && 'border-green-500'
                 )}
               >
-                <CardContent className='p-4'>
+                <CardContent className='p-3'>
                   <div className='space-y-3'>
-                    {/* Time and Period Info */}
-                    <div className='flex items-center justify-between'>
-                      <div className='flex items-center gap-3'>
-                        <div className='flex items-center gap-2'>
-                          <Clock className='h-4 w-4 text-muted-foreground' />
-                          <span className='font-medium'>
-                            {period.start_time} - {period.end_time}
-                          </span>
+                    {/* Time and Period Info - Mobile Responsive */}
+                    <div className='flex flex-col gap-3'>
+                      <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2'>
+                        <div className='flex items-center justify-between gap-2'>
+                          <div className='flex items-center gap-2'>
+                            <Clock className='h-4 w-4 text-muted-foreground flex-shrink-0' />
+                            <span className='font-medium text-sm'>
+                              {period.start_time} - {period.end_time}
+                            </span>
+                          </div>
+                          <Badge
+                            variant='default'
+                            className='text-xs w-fit self-start xs:self-auto'
+                          >
+                            {period.period_name}
+                          </Badge>
                         </div>
-                        <Badge
-                          variant='default' // TEMPORARY: Always use default variant
-                          // variant={timeStatus === 'current' ? 'default' : timeStatus === 'past' ? 'secondary' : 'outline'} // TODO: Re-enable time-based styling
-                          className='text-xs'
-                        >
-                          {period.period_name}
-                        </Badge>
+                        {isMarked && (
+                          <div className='flex items-center gap-2 self-start sm:self-auto'>
+                            <CheckCircle className='h-4 w-4 text-green-600 flex-shrink-0' />
+                            <span className='text-xs text-green-600 font-medium'>
+                              Completed
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      {isMarked && (
-                        <div className='flex items-center gap-2'>
-                          <CheckCircle className='h-5 w-5 text-green-600' />
-                          <span className='text-sm text-green-600 font-medium'>
-                            Completed
-                          </span>
-                        </div>
-                      )}
                     </div>
 
                     {/* Course Info */}
                     {period.course && (
-                      <div className='flex items-center gap-2'>
-                        <BookOpen className='h-4 w-4 text-muted-foreground' />
-                        <span className='font-medium'>
-                          {period.course.course_code} -{' '}
-                          {period.course.course_name}
-                        </span>
+                      <div className='flex items-center gap-2 -mt-1'>
+                        <BookOpen className='h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0' />
+                        <div className='min-w-0 flex-1'>
+                          <span className='font-medium text-sm break-words leading-relaxed'>
+                            {period.course.course_code}
+                          </span>
+                          <span className='text-muted-foreground text-sm'>
+                            {' '}
+                            -{' '}
+                          </span>
+                          <span className='font-medium text-sm break-words leading-relaxed'>
+                            {period.course.course_name}
+                          </span>
+                        </div>
                       </div>
                     )}
 
-                    {/* Class Details */}
-                    <div className='flex flex-wrap gap-4 text-sm text-muted-foreground'>
-                      <span>{period.degree_name}</span>
-                      <span>{period.program_name}</span>
-                      <span>{period.semester_name}</span>
+                    {/* Class Details - Mobile Responsive Grid */}
+                    <div className='grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-muted-foreground'>
+                      {period.department_name && (
+                        <div className='bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md text-center font-medium'>
+                          {period.department_name}
+                        </div>
+                      )}
+
+                      {period.semester_name && (
+                        <div className='bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md text-center font-medium'>
+                          {period.semester_name}
+                        </div>
+                      )}
                       {period.section_name && (
-                        <div className='flex items-center gap-1'>
-                          <Users className='h-3 w-3' />
+                        <div className='bg-blue-50 dark:bg-blue-900/30 px-3 py-2 rounded-md text-center flex items-center justify-center gap-1.5 font-medium text-blue-700 dark:text-blue-300 col-span-1 xs:col-span-2 sm:col-span-1'>
+                          <Users className='h-3 w-3 flex-shrink-0' />
                           <span>Section {period.section_name}</span>
                         </div>
                       )}
                     </div>
 
-                    {/* Mark Attendance Button */}
-                    <div className='flex justify-end pt-2'>
+                    {/* Mark Attendance Button - Mobile Responsive */}
+                    <div className='pt-3 border-t border-border/50'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={false} // TEMPORARY: Allow marking attendance anytime
-                        // disabled={!isMarked && timeStatus === 'past'} // TODO: Re-enable time restrictions later
+                        disabled={false}
                         size='sm'
-                        className='min-w-[140px]'
+                        className='w-full h-10 font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]'
                       >
                         {isMarked ? (
                           <>
-                            <CheckCircle className='h-4 w-4 mr-2' />
-                            View Details
+                            <CheckCircle className='h-4 w-4 mr-2 flex-shrink-0' />
+                            <span className='text-sm'>View Details</span>
                           </>
                         ) : (
                           <>
-                            <Users className='h-4 w-4 mr-2' />
-                            Mark Attendance
+                            <Users className='h-4 w-4 mr-2 flex-shrink-0' />
+                            <span className='text-sm'>Mark Attendance</span>
                           </>
                         )}
                       </Button>

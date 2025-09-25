@@ -41,7 +41,7 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
     null
   );
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   // Real-time refresh mechanism
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
@@ -65,8 +65,9 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
       // Only refresh if it's been more than 30 seconds since last refresh
       const now = new Date();
       const timeSinceLastRefresh = now.getTime() - lastRefresh.getTime();
-      
-      if (timeSinceLastRefresh > 30000) { // 30 seconds
+
+      if (timeSinceLastRefresh > 30000) {
+        // 30 seconds
         setLastRefresh(now);
         if (dataTableRefreshRef.current) {
           dataTableRefreshRef.current();
@@ -128,6 +129,14 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
       };
 
       const { data, metadata } = await TimetableService.getTimetables(filters);
+
+      // Debug logging - remove this after fixing
+      console.log('🔍 TimetableService.getTimetables returned:', {
+        dataCount: data?.length || 0,
+        firstItem: data?.[0] || null,
+        hasSemstersOnFirst: data?.[0]?.semesters || 'no semesters property',
+        hasSectionsOnFirst: data?.[0]?.sections || 'no sections property',
+      });
 
       return {
         success: true,
@@ -268,7 +277,7 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
             Delete Selected ({props.selectedRows.length})
           </Button>
         )}
-        
+
         {/* Auto-refresh indicator */}
         {autoRefreshEnabled && (
           <div className='text-xs text-muted-foreground ml-2'>

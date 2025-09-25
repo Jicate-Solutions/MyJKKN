@@ -92,7 +92,7 @@ export const columns: ColumnDef<AttendanceReport>[] = [
           <div className='text-xs text-muted-foreground flex items-center gap-2'>
             <span>{report.semester_name || 'Unknown Semester'}</span>
             <span>•</span>
-            <span>Section {report.section_name || 'Unknown'}</span>
+            <span>{report.section_name || 'Unknown'}</span>
           </div>
         </div>
       );
