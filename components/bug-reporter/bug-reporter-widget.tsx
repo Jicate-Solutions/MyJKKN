@@ -743,37 +743,9 @@ export function BugReporterWidget() {
         const currentPath = window.location.pathname;
 
         // Determine the appropriate redirect path based on current location
-        let redirectPath = '/my-bug-reports'; // Default admin path
+        const redirectPath = '/my-bug-reports'; // Default admin path
 
-        // Check various learner module patterns
-        if (
-          currentPath.includes('/learner/') || // Learner module pages
-          currentPath.startsWith('/learner') // Learner root
-        ) {
-          // Confirmed learner module path
-          redirectPath = '/learner/bug-reports';
-        } else if (currentPath === '/') {
-          // For root path, check if we have learner-specific elements
-          // Only check for the most specific learner indicators
-          const hasLearnerBottomNav =
-            // Look for the learner bottom navigation component
-            document.querySelector('.fixed.bottom-0 a[href="/learner"]') !==
-              null ||
-            document.querySelector('[class*="learner-bottom-navigation"]') !==
-              null;
-
-          // Check for learner-specific layout wrapper
-          const hasLearnerGradient =
-            document.querySelector(
-              '.bg-gradient-to-br.from-slate-50.via-blue-50\\/30.to-green-50\\/20'
-            ) !== null;
-
-          if (hasLearnerBottomNav || hasLearnerGradient) {
-            redirectPath = '/learner/bug-reports';
-          }
-          // Otherwise, keep default admin path
-        }
-        // For all other paths (admin module pages), use the default admin path
+        // All users now go to admin bug reports since learner module is removed
 
         console.log('Redirecting to:', redirectPath, 'from:', currentPath);
         router.push(redirectPath);

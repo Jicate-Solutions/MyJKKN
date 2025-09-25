@@ -391,32 +391,32 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'Learners Management',
+      groupLabel: 'Students Management',
       menus: [
         {
           href: '/students/dashboard',
-          label: 'Learners Analytics',
+          label: 'Students Analytics',
           active: pathname === '/students/dashboard',
           icon: BarChart,
           submenus: []
         },
         {
           href: '/students/onboarding',
-          label: 'Learners Onboarding',
+          label: 'Students Onboarding',
           active: pathname === '/students/onboarding',
           icon: UserCheck,
           submenus: []
         },
         {
           href: '/students',
-          label: 'Learners List',
+          label: 'Students List',
           active: pathname === '/students',
           icon: Users,
           submenus: []
         },
         {
           href: '/students/promotion',
-          label: 'Learners Promotion',
+          label: 'Students Promotion',
           active: pathname === '/students/promotion',
           icon: GraduationCap,
           submenus: []

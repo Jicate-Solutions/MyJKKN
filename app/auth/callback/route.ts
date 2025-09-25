@@ -418,7 +418,7 @@ export async function GET(request: NextRequest) {
       if (actualProfile.role === 'guest') {
         destination = '/guest';
       } else if (actualProfile.role === 'student') {
-        destination = '/learner';
+        destination = '/auth/login?reason=student_redirect';
       } else if (actualProfile.role === 'driver') {
         destination = '/driver';
       }

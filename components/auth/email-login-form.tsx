@@ -50,7 +50,14 @@ export function EmailLoginForm({ returnTo }: EmailLoginFormProps) {
           if (profile?.role === 'guest') {
             destination = '/guest';
           } else if (profile?.role === 'student') {
-            destination = '/learner';
+            // Students are not allowed - sign out and stay on login page
+            await supabase.auth.signOut();
+            // Add reason to URL without redirecting
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.set('reason', 'student_redirect');
+            window.history.replaceState({}, '', newUrl.toString());
+            window.location.reload();
+            return;
           } else if (profile?.role === 'driver') {
             destination = '/driver/dashboard';
           }
