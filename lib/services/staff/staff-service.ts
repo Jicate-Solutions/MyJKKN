@@ -167,7 +167,6 @@ export class StaffService {
           const userPayload: CreateUserRequest = {
             email: staff.institution_email,
             full_name: `${staff.first_name} ${staff.last_name}`,
-            password: tempPassword,
             role: 'faculty', // Faculty role
             phone_number: staff.phone || null,
             institution_id: staff.institution_id
@@ -504,6 +503,37 @@ export class StaffService {
       };
     } catch (error) {
       console.error('Error fetching staff:', error);
+      throw error;
+    }
+  }
+
+  // Enhanced method with automatic department filtering for HOD users
+  static async getStaffWithRoleBasedFiltering(
+    filters: StaffFilters = {},
+    userProfile?: {
+      role: string;
+      department_id?: string;
+      is_super_admin?: boolean;
+    }
+  ): Promise<StaffListResponse> {
+    try {
+      // If user is HOD and has a department, automatically filter by their department
+      if (
+        userProfile?.role === 'hod' &&
+        userProfile.department_id &&
+        !userProfile.is_super_admin
+      ) {
+        filters.department_id = userProfile.department_id;
+        console.log(
+          'Applied HOD department filter:',
+          userProfile.department_id
+        );
+      }
+
+      // Use the existing getStaff method with enhanced filters
+      return await this.getStaff(filters);
+    } catch (error) {
+      console.error('Error fetching staff with role-based filtering:', error);
       throw error;
     }
   }

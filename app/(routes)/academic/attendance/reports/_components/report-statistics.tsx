@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -43,7 +44,7 @@ import type { AttendanceStatistics } from '@/types/attendance-reports';
 interface ReportStatisticsProps {
   statistics: AttendanceStatistics | null;
   loading: boolean;
-  userRole: 'super_admin' | 'admin' | 'faculty';
+  userRole: 'super_admin' | 'admin' | 'faculty' | 'hod';
 }
 
 const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
@@ -65,6 +66,18 @@ export function ReportStatistics({
   loading,
   userRole
 }: ReportStatisticsProps) {
+  const [isClient, setIsClient] = useState(false);
+  const [currentDate, setCurrentDate] = useState<string>('');
+
+  useEffect(() => {
+    setIsClient(true);
+    setCurrentDate(new Date().toLocaleDateString('en', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric'
+    }));
+  }, []);
+
   if (loading) {
     return (
       <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
@@ -123,13 +136,11 @@ export function ReportStatistics({
         <h3 className='text-lg font-semibold mb-4 flex items-center gap-2'>
           <Calendar className='h-5 w-5 text-primary' />
           Today&apos;s Overview
-          <Badge variant='outline' className='ml-2'>
-            {new Date().toLocaleDateString('en', {
-              weekday: 'long',
-              month: 'long',
-              day: 'numeric'
-            })}
-          </Badge>
+          {isClient && (
+            <Badge variant='outline' className='ml-2'>
+              {currentDate}
+            </Badge>
+          )}
         </h3>
         <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
           {/* Today's Classes Card */}
@@ -455,14 +466,18 @@ export function ReportStatistics({
                 <XAxis
                   dataKey='date'
                   tickFormatter={(date) =>
-                    new Date(date).toLocaleDateString('en', {
-                      weekday: 'short'
-                    })
+                    isClient
+                      ? new Date(date).toLocaleDateString('en', {
+                          weekday: 'short'
+                        })
+                      : date
                   }
                 />
                 <YAxis />
                 <Tooltip
-                  labelFormatter={(date) => new Date(date).toLocaleDateString()}
+                  labelFormatter={(date) =>
+                    isClient ? new Date(date).toLocaleDateString() : date
+                  }
                   formatter={(value: number) => `${value.toFixed(1)}%`}
                 />
                 <Legend />

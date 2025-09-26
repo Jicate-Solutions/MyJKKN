@@ -719,8 +719,9 @@ export function useAttendancePeriods(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Get super admin status
-  const { isSuperAdmin } = usePermissions();
+  // Get user permissions and profile
+  const { isSuperAdmin, userProfile } = usePermissions();
+  const isHOD = userProfile?.role === 'hod';
 
   const fetchPeriods = useCallback(
     async (context: AttendanceSearchContext) => {
@@ -773,7 +774,7 @@ export function useAttendancePeriods(
           },
           context.attendance_date,
           {
-            filterByStaffAssignment: !isSuperAdmin, // Super admin should see all periods
+            filterByStaffAssignment: !isSuperAdmin && !isHOD, // Super admin and HOD should see all periods
             isSuperAdmin: isSuperAdmin
           }
         );
@@ -789,7 +790,7 @@ export function useAttendancePeriods(
         setLoading(false);
       }
     },
-    [enabled, isSuperAdmin]
+    [enabled, isSuperAdmin, isHOD]
   );
 
   const refetch = useCallback(() => {

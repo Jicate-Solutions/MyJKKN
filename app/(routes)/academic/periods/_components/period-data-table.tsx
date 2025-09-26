@@ -1,7 +1,7 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns } from './columns';
+import { getColumns } from './columns';
 import type { PeriodsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon } from 'lucide-react';
@@ -30,6 +30,8 @@ export function PeriodsDataTable({ search }: PeriodsDataTableProps) {
   // Permission checks
   const canCreatePeriod =
     isSuperAdmin || canAccess('academic.periods', 'create');
+  const canEditPeriod =
+    isSuperAdmin || canAccess('academic.periods', 'edit');
   const canDeletePeriod =
     isSuperAdmin || canAccess('academic.periods', 'delete');
 
@@ -172,7 +174,7 @@ export function PeriodsDataTable({ search }: PeriodsDataTableProps) {
   return (
     <DataTable
       fetchDataFn={fetchData}
-      getColumns={() => columns as any}
+      getColumns={() => getColumns({ canEdit: canEditPeriod, canDelete: canDeletePeriod }) as any}
       exportConfig={{
         entityName: 'periods',
         columnMapping: {},

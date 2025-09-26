@@ -106,7 +106,12 @@ export function StaffPlanningDataTable({
             ? userProfile.institution_id
             : undefined),
         degree_id: search.degree_id || undefined,
-        department_id: search.department_id || undefined,
+        department_id:
+          search.department_id ||
+          // For HOD users, filter by their department
+          (userProfile?.role === 'hod' && userProfile?.department_id && !isSuperAdmin
+            ? userProfile.department_id
+            : undefined),
         program_id: search.program_id || undefined,
         semester_id: search.semester_id || undefined,
         academic_year_id: search.academic_year_id || undefined,

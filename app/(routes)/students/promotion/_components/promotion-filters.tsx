@@ -24,6 +24,8 @@ import { DegreeService } from '@/lib/services/organization/degree-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { StudentFilters } from '@/types/student';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 
 interface PromotionFiltersProps {
   filters: StudentFilters;
@@ -40,6 +42,8 @@ export function PromotionFilters({
   onReset,
   isSearching = false
 }: PromotionFiltersProps) {
+  const { isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -230,6 +234,30 @@ export function PromotionFilters({
     }
   }, [filters.institution]);
 
+  // Auto-select institution for HOD/Faculty users
+  useEffect(() => {
+    if (profile?.institution_id && !isSuperAdmin) {
+      // Only auto-select if institution is not already set
+      if (!filters.institution) {
+        onFilterChange({
+          institution: profile.institution_id
+        });
+      }
+    }
+  }, [profile?.institution_id, filters.institution, isSuperAdmin, onFilterChange]);
+
+  // Auto-select department for HOD users
+  useEffect(() => {
+    if (profile?.role === 'hod' && profile?.department_id && !isSuperAdmin) {
+      // Only auto-select if department is not already set
+      if (!filters.department) {
+        onFilterChange({
+          department: profile.department_id
+        });
+      }
+    }
+  }, [profile?.role, profile?.department_id, filters.department, isSuperAdmin, onFilterChange]);
+
   // Update search input when filters change externally (for reset)
   useEffect(() => {
     setSearchInput(filters.search || '');
@@ -317,9 +345,14 @@ export function PromotionFilters({
                   page: 1
                 })
               }
+              disabled={!isSuperAdmin}
             >
               <SelectTrigger>
-                <SelectValue placeholder='All Institutions' />
+                <SelectValue placeholder={
+                  !isSuperAdmin && profile?.institution_id
+                    ? 'Your institution is auto-selected'
+                    : 'All Institutions'
+                } />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='all'>All Institutions</SelectItem>
@@ -368,10 +401,14 @@ export function PromotionFilters({
                   page: 1
                 })
               }
-              disabled={!filters.institution || loadingDepartments}
+              disabled={!filters.institution || loadingDepartments || (profile?.role === 'hod' && !isSuperAdmin)}
             >
               <SelectTrigger>
-                <SelectValue placeholder={loadingDepartments ? 'Loading...' : 'All Departments'} />
+                <SelectValue placeholder={
+                  loadingDepartments ? 'Loading...' :
+                  profile?.role === 'hod' && !isSuperAdmin ? 'Your department is auto-selected' :
+                  'All Departments'
+                } />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='all'>All Departments</SelectItem>

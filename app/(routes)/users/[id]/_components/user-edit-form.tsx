@@ -414,7 +414,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
                               key={department.id}
                               value={department.id}
                             >
-                              {department.department_name}
+                              {department.name}
                             </SelectItem>
                           ))}
                         </SelectContent>

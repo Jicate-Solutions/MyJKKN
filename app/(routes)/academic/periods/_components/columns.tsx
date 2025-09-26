@@ -9,7 +9,8 @@ import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Period>[] = [
+// Base columns without actions
+const baseColumns: ColumnDef<Period>[] = [
   {
     id: 'select',
     header: ({ table }) => (
@@ -43,10 +44,8 @@ export const columns: ColumnDef<Period>[] = [
     cell: ({ row }) => {
       const period = row.original;
       return (
-        <div className='font-medium hover:text-primary hover:underline'>
-          <Link href={`/academic/periods/${period.id}/edit`}>
-            {period.period_name}
-          </Link>
+        <div className='font-medium'>
+          {period.period_name}
         </div>
       );
     }
@@ -120,15 +119,33 @@ export const columns: ColumnDef<Period>[] = [
       const date = row.getValue('created_at') as string;
       return date ? format(new Date(date), 'MMM dd, yyyy') : '-';
     }
-  },
-  {
-    id: 'actions',
-    header: 'Actions',
-    cell: ({ row }) => <DataTableRowActions row={row} />,
-    enableSorting: false,
-    enableHiding: false,
-    size: 60,
-    minSize: 60,
-    maxSize: 80
   }
 ];
+
+// Actions column definition
+const actionsColumn: ColumnDef<Period> = {
+  id: 'actions',
+  header: 'Actions',
+  cell: ({ row }) => <DataTableRowActions row={row} />,
+  enableSorting: false,
+  enableHiding: false,
+  size: 60,
+  minSize: 60,
+  maxSize: 80
+};
+
+// Function to get columns based on permissions
+export const getColumns = (permissions: { canEdit: boolean; canDelete: boolean }): ColumnDef<Period>[] => {
+  const { canEdit, canDelete } = permissions;
+
+  // If user has no edit or delete permissions, don't show actions column
+  if (!canEdit && !canDelete) {
+    return baseColumns;
+  }
+
+  // If user has at least one permission, show actions column
+  return [...baseColumns, actionsColumn];
+};
+
+// Backward compatibility - export default columns with actions
+export const columns: ColumnDef<Period>[] = [...baseColumns, actionsColumn];

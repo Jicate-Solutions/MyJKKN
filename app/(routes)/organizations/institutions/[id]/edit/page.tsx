@@ -11,6 +11,7 @@ import { Loader2 } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { useQuery } from '@tanstack/react-query';
 import type { Institution } from '@/types/organizations';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -75,50 +76,52 @@ export default function EditInstitutionPage({
   }
 
   return (
-    <ContentLayout title='Edit Institution'>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/'>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/organizations'>Organizations</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href='/organizations/institutions'>Institutions</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Edit Institution</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    <SuperAdminOnly>
+      <ContentLayout title='Edit Institution'>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/'>Home</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/organizations'>Organizations</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href='/organizations/institutions'>Institutions</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Edit Institution</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
 
-      <div className='space-y-6 mt-4'>
-        <div>
-          <h1 className='text-2xl font-bold py-1'>Edit Institution</h1>
-          <p className='text-sm sm:text-base text-muted-foreground'>
-            Update institution details and department contacts
-          </p>
+        <div className='space-y-6 mt-4'>
+          <div>
+            <h1 className='text-2xl font-bold py-1'>Edit Institution</h1>
+            <p className='text-sm sm:text-base text-muted-foreground'>
+              Update institution details and department contacts
+            </p>
+          </div>
+
+          <Card>
+            <CardContent className='p-6'>
+              <InstitutionForm
+                institution={institution?.institution}
+                isEditing={true}
+              />
+            </CardContent>
+          </Card>
         </div>
-
-        <Card>
-          <CardContent className='p-6'>
-            <InstitutionForm
-              institution={institution?.institution}
-              isEditing={true}
-            />
-          </CardContent>
-        </Card>
-      </div>
-    </ContentLayout>
+      </ContentLayout>
+    </SuperAdminOnly>
   );
 }

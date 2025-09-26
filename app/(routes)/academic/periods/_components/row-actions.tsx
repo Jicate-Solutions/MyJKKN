@@ -72,6 +72,11 @@ export function DataTableRowActions<TData>({
     deleteMutation.mutate(period.id);
   };
 
+  // If user has no permissions, don't show any actions
+  if (!canEditPeriod && !canDeletePeriod) {
+    return null;
+  }
+
   return (
     <AlertDialog open={showDeleteAlert} onOpenChange={setShowDeleteAlert}>
       <DropdownMenu>

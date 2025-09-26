@@ -1473,7 +1473,7 @@ export class AttendanceService {
       const timetableJson = timetableData.timetable_data;
       for (const [dayKey, dayData] of Object.entries(timetableJson)) {
         if (typeof dayData === 'object' && dayData !== null) {
-          for (const [periodKey, slotData] of Object.entries(
+          for (const [, slotData] of Object.entries(
             dayData as Record<string, any>
           )) {
             if (
@@ -2277,17 +2277,36 @@ export class AttendanceService {
 
         // Store staffId for later filtering if needed
         let staffIdForFiltering: string | null = null;
+        let isHODUser = false;
+
         if (options.filterByStaffAssignment && !options.isSuperAdmin) {
           console.log('Filtering required for non-admin user');
           staffIdForFiltering = await this.getCurrentUserStaffId();
+
           if (!staffIdForFiltering) {
-            // If no staff ID, return no periods for non-admins
-            console.log(
-              'No staff ID found for current user - skipping timetable'
-            );
-            continue; // Skip this timetable if user has no staff access
+            // Check if user is HOD - HOD users don't have staff records but should see their department's periods
+            const { data: userData } = await this.supabase.auth.getUser();
+            if (userData.user) {
+              const { data: profile } = await this.supabase
+                .from('profiles')
+                .select('role, department_id')
+                .eq('id', userData.user.id)
+                .single();
+
+              if (profile?.role === 'hod' && profile.department_id === filters.department_id) {
+                console.log('User is HOD for this department - allowing access to periods');
+                isHODUser = true;
+              } else {
+                console.log('No staff ID found for current user - skipping timetable');
+                continue; // Skip this timetable if user has no staff access and is not HOD
+              }
+            } else {
+              console.log('No authenticated user found - skipping timetable');
+              continue;
+            }
+          } else {
+            console.log('Will filter periods for staff ID:', staffIdForFiltering);
           }
-          console.log('Will filter periods for staff ID:', staffIdForFiltering);
         } else {
           console.log(
             'No filtering needed - user is super admin or filtering disabled'
@@ -2318,9 +2337,11 @@ export class AttendanceService {
             });
           }
 
-          // Filter slots by staff assignment if needed (but not for super admin)
+          // Filter slots by staff assignment if needed (but not for super admin or HOD users)
           let filteredSlots = slots;
-          if (staffIdForFiltering && !options.isSuperAdmin) {
+          if (isHODUser) {
+            console.log('HOD user detected - showing all periods from department without staff filtering');
+          } else if (staffIdForFiltering && !options.isSuperAdmin) {
             console.log(`Filtering slots for staff ID: ${staffIdForFiltering}`);
 
             filteredSlots = slots.filter((slot: any) => {
@@ -2443,11 +2464,11 @@ export class AttendanceService {
             end_time: periodData?.end_time || '',
             is_break: periodData?.is_break || false,
             // Add the hierarchy names from timetable relations
-            degree_name: timetableData?.degrees?.degree_name || '',
-            program_name: timetableData?.programs?.program_name || '',
-            department_name: timetableData?.departments?.department_name || '',
-            semester_name: timetableData?.semesters?.semester_name || '',
-            section_name: timetableData?.sections?.section_name || '',
+            degree_name: Array.isArray(timetableData?.degrees) ? timetableData.degrees[0]?.degree_name || '' : (timetableData?.degrees as any)?.degree_name || '',
+            program_name: Array.isArray(timetableData?.programs) ? timetableData.programs[0]?.program_name || '' : (timetableData?.programs as any)?.program_name || '',
+            department_name: Array.isArray(timetableData?.departments) ? timetableData.departments[0]?.department_name || '' : (timetableData?.departments as any)?.department_name || '',
+            semester_name: Array.isArray(timetableData?.semesters) ? timetableData.semesters[0]?.semester_name || '' : (timetableData?.semesters as any)?.semester_name || '',
+            section_name: Array.isArray(timetableData?.sections) ? timetableData.sections[0]?.section_name || '' : (timetableData?.sections as any)?.section_name || '',
             course: slot.course
               ? {
                   id: slot.course.id,
@@ -2533,14 +2554,19 @@ export class AttendanceService {
         return null;
       }
 
-      // Get the user's profile to find their email
+      // Get the user's profile to find their email and role
       const { data: profile, error: profileError } = await this.supabase
         .from('profiles')
-        .select('email')
+        .select('email, role')
         .eq('id', userData.user.id)
         .single();
 
       if (profileError || !profile) {
+        return null;
+      }
+
+      // HOD users don't have staff records - return null immediately to avoid RLS issues
+      if (profile.role === 'hod') {
         return null;
       }
 
@@ -2687,7 +2713,17 @@ export class AttendanceService {
         return true;
       }
 
-      // Second check: Does user have faculty role with attendance permissions?
+      // Second check: Is user an HOD with department-based access?
+      const hasHODAccess = await this.checkHODDepartmentAccess(timetableSlotId);
+
+      if (hasHODAccess) {
+        console.log(
+          `User is HOD with department access to slot ${timetableSlotId}`
+        );
+        return true;
+      }
+
+      // Third check: Does user have faculty role with attendance permissions?
       // This allows faculty members to mark attendance even if not specifically assigned
       const hasRolePermission = await this.checkFacultyAttendancePermission();
 
@@ -2745,6 +2781,98 @@ export class AttendanceService {
       return permissions && permissions['academic.attendance.mark'] === true;
     } catch (error) {
       console.error('Error checking faculty attendance permission:', error);
+      return false;
+    }
+  }
+
+  // New helper method to check HOD department-based access
+  static async checkHODDepartmentAccess(timetableSlotId: string): Promise<boolean> {
+    try {
+      const { data: userData, error: userError } =
+        await this.supabase.auth.getUser();
+
+      if (userError || !userData.user) {
+        return false;
+      }
+
+      // Get user's profile, role, and department
+      const { data: profile, error: profileError } = await this.supabase
+        .from('profiles')
+        .select('role, department_id, is_super_admin')
+        .eq('id', userData.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        return false;
+      }
+
+      // Only check for HOD role
+      if (profile.role !== 'hod' || profile.is_super_admin) {
+        return false;
+      }
+
+      // HOD must have a department assigned
+      if (!profile.department_id) {
+        console.log('HOD user has no department assigned');
+        return false;
+      }
+
+      // Check if the timetable slot belongs to a timetable in the HOD's department
+      const { data: timetableData, error: timetableError } = await this.supabase
+        .from('timetables')
+        .select('department_id')
+        .eq('id', timetableSlotId) // Assuming timetableSlotId refers to timetable ID
+        .single();
+
+      if (timetableError) {
+        // If direct lookup fails, it might be we need to get timetable info differently
+        // Let's try to get it from the timetable structure
+        console.log('Could not find timetable by direct ID, checking timetable data...');
+
+        // Alternative approach: Search through timetables for this slot
+        const { data: allTimetables, error: allTimetablesError } = await this.supabase
+          .from('timetables')
+          .select('id, department_id, timetable_data')
+          .eq('department_id', profile.department_id)
+          .eq('is_active', true);
+
+        if (allTimetablesError || !allTimetables) {
+          console.log('Could not fetch department timetables');
+          return false;
+        }
+
+        // Check if any timetable in the department contains this slot
+        const hasSlot = allTimetables.some(timetable => {
+          const timetableData = timetable.timetable_data as any;
+          if (!timetableData) return false;
+
+          // Check if timetableSlotId exists in the timetable_data
+          for (const dayData of Object.values(timetableData)) {
+            if (dayData && typeof dayData === 'object') {
+              for (const [slotId] of Object.entries(dayData as Record<string, any>)) {
+                if (slotId === timetableSlotId) {
+                  return true;
+                }
+              }
+            }
+          }
+          return false;
+        });
+
+        return hasSlot;
+      }
+
+      // Check if the timetable belongs to the HOD's department
+      const belongsToHODDepartment = timetableData.department_id === profile.department_id;
+
+      if (belongsToHODDepartment) {
+        console.log(`Timetable slot belongs to HOD's department: ${profile.department_id}`);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error checking HOD department access:', error);
       return false;
     }
   }

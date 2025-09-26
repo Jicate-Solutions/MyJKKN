@@ -68,7 +68,7 @@ function AttendanceDashboardContent() {
     'view_all_institutions'
   );
 
-  // Initialize filters based on user permissions
+  // Initialize filters based on user permissions and role
   useEffect(() => {
     if (!canViewAllInstitutions && profile?.institution_id) {
       const institutionId = profile.institution_id || undefined;
@@ -81,7 +81,30 @@ function AttendanceDashboardContent() {
         institutionId
       }));
     }
-  }, [canViewAllInstitutions, profile?.institution_id]);
+
+    // Add role-based department filtering
+    if (profile?.role === 'hod' && profile?.department_id) {
+      // HOD users: filter by their department
+      setFilters((prev) => ({
+        ...prev,
+        departmentId: profile.department_id
+      }));
+      setPendingFilters((prev) => ({
+        ...prev,
+        departmentId: profile.department_id
+      }));
+    } else if (profile?.role === 'faculty' && profile?.department_id) {
+      // Faculty users: filter by their department (they'll see all classes in their department)
+      setFilters((prev) => ({
+        ...prev,
+        departmentId: profile.department_id
+      }));
+      setPendingFilters((prev) => ({
+        ...prev,
+        departmentId: profile.department_id
+      }));
+    }
+  }, [canViewAllInstitutions, profile?.institution_id, profile?.role, profile?.department_id]);
 
   // Fetch institutions for super admin
   useEffect(() => {
