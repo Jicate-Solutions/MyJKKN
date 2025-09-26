@@ -76,6 +76,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { Section } from '@/types/organizations';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { StudentService } from '@/lib/services/student/student-service';
@@ -107,6 +108,7 @@ export default function StudentOnboardingPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
 
   const canViewOnboarding =
     isSuperAdmin || canAccess('students.onboarding', 'view');
@@ -290,6 +292,32 @@ export default function StudentOnboardingPage() {
       setSections([]);
     }
   }, [filters.semester, filters.institution]);
+
+  // Auto-select department for HOD users
+  useEffect(() => {
+    if (profile?.role === 'hod' && profile?.department_id && !isSuperAdmin) {
+      // Only auto-select if department is not already set
+      if (!filters.department) {
+        setFilters(prev => ({
+          ...prev,
+          department: profile.department_id
+        }));
+      }
+    }
+  }, [profile?.role, profile?.department_id, filters.department, isSuperAdmin]);
+
+  // Auto-select institution for HOD/Faculty users
+  useEffect(() => {
+    if (profile?.institution_id && !isSuperAdmin) {
+      // Only auto-select if institution is not already set
+      if (!filters.institution) {
+        setFilters(prev => ({
+          ...prev,
+          institution: profile.institution_id
+        }));
+      }
+    }
+  }, [profile?.institution_id, filters.institution, isSuperAdmin]);
 
   const handleFilterChange = (newFilters: Partial<StudentFilters>) => {
     setFilters({
@@ -984,9 +1012,14 @@ export default function StudentOnboardingPage() {
                         section: undefined
                       })
                     }
+                    disabled={!isSuperAdmin}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder='Select Institution' />
+                      <SelectValue placeholder={
+                        !isSuperAdmin && profile?.institution_id
+                          ? 'Your institution is auto-selected'
+                          : 'Select Institution'
+                      } />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='all'>All Institutions</SelectItem>
@@ -1008,10 +1041,14 @@ export default function StudentOnboardingPage() {
                         section: undefined
                       })
                     }
-                    disabled={!filters.institution}
+                    disabled={!filters.institution || (profile?.role === 'hod' && !isSuperAdmin)}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder='Select Department' />
+                      <SelectValue placeholder={
+                        profile?.role === 'hod' && !isSuperAdmin
+                          ? 'Your department is auto-selected'
+                          : 'Select Department'
+                      } />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='all'>All Departments</SelectItem>

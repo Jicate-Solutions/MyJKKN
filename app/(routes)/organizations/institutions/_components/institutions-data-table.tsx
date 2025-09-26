@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { Institution } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { useState } from 'react';
 import {
   AlertDialog,
@@ -18,7 +19,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
@@ -29,6 +30,7 @@ interface InstitutionsDataTableProps {
 export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<Institution[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
@@ -65,7 +67,10 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
             ? true
             : search.status === 'inactive'
             ? false
-            : undefined
+            : undefined,
+        // Apply user-based filtering - only super admin can bypass institution filter
+        userId: profile?.id,
+        bypassInstitutionFilter: isSuperAdmin
       };
 
       const { data, metadata } = await OrganizationService.getInstitutions(
@@ -93,7 +98,9 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
       // Only check for the first institution if multiple selected
       // For bulk operations, we'll just show a general warning
       if (institutionIds.length > 0) {
-        const counts = await OrganizationService.getInstitutionRelatedDataCount(institutionIds[0]);
+        const counts = await OrganizationService.getInstitutionRelatedDataCount(
+          institutionIds[0]
+        );
         setRelatedDataCount({
           degrees: counts.degrees,
           programs: counts.programs,
@@ -123,11 +130,11 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
 
     setSelectedForDelete(selectedRows);
     setDeleteResetFn(() => resetSelection);
-    
+
     // Check for related data
-    const institutionIds = selectedRows.map(inst => inst.id);
+    const institutionIds = selectedRows.map((inst) => inst.id);
     await checkRelatedData(institutionIds);
-    
+
     setShowDeleteDialog(true);
   };
 
@@ -142,24 +149,30 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
         )
       );
 
-      const successful = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.filter(r => r.status === 'rejected').length;
+      const successful = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.filter((r) => r.status === 'rejected').length;
 
       if (successful > 0) {
-        toast.success(`Successfully deleted ${successful} institution${successful > 1 ? 's' : ''} and all related data`);
+        toast.success(
+          `Successfully deleted ${successful} institution${
+            successful > 1 ? 's' : ''
+          } and all related data`
+        );
       }
-      
+
       if (failed > 0) {
-        toast.error(`Failed to delete ${failed} institution${failed > 1 ? 's' : ''}`);
+        toast.error(
+          `Failed to delete ${failed} institution${failed > 1 ? 's' : ''}`
+        );
       }
 
       if (deleteResetFn) {
         deleteResetFn();
       }
-      
+
       // Refresh the table
       router.refresh();
-      
+
       setShowDeleteDialog(false);
       setSelectedForDelete([]);
       setDeleteResetFn(null);
@@ -232,7 +245,7 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent className="max-w-2xl">
+        <AlertDialogContent className='max-w-2xl'>
           <AlertDialogHeader>
             <AlertDialogTitle>
               {selectedForDelete.length > 1
@@ -240,49 +253,73 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
                 : `Delete Institution: ${selectedForDelete[0]?.name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the institution{selectedForDelete.length > 1 ? 's' : ''} and all related data.
+              This action cannot be undone. This will permanently delete the
+              institution{selectedForDelete.length > 1 ? 's' : ''} and all
+              related data.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           {/* Show related data counts */}
-          {relatedDataCount && (relatedDataCount.degrees > 0 || relatedDataCount.programs > 0 || 
-            relatedDataCount.students > 0 || relatedDataCount.staff > 0 || relatedDataCount.bills > 0) && (
-            <div className="my-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
-              <div className="text-sm font-medium text-destructive mb-2">
-                Warning: The following related data will also be deleted:
+          {relatedDataCount &&
+            (relatedDataCount.degrees > 0 ||
+              relatedDataCount.programs > 0 ||
+              relatedDataCount.students > 0 ||
+              relatedDataCount.staff > 0 ||
+              relatedDataCount.bills > 0) && (
+              <div className='my-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg'>
+                <div className='text-sm font-medium text-destructive mb-2'>
+                  Warning: The following related data will also be deleted:
+                </div>
+                <div className='grid grid-cols-2 gap-2 text-sm'>
+                  {relatedDataCount.degrees > 0 && (
+                    <div>
+                      • {relatedDataCount.degrees} Degree
+                      {relatedDataCount.degrees !== 1 ? 's' : ''}
+                    </div>
+                  )}
+                  {relatedDataCount.programs > 0 && (
+                    <div>
+                      • {relatedDataCount.programs} Program
+                      {relatedDataCount.programs !== 1 ? 's' : ''}
+                    </div>
+                  )}
+                  {relatedDataCount.students > 0 && (
+                    <div>
+                      • {relatedDataCount.students} Student
+                      {relatedDataCount.students !== 1 ? 's' : ''}
+                    </div>
+                  )}
+                  {relatedDataCount.staff > 0 && (
+                    <div>
+                      • {relatedDataCount.staff} Staff Member
+                      {relatedDataCount.staff !== 1 ? 's' : ''}
+                    </div>
+                  )}
+                  {relatedDataCount.bills > 0 && (
+                    <div>
+                      • {relatedDataCount.bills} Bill
+                      {relatedDataCount.bills !== 1 ? 's' : ''}
+                    </div>
+                  )}
+                </div>
+                <div className='mt-3 text-xs text-muted-foreground'>
+                  All associated academic years, departments, courses, sections,
+                  timetables, and other related records will also be permanently
+                  deleted.
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                {relatedDataCount.degrees > 0 && (
-                  <div>• {relatedDataCount.degrees} Degree{relatedDataCount.degrees !== 1 ? 's' : ''}</div>
-                )}
-                {relatedDataCount.programs > 0 && (
-                  <div>• {relatedDataCount.programs} Program{relatedDataCount.programs !== 1 ? 's' : ''}</div>
-                )}
-                {relatedDataCount.students > 0 && (
-                  <div>• {relatedDataCount.students} Student{relatedDataCount.students !== 1 ? 's' : ''}</div>
-                )}
-                {relatedDataCount.staff > 0 && (
-                  <div>• {relatedDataCount.staff} Staff Member{relatedDataCount.staff !== 1 ? 's' : ''}</div>
-                )}
-                {relatedDataCount.bills > 0 && (
-                  <div>• {relatedDataCount.bills} Bill{relatedDataCount.bills !== 1 ? 's' : ''}</div>
-                )}
-              </div>
-              <div className="mt-3 text-xs text-muted-foreground">
-                All associated academic years, departments, courses, sections, timetables, and other related records will also be permanently deleted.
-              </div>
-            </div>
-          )}
+            )}
 
           {/* List institutions to be deleted */}
           {selectedForDelete.length > 0 && (
-            <div className="my-4 p-3 bg-muted rounded-lg">
-              <div className="text-sm font-medium mb-2">
-                Institution{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+            <div className='my-4 p-3 bg-muted rounded-lg'>
+              <div className='text-sm font-medium mb-2'>
+                Institution{selectedForDelete.length > 1 ? 's' : ''} to be
+                deleted:
               </div>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
+              <div className='space-y-1 max-h-32 overflow-y-auto'>
                 {selectedForDelete.map((inst) => (
-                  <div key={inst.id} className="text-sm">
+                  <div key={inst.id} className='text-sm'>
                     • {inst.name} ({inst.counselling_code})
                   </div>
                 ))}
@@ -295,15 +332,19 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
             <AlertDialogAction
               onClick={confirmDelete}
               disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isDeleting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                   Deleting...
                 </>
               ) : (
-                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} Institutions` : 'Institution'}`
+                `Delete ${
+                  selectedForDelete.length > 1
+                    ? `${selectedForDelete.length} Institutions`
+                    : 'Institution'
+                }`
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -34,6 +34,7 @@ export function AttendanceReportsDataTable({
   const userRole = useMemo(() => {
     if (isSuperAdmin) return 'super_admin';
     if (profile?.role === 'admin') return 'admin';
+    if (profile?.role === 'hod') return 'hod';
     if (profile?.role === 'faculty') return 'faculty';
     return 'faculty';
   }, [isSuperAdmin, profile?.role]);
@@ -72,11 +73,21 @@ export function AttendanceReportsDataTable({
           institution_id: search.institution_id,
           academic_year_id: search.academic_year_id,
           degree_id: search.degree_id,
-          department_id: search.department_id,
+          department_id:
+            search.department_id ||
+            // For HOD users, filter by their department
+            (profile?.role === 'hod' && profile?.department_id && !isSuperAdmin
+              ? profile.department_id
+              : undefined),
           program_id: search.program_id,
           semester_id: search.semester_id,
           section_id: search.section_id,
-          faculty_id: search.faculty_id,
+          faculty_id:
+            search.faculty_id ||
+            // Only for faculty users, filter by their own staff ID (not for HOD)
+            (profile?.role === 'faculty' && facultyStaffId && !isSuperAdmin
+              ? facultyStaffId
+              : undefined),
           attendance_status: search.attendance_status,
           attendance_threshold: search.attendance_threshold,
           date_range: search.dateRange

@@ -36,7 +36,7 @@ export default function AttendancePage() {
   const { isSuperAdmin } = usePermissions();
 
   const [searchContext, setSearchContext] = useState<AttendanceSearchContext>({
-    attendance_date: format(new Date(), 'yyyy-MM-dd'),
+    attendance_date: '', // Will be set on client-side to avoid hydration mismatch
     institution_id: '',
     academic_year_id: '',
     department_id: '',
@@ -53,6 +53,7 @@ export default function AttendancePage() {
     Map<string, boolean>
   >(new Map());
   const [loadingInitialData, setLoadingInitialData] = useState(true);
+  const [isClient, setIsClient] = useState(false);
 
   const {
     periods: availablePeriods,
@@ -66,6 +67,17 @@ export default function AttendancePage() {
   }, [availablePeriods, loading, showResults, searchContext, isSuperAdmin]);
 
   const { checkStaffPermissions } = useAttendanceRoster();
+
+  // Set client flag and initial attendance date on client side to avoid hydration mismatch
+  useEffect(() => {
+    setIsClient(true);
+    if (!searchContext.attendance_date) {
+      setSearchContext((prev) => ({
+        ...prev,
+        attendance_date: format(new Date(), 'yyyy-MM-dd')
+      }));
+    }
+  }, [searchContext.attendance_date]);
 
   // Update search context
   const updateSearchContext = (updates: Partial<AttendanceSearchContext>) => {
@@ -88,9 +100,11 @@ export default function AttendancePage() {
   // Check permissions for available periods
   useEffect(() => {
     const checkPermissionsForPeriods = async () => {
-      if (!availablePeriods.length || isSuperAdmin) {
-        if (isSuperAdmin) {
-          // Super admin has access to all periods
+      const isHOD = profile?.role === 'hod';
+
+      if (!availablePeriods.length || isSuperAdmin || isHOD) {
+        if (isSuperAdmin || isHOD) {
+          // Super admin and HOD have access to all periods
           const allPermissions = new Map<string, boolean>();
           availablePeriods.forEach((period: AttendancePeriodOption) => {
             allPermissions.set(period.timetable_slot_id, true);
@@ -118,7 +132,7 @@ export default function AttendancePage() {
     };
 
     checkPermissionsForPeriods();
-  }, [availablePeriods, isSuperAdmin, checkStaffPermissions]);
+  }, [availablePeriods, isSuperAdmin, checkStaffPermissions, profile?.role]);
 
   // Handle search action
   const handleSearch = () => {
@@ -167,8 +181,8 @@ export default function AttendancePage() {
     router.push(`/academic/attendance/mark?${params.toString()}`);
   };
 
-  // Loading state
-  if (loadingInitialData) {
+  // Loading state - wait for client hydration and initial data
+  if (!isClient || loadingInitialData) {
     return (
       <div className='flex items-center justify-center h-screen'>
         <Loader2 className='h-10 w-10 animate-spin' />

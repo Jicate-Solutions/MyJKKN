@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { RotateCcw, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { StudentsSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { ExportStudents } from './export-students';
 import { BulkCreateStudents } from './bulk-create-students';
 import { DownloadNewStudentTemplateButton } from './download-new-student-template-button';
@@ -43,6 +44,7 @@ export function StudentFilters({
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
   const router = useRouter();
   const currentSearchParams = useSearchParams();
 
@@ -357,6 +359,32 @@ export function StudentFilters({
     fetchAcademicYears();
   }, [localFilters.institution_id]);
 
+  // Auto-select institution for HOD/Faculty users
+  useEffect(() => {
+    if (profile?.institution_id && !isSuperAdmin) {
+      // Only auto-select if institution is not already set
+      if (!localFilters.institution_id) {
+        setLocalFilters(prev => ({
+          ...prev,
+          institution_id: profile.institution_id
+        }));
+      }
+    }
+  }, [profile?.institution_id, localFilters.institution_id, isSuperAdmin]);
+
+  // Auto-select department for HOD users
+  useEffect(() => {
+    if (profile?.role === 'hod' && profile?.department_id && !isSuperAdmin) {
+      // Only auto-select if department is not already set
+      if (!localFilters.department_id) {
+        setLocalFilters(prev => ({
+          ...prev,
+          department_id: profile.department_id
+        }));
+      }
+    }
+  }, [profile?.role, profile?.department_id, localFilters.department_id, isSuperAdmin]);
+
   // Hierarchical filter change handlers that reset child filters
   const handleInstitutionChange = (value: string) => {
     const institutionId = value === 'all' ? undefined : value;
@@ -454,9 +482,14 @@ export function StudentFilters({
               <Select
                 value={localFilters.institution_id || ''}
                 onValueChange={handleInstitutionChange}
+                disabled={!isSuperAdmin}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select Institution' />
+                  <SelectValue placeholder={
+                    !isSuperAdmin && profile?.institution_id
+                      ? 'Your institution is auto-selected'
+                      : 'Select Institution'
+                  } />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value='all'>All Institutions</SelectItem>
@@ -495,12 +528,14 @@ export function StudentFilters({
               <Select
                 value={localFilters.department_id || ''}
                 onValueChange={handleDepartmentChange}
-                disabled={!localFilters.degree_id || loadingDepartments}
+                disabled={!localFilters.degree_id || loadingDepartments || (profile?.role === 'hod' && !isSuperAdmin)}
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      loadingDepartments ? 'Loading...' : 'Select Department'
+                      loadingDepartments ? 'Loading...' :
+                      profile?.role === 'hod' && !isSuperAdmin ? 'Your department is auto-selected' :
+                      'Select Department'
                     }
                   />
                 </SelectTrigger>

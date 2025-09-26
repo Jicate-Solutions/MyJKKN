@@ -68,7 +68,7 @@ export class AttendanceReportService {
    */
   static async getAttendanceReports(
     filters: AttendanceReportFilters,
-    userRole: 'super_admin' | 'admin' | 'faculty',
+    userRole: 'super_admin' | 'admin' | 'faculty' | 'hod',
     userId?: string,
     page: number = 1,
     limit: number = 50
@@ -78,11 +78,11 @@ export class AttendanceReportService {
       let staffId: string | null = null;
 
       // Apply role-based filtering
-      if (userRole === 'faculty' && userId) {
+      if ((userRole === 'faculty' || userRole === 'hod') && userId) {
         // First check if user has super admin access or admin role
         const { data: profileData } = await this.supabase
           .from('profiles')
-          .select('role, is_super_admin')
+          .select('role, is_super_admin, department_id')
           .eq('id', userId)
           .single();
 
@@ -91,6 +91,16 @@ export class AttendanceReportService {
           console.log(
             'Access granted: Super admin or admin role for reports list'
           );
+        } else if (profileData?.role === 'hod') {
+          // HOD users see all attendance reports from their department
+          console.log('HOD user - filtering by department:', profileData.department_id);
+          if (profileData.department_id) {
+            // Add department filter for HOD users
+            filters.department_id = profileData.department_id;
+          } else {
+            console.warn('HOD user has no department_id assigned');
+            return { data: [], count: 0, error: 'Department not assigned to HOD user' };
+          }
         } else {
           // For regular faculty, get staff record for filtering
           const { data: staffData } = await this.supabase

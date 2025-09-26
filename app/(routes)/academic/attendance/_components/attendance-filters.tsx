@@ -26,6 +26,7 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import type { AttendanceSearchContext } from '@/types/attendance';
 import { cn } from '@/lib/utils';
 
@@ -41,7 +42,14 @@ export function AttendanceFilters({
   loading
 }: AttendanceFiltersProps) {
   const { isSuperAdmin } = usePermissions();
+  const { profile } = useAuth();
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  // Prevent hydration mismatch for date operations
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   // Fetch data hooks
   const { institutions, refetch: fetchInstitutions } =
@@ -160,6 +168,16 @@ export function AttendanceFilters({
     searchContext.semester_id,
     fetchSections
   ]);
+
+  // Auto-select department for HOD users
+  useEffect(() => {
+    if (profile?.role === 'hod' && profile?.department_id && !isSuperAdmin) {
+      // Only auto-select if department is not already set
+      if (!searchContext.department_id) {
+        onContextChange({ department_id: profile.department_id });
+      }
+    }
+  }, [profile?.role, profile?.department_id, searchContext.department_id, onContextChange, isSuperAdmin]);
 
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
@@ -296,10 +314,16 @@ export function AttendanceFilters({
                     section_id: null
                   });
                 }}
-                disabled={!searchContext.degree_id}
+                disabled={!searchContext.degree_id || (profile?.role === 'hod' && !isSuperAdmin)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder='Select department' />
+                  <SelectValue
+                    placeholder={
+                      profile?.role === 'hod' && !isSuperAdmin
+                        ? 'Your department will be auto-selected'
+                        : 'Select department'
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {/* Remove duplicates by department name */}
@@ -467,7 +491,7 @@ export function AttendanceFilters({
                     onClick={() => setCalendarOpen(true)}
                   >
                     <CalendarIcon className='mr-2 h-4 w-4' />
-                    {searchContext.attendance_date ? (
+                    {searchContext.attendance_date && isClient ? (
                       format(
                         new Date(searchContext.attendance_date + 'T00:00:00'),
                         'PPP'
@@ -481,18 +505,22 @@ export function AttendanceFilters({
                   <Calendar
                     mode='single'
                     selected={
-                      searchContext.attendance_date
+                      searchContext.attendance_date && isClient
                         ? new Date(searchContext.attendance_date + 'T00:00:00')
                         : undefined
                     }
                     onSelect={handleDateSelect}
                     initialFocus
-                    disabled={(date) => {
-                      // Disable future dates (only allow present and past dates)
-                      const today = new Date();
-                      today.setHours(23, 59, 59, 999); // Set to end of today
-                      return date > today;
-                    }}
+                    disabled={
+                      isClient
+                        ? (date) => {
+                            // Disable future dates (only allow present and past dates)
+                            const today = new Date();
+                            today.setHours(23, 59, 59, 999); // Set to end of today
+                            return date > today;
+                          }
+                        : undefined
+                    }
                   />
                 </PopoverContent>
               </Popover>
@@ -510,15 +538,18 @@ export function AttendanceFilters({
                 variant='ghost'
                 size='sm'
                 onClick={() => {
-                  const today = new Date();
-                  const year = today.getFullYear();
-                  const month = String(today.getMonth() + 1).padStart(2, '0');
-                  const day = String(today.getDate()).padStart(2, '0');
-                  const dateString = `${year}-${month}-${day}`;
-                  onContextChange({ attendance_date: dateString });
+                  if (isClient) {
+                    const today = new Date();
+                    const year = today.getFullYear();
+                    const month = String(today.getMonth() + 1).padStart(2, '0');
+                    const day = String(today.getDate()).padStart(2, '0');
+                    const dateString = `${year}-${month}-${day}`;
+                    onContextChange({ attendance_date: dateString });
+                  }
                 }}
                 title='Set to today'
                 className='text-xs w-[100px] border border-primary hover:bg-primary/30'
+                disabled={!isClient}
               >
                 Today
               </Button>

@@ -111,7 +111,13 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
         academic_year_id: search.academic_year_id || undefined,
         degree_id: search.degree_id || undefined,
         program_id: search.program_id || undefined,
-        department_id: search.department_id || undefined,
+        department_id:
+          search.department_id ||
+          // For HOD and faculty users, filter by their department
+          ((userProfile?.role === 'hod' || userProfile?.role === 'faculty') &&
+           userProfile?.department_id && !isSuperAdmin
+            ? userProfile.department_id
+            : undefined),
         semester: search.semester || undefined,
         section: search.section || undefined,
         is_active:

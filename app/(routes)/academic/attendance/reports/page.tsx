@@ -67,6 +67,7 @@ export default function AttendanceReportsPage() {
   const userRole = useMemo(() => {
     if (isSuperAdmin) return 'super_admin';
     if (profile?.role === 'admin') return 'admin';
+    if (profile?.role === 'hod') return 'hod';
     if (profile?.role === 'faculty') return 'faculty';
     return 'faculty';
   }, [isSuperAdmin, profile?.role]);
@@ -118,7 +119,7 @@ export default function AttendanceReportsPage() {
   const shouldWaitForFacultyId =
     isRegularFaculty && profile?.id && !facultyStaffId;
 
-  // Fetch statistics for all users (including faculty)
+  // Fetch statistics for all users (including faculty and HOD)
   const fetchStatistics = useCallback(async () => {
     // For faculty users, wait until staff ID is available to prevent showing institutional data
     if (shouldWaitForFacultyId) {
@@ -129,16 +130,26 @@ export default function AttendanceReportsPage() {
     try {
       setLoadingStats(true);
 
-      // Build filters from search params
+      // Build filters from search params with role-based filtering
       const filters = {
         institution_id: search.institution_id,
         academic_year_id: search.academic_year_id,
         degree_id: search.degree_id,
-        department_id: search.department_id,
+        department_id:
+          search.department_id ||
+          // For HOD users, automatically filter by their department
+          (userRole === 'hod' && profile?.department_id && !isSuperAdmin
+            ? profile.department_id
+            : undefined),
         program_id: search.program_id,
         semester_id: search.semester_id,
         section_id: search.section_id,
-        faculty_id: search.faculty_id,
+        faculty_id:
+          search.faculty_id ||
+          // For faculty users, filter by their own staff ID
+          (isRegularFaculty && facultyStaffId
+            ? facultyStaffId
+            : undefined),
         attendance_status: search.attendance_status,
         attendance_threshold: search.attendance_threshold,
         date_range: search.dateRange
@@ -149,15 +160,21 @@ export default function AttendanceReportsPage() {
           : undefined
       };
 
-      const statsFilters =
-        isRegularFaculty && facultyStaffId
-          ? { ...filters, faculty_id: facultyStaffId }
-          : filters;
+      // Determine statistics level based on user role
+      let statisticsLevel: 'institution' | 'department' | 'faculty' = 'institution';
+      let staffIdForStats: string | undefined = undefined;
+
+      if (userRole === 'hod') {
+        statisticsLevel = 'department';
+      } else if (isRegularFaculty && facultyStaffId) {
+        statisticsLevel = 'faculty';
+        staffIdForStats = facultyStaffId;
+      }
 
       const { data } = await AttendanceReportService.getAttendanceStatistics(
-        statsFilters,
-        isRegularFaculty ? 'faculty' : 'institution',
-        isRegularFaculty && facultyStaffId ? facultyStaffId : undefined
+        filters,
+        statisticsLevel,
+        staffIdForStats
       );
 
       setStatistics(data);

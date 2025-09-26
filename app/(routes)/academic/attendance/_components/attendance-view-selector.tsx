@@ -53,6 +53,7 @@ export function AttendanceViewSelector({
 
   // Determine initial loading state based on role
   const isFaculty = profile?.role === 'faculty';
+  const isHOD = profile?.role === 'hod';
   const isAdmin =
     profile?.role === 'administrator' || profile?.role === 'principal';
   const shouldCheckStaff = isFaculty && !isUserSuperAdmin;
@@ -63,8 +64,8 @@ export function AttendanceViewSelector({
   // Check if user is faculty (has a staff record) - Skip for non-faculty roles
   useEffect(() => {
     const checkIfFaculty = async () => {
-      // Skip faculty check for super admins and other admin roles
-      if (isUserSuperAdmin || isAdmin || !isFaculty) {
+      // Skip faculty check for super admins, admin roles, and HOD roles
+      if (isUserSuperAdmin || isAdmin || isHOD || !isFaculty) {
         setLoadingStaffId(false);
         return;
       }
@@ -112,8 +113,8 @@ export function AttendanceViewSelector({
     );
   }
 
-  // For super admins and administrators, show the full search interface
-  if (isUserSuperAdmin || isAdmin) {
+  // For super admins, administrators, and HOD users, show the full search interface
+  if (isUserSuperAdmin || isAdmin || isHOD) {
     return (
       <div className='space-y-6 flex flex-col gap-4'>
         <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
@@ -121,6 +122,8 @@ export function AttendanceViewSelector({
             <Info className='h-4 w-4' />
             {isUserSuperAdmin
               ? 'As a super admin, you have access to all attendance records. Use the search criteria below to find and mark attendance for any class.'
+              : isHOD
+              ? 'As an HOD, you can manage attendance records for classes in your department. Use the search criteria below to find and mark attendance.'
               : 'As an administrator, you can manage attendance records for your institution. Use the search criteria below to find and mark attendance.'}
           </AlertDescription>
         </Alert>
