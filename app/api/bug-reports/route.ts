@@ -130,158 +130,88 @@ export async function POST(request: Request) {
       );
     }
 
-    // Generate a unique display_id for the bug report with retry logic
-    console.log('[BUG_REPORTS_API] Generating display_id');
+    // Optimize: Get user context and generate display_id in parallel
+    console.log('[BUG_REPORTS_API] Fetching user context and generating display_id');
 
-    let displayId = 'BUG-001';
-    let attempts = 0;
-    const maxAttempts = 5;
-    let newReport = null;
+    const [userContextResult, lastReportResult] = await Promise.allSettled([
+      // Get user's institution and department information
+      Promise.allSettled([
+        supabase
+          .from('staff')
+          .select('institution_id, department_id')
+          .eq('email', user.email)
+          .single(),
+        supabase
+          .from('profiles')
+          .select('institution_id')
+          .eq('id', user.id)
+          .single()
+      ]),
+      // Get latest display_id
+      supabase
+        .from('bug_reports')
+        .select('display_id')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+    ]);
 
-    while (attempts < maxAttempts) {
-      try {
-        // Get the latest display_id to generate the next one
-        const { data: lastReport, error: lastReportError } = await supabase
-          .from('bug_reports')
-          .select('display_id')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
+    // Process user context
+    let institutionId = null;
+    let departmentId = null;
 
-        if (lastReport && lastReport.display_id) {
-          // Extract the number from the last display_id and increment it
-          const lastNumber = parseInt(
-            lastReport.display_id.replace('BUG-', ''),
-            10
-          );
-          const nextNumber = lastNumber + 1;
-          displayId = `BUG-${nextNumber.toString().padStart(3, '0')}`;
-        }
+    if (userContextResult.status === 'fulfilled') {
+      const [staffResult, profileResult] = userContextResult.value;
 
-        console.log(
-          '[BUG_REPORTS_API] Generated display_id:',
-          displayId,
-          'Attempt:',
-          attempts + 1
-        );
-
-        // Get user's institution and department information
-        let institutionId = null;
-        let departmentId = null;
-
-        try {
-          // First try to get from staff record (more specific)
-          const { data: staffRecord } = await supabase
-            .from('staff')
-            .select('institution_id, department_id')
-            .eq('email', user.email)
-            .single();
-
-          if (staffRecord) {
-            institutionId = staffRecord.institution_id;
-            departmentId = staffRecord.department_id;
-          } else {
-            // Fallback to profile institution
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('institution_id')
-              .eq('id', user.id)
-              .single();
-
-            if (profile) {
-              institutionId = profile.institution_id;
-            }
-          }
-        } catch (error) {
-          console.warn(
-            '[BUG_REPORTS_API] Could not fetch user institution/department:',
-            error
-          );
-        }
-
-        // Create the bug report
-        const initialReport = {
-          reporter_user_id: user.id,
-          display_id: displayId,
-          page_url: validatedData.page_url,
-          description: validatedData.description,
-          console_logs: validatedData.console_logs,
-          metadata: validatedData.metadata,
-          institution_id: institutionId,
-          department_id: departmentId
-        };
-
-        console.log('[BUG_REPORTS_API] Inserting bug report');
-        const { data: insertData, error: insertError } = await supabase
-          .from('bug_reports')
-          .insert(initialReport)
-          .select()
-          .single();
-
-        if (insertError) {
-          // Check if it's a duplicate key error for display_id
-          if (
-            insertError.message.includes(
-              'duplicate key value violates unique constraint'
-            ) &&
-            insertError.message.includes('display_id')
-          ) {
-            console.warn(
-              '[BUG_REPORTS_API] Display ID conflict, retrying with new ID'
-            );
-            attempts++;
-            continue;
-          }
-
-          // Other errors should be thrown
-          console.error('[BUG_REPORTS_API] Insert error:', insertError);
-          return NextResponse.json(
-            {
-              success: false,
-              error: 'Failed to create bug report',
-              details: insertError.message,
-              errorCode: 'INSERT_ERROR',
-              hint: insertError.hint
-            },
-            { status: 500 }
-          );
-        }
-
-        // Success - break out of the retry loop
-        newReport = insertData;
-        break;
-      } catch (error) {
-        console.error(
-          '[BUG_REPORTS_API] Unexpected error during insert:',
-          error
-        );
-        attempts++;
-        if (attempts >= maxAttempts) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: 'Failed to create bug report after multiple attempts',
-              details: error instanceof Error ? error.message : 'Unknown error',
-              errorCode: 'INSERT_RETRY_FAILED'
-            },
-            { status: 500 }
-          );
-        }
+      if (staffResult.status === 'fulfilled' && staffResult.value.data) {
+        institutionId = staffResult.value.data.institution_id;
+        departmentId = staffResult.value.data.department_id;
+      } else if (profileResult.status === 'fulfilled' && profileResult.value.data) {
+        institutionId = profileResult.value.data.institution_id;
       }
     }
 
-    // If we've exhausted all attempts
-    if (!newReport) {
-      console.error(
-        '[BUG_REPORTS_API] Failed to create bug report after maximum attempts'
+    // Generate display_id
+    let displayId = 'BUG-001';
+    if (lastReportResult.status === 'fulfilled' && lastReportResult.value.data?.display_id) {
+      const lastNumber = parseInt(
+        lastReportResult.value.data.display_id.replace('BUG-', ''),
+        10
       );
+      const nextNumber = lastNumber + 1;
+      displayId = `BUG-${nextNumber.toString().padStart(4, '0')}`;
+    }
+
+    console.log('[BUG_REPORTS_API] Generated display_id:', displayId);
+
+    // Create the bug report with optimized single insert
+    const initialReport = {
+      reporter_user_id: user.id,
+      display_id: displayId,
+      page_url: validatedData.page_url,
+      description: validatedData.description,
+      console_logs: validatedData.console_logs,
+      metadata: validatedData.metadata,
+      institution_id: institutionId,
+      department_id: departmentId
+    };
+
+    console.log('[BUG_REPORTS_API] Inserting bug report');
+    const { data: newReport, error: insertError } = await supabase
+      .from('bug_reports')
+      .insert(initialReport)
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('[BUG_REPORTS_API] Insert error:', insertError);
       return NextResponse.json(
         {
           success: false,
           error: 'Failed to create bug report',
-          details:
-            'Could not generate unique display ID after multiple attempts',
-          errorCode: 'DISPLAY_ID_GENERATION_FAILED'
+          details: insertError.message,
+          errorCode: 'INSERT_ERROR',
+          hint: insertError.hint
         },
         { status: 500 }
       );
@@ -302,86 +232,66 @@ export async function POST(request: Request) {
 
     console.log('[BUG_REPORTS_API] Report created with ID:', newReport.id);
 
-    // Ensure the reporter is added as a participant (fallback in case trigger fails)
-    try {
-      const { error: participantError } = await supabase
-        .from('bug_report_participants')
-        .insert({
-          bug_report_id: newReport.id,
-          user_id: user.id,
-          role: 'reporter',
-          can_view_internal: false,
-          is_active: true,
-          joined_at: new Date().toISOString()
-        });
+    // Optimize: Handle participant creation and screenshot upload in parallel
+    const tasks = [];
 
-      // Don't fail if participant already exists (trigger likely worked)
-      if (participantError && !participantError.message.includes('duplicate')) {
-        console.warn(
-          '[BUG_REPORTS_API] Could not add participant:',
-          participantError
-        );
-      }
-    } catch (participantErr) {
-      console.warn(
-        '[BUG_REPORTS_API] Participant creation failed:',
-        participantErr
-      );
-      // Don't fail the whole operation
-    }
+    // Add participant creation task
+    tasks.push(
+      (async () => {
+        try {
+          const { error } = await supabase
+            .from('bug_report_participants')
+            .insert({
+              bug_report_id: newReport.id,
+              user_id: user.id,
+              role: 'reporter',
+              can_view_internal: false,
+              is_active: true,
+              joined_at: new Date().toISOString()
+            });
+
+          if (error && !error.message.includes('duplicate')) {
+            console.warn('[BUG_REPORTS_API] Could not add participant:', error);
+          }
+          return null;
+        } catch (err) {
+          console.warn('[BUG_REPORTS_API] Participant creation failed:', err);
+          return null;
+        }
+      })()
+    );
 
     // Handle screenshot upload if provided
     if (validatedData.screenshot_data_url) {
-      console.log('[BUG_REPORTS_API] Processing screenshot upload');
-
-      try {
-        // Test storage bucket access first
-        console.log('[BUG_REPORTS_API] Testing storage bucket access');
-        const { error: bucketTestError } = await supabase.storage
-          .from(BUG_REPORTS_BUCKET)
-          .list('', { limit: 1 });
-
-        if (bucketTestError) {
-          console.error(
-            '[BUG_REPORTS_API] Storage bucket test failed:',
-            bucketTestError
-          );
-          // Continue without screenshot but log the error
-          console.warn(
-            '[BUG_REPORTS_API] Continuing without screenshot due to bucket access error'
-          );
-        } else {
-          const screenshotFile = dataURLtoFile(
-            validatedData.screenshot_data_url,
-            'screenshot.png'
-          );
-          const filePath = `${newReport.id}/screenshot.png`;
-
-          console.log('[BUG_REPORTS_API] Uploading screenshot to:', filePath);
-
-          const { error: uploadError } = await supabase.storage
-            .from(BUG_REPORTS_BUCKET)
-            .upload(filePath, screenshotFile, {
-              cacheControl: '3600',
-              upsert: false
-            });
-
-          if (uploadError) {
-            console.error(
-              '[BUG_REPORTS_API] Screenshot upload error:',
-              uploadError
+      // Add screenshot upload task
+      tasks.push(
+        (async () => {
+          try {
+            const screenshotFile = dataURLtoFile(
+              validatedData.screenshot_data_url!,
+              'screenshot.png'
             );
-            // Don't fail the whole operation, just log the error
-            console.warn('[BUG_REPORTS_API] Continuing without screenshot');
-          } else {
-            console.log('[BUG_REPORTS_API] Screenshot uploaded successfully');
+            const filePath = `${newReport.id}/screenshot.png`;
+
+            console.log('[BUG_REPORTS_API] Uploading screenshot to:', filePath);
+
+            const { error: uploadError } = await supabase.storage
+              .from(BUG_REPORTS_BUCKET)
+              .upload(filePath, screenshotFile, {
+                cacheControl: '3600',
+                upsert: false
+              });
+
+            if (uploadError) {
+              console.error('[BUG_REPORTS_API] Screenshot upload error:', uploadError);
+              return null;
+            }
 
             const { data: urlData } = supabase.storage
               .from(BUG_REPORTS_BUCKET)
               .getPublicUrl(filePath);
 
-            console.log('[BUG_REPORTS_API] Screenshot URL:', urlData.publicUrl);
-
+            // Update report with screenshot URL
             const { data: updatedReport, error: updateError } = await supabase
               .from('bug_reports')
               .update({ screenshot_url: urlData.publicUrl })
@@ -391,31 +301,34 @@ export async function POST(request: Request) {
 
             if (updateError) {
               console.error('[BUG_REPORTS_API] Update error:', updateError);
-              // Don't fail the whole operation, return the original report
-              console.warn(
-                '[BUG_REPORTS_API] Returning report without screenshot URL'
-              );
-            } else {
-              console.log(
-                '[BUG_REPORTS_API] Report updated with screenshot URL'
-              );
-              return NextResponse.json(
-                {
-                  success: true,
-                  data: updatedReport,
-                  message: 'Bug report created successfully with screenshot'
-                },
-                { status: 201 }
-              );
+              return null;
             }
+
+            console.log('[BUG_REPORTS_API] Screenshot uploaded successfully');
+            return updatedReport;
+          } catch (error) {
+            console.error('[BUG_REPORTS_API] Screenshot processing error:', error);
+            return null;
           }
-        }
-      } catch (screenshotError) {
-        console.error(
-          '[BUG_REPORTS_API] Screenshot processing error:',
-          screenshotError
+        })()
+      );
+    }
+
+    // Execute all tasks in parallel
+    const results = await Promise.allSettled(tasks);
+
+    // Check if screenshot upload was successful and return updated report
+    if (validatedData.screenshot_data_url && results.length > 1) {
+      const screenshotResult = results[1];
+      if (screenshotResult.status === 'fulfilled' && screenshotResult.value) {
+        return NextResponse.json(
+          {
+            success: true,
+            data: screenshotResult.value,
+            message: 'Bug report created successfully with screenshot'
+          },
+          { status: 201 }
         );
-        // Continue without screenshot
       }
     }
 

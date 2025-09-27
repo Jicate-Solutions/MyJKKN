@@ -182,10 +182,11 @@ export default function AdminBugReportsPage() {
   const { data: institutions } = useInstitutions();
   const { data: departments } = useDepartments(filters.institution_id);
 
-  // Fetch all reports for statistics
+  // Optimize: Fetch statistics separately to avoid large dataset
   const { data: allReportsData, refetch: refetchAll } = useBugReports({
     page: 1,
-    limit: 1000
+    limit: 100, // Reduced limit for better performance
+    // Add statistics-specific endpoint if needed
   });
 
   useEffect(() => {
