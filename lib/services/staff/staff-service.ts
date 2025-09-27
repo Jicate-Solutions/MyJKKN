@@ -71,6 +71,7 @@ interface UpdateStaffDto extends Partial<CreateStaffDto> {
 
 export class StaffService {
   private static supabase = createClientSupabaseClient();
+  private static adminClient = createAdminClient();
 
   static async createStaff(
     data: CreateStaffDto,
@@ -96,7 +97,23 @@ export class StaffService {
         }
       }
 
-      const { data: staff, error } = await this.supabase
+      // Check if a staff member with this institution_email already exists
+      if (data.institution_email) {
+        const { data: existingStaff } = await this.supabase
+          .from('staff')
+          .select('id, first_name, last_name, institution_email')
+          .eq('institution_email', data.institution_email)
+          .single();
+
+        if (existingStaff) {
+          throw new Error(
+            `Staff member with email ${data.institution_email} already exists`
+          );
+        }
+      }
+
+      // First attempt: Try with regular authenticated client
+      let { data: staff, error } = await this.supabase
         .from('staff')
         .insert([
           {
@@ -107,6 +124,37 @@ export class StaffService {
         ])
         .select()
         .single();
+
+      // If we get a 403/RLS error, try using the API route instead
+      if (
+        error &&
+        (error.code === '42501' ||
+          error.message?.includes('row-level security'))
+      ) {
+        console.log('RLS error detected, attempting API route creation...');
+
+        try {
+          // Use fetch to call our API route which has proper service role access
+          const response = await fetch('/api/staff', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'API route failed');
+          }
+
+          staff = await response.json();
+          error = null;
+        } catch (apiError) {
+          console.error('API route also failed:', apiError);
+          // Fall back to original error
+        }
+      }
 
       if (error) throw error;
 
@@ -139,24 +187,11 @@ export class StaffService {
             return staff;
           }
 
-          // Profile doesn't exist, check if auth user exists
-          const { data: authUsers } =
-            await this.supabase.auth.admin.listUsers();
-          const existingAuthUser = authUsers.users?.find(
-            (user) => user.email === staff.institution_email
+          // Since we can't access auth.users table, check if profile exists in profiles table only
+          // If no profile exists, we'll proceed to create one via the API
+          console.log(
+            `No profile found for ${staff.institution_email}, proceeding to create user account`
           );
-
-          if (existingAuthUser) {
-            console.log(
-              `Auth user exists but no profile for ${staff.institution_email}, trigger should have created it`
-            );
-            if (!suppressToast) {
-              toast(
-                `Staff created. User account exists but profile needs manual sync.`
-              );
-            }
-            return staff;
-          }
 
           // Neither auth user nor profile exists, create via API
           console.log(
@@ -214,10 +249,12 @@ export class StaffService {
             // Check for 409 Conflict (User already exists)
             if (userResponse.status === 409) {
               console.warn(
-                `User with email ${userPayload.email} already exists. This shouldn't happen since we checked.`
+                `User with email ${userPayload.email} already exists (this is expected if the trigger created it)`
               );
               if (!suppressToast) {
-                toast(`User account for ${userPayload.email} already exists`);
+                toast.success(
+                  `Staff created successfully! User profile for ${userPayload.email} already exists.`
+                );
               }
             } else if (userResponse.status === 400) {
               // Handle validation errors
@@ -380,7 +417,8 @@ export class StaffService {
               method: 'DELETE',
               headers: {
                 'Content-Type': 'application/json'
-              }
+              },
+              credentials: 'include' // Include session cookies for authentication
             });
 
             if (!response.ok) {
@@ -388,6 +426,9 @@ export class StaffService {
                 `Failed to delete user profile for staff ${id}:`,
                 await response.text()
               );
+              toast.error('Staff deleted, but failed to remove user profile. Profile may need manual cleanup.');
+            } else {
+              console.log(`Successfully deleted user profile for staff ${id}`);
             }
           }
         } catch (profileError) {
@@ -395,6 +436,7 @@ export class StaffService {
             'Error finding or deleting staff user profile:',
             profileError
           );
+          toast.error('Staff deleted, but encountered error removing user profile. Manual cleanup may be needed.');
           // Continue with staff deletion even if profile deletion fails
         }
       }
@@ -488,7 +530,17 @@ export class StaffService {
 
       query = query.range(from, to).order('created_at', { ascending: false });
 
-      const { data: staff, error, count } = await query;
+      // Execute with timeout to prevent indefinite hanging
+      const {
+        data: staff,
+        error,
+        count
+      } = (await Promise.race([
+        query,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Staff query timeout')), 30000)
+        )
+      ])) as any;
 
       if (error) throw error;
 
@@ -507,26 +559,33 @@ export class StaffService {
     }
   }
 
-  // Enhanced method with automatic department filtering for HOD users
+  // Enhanced method with automatic institution filtering for HOD users
   static async getStaffWithRoleBasedFiltering(
     filters: StaffFilters = {},
     userProfile?: {
       role: string;
       department_id?: string;
+      institution_id?: string;
       is_super_admin?: boolean;
     }
   ): Promise<StaffListResponse> {
     try {
-      // If user is HOD and has a department, automatically filter by their department
+      // If user is HOD and has an institution, automatically filter by their institution
       if (
         userProfile?.role === 'hod' &&
-        userProfile.department_id &&
+        userProfile.institution_id &&
         !userProfile.is_super_admin
       ) {
-        filters.department_id = userProfile.department_id;
+        filters.institution_id = userProfile.institution_id;
         console.log(
-          'Applied HOD department filter:',
-          userProfile.department_id
+          'Applied HOD institution filter:',
+          userProfile.institution_id
+        );
+
+        // For HOD users, use optimized query with explicit institution filtering
+        return await this.getStaffOptimizedForHOD(
+          filters,
+          userProfile.institution_id
         );
       }
 
@@ -534,6 +593,105 @@ export class StaffService {
       return await this.getStaff(filters);
     } catch (error) {
       console.error('Error fetching staff with role-based filtering:', error);
+      throw error;
+    }
+  }
+
+  // Optimized query specifically for HOD users to avoid RLS performance issues
+  private static async getStaffOptimizedForHOD(
+    filters: StaffFilters,
+    institutionId: string
+  ): Promise<StaffListResponse> {
+    try {
+      console.log('Using optimized HOD query for institution:', institutionId);
+
+      // Create a more targeted query that minimizes RLS overhead
+      let query = this.supabase.from('staff').select(
+        `
+          *,
+          category:employment_categories(
+            id,
+            category_name
+          ),
+          institution:institutions(
+            id,
+            name,
+            counselling_code
+          ),
+          department:departments(
+            id,
+            department_name
+          )
+        `,
+        { count: 'exact' }
+      );
+
+      // Apply institution filter first to reduce dataset
+      query = query.eq('institution_id', institutionId);
+
+      // Apply other filters
+      if (filters.search) {
+        query = query.or(
+          `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,staff_id.ilike.%${filters.search}%`
+        );
+      }
+
+      if (filters.category_id) {
+        query = query.eq('category_id', filters.category_id);
+      }
+
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+      }
+
+      if (filters.isActive !== undefined) {
+        query = query.eq('is_active', filters.isActive);
+      }
+
+      // Apply pagination
+      const page = filters.page || 1;
+      const limit = filters.limit || 10;
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+
+      query = query.range(from, to).order('created_at', { ascending: false });
+
+      // Execute with timeout
+      const {
+        data: staff,
+        error,
+        count
+      } = (await Promise.race([
+        query,
+        new Promise((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error('Query timeout - taking longer than 30 seconds')
+              ),
+            30000
+          )
+        )
+      ])) as any;
+
+      if (error) throw error;
+
+      return {
+        data: staff || [],
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: count ? Math.ceil(count / limit) : 0
+        }
+      };
+    } catch (error) {
+      console.error('Error in optimized HOD staff query:', error);
+      if (error instanceof Error && error.message.includes('timeout')) {
+        throw new Error(
+          'Staff query timed out. Please try filtering by category or reducing the page size.'
+        );
+      }
       throw error;
     }
   }

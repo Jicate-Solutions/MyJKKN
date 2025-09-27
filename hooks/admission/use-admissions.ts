@@ -56,6 +56,9 @@ export const useCreateAdmission = () => {
       queryClient.invalidateQueries({ queryKey: admissionKeys.all });
       // Also remove all cached data to force fresh fetch
       queryClient.removeQueries({ queryKey: admissionKeys.lists() });
+    },
+    onError: (error: Error) => {
+      console.error('Error creating admission:', error);
     }
   });
 };

@@ -9,14 +9,32 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   useBugReportMessages,
   useSendBugReportMessage,
   useBugReportParticipants
 } from '@/hooks/bug-reports/use-bug-reports';
+import { useMessageReads, useMessageReadStatus } from '@/hooks/bug-reports/use-message-reads';
 import { BugReportMessage } from '@/types/bugs';
 import { useToast } from '@/hooks/use-toast';
-import { MessageCircle, Send, Users, Clock, Shield, User } from 'lucide-react';
+import {
+  MessageCircle,
+  Send,
+  Users,
+  Clock,
+  Shield,
+  User,
+  Check,
+  CheckCheck,
+  Eye
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface BugReportChatProps {
   reportId: string;
@@ -25,16 +43,80 @@ interface BugReportChatProps {
 
 const MessageBubble = ({
   message,
-  isCurrentUser
+  isCurrentUser,
+  reportId,
+  onMarkAsRead
 }: {
   message: BugReportMessage;
   isCurrentUser: boolean;
+  reportId: string;
+  onMarkAsRead: (messageId: string) => void;
 }) => {
+  const { data: readStatus } = useMessageReadStatus(reportId, message.id);
+  const [isHovered, setIsHovered] = useState(false);
+
+  useEffect(() => {
+    // Auto-mark message as read when it comes into view and isn't from current user
+    if (!isCurrentUser) {
+      const timer = setTimeout(() => {
+        onMarkAsRead(message.id);
+      }, 2000); // Mark as read after 2 seconds
+
+      return () => clearTimeout(timer);
+    }
+  }, [message.id, isCurrentUser, onMarkAsRead]);
+
+  const renderReadStatus = () => {
+    if (!isCurrentUser || !readStatus) return null;
+
+    const readByCount = readStatus.length;
+
+    if (readByCount === 0) {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>
+              <Check className='w-3 h-3 text-muted-foreground' />
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Sent</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger>
+            <div className='flex items-center gap-1'>
+              <CheckCheck className='w-3 h-3 text-blue-500' />
+              <span className='text-xs text-blue-500'>{readByCount}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            <div className='space-y-1'>
+              <p className='font-medium'>Read by:</p>
+              {readStatus.map((read: any, index: number) => (
+                <p key={index} className='text-xs'>
+                  {read.user?.full_name} - {formatDistanceToNow(new Date(read.read_at), { addSuffix: true })}
+                </p>
+              ))}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  };
+
   return (
     <div
       className={`flex gap-3 ${
         isCurrentUser ? 'flex-row-reverse' : 'flex-row'
-      } mb-4`}
+      } mb-4 group`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       <Avatar className='h-8 w-8 shrink-0'>
         <AvatarFallback className='text-xs'>
@@ -65,19 +147,41 @@ const MessageBubble = ({
         </div>
 
         <div
-          className={`rounded-lg px-3 py-2 ${
+          className={`rounded-lg px-3 py-2 relative ${
             isCurrentUser ? 'bg-primary text-primary-foreground' : 'bg-muted'
           }`}
         >
           <p className='text-sm whitespace-pre-wrap'>{message.message_text}</p>
+
+          {/* Read status indicator for sent messages */}
+          {isCurrentUser && (
+            <div className='absolute -bottom-1 -right-1 bg-white dark:bg-gray-800 rounded-full p-0.5 shadow-sm'>
+              {renderReadStatus()}
+            </div>
+          )}
         </div>
 
-        {message.edited_at && (
-          <span className='text-xs text-muted-foreground mt-1'>
-            <Clock className='w-3 h-3 inline mr-1' />
-            Edited
-          </span>
-        )}
+        <div className='flex items-center gap-2 mt-1'>
+          {message.edited_at && (
+            <span className='text-xs text-muted-foreground'>
+              <Clock className='w-3 h-3 inline mr-1' />
+              Edited
+            </span>
+          )}
+
+          {/* Message actions (show on hover) */}
+          {isHovered && !isCurrentUser && (
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-6 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity'
+              onClick={() => onMarkAsRead(message.id)}
+            >
+              <Eye className='w-3 h-3 mr-1' />
+              Mark as read
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -86,13 +190,67 @@ const MessageBubble = ({
 export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
   const [message, setMessage] = useState('');
   const [isInternal, setIsInternal] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const supabase = createClientSupabaseClient();
 
-  const { data: messages = [], isLoading: messagesLoading } =
+  const { data: messages = [], isLoading: messagesLoading, refetch: refetchMessages } =
     useBugReportMessages(reportId);
   const { data: participants = [] } = useBugReportParticipants(reportId);
   const sendMessageMutation = useSendBugReportMessage();
+
+  // Enhanced read tracking
+  const {
+    unreadCount,
+    markMessageAsRead,
+    markAllAsRead,
+    isMarkingAsRead,
+    refetchUnreadCount
+  } = useMessageReads(reportId);
+
+  // Get current user
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id || null);
+    };
+    getCurrentUser();
+  }, [supabase]);
+
+  // Set up real-time subscription for new messages
+  useEffect(() => {
+    const channel = supabase
+      .channel(`bug_report_messages_${reportId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'bug_report_messages',
+          filter: `bug_report_id=eq.${reportId}`
+        },
+        (payload) => {
+          console.log('New message received:', payload);
+          refetchMessages();
+          refetchUnreadCount();
+
+          // Show notification for new messages from others
+          if (payload.new.sender_user_id !== currentUserId) {
+            toast({
+              title: 'New message',
+              description: 'Someone sent a new message in this bug report',
+              duration: 3000,
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [reportId, supabase, refetchMessages, refetchUnreadCount, currentUserId, toast]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -112,9 +270,10 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
       });
 
       setMessage('');
+      refetchMessages();
       toast({
         title: 'Message sent',
-        description: 'Your message has been sent successfully.'
+        description: 'Your message has been sent and participants will be notified.'
       });
     } catch (error) {
       toast({
@@ -126,7 +285,31 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleMarkAsRead = async (messageId: string) => {
+    try {
+      await markMessageAsRead(messageId);
+    } catch (error) {
+      console.error('Failed to mark message as read:', error);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await markAllAsRead();
+      toast({
+        title: 'All messages marked as read',
+        description: 'You have caught up with all messages.'
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to mark all as read',
+        description: error instanceof Error ? error.message : 'An error occurred',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -167,9 +350,30 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
       {/* Chat Messages */}
       <Card className='flex flex-col h-[500px]'>
         <CardHeader className='pb-3 shrink-0'>
-          <CardTitle className='flex items-center gap-2'>
-            <MessageCircle className='w-5 h-5' />
-            Discussion ({messages.length})
+          <CardTitle className='flex items-center justify-between'>
+            <div className='flex items-center gap-2'>
+              <MessageCircle className='w-5 h-5' />
+              Discussion ({messages.length})
+              {unreadCount > 0 && (
+                <Badge variant='destructive' className='ml-2'>
+                  {unreadCount} unread
+                </Badge>
+              )}
+            </div>
+            <div className='flex items-center gap-2'>
+              {unreadCount > 0 && (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={handleMarkAllAsRead}
+                  disabled={isMarkingAsRead}
+                  className='text-xs'
+                >
+                  <CheckCheck className='w-3 h-3 mr-1' />
+                  Mark all read
+                </Button>
+              )}
+            </div>
           </CardTitle>
         </CardHeader>
 
@@ -197,7 +401,9 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
                   <MessageBubble
                     key={msg.id}
                     message={msg}
-                    isCurrentUser={false} // TODO: Compare with current user
+                    isCurrentUser={msg.sender_user_id === currentUserId}
+                    reportId={reportId}
+                    onMarkAsRead={handleMarkAsRead}
                   />
                 ))
               )}
@@ -236,7 +442,7 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
                     placeholder='Type your message here...'
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    onKeyPress={handleKeyPress}
+                    onKeyDown={handleKeyDown}
                     className='flex-1 resize-none'
                     rows={3}
                     disabled={sendMessageMutation.isPending}

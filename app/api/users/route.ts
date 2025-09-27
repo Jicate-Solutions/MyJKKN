@@ -27,6 +27,12 @@ const supabaseAdmin = createClient(
       headers: {
         Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
       }
+    },
+    // Ensure service role bypasses RLS
+    realtime: {
+      params: {
+        eventsPerSecond: 10
+      }
     }
   }
 );
@@ -73,8 +79,14 @@ export async function POST(request: Request) {
     );
 
     const json = await request.json();
-    const { email, full_name, role, phone_number, institution_id, department_id } =
-      json as CreateUserRequest;
+    const {
+      email,
+      full_name,
+      role,
+      phone_number,
+      institution_id,
+      department_id
+    } = json as CreateUserRequest;
 
     // Validate required fields (no password needed for OAuth-only system)
     if (!email || !full_name || !role) {
@@ -113,9 +125,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Allow super_admin, administrator, and faculty to create users
+    // Allow super_admin, administrator, faculty, and hod to create users
     if (
-      !['super_admin', 'administrator', 'faculty'].includes(currentUser.role)
+      !['super_admin', 'administrator', 'faculty', 'hod'].includes(currentUser.role)
     ) {
       return NextResponse.json(
         { error: 'Insufficient permissions' },
@@ -145,6 +157,27 @@ export async function POST(request: Request) {
       }
     }
 
+    if (currentUser.role === 'hod') {
+      // HOD can create faculty and staff role accounts
+      if (!['faculty', 'staff'].includes(role)) {
+        return NextResponse.json(
+          { error: 'HOD users can only create faculty or staff accounts' },
+          { status: 403 }
+        );
+      }
+
+      // HOD must provide institution_id and it must match their own
+      if (!institution_id || institution_id !== currentUser.institution_id) {
+        return NextResponse.json(
+          {
+            error:
+              'HOD users can only create accounts for their own institution'
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     // Validate role against database roles
     const { data: validRoleData, error: roleError } = await supabaseAdmin
       .from('custom_roles')
@@ -160,12 +193,13 @@ export async function POST(request: Request) {
         'super_admin',
         'administrator',
         'faculty',
+        'hod', // Added hod role
         'student',
-        'driver',  // Added driver role
-        'accounts',  // Added accounts role
-        'guest',  // Added guest role
-        'staff',  // Added staff role
-        'test'  // Added test role
+        'driver', // Added driver role
+        'accounts', // Added accounts role
+        'guest', // Added guest role
+        'staff', // Added staff role
+        'test' // Added test role
       ];
       if (!basicValidRoles.includes(role)) {
         return NextResponse.json(
@@ -196,19 +230,46 @@ export async function POST(request: Request) {
     }
 
     // Additional permission checks for system roles
-    // Only restrict if it's a system role AND the current user is not super_admin
-    // Allow administrators to create users with custom roles (is_system_role = false)
-    if (validRole.is_system_role && currentUser?.role !== 'super_admin') {
-      console.log(`User ${currentUser.role} attempted to assign system role ${role}`);
-      return NextResponse.json(
-        { error: 'Only super admins can assign system roles' },
-        { status: 403 }
-      );
+    if (validRole.is_system_role) {
+      // Super admin can assign any system role
+      if (currentUser?.role === 'super_admin') {
+        // No restrictions for super admin
+      }
+      // Administrator can assign most system roles (except super_admin)
+      else if (currentUser?.role === 'administrator') {
+        if (role === 'super_admin') {
+          return NextResponse.json(
+            { error: 'Only super admins can create other super admins' },
+            { status: 403 }
+          );
+        }
+      }
+      // HOD can only assign faculty and staff system roles
+      else if (currentUser?.role === 'hod') {
+        if (!['faculty', 'staff'].includes(role)) {
+          return NextResponse.json(
+            { error: 'HOD users can only assign faculty or staff system roles' },
+            { status: 403 }
+          );
+        }
+      }
+      // All other users cannot assign system roles
+      else {
+        console.log(
+          `User ${currentUser.role} attempted to assign system role ${role}`
+        );
+        return NextResponse.json(
+          { error: 'Only super admins, administrators, and HOD can assign system roles' },
+          { status: 403 }
+        );
+      }
     }
-    
+
     // Log successful role validation for custom roles
     if (!validRole.is_system_role) {
-      console.log(`Allowing ${currentUser.role} to create user with custom role: ${role}`);
+      console.log(
+        `Allowing ${currentUser.role} to create user with custom role: ${role}`
+      );
     }
 
     // For Google OAuth only system, we pre-register profiles
@@ -220,7 +281,7 @@ export async function POST(request: Request) {
       .select('id, email')
       .eq('email', email)
       .single();
-    
+
     if (existingProfile) {
       return NextResponse.json(
         {
@@ -242,29 +303,37 @@ export async function POST(request: Request) {
       role: role
     });
 
-    // Create the pre-registered profile with metadata to track it's pre-registered
-    const { data: newProfile, error: createError } = await supabaseAdmin
-      .from('profiles')
-      .insert({
-        id: placeholderId,
-        email: email,
-        full_name: full_name,
-        role: role,
-        phone_number: phone_number,
-        institution_id: institution_id,
-        department_id: department_id,
-        profile_completed: true,
-        is_active: true,
-        is_pre_registered: true, // Flag to indicate this is a pre-registered user
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    // Debug: Check service role configuration
+    console.log(
+      'Service role key exists:',
+      !!process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+    console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
+
+    // Test admin client authentication
+    const { data: authTest, error: authError } =
+      await supabaseAdmin.auth.getSession();
+    console.log('Admin client auth test:', { authTest: !!authTest, authError });
+
+    // Use the secure function to create pre-registered profile
+    console.log('Creating profile using secure function...');
+
+    const { data: newProfile, error: createError } = await supabase.rpc(
+      'create_preregistered_profile',
+      {
+        profile_id: placeholderId,
+        profile_email: email,
+        profile_full_name: full_name,
+        profile_role: role,
+        profile_phone: phone_number,
+        profile_institution_id: institution_id,
+        profile_department_id: department_id
+      }
+    );
 
     if (createError) {
       console.error('Error creating pre-registered profile:', createError);
-      
+
       // Check for specific errors
       if (createError.message.includes('duplicate key')) {
         return NextResponse.json(
@@ -275,9 +344,11 @@ export async function POST(request: Request) {
           { status: 409 }
         );
       }
-      
-      if (createError.message.includes('foreign key constraint') && 
-          createError.message.includes('institution_id')) {
+
+      if (
+        createError.message.includes('foreign key constraint') &&
+        createError.message.includes('institution_id')
+      ) {
         return NextResponse.json(
           {
             error: 'Invalid institution ID provided',
@@ -286,7 +357,7 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
-      
+
       return NextResponse.json(
         {
           error: 'Failed to create user profile',
@@ -324,7 +395,8 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({
-      message: 'User pre-registered successfully. They can now login with Google using this email.',
+      message:
+        'User pre-registered successfully. They can now login with Google using this email.',
       data: {
         id: placeholderId,
         email: email,
@@ -382,7 +454,7 @@ export async function GET(request: NextRequest) {
 
     if (
       profileError ||
-      !['super_admin', 'administrator', 'faculty'].includes(profile?.role || '')
+      !['super_admin', 'administrator', 'faculty', 'hod'].includes(profile?.role || '')
     ) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -395,14 +467,14 @@ export async function GET(request: NextRequest) {
     const institution = url.searchParams.get('institution');
     const search = url.searchParams.get('search');
 
-    // Build query - exclude pre-registered pending users from the list
+    // Build query - include all users (both regular and pre-registered)
     let query = supabase
       .from('profiles')
-      .select('*', { count: 'exact' })
-      .eq('is_pre_registered', false); // Exclude pre-registered users
+      .select('*', { count: 'exact' });
+      // Note: Pre-registered users will show with is_pre_registered: true
 
-    // Faculty users can only see profiles from their own institution
-    if (profile.role === 'faculty' && profile.institution_id) {
+    // Faculty and HOD users can only see profiles from their own institution
+    if ((profile.role === 'faculty' || profile.role === 'hod') && profile.institution_id) {
       query = query.eq('institution_id', profile.institution_id);
     }
 

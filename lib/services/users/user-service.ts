@@ -15,50 +15,33 @@ const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 export class UserService {
   static async getUsers(filters: UserFilters = {}): Promise<UserListResponse> {
     try {
-      const supabase = createClientSupabaseClient();
-      const page = filters.page || 1;
-      const limit = filters.limit || 10;
-      const start = (page - 1) * limit;
-      const end = start + limit - 1;
+      // Build query parameters
+      const searchParams = new URLSearchParams();
 
-      let query = supabase
-        .from('profiles')
-        .select('*, institutions(id, name)', { count: 'exact' });
+      if (filters.page) searchParams.set('page', filters.page.toString());
+      if (filters.limit) searchParams.set('limit', filters.limit.toString());
+      if (filters.role) searchParams.set('role', filters.role);
+      if (filters.institution) searchParams.set('institution', filters.institution);
+      if (filters.search) searchParams.set('search', filters.search);
 
-      // Apply filters
-      if (filters.institution) {
-        query = query.eq('institution_id', filters.institution);
-      }
-      if (filters.role) {
-        query = query.eq('role', filters.role);
+      const response = await fetch(`/api/users?${searchParams.toString()}`);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch users');
       }
 
-      if (filters.isActive !== undefined) {
-        query = query.eq('is_active', filters.isActive);
-      }
-
-      if (filters.search) {
-        query = query.or(
-          `email.ilike.%${filters.search}%,full_name.ilike.%${filters.search}%`
-        );
-      }
-
-      // Pagination
-      const { data, error, count } = await query.range(start, end);
-
-      if (error) throw error;
-
-      const totalPages = Math.ceil((count || 0) / limit);
+      const result = await response.json();
 
       return {
-        data: data || [],
+        data: result.data || [],
         metadata: {
-          total: count || 0,
-          page,
-          limit,
-          totalPages,
-          hasNextPage: page < totalPages,
-          hasPreviousPage: page > 1
+          total: result.metadata?.total || 0,
+          page: result.metadata?.page || 1,
+          limit: result.metadata?.limit || 10,
+          totalPages: result.metadata?.totalPages || 0,
+          hasNextPage: (result.metadata?.page || 1) < (result.metadata?.totalPages || 0),
+          hasPreviousPage: (result.metadata?.page || 1) > 1
         }
       };
     } catch (error) {

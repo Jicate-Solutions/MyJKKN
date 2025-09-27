@@ -66,21 +66,36 @@ export function ContactDetailsForm({ form }: ContactDetailsFormProps) {
       ? getTaluksByDistrict(selectedStateId, selectedDistrictId)
       : [];
 
-  // Reset dependent fields when parent changes
+  // Reset dependent fields when parent changes (but preserve values in edit mode)
   useEffect(() => {
     if (selectedStateId) {
-      // Reset district and taluk when state changes
-      form.setValue('permanentAddressDistrict', '');
-      form.setValue('permanentAddressTaluk', '');
+      // Check if current district is valid for the selected state
+      const currentDistrict = form.getValues('permanentAddressDistrict');
+      const currentTaluk = form.getValues('permanentAddressTaluk');
+
+      if (currentDistrict) {
+        const isDistrictValid = availableDistricts.some(d => d.id === currentDistrict);
+        if (!isDistrictValid) {
+          form.setValue('permanentAddressDistrict', '');
+          form.setValue('permanentAddressTaluk', '');
+        }
+      }
     }
-  }, [selectedStateId, form]);
+  }, [selectedStateId, form, availableDistricts]);
 
   useEffect(() => {
     if (selectedDistrictId) {
-      // Reset taluk when district changes
-      form.setValue('permanentAddressTaluk', '');
+      // Check if current taluk is valid for the selected district
+      const currentTaluk = form.getValues('permanentAddressTaluk');
+
+      if (currentTaluk) {
+        const isTalukValid = availableTaluks.some(t => t.id === currentTaluk);
+        if (!isTalukValid) {
+          form.setValue('permanentAddressTaluk', '');
+        }
+      }
     }
-  }, [selectedDistrictId, form]);
+  }, [selectedDistrictId, form, availableTaluks]);
   return (
     <div className='space-y-8'>
       <div>

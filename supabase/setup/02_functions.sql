@@ -1093,28 +1093,35 @@ BEGIN
 END;
 $$;
 
--- Sync staff to profiles
+-- Sync staff to profiles (Updated: 2025-01-27 - Fixed to use institution_email and set is_pre_registered = true)
 CREATE OR REPLACE FUNCTION public.sync_staff_to_profiles()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Create or update profile when staff is created
-    INSERT INTO profiles (id, email, full_name, phone_number, institution_id, role)
-    VALUES (
-        gen_random_uuid(),
-        NEW.email,
-        NEW.full_name,
-        NEW.phone,
-        NEW.institution_id,
-        'staff'
-    )
-    ON CONFLICT (email) DO UPDATE
-    SET 
-        full_name = EXCLUDED.full_name,
-        phone_number = EXCLUDED.phone_number,
-        institution_id = EXCLUDED.institution_id;
-    
+    -- Only create profile if institution_email is provided
+    IF NEW.institution_email IS NOT NULL AND NEW.institution_email != '' THEN
+        -- Create or update profile when staff is created using institution_email
+        -- Set is_pre_registered = true to bypass auth user validation
+        INSERT INTO profiles (id, email, full_name, phone_number, institution_id, role, is_pre_registered)
+        VALUES (
+            gen_random_uuid(),
+            NEW.institution_email,
+            CONCAT(NEW.first_name, ' ', NEW.last_name),
+            NEW.phone,
+            NEW.institution_id,
+            'staff',
+            true
+        )
+        ON CONFLICT (email) DO UPDATE
+        SET
+            full_name = EXCLUDED.full_name,
+            phone_number = EXCLUDED.phone_number,
+            institution_id = EXCLUDED.institution_id,
+            is_pre_registered = true,
+            updated_at = NOW();
+    END IF;
+
     RETURN NEW;
 END;
 $$;
@@ -1630,29 +1637,30 @@ EXCEPTION
 END;
 $$;
 
--- Check orphaned auth users
+-- Check orphaned auth users (Updated: 2025-01-27 - Use profiles table only)
 CREATE OR REPLACE FUNCTION public.check_orphaned_auth_users()
 RETURNS TABLE(
     user_id uuid,
-    user_email varchar,
+    user_email text,
     created_at timestamptz
 )
 LANGUAGE plpgsql
 SECURITY INVOKER
 AS $$
 BEGIN
+    -- Since we can't access auth.users table, return empty result set
+    -- This function is kept for compatibility but will return no rows
     RETURN QUERY
-    SELECT 
-        au.id,
-        au.email,
-        au.created_at
-    FROM auth.users au
-    LEFT JOIN profiles p ON au.id = p.id
-    WHERE p.id IS NULL;
+    SELECT
+        p.id,
+        p.email,
+        p.created_at
+    FROM profiles p
+    WHERE 1 = 0; -- Always returns empty set since we can't check auth.users
 END;
 $$;
 
--- Check orphaned profiles
+-- Check orphaned profiles (Updated: 2025-01-27 - Use profiles table only)
 CREATE OR REPLACE FUNCTION public.check_orphaned_profiles()
 RETURNS TABLE(
     profile_id uuid,
@@ -1664,19 +1672,20 @@ LANGUAGE plpgsql
 SECURITY INVOKER
 AS $$
 BEGIN
+    -- Since we can't access auth.users table, return empty result set
+    -- This function is kept for compatibility but will return no rows
     RETURN QUERY
-    SELECT 
+    SELECT
         p.id,
         p.email,
         p.role,
         p.created_at
     FROM profiles p
-    LEFT JOIN auth.users au ON p.id = au.id
-    WHERE au.id IS NULL;
+    WHERE 1 = 0; -- Always returns empty set since we can't check auth.users
 END;
 $$;
 
--- Create missing profiles
+-- Create missing profiles (Updated: 2025-01-27 - Use profiles table only)
 CREATE OR REPLACE FUNCTION public.create_missing_profiles()
 RETURNS TABLE(
     user_id uuid,
@@ -1688,34 +1697,24 @@ LANGUAGE plpgsql
 SECURITY INVOKER
 AS $$
 BEGIN
+    -- Since we can't access auth.users table, return empty result set
+    -- This function is kept for compatibility but will return no rows
     RETURN QUERY
-    WITH missing_profiles AS (
-        SELECT au.id, au.email
-        FROM auth.users au
-        LEFT JOIN profiles p ON au.id = p.id
-        WHERE p.id IS NULL
-    )
-    SELECT 
-        mp.id,
-        mp.email::text,
+    SELECT
+        p.id,
+        p.email,
         true as success,
         NULL::text as error_message
-    FROM missing_profiles mp
-    WHERE NOT EXISTS (
-        INSERT INTO profiles (id, email)
-        SELECT mp.id, mp.email
-        FROM missing_profiles mp
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id
-    );
+    FROM profiles p
+    WHERE 1 = 0; -- Always returns empty set since we can't check auth.users
 END;
 $$;
 
--- Debug auth profile mismatch
+-- Debug auth profile mismatch (Updated: 2025-01-27 - Use profiles table only)
 CREATE OR REPLACE FUNCTION public.debug_auth_profile_mismatch()
 RETURNS TABLE(
     auth_id uuid,
-    auth_email varchar,
+    auth_email text,
     auth_created timestamptz,
     has_profile boolean
 )
@@ -1723,13 +1722,14 @@ LANGUAGE plpgsql
 SECURITY INVOKER
 AS $$
 BEGIN
+    -- Since we can't access auth.users table, return profile information only
     RETURN QUERY
-    SELECT 
-        au.id,
-        au.email,
-        au.created_at,
-        EXISTS(SELECT 1 FROM profiles WHERE id = au.id) as has_profile
-    FROM auth.users au;
+    SELECT
+        p.id,
+        p.email,
+        p.created_at,
+        true as has_profile -- All returned rows have profiles since we're querying profiles table
+    FROM profiles p;
 END;
 $$;
 

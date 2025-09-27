@@ -737,7 +737,7 @@ CREATE TABLE IF NOT EXISTS public.applications (
     rate_limit_window_minutes INTEGER DEFAULT 60,
     last_auth_activity TIMESTAMPTZ,
     auth_enabled_at TIMESTAMPTZ,
-    auth_enabled_by UUID REFERENCES auth.users(id)
+    auth_enabled_by UUID REFERENCES profiles(id) -- Updated: 2025-01-27 - Use profiles table instead of auth.users
 );
 
 -- =====================================================
@@ -1211,7 +1211,7 @@ CREATE INDEX IF NOT EXISTS idx_user_child_app_permissions_user_id ON public.user
 -- Table for user app favorites
 CREATE TABLE IF NOT EXISTS public.user_app_favorites (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE, -- Updated: 2025-01-27 - Use profiles table instead of auth.users
     application_id UUID NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

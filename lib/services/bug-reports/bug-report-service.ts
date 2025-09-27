@@ -381,6 +381,23 @@ export class BugReportService {
       // Add user as participant if not already
       await this.addBugReportParticipant(payload.bug_report_id, user.id);
 
+      // Send notification to other participants
+      try {
+        await fetch(`/api/bug-reports/${payload.bug_report_id}/messages/notifications`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messageId: data.id,
+            senderId: user.id
+          })
+        });
+      } catch (notificationError) {
+        console.error('Failed to send notification:', notificationError);
+        // Don't fail the message sending if notification fails
+      }
+
       return data;
     } catch (error) {
       console.error('Error sending bug report message:', error);
@@ -489,6 +506,95 @@ export class BugReportService {
     } catch (error) {
       console.error('Error fetching departments:', error);
       throw error;
+    }
+  }
+
+  // Message read confirmation methods
+  static async markMessagesAsRead(
+    reportId: string,
+    messageIds?: string[],
+    markAllAsRead?: boolean
+  ): Promise<{ success: boolean; markedCount: number }> {
+    try {
+      const response = await fetch(`/api/bug-reports/${reportId}/messages/read`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messageIds,
+          markAllAsRead
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to mark messages as read');
+      }
+
+      const data = await response.json();
+      return {
+        success: data.success,
+        markedCount: data.markedCount || 0
+      };
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+      throw error;
+    }
+  }
+
+  static async getMessageReadStatus(
+    reportId: string,
+    messageId?: string
+  ): Promise<any> {
+    try {
+      const url = messageId
+        ? `/api/bug-reports/${reportId}/messages/read?messageId=${messageId}`
+        : `/api/bug-reports/${reportId}/messages/read`;
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error || `HTTP ${response.status}`;
+
+        if (response.status === 403) {
+          console.warn('Access denied to bug report read status:', errorMessage);
+          // Return default values instead of throwing
+          return messageId ? [] : { unreadCount: 0 };
+        }
+
+        throw new Error(`Failed to get read status: ${errorMessage}`);
+      }
+
+      const data = await response.json();
+      return messageId ? data.readBy : { unreadCount: data.unreadCount };
+    } catch (error) {
+      console.error('Error getting message read status:', error);
+
+      // If it's a network error or 403, return safe defaults
+      if (error instanceof Error && (
+        error.message.includes('403') ||
+        error.message.includes('Failed to fetch')
+      )) {
+        return messageId ? [] : { unreadCount: 0 };
+      }
+
+      throw error;
+    }
+  }
+
+  static async getUnreadMessageCount(reportId: string): Promise<number> {
+    try {
+      const result = await this.getMessageReadStatus(reportId);
+      return result.unreadCount || 0;
+    } catch (error) {
+      console.error('Error getting unread count:', error);
+      // If it's a 403 error (access denied), return 0 instead of throwing
+      if (error instanceof Error && error.message.includes('403')) {
+        return 0;
+      }
+      // For other errors, still return 0 but log more details
+      return 0;
     }
   }
 }

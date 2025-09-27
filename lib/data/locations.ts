@@ -94,7 +94,13 @@ const tamilNaduDistricts: District[] = [
       { id: 'erode_taluk', name: 'Erode' },
       { id: 'gobichettipalayam', name: 'Gobichettipalayam' },
       { id: 'sathyamangalam', name: 'Sathyamangalam' },
-      { id: 'perundurai', name: 'Perundurai' }
+      { id: 'perundurai', name: 'Perundurai' },
+      { id: 'Anthiyur', name: 'Anthiyur' },
+      { id: 'bhavani', name: 'Bhavani' },
+      { id: 'kodumudi', name: 'Kodumudi' },
+      { id: 'modakurichi', name: 'Modakurichi' },
+      { id: 'thalavadi', name: 'Thalavadi' },
+      { id: 'nambiyur', name: 'Nambiyur' }
     ]
   },
   {
@@ -182,7 +188,11 @@ const tamilNaduDistricts: District[] = [
       { id: 'namakkal_taluk', name: 'Namakkal' },
       { id: 'rasipuram', name: 'Rasipuram' },
       { id: 'tiruchengode', name: 'Tiruchengode' },
-      { id: 'paramathi_velur', name: 'Paramathi Velur' }
+      { id: 'paramathi_velur', name: 'Paramathi Velur' },
+      { id: 'mohanur', name: 'Mohanur' },
+      { id: 'kolli_hills', name: 'Kolli Hills' },
+      { id: 'senthamangalam', name: 'Senthamangalam' },
+      { id: 'kumarapalayam', name: 'Kumarapalayam' }
     ]
   },
   {

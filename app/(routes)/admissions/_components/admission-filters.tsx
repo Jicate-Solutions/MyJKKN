@@ -73,12 +73,22 @@ export function AdmissionFilter({
     async function fetchInstitutions() {
       try {
         setLoadingInstitutions(true);
+        // Check if user has admission role to bypass filtering
+        const shouldBypassFilter = profile?.role === 'super_admin' || profile?.role === 'admission';
+
+        console.log('Admission filter institution access check:', {
+          userId: profile?.id,
+          userRole: profile?.role,
+          shouldBypassFilter
+        });
+
         // Use the new getInstitutions method that respects user access
         const { data: institutionsData } =
           await OrganizationService.getInstitutions({
             isActive: true,
-            // Add current user context for filtering
-            userId: profile?.id
+            // Add current user context for filtering, but bypass for admission role
+            userId: shouldBypassFilter ? undefined : profile?.id,
+            bypassInstitutionFilter: shouldBypassFilter
           });
         // Map to the expected format
         const mappedInstitutions = institutionsData.map((inst) => ({
@@ -266,28 +276,6 @@ export function AdmissionFilter({
             className='flex-1 w-full'
           >
             Reset Filters
-          </Button>
-          {/* TEMPORARY TEST BUTTON */}
-          <Button
-            variant='destructive'
-            onClick={async () => {
-              const { AdmissionService } = await import(
-                '@/lib/services/admission/admission-service'
-              );
-              toast.promise(
-                AdmissionService.updateAdmissionStatus(
-                  'bd943f71-2f83-4c83-b6a7-44ddbb65d5ca',
-                  'approved'
-                ),
-                {
-                  loading: 'Approving test admission...',
-                  success: 'Test approval successful!',
-                  error: 'Test approval failed.'
-                }
-              );
-            }}
-          >
-            Test Approve
           </Button>
         </div>
       </div>

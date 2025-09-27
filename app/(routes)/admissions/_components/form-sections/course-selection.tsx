@@ -211,18 +211,22 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
     async function fetchInstitutions() {
       try {
         setLoadingInstitutions(true);
-        
+
         // Import auth utilities
-        const { createClientSupabaseClient } = await import('@/lib/supabase/client');
+        const { createClientSupabaseClient } = await import(
+          '@/lib/supabase/client'
+        );
         const supabase = createClientSupabaseClient();
-        
+
         // Get current user
-        const { data: { user } } = await supabase.auth.getUser();
-        
+        const {
+          data: { user }
+        } = await supabase.auth.getUser();
+
         // Check if user has admission role or is super admin
         // For admission role users, we want to show all institutions
         let shouldBypassUserFilter = false;
-        
+
         if (user) {
           // Get user profile to check role
           const { data: profile } = await supabase
@@ -230,28 +234,36 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
             .select('role')
             .eq('id', user.id)
             .single();
-            
+
           // Check if user has admission role or is super admin
-          shouldBypassUserFilter = profile?.role === 'super_admin' || profile?.role === 'admission';
-          
+          shouldBypassUserFilter =
+            profile?.role === 'super_admin' || profile?.role === 'admission';
+
           console.log('Course selection institution access check:', {
             userId: user.id,
             userRole: profile?.role,
             shouldBypassUserFilter
           });
         }
-        
+
         // Fetch institutions based on user role
         if (shouldBypassUserFilter) {
           // For admission role and super admin users, show all institutions
           const data = await OrganizationService.getInstitutionNames(true);
           setInstitutions(data);
-          console.log(`✅ Loaded ${data.length} institutions for admission role user`);
+          console.log(
+            `✅ Loaded ${data.length} institutions for admission role user`
+          );
         } else {
           // For other users, apply user-based filtering
-          const data = await OrganizationService.getInstitutionNames(true, user?.id);
+          const data = await OrganizationService.getInstitutionNames(
+            true,
+            user?.id
+          );
           setInstitutions(data);
-          console.log(`✅ Loaded ${data.length} institutions with user filtering`);
+          console.log(
+            `✅ Loaded ${data.length} institutions with user filtering`
+          );
         }
       } catch (error) {
         console.error('Error fetching institutions:', error);
@@ -274,12 +286,22 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           );
           setDegrees(data);
 
-          // Always reset dependent fields when institution changes
-          form.setValue('degreeId', '');
-          form.setValue('departmentId', '');
-          form.setValue('programId', '');
-          setDepartments([]);
-          setPrograms([]);
+          // Check if current degree is valid for the selected institution
+          const currentDegreeId = form.getValues('degreeId');
+          const currentDepartmentId = form.getValues('departmentId');
+          const currentProgramId = form.getValues('programId');
+
+          // Only reset if current values are invalid for the new institution
+          if (currentDegreeId) {
+            const isDegreeValid = data.some((d) => d.id === currentDegreeId);
+            if (!isDegreeValid) {
+              form.setValue('degreeId', '');
+              form.setValue('departmentId', '');
+              form.setValue('programId', '');
+              setDepartments([]);
+              setPrograms([]);
+            }
+          }
         } catch (error) {
           console.error('Error fetching degrees:', error);
           // Don't reset fields on error
@@ -299,6 +321,52 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
     }
   }, [institution_id, form]);
 
+  // Load dependent data when form has existing values (for edit mode)
+  useEffect(() => {
+    const currentDegreeId = form.getValues('degreeId');
+    const currentDepartmentId = form.getValues('departmentId');
+
+    // If we have a degree ID but no departments loaded, fetch departments
+    if (currentDegreeId && degrees.length > 0 && departments.length === 0) {
+      async function loadDepartments() {
+        try {
+          setLoadingDepartments(true);
+          const data = await DepartmentService.getDepartmentsByDegree(
+            currentDegreeId
+          );
+          setDepartments(data);
+        } catch (error) {
+          console.error('Error loading existing departments:', error);
+        } finally {
+          setLoadingDepartments(false);
+        }
+      }
+      loadDepartments();
+    }
+
+    // If we have a department ID but no programs loaded, fetch programs
+    if (
+      currentDepartmentId &&
+      departments.length > 0 &&
+      programs.length === 0
+    ) {
+      async function loadPrograms() {
+        try {
+          setLoadingPrograms(true);
+          const data = await ProgramService.getProgramsByDepartment(
+            currentDepartmentId
+          );
+          setPrograms(data);
+        } catch (error) {
+          console.error('Error loading existing programs:', error);
+        } finally {
+          setLoadingPrograms(false);
+        }
+      }
+      loadPrograms();
+    }
+  }, [degrees, departments, programs, form]);
+
   // Fetch departments when degree changes - apply similar logic
   useEffect(() => {
     if (degreeId) {
@@ -309,10 +377,21 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           const data = await DepartmentService.getDepartmentsByDegree(degreeId);
           setDepartments(data);
 
-          // Always reset dependent fields when degree changes
-          form.setValue('departmentId', '');
-          form.setValue('programId', '');
-          setPrograms([]);
+          // Check if current department is valid for the selected degree
+          const currentDepartmentId = form.getValues('departmentId');
+          const currentProgramId = form.getValues('programId');
+
+          // Only reset if current values are invalid for the new degree
+          if (currentDepartmentId) {
+            const isDepartmentValid = data.some(
+              (d) => d.id === currentDepartmentId
+            );
+            if (!isDepartmentValid) {
+              form.setValue('departmentId', '');
+              form.setValue('programId', '');
+              setPrograms([]);
+            }
+          }
         } catch (error) {
           console.error('Error fetching departments:', error);
           // Don't reset fields on error
@@ -343,8 +422,16 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
           );
           setPrograms(data);
 
-          // Always reset dependent field when department changes
-          form.setValue('programId', '');
+          // Check if current program is valid for the selected department
+          const currentProgramId = form.getValues('programId');
+
+          // Only reset if current value is invalid for the new department
+          if (currentProgramId) {
+            const isProgramValid = data.some((p) => p.id === currentProgramId);
+            if (!isProgramValid) {
+              form.setValue('programId', '');
+            }
+          }
         } catch (error) {
           console.error('Error fetching programs:', error);
           // Don't reset fields on error
@@ -470,7 +557,7 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
               <FormLabel>Admission Quota</FormLabel>
               <Select
                 onValueChange={field.onChange}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={field.disabled}
               >
                 <FormControl>
@@ -501,7 +588,7 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
               <FormLabel>Category</FormLabel>
               <Select
                 onValueChange={field.onChange}
-                defaultValue={field.value}
+                value={field.value || ''}
                 disabled={field.disabled}
               >
                 <FormControl>
@@ -510,11 +597,17 @@ export function CourseSelectionForm({ form }: CourseSelectionFormProps) {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value='GENERAL'>General</SelectItem>
-                  <SelectItem value='OBC'>OBC</SelectItem>
+                  <SelectItem value='GENERAL'>GENERAL</SelectItem>
+                  <SelectItem value='BC'>BC</SelectItem>
+                  <SelectItem value='BCM'>BCM</SelectItem>
+                  <SelectItem value='MBC'>MBC</SelectItem>
+                  <SelectItem value='DNC'>DNC</SelectItem>
+                  <SelectItem value='BC-CC'>BC-CC</SelectItem>
                   <SelectItem value='SC'>SC</SelectItem>
                   <SelectItem value='ST'>ST</SelectItem>
-                  <SelectItem value='OTHER'>Other</SelectItem>
+                  <SelectItem value='SCA'>SCA</SelectItem>
+                  <SelectItem value='MBC & DNC'>MBC & DNC</SelectItem>
+                  <SelectItem value='OC'>OC</SelectItem>
                 </SelectContent>
               </Select>
               <FormDescription>
