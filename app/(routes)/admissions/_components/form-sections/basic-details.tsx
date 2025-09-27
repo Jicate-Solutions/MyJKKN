@@ -45,12 +45,12 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
   // Calculate date 15 years ago for date of birth restrictions
   const fifteenYearsAgo = subYears(new Date(), 15);
 
-  // Religion options
+  // Religion options (values match database format - uppercase)
   const religionOptions = [
-    { value: 'Hindu', label: 'Hindu' },
-    { value: 'Christian', label: 'Christian' },
-    { value: 'Muslim', label: 'Muslim' },
-    { value: 'Others', label: 'Others' }
+    { value: 'HINDU', label: 'Hindu' },
+    { value: 'CHRISTIAN', label: 'Christian' },
+    { value: 'MUSLIM', label: 'Muslim' },
+    { value: 'OTHERS', label: 'Others' }
   ];
 
   // Community options
@@ -278,9 +278,9 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent className='max-h-60 overflow-y-auto'>
-                  <SelectItem value='male'>Male</SelectItem>
-                  <SelectItem value='female'>Female</SelectItem>
-                  <SelectItem value='other'>Other</SelectItem>
+                  <SelectItem value='MALE'>Male</SelectItem>
+                  <SelectItem value='FEMALE'>Female</SelectItem>
+                  <SelectItem value='OTHER'>Other</SelectItem>
                 </SelectContent>
               </Select>
               <FormMessage />
@@ -294,7 +294,7 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Religion</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value || ''}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder='Select religion' />
@@ -319,7 +319,7 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Community</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value || ''}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder='Select community' />
@@ -369,6 +369,27 @@ export function BasicDetailsForm({ form }: BasicDetailsFormProps) {
                   min={0}
                 />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='aadharNumber'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Aadhar Number</FormLabel>
+              <FormControl>
+                <Input
+                  {...field}
+                  placeholder='12-digit Aadhar number'
+                  maxLength={12}
+                  type='number'
+                  inputMode='numeric'
+                />
+              </FormControl>
+              <FormDescription>Must be exactly 12 digits</FormDescription>
               <FormMessage />
             </FormItem>
           )}

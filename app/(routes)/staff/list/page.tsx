@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,13 +19,15 @@ import { BeatLoader } from 'react-spinners';
 import { useStaff } from '@/hooks/staff/use-staff';
 import { StaffFilters } from './_components/staff-filters';
 import { StaffList } from './_components/staff-list';
+import { AdvancedSearch, SearchOptions } from './_components/advanced-search';
 import DownloadStaffTemplateButton from './_components/download-staff-template';
 import BulkUploadStaff from './_components/bulk-upload-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
-import { StaffFilters as StaffFiltersType } from '@/types/staff';
+import { StaffFilters as StaffFiltersType, Staff } from '@/types/staff';
+import { searchStaffMembers, debounce } from '@/lib/utils/search-utils';
 import { usePermissions } from '@/hooks/use-permissions';
-import { Plus, Users, AlertCircle } from 'lucide-react';
+import { Users, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -36,15 +38,28 @@ export default function StaffPage() {
     isLoading: permissionsLoading
   } = usePermissions();
 
-  // Simple filter state like student module
+  // Filter state for server-side filtering
   const [filters, setFilters] = useState<StaffFiltersType>({
-    search: '',
     category_id: '',
     institution_id: '',
     department_id: '',
     isActive: undefined,
     page: 1,
-    limit: 10
+    limit: 50 // Increase limit for better client-side search performance
+  });
+
+  // Search state for client-side advanced search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOptions, setSearchOptions] = useState<SearchOptions>({
+    searchFields: {
+      name: true,
+      email: true,
+      institutionEmail: true,
+      staffId: false,
+      designation: false,
+    },
+    caseSensitive: false,
+    exactMatch: false,
   });
 
   // Use the simplified staff hook
@@ -58,11 +73,34 @@ export default function StaffPage() {
 
   // Permission checks
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
-  const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
+  // const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
-  const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
+  // const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
 
-  // Simple filter change handler like student module
+  // Apply client-side search to staff data
+  const { filteredStaff, searchResults } = useMemo(() => {
+    const allStaff = staffData?.data || [];
+
+    if (!searchQuery.trim()) {
+      return {
+        filteredStaff: allStaff,
+        searchResults: {
+          results: allStaff,
+          highlightInfo: new Map(),
+          totalResults: allStaff.length,
+        }
+      };
+    }
+
+    const searchResults = searchStaffMembers(allStaff, searchQuery, searchOptions);
+
+    return {
+      filteredStaff: searchResults.results,
+      searchResults,
+    };
+  }, [staffData?.data, searchQuery, searchOptions]);
+
+  // Memoized filter change handler to prevent unnecessary re-renders
   const handleFilterChange = useCallback(
     (newFilters: Partial<StaffFiltersType>) => {
       setFilters((prev) => ({
@@ -88,6 +126,25 @@ export default function StaffPage() {
   const handleRefresh = useCallback(async () => {
     await refetch();
   }, [refetch]);
+
+  // Debounced search handler for performance
+  const debouncedSearch = useCallback(
+    debounce((query: string, options: SearchOptions) => {
+      setSearchQuery(query);
+      setSearchOptions(options);
+    }, 300),
+    []
+  );
+
+  // Handle search input
+  const handleSearch = useCallback((query: string, options: SearchOptions) => {
+    debouncedSearch(query, options);
+  }, [debouncedSearch]);
+
+  // Handle search clear
+  const handleSearchClear = useCallback(() => {
+    setSearchQuery('');
+  }, []);
 
   // Show loading while permissions are loading
   if (permissionsLoading) {
@@ -186,16 +243,40 @@ export default function StaffPage() {
               <BulkUploadStaffImages />
             </div>
 
+            {/* Advanced Search */}
+            {!isLoading && (
+              <div className="mb-6">
+                <AdvancedSearch
+                  onSearch={handleSearch}
+                  onClear={handleSearchClear}
+                  placeholder="Search staff by name, email, institution email..."
+                />
+              </div>
+            )}
+
             {/* Stats */}
             {!isLoading && staffData && (
               <div className='flex items-center gap-4 mb-6 p-4 bg-muted/50 rounded-lg'>
                 <div className='flex items-center gap-2'>
                   <Users className='h-4 w-4 text-muted-foreground' />
                   <span className='text-sm font-medium'>
-                    Total: {staffData.metadata?.total || 0} staff members
+                    {searchQuery ? (
+                      <>
+                        Found: {filteredStaff.length} of {staffData.metadata?.total || 0} staff members
+                      </>
+                    ) : (
+                      <>
+                        Total: {staffData.metadata?.total || 0} staff members
+                      </>
+                    )}
                   </span>
                 </div>
-                {staffData.metadata && staffData.metadata.total > 0 && (
+                {searchQuery && filteredStaff.length > 0 && (
+                  <Badge variant='default' className="bg-green-100 text-green-800 border-green-300">
+                    Search Active
+                  </Badge>
+                )}
+                {staffData.metadata && staffData.metadata.total > 0 && !searchQuery && (
                   <Badge variant='secondary'>
                     Page {staffData.metadata.page} of{' '}
                     {staffData.metadata.totalPages}
@@ -227,20 +308,39 @@ export default function StaffPage() {
             {/* Staff List */}
             {!isLoading && staffData && (
               <StaffList
-                staff={staffData.data || []}
+                staff={filteredStaff}
                 metadata={
-                  staffData.metadata || {
+                  searchQuery ? {
+                    total: filteredStaff.length,
+                    page: 1,
+                    limit: filteredStaff.length,
+                    totalPages: 1
+                  } : (staffData.metadata || {
                     total: 0,
                     page: 1,
                     limit: 10,
                     totalPages: 0
-                  }
+                  })
                 }
-                onPageChange={handlePageChange}
-                onPageSizeChange={handlePageSizeChange}
+                onPageChange={searchQuery ? () => {} : handlePageChange}
+                onPageSizeChange={searchQuery ? () => {} : handlePageSizeChange}
                 onRefresh={handleRefresh}
                 canEdit={canEditStaff}
               />
+            )}
+
+            {/* No Search Results */}
+            {!isLoading && searchQuery && filteredStaff.length === 0 && (
+              <div className="text-center py-12">
+                <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">No staff members found</h3>
+                <p className="text-muted-foreground mb-4">
+                  Try adjusting your search terms or search options
+                </p>
+                <Button variant="outline" onClick={handleSearchClear}>
+                  Clear Search
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>

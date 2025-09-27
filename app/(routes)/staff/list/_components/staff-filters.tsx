@@ -2,9 +2,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { useEffect, useState, memo } from 'react';
 import {
   Select,
   SelectContent,
@@ -12,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useDebounce } from '@/hooks/use-debounce';
 import { CategoryService } from '@/lib/services/staff/category-service';
 import { StaffFilters as StaffFilterType } from '@/types/staff';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
@@ -24,7 +21,7 @@ interface StaffFiltersProps {
   onFilterChange: (filters: Partial<StaffFilterType>) => void;
 }
 
-export function StaffFilters({ filters, onFilterChange }: StaffFiltersProps) {
+const StaffFiltersComponent = ({ filters, onFilterChange }: StaffFiltersProps) => {
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -61,29 +58,9 @@ export function StaffFilters({ filters, onFilterChange }: StaffFiltersProps) {
     loadData();
   }, [filters.institution_id]);
 
-  const debouncedSearch = useDebounce((value: string) => {
-    onFilterChange({ search: value });
-  }, 300);
-
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      debouncedSearch(e.target.value);
-    },
-    [debouncedSearch]
-  );
-
   return (
     <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 md:grid-cols-5'>
-        <div className='relative'>
-          <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            placeholder='Search staff...'
-            onChange={handleSearchChange}
-            defaultValue={filters.search}
-            className='pl-9'
-          />
-        </div>
+      <div className='grid gap-4 md:grid-cols-4'>
 
         <Select
           value={filters.category_id || 'all'}
@@ -152,4 +129,7 @@ export function StaffFilters({ filters, onFilterChange }: StaffFiltersProps) {
       </div>
     </div>
   );
-}
+};
+
+// Memoize the component to prevent unnecessary re-renders
+export const StaffFilters = memo(StaffFiltersComponent);

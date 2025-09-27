@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -38,6 +38,7 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import { CategoryService } from '@/lib/services/staff/category-service';
 
 import { DepartmentService } from '@/lib/services/organization/department-service';
+import { useAuth } from '@/hooks/use-auth';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { StaffImageUpload } from '@/components/ImageUpload/staff-image-upload';
 import { DateInput } from '@/components/ui/date-input';
@@ -84,7 +85,24 @@ interface StaffFormProps {
 
 export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const router = useRouter();
+  const { profile } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Create stable date strings to prevent hydration mismatches
+  const maxDate = useMemo(() => {
+    // Use a more stable approach for SSR compatibility
+    try {
+      const today = new Date();
+      // Force UTC to avoid timezone differences between server/client
+      const utcDate = new Date(today.getTime() + (today.getTimezoneOffset() * 60000));
+      return utcDate.toISOString().split('T')[0];
+    } catch {
+      // Fallback to a reasonable current date
+      return '2024-12-31';
+    }
+  }, []);
+
+  const minDate = '1900-01-01';
   const [initialProfilePicture, setInitialProfilePicture] = useState<
     string | undefined
   >(staff?.profile_picture);
@@ -140,20 +158,37 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   useEffect(() => {
     async function loadInitialData() {
       try {
+        // For HOD users, filter institutions based on their access
+        // For other roles, load based on their permissions
+        const institutionsPromise = profile?.role === 'hod'
+          ? OrganizationService.getInstitutionNames(true, profile.id)
+          : OrganizationService.getInstitutionNames(true);
+
         const [institutionsData, categoriesData] = await Promise.all([
-          OrganizationService.getInstitutionNames(true),
+          institutionsPromise,
           CategoryService.getCategories({ isActive: true })
         ]);
+
         setInstitutions(institutionsData);
         setCategories(categoriesData.data);
+
+        // For HOD users, automatically set their institution if they have only one
+        if (profile?.role === 'hod' && institutionsData.length === 1 && !isEditing) {
+          form.setValue('institution_id', institutionsData[0].id);
+        }
+
         setIsInitialLoad(false);
       } catch (error) {
         console.error('Error loading initial data:', error);
         toast.error('Failed to load initial data');
       }
     }
-    loadInitialData();
-  }, []);
+
+    // Only load data when we have a profile to prevent hydration mismatches
+    if (profile) {
+      loadInitialData();
+    }
+  }, [profile, form, isEditing]);
 
   // Separate useEffect for loading departments when institution changes
   useEffect(() => {
@@ -282,7 +317,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-8'>
+      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-8' suppressHydrationWarning>
         {/* Personal Information */}
         <div className='space-y-4'>
           <h2 className='text-lg font-semibold'>Personal Information</h2>
@@ -348,8 +383,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                     <DateInput
                       value={field.value}
                       onChange={field.onChange}
-                      max={new Date().toISOString().split('T')[0]}
-                      min='1900-01-01'
+                      max={maxDate}
+                      min={minDate}
                     />
                   </FormControl>
                   <FormMessage />
@@ -590,8 +625,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                     <DateInput
                       value={field.value}
                       onChange={field.onChange}
-                      max={new Date().toISOString().split('T')[0]}
-                      min='1900-01-01'
+                      max={maxDate}
+                      min={minDate}
                     />
                   </FormControl>
                   <FormMessage />
@@ -644,7 +679,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Institution</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={profile?.role === 'hod'} // HOD users can only create in their institution
+                  >
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder='Select institution' />
@@ -659,6 +698,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                     </SelectContent>
                   </Select>
                   <FormMessage />
+                  {profile?.role === 'hod' && (
+                    <p className="text-xs text-muted-foreground">
+                      As HOD, you can only create staff in your institution
+                    </p>
+                  )}
                 </FormItem>
               )}
             />
@@ -688,6 +732,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                     </SelectContent>
                   </Select>
                   <FormMessage />
+                  {profile?.role === 'hod' && departments.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      You can create staff for any department in your institution
+                    </p>
+                  )}
                 </FormItem>
               )}
             />

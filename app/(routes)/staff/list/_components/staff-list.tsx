@@ -2,10 +2,10 @@
 
 'use client';
 
-import { useMemo, useCallback, useState } from 'react';
+import { useMemo, useCallback, useState, memo } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { MoreVertical, Edit, Trash2, FileText, Plus } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, FileText, Plus, Copy } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Staff } from '@/types/staff';
 import { StaffService } from '@/lib/services/staff/staff-service';
@@ -48,7 +48,7 @@ interface StaffListProps {
   paginationLoading?: boolean;
 }
 
-export function StaffList({
+const StaffListComponent = ({
   staff,
   metadata,
   onPageChange,
@@ -56,7 +56,7 @@ export function StaffList({
   onRefresh,
   canEdit = false,
   paginationLoading
-}: StaffListProps) {
+}: StaffListProps) => {
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
@@ -134,13 +134,69 @@ export function StaffList({
     return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
   };
 
+  // Copy email to clipboard
+  const copyToClipboard = useCallback(
+    async (email: string, type: 'personal' | 'institution') => {
+      try {
+        await navigator.clipboard.writeText(email);
+        toast.success(
+          `${
+            type === 'personal' ? 'Personal' : 'Institution'
+          } email copied to clipboard!`
+        );
+      } catch (error) {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = email;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        toast.success(
+          `${
+            type === 'personal' ? 'Personal' : 'Institution'
+          } email copied to clipboard!`
+        );
+      }
+    },
+    []
+  );
+
+  // Email display component with copy functionality
+  const EmailWithCopy = useCallback(
+    ({ email, type }: { email: string; type: 'personal' | 'institution' }) => {
+      if (!email) return <span className='text-muted-foreground'>-</span>;
+
+      return (
+        <div className='flex items-center gap-1 min-w-0'>
+          <span className='text-sm truncate flex-1' title={email}>
+            {email}
+          </span>
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-6 w-6 p-0 hover:bg-muted flex-shrink-0'
+            onClick={(e) => {
+              e.stopPropagation();
+              copyToClipboard(email, type);
+            }}
+            title={`Copy ${type} email`}
+          >
+            <Copy className='h-3 w-3' />
+          </Button>
+        </div>
+      );
+    },
+    [copyToClipboard]
+  );
+
   // Define columns for the data table
   const columns: PermissionColumnDef<Staff, any>[] = useMemo(
     () => [
       {
         id: 'staff',
         header: 'Staff',
-        size: 250, // Set fixed width
+        size: 100, // Set fixed width
         cell: ({ row }) => {
           const staff = row.original;
           return canViewStaff ? (
@@ -158,8 +214,8 @@ export function StaffList({
                 <span className='font-medium truncate'>
                   {staff.first_name} {staff.last_name}
                 </span>
-                <span className='text-sm text-muted-foreground truncate'>
-                  {staff.email}
+                <span className='text-xs text-muted-foreground truncate'>
+                  {staff.staff_id || 'No ID'}
                 </span>
               </div>
             </Link>
@@ -176,7 +232,7 @@ export function StaffList({
                   {staff.first_name} {staff.last_name}
                 </span>
                 <span className='text-xs text-muted-foreground truncate'>
-                  {staff.email}
+                  {staff.staff_id || 'No ID'}
                 </span>
               </div>
             </div>
@@ -184,11 +240,14 @@ export function StaffList({
         }
       },
       {
-        id: 'staff_id',
-        accessorKey: 'staff_id',
-        header: 'Staff ID',
+        id: 'institution_email',
+        header: 'Institution Email',
+        size: 120,
         cell: ({ row }) => {
-          return row.getValue('staff_id') || 'N/A';
+          const staff = row.original;
+          return (
+            <EmailWithCopy email={staff.institution_email} type='institution' />
+          );
         }
       },
       {
@@ -318,7 +377,13 @@ export function StaffList({
         enableHiding: false
       }
     ],
-    [canViewStaff, canEditStaff, canDeleteStaff, handleSingleDelete]
+    [
+      canViewStaff,
+      canEditStaff,
+      canDeleteStaff,
+      handleSingleDelete,
+      EmailWithCopy
+    ]
   );
 
   // Create table tools (action buttons)
@@ -363,7 +428,7 @@ export function StaffList({
       <DataTable
         columns={columns}
         data={staff}
-        searchPlaceholder='Search staff...'
+        searchPlaceholder='Search staff by name or email...'
         filterColumn='email'
         permissions={{
           module: 'staff',
@@ -428,4 +493,7 @@ export function StaffList({
       </AlertDialog>
     </>
   );
-}
+};
+
+// Memoize the component to prevent unnecessary re-renders
+export const StaffList = memo(StaffListComponent);

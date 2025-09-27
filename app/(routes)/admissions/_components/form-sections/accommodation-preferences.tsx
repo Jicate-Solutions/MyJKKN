@@ -61,11 +61,11 @@ export function AccommodationPreferencesForm({
 
   // Reset dependent fields when selection changes
   useEffect(() => {
-    if (accommodationType === 'hostel') {
+    if (accommodationType === 'HOSTEL') {
       form.setValue('busRequired', undefined);
       form.setValue('busRoute', undefined);
       form.setValue('busPickupLocation', undefined);
-    } else if (accommodationType === 'day_scholar') {
+    } else if (accommodationType === 'DAY SCHOLAR') {
       form.setValue('hostelType', undefined);
     }
   }, [accommodationType, form]);
@@ -83,12 +83,10 @@ export function AccommodationPreferencesForm({
     }
   }, [busRoute, form]);
 
-  // Hostel type options
+  // Hostel type options (values match database format - uppercase)
   const hostelTypeOptions = [
-    { value: 'AC Hostel', label: 'AC Hostel' },
-    { value: 'Non-AC Hostel', label: 'Non-AC Hostel' },
-    { value: 'Single Occupancy', label: 'Single Occupancy' },
-    { value: 'Shared Occupancy', label: 'Shared Occupancy' }
+    { value: 'AC HOSTEL', label: 'AC Hostel' },
+    { value: 'NON-AC HOSTEL', label: 'Non-AC Hostel' }
   ];
 
   // Bus route options
@@ -140,14 +138,14 @@ export function AccommodationPreferencesForm({
     }
   };
 
-  // Reference type options
+  // Reference type options (values match database format - uppercase)
   const referenceTypeOptions = [
-    { value: 'Direct Application', label: 'Direct Application' },
-    { value: 'JKKN Staff', label: 'JKKN Staff' },
-    { value: 'Current/Former Student', label: 'Current/Former Student' },
-    { value: 'Educational Consultant', label: 'Educational Consultant' },
-    { value: 'Social Media', label: 'Social Media' },
-    { value: 'Others', label: 'Others' }
+    { value: 'DIRECT APPLICATION', label: 'Direct Application' },
+    { value: 'JKKN STAFF', label: 'JKKN Staff' },
+    { value: 'CURRENT/FORMER STUDENT', label: 'Current/Former Student' },
+    { value: 'EDUCATIONAL CONSULTANT', label: 'Educational Consultant' },
+    { value: 'SOCIAL MEDIA', label: 'Social Media' },
+    { value: 'OTHERS', label: 'Others' }
   ];
 
   return (
@@ -171,15 +169,15 @@ export function AccommodationPreferencesForm({
               <FormControl>
                 <RadioGroup
                   onValueChange={field.onChange}
-                  defaultValue={field.value}
+                  value={field.value || ''}
                   className='flex flex-col space-y-1'
                 >
                   <div className='flex items-center space-x-2'>
-                    <RadioGroupItem value='hostel' id='hostel' />
+                    <RadioGroupItem value='HOSTEL' id='hostel' />
                     <Label htmlFor='hostel'>Hostel</Label>
                   </div>
                   <div className='flex items-center space-x-2'>
-                    <RadioGroupItem value='day_scholar' id='day_scholar' />
+                    <RadioGroupItem value='DAY SCHOLAR' id='day_scholar' />
                     <Label htmlFor='day_scholar'>Day Scholar</Label>
                   </div>
                 </RadioGroup>
@@ -189,7 +187,7 @@ export function AccommodationPreferencesForm({
           )}
         />
 
-        {accommodationType === 'hostel' && (
+        {accommodationType === 'HOSTEL' && (
           <FormField
             control={form.control}
             name='hostelType'
@@ -198,7 +196,7 @@ export function AccommodationPreferencesForm({
                 <FormLabel>Hostel Type</FormLabel>
                 <Select
                   onValueChange={field.onChange}
-                  defaultValue={field.value}
+                  value={field.value || ''}
                 >
                   <FormControl>
                     <SelectTrigger>
@@ -222,7 +220,7 @@ export function AccommodationPreferencesForm({
           />
         )}
 
-        {accommodationType === 'day_scholar' && (
+        {accommodationType === 'DAY SCHOLAR' && (
           <>
             <FormField
               control={form.control}
@@ -235,9 +233,9 @@ export function AccommodationPreferencesForm({
                       onValueChange={(value) =>
                         field.onChange(value === 'true')
                       }
-                      defaultValue={
+                      value={
                         field.value === undefined
-                          ? undefined
+                          ? ''
                           : field.value
                           ? 'true'
                           : 'false'
@@ -269,7 +267,7 @@ export function AccommodationPreferencesForm({
                       <FormLabel>Bus Route</FormLabel>
                       <Select
                         onValueChange={field.onChange}
-                        defaultValue={field.value}
+                        value={field.value || ''}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -301,7 +299,7 @@ export function AccommodationPreferencesForm({
                         <FormLabel>Pickup Location</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value || ''}
                         >
                           <FormControl>
                             <SelectTrigger>
@@ -332,6 +330,34 @@ export function AccommodationPreferencesForm({
           </>
         )}
 
+        <FormField
+          control={form.control}
+          name='foodType'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Food Type</FormLabel>
+              <Select
+                onValueChange={field.onChange}
+                value={field.value || ''}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select food type' />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value='VEG'>Vegetarian</SelectItem>
+                  <SelectItem value='NON-VEG'>Non-Vegetarian</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                Select your dietary preference
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         <div className='pt-4 border-t border-border'>
           <FormField
             control={form.control}
@@ -341,7 +367,7 @@ export function AccommodationPreferencesForm({
                 <FormLabel>How did you hear about us?</FormLabel>
                 <Select
                   onValueChange={field.onChange}
-                  defaultValue={field.value}
+                  value={field.value || ''}
                 >
                   <FormControl>
                     <SelectTrigger>
@@ -361,7 +387,7 @@ export function AccommodationPreferencesForm({
             )}
           />
 
-          {referenceType && referenceType !== 'direct' && (
+          {referenceType && referenceType !== 'DIRECT APPLICATION' && (
             <>
               <div className='grid grid-cols-1 md:grid-cols-2 gap-6 mt-4'>
                 <FormField

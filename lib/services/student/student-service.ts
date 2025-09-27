@@ -980,19 +980,19 @@ export class StudentService {
         first_name: admission.first_name,
         last_name: admission.last_name,
         father_name: admission.father_name,
-        father_occupation: admission.father_occupation || '',
+        father_occupation: admission.father_occupation || 'Not Specified',
         father_mobile: admission.father_mobile || '',
         mother_name: admission.mother_name,
-        mother_occupation: admission.mother_occupation || '',
-        mother_mobile: admission.mother_mobile || '',
+        mother_occupation: admission.mother_occupation || 'Not Specified',
+        mother_mobile: admission.mother_mobile,
         date_of_birth: formattedDateOfBirth, // Use the formatted date
-        gender: admission.gender || '',
-        religion: admission.religion || '',
-        community: admission.community || '',
+        gender: admission.gender,
+        religion: admission.religion,
+        community: admission.community,
         caste: admission.caste || '',
         annual_income: admission.annual_income || '',
-        last_school: admission.last_school || '',
-        board_of_study: admission.board_of_study || '',
+        last_school: admission.last_school,
+        board_of_study: admission.board_of_study,
         tenth_marks: tenthMarks || {
           max_marks: '',
           obtained_marks: '',
@@ -1008,6 +1008,8 @@ export class StudentService {
         medical_cutoff_marks: admission.medical_cutoff_marks || '',
         engineering_cutoff_marks: admission.engineering_cutoff_marks || '',
         neet_roll_number: admission.neet_roll_number || '',
+        neet_score: admission.neet_score || '',
+        aadhar_number: admission.aadhar_number || '',
         counseling_applied: counselingApplied,
         counseling_number: admission.counseling_number || '',
         first_graduate: firstGraduate,
@@ -1017,7 +1019,7 @@ export class StudentService {
         degree_id: admission.degree_id || null,
         department_id: admission.department_id || null,
         program_id: admission.program_id || null,
-        entry_type: admission.entry_type || '',
+        entry_type: admission.entry_type,
         permanent_address_street: admission.permanent_address_street || '',
         permanent_address_taluk: admission.permanent_address_taluk || '',
         permanent_address_district: admission.permanent_address_district || '',
@@ -1027,6 +1029,7 @@ export class StudentService {
         student_email: admission.student_email || '',
         accommodation_type: admission.accommodation_type || '',
         hostel_type: admission.hostel_type || '',
+        food_type: admission.food_type || '',
         bus_required: busRequired,
         bus_route: admission.bus_route || '',
         bus_pickup_location: admission.bus_pickup_location || '',
@@ -1035,8 +1038,9 @@ export class StudentService {
         reference_contact: admission.reference_contact || '',
         is_profile_complete: false,
         status: 'active', // Use a valid student_status enum value
-        semester_id: admission.semester_id || null,
-        section_id: admission.section_id || null
+        semester_id: null, // Will be set later during onboarding
+        section_id: null, // Will be set later during onboarding
+        academic_year_id: null // Will be set later during onboarding
       };
 
       // Create the student record

@@ -1,6 +1,7 @@
 // hooks/staff/use-staff.ts
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, UseQueryResult } from '@tanstack/react-query';
+import { useMemo, useCallback } from 'react';
 import {
   Staff,
   StaffFilters,
@@ -28,26 +29,65 @@ export const staffKeys = {
     [...staffKeys.all, 'dashboard-stats', filters] as const
 };
 
-// Get a list of staff with filters (follows student module pattern)
-export function useStaff(filters: StaffFilters = {}) {
+// Get a list of staff with filters and role-based optimization
+export function useStaff(filters: StaffFilters = {}): UseQueryResult<StaffListResponse, Error> {
   const { profile, isLoading: authLoading } = useAuth();
 
-  const queryFn = async () => {
+  // Create stable query key by serializing only the values that matter (no search - handled by DataTable)
+  const queryKey = useMemo(() => {
+    const stableFilters = {
+      category_id: filters.category_id || '',
+      institution_id: filters.institution_id || '',
+      department_id: filters.department_id || '',
+      isActive: filters.isActive,
+      page: filters.page || 1,
+      limit: filters.limit || 10
+    };
+
+    return [
+      'staff',
+      stableFilters,
+      profile?.role || '',
+      profile?.institution_id || ''
+    ];
+  }, [
+    filters.category_id,
+    filters.institution_id,
+    filters.department_id,
+    filters.isActive,
+    filters.page,
+    filters.limit,
+    profile?.role,
+    profile?.institution_id
+  ]);
+
+  const queryFn = useCallback(async () => {
     try {
-      return await StaffService.getStaff(filters);
+      // Use role-based filtering for better performance, especially for HOD users
+      return await StaffService.getStaffWithRoleBasedFiltering(filters, {
+        role: profile?.role || '',
+        department_id: profile?.department_id,
+        institution_id: profile?.institution_id,
+        is_super_admin: profile?.is_super_admin || false
+      });
     } catch (error) {
       console.error('[useStaff] Fetch Error:', error);
       throw new Error(
         'Failed to fetch staff. Please check the console for details.'
       );
     }
-  };
+  }, [filters, profile]);
 
   return useQuery({
-    queryKey: ['staff', filters],
+    queryKey,
     queryFn,
     // Simple enabled logic like student module
-    enabled: !authLoading && !!profile
+    enabled: !authLoading && !!profile,
+    // Keep previous data while fetching new data
+    keepPreviousData: true,
+    // Reduce refetch frequency
+    staleTime: 30000, // 30 seconds
+    cacheTime: 300000 // 5 minutes
   });
 }
 

@@ -58,6 +58,7 @@ export interface Profile {
   profile_completed: boolean;
   is_active: boolean;
   is_super_admin?: boolean;
+  is_pre_registered?: boolean;
   institution_id: string | null;
   department_id: string | null;
   institutions?: Institution | null;

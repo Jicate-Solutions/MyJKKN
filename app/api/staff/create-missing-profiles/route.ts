@@ -113,12 +113,8 @@ export async function POST() {
       throw profilesError;
     }
 
-    // Get existing auth users to avoid duplicates
-    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers();
-    const existingAuthEmails = new Set(
-      authUsers.users.map((user) => user.email)
-    );
-
+    // Since we can't access auth.users table, only check profiles
+    // We'll create profiles for staff that don't have them, and let Google OAuth handle auth
     const existingProfileEmails = new Set(existingProfiles.map((p) => p.email));
     const staffNeedingProfiles = staffWithoutProfiles.filter(
       (staff) => !existingProfileEmails.has(staff.institution_email)
@@ -127,7 +123,6 @@ export async function POST() {
     console.log(
       `Found ${staffNeedingProfiles.length} staff members needing profiles`
     );
-    console.log(`Existing auth users: ${existingAuthEmails.size}`);
     console.log(`Existing profiles: ${existingProfileEmails.size}`);
 
     const results = [];
@@ -136,7 +131,6 @@ export async function POST() {
     // Process each staff member
     for (const staff of staffNeedingProfiles) {
       try {
-        const tempPassword = generateTemporaryPassword();
         const fullName = `${staff.first_name} ${staff.last_name}`.trim();
 
         console.log(`Processing: ${fullName} (${staff.institution_email})`);
@@ -164,80 +158,36 @@ export async function POST() {
           continue; // Skip to next staff member
         }
 
-        let authUserId = null;
-        const authUserExists = existingAuthEmails.has(staff.institution_email);
+        // Generate a placeholder UUID for profile creation
+        // In OAuth-only system, profiles can exist without auth users initially
+        const profileId = crypto.randomUUID();
+        console.log(`Creating profile with placeholder ID: ${profileId}`);
 
-        if (authUserExists) {
-          // Find the existing auth user
-          const existingAuthUser = authUsers.users.find(
-            (user) => user.email === staff.institution_email
-          );
-          if (existingAuthUser) {
-            authUserId = existingAuthUser.id;
-            console.log(`Using existing auth user: ${authUserId}`);
-          } else {
-            throw new Error('Auth user found in list but not retrievable');
-          }
-        } else {
-          // Create new auth user
-          console.log(`Creating new auth user for: ${staff.institution_email}`);
-          const { data: authData, error: authError } =
-            await supabaseAdmin.auth.admin.createUser({
-              email: staff.institution_email,
-              password: tempPassword,
-              email_confirm: true,
-              user_metadata: {
-                full_name: fullName,
-                role: 'faculty',
-                phone_number: staff.phone,
-                institution_id: staff.institution_id
-              }
-            });
+        // Create profile with placeholder ID for OAuth-only system
+        console.log(`Creating profile for user: ${profileId}`);
 
-          if (authError) {
-            throw authError;
-          }
-
-          authUserId = authData.user.id;
-          console.log(`Created new auth user: ${authUserId}`);
-        }
-
-        // Always try to create profile (since we filtered out existing ones)
-        console.log(`Creating profile for user: ${authUserId}`);
-
-        // Use upsert instead of insert to handle race conditions
+        // Use insert with generated UUID and set is_pre_registered = true
         const { data: profileData, error: profileError } = await supabaseAdmin
           .from('profiles')
-          .upsert(
-            {
-              id: authUserId,
-              email: staff.institution_email,
-              full_name: fullName,
-              role: 'faculty',
-              phone_number: staff.phone,
-              institution_id: staff.institution_id,
-              is_active: true,
-              profile_completed: 'false'
-            },
-            {
-              onConflict: 'id' // Handle conflicts on id column
-            }
-          )
+          .insert({
+            id: profileId,
+            email: staff.institution_email,
+            full_name: fullName,
+            role: 'faculty',
+            phone_number: staff.phone,
+            institution_id: staff.institution_id,
+            is_active: true,
+            profile_completed: 'false',
+            is_pre_registered: true // Set to true to bypass auth user validation
+          })
           .select()
           .single();
 
         if (profileError) {
           console.error(
-            `Profile upsert error for ${staff.institution_email}:`,
+            `Profile insert error for ${staff.institution_email}:`,
             profileError
           );
-          // Only clean up auth user if we created it
-          if (!authUserExists) {
-            console.log(
-              `Cleaning up auth user ${authUserId} due to profile error`
-            );
-            await supabaseAdmin.auth.admin.deleteUser(authUserId);
-          }
           throw profileError;
         }
 
@@ -247,11 +197,9 @@ export async function POST() {
           staff_id: staff.id,
           email: staff.institution_email,
           full_name: fullName,
-          user_id: authUserId,
-          temp_password: authUserExists
-            ? 'Using existing password'
-            : tempPassword,
-          auth_user_existed: authUserExists,
+          user_id: profileId,
+          temp_password: 'OAuth-only system - no password needed',
+          auth_user_existed: false,
           success: true
         });
       } catch (error) {

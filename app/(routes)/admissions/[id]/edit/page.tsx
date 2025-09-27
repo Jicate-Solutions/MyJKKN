@@ -14,6 +14,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Admission } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
+import { indianStates, getDistrictsByState, getTaluksByDistrict } from '@/lib/data/locations';
 
 export default function EditAdmissionPage() {
   const params = useParams();
@@ -46,6 +47,33 @@ export default function EditAdmissionPage() {
   }, [permissionsLoading, isSuperAdmin, canAccess]);
 
   const admissionId = params.id as string;
+
+  // Helper functions to map database values to form IDs
+  const mapStateNameToId = (stateName: string): string => {
+    if (!stateName) return '';
+    const state = indianStates.find(s =>
+      s.name.toUpperCase() === stateName.toUpperCase()
+    );
+    return state?.id || '';
+  };
+
+  const mapDistrictNameToId = (stateId: string, districtName: string): string => {
+    if (!stateId || !districtName) return '';
+    const districts = getDistrictsByState(stateId);
+    const district = districts.find(d =>
+      d.name.toUpperCase() === districtName.toUpperCase()
+    );
+    return district?.id || '';
+  };
+
+  const mapTalukNameToId = (stateId: string, districtId: string, talukName: string): string => {
+    if (!stateId || !districtId || !talukName) return '';
+    const taluks = getTaluksByDistrict(stateId, districtId);
+    const taluk = taluks.find(t =>
+      t.name.toUpperCase() === talukName.toUpperCase()
+    );
+    return taluk?.id || '';
+  };
 
   useEffect(() => {
     // Only fetch data if the user has permission to edit admissions
@@ -190,6 +218,20 @@ export default function EditAdmissionPage() {
         console.log('Processed tenth marks:', tenthMarks);
         console.log('Processed twelfth marks:', twelfthMarks);
 
+        // Map location database names to form IDs
+        const stateId = mapStateNameToId(admissionData.permanent_address_state);
+        const districtId = mapDistrictNameToId(stateId, admissionData.permanent_address_district);
+        const talukId = mapTalukNameToId(stateId, districtId, admissionData.permanent_address_taluk);
+
+        console.log('Location mapping debug:', {
+          dbState: admissionData.permanent_address_state,
+          dbDistrict: admissionData.permanent_address_district,
+          dbTaluk: admissionData.permanent_address_taluk,
+          mappedStateId: stateId,
+          mappedDistrictId: districtId,
+          mappedTalukId: talukId
+        });
+
         // Map database fields to form fields with special handling for missing fields
         formattedData = {
           ...formattedData,
@@ -210,6 +252,7 @@ export default function EditAdmissionPage() {
           community: admissionData.community || '',
           caste: admissionData.caste || '',
           annualIncome: admissionData.annual_income || '',
+          aadharNumber: admissionData.aadhar_number || '',
 
           // Academic Information section with properly formatted marks
           lastSchool: admissionData.last_school || '',
@@ -238,6 +281,7 @@ export default function EditAdmissionPage() {
           medicalCutoffMarks: admissionData.medical_cutoff_marks || '',
           engineeringCutoffMarks: admissionData.engineering_cutoff_marks || '',
           neetRollNumber: admissionData.neet_roll_number || '',
+          neetScore: admissionData.neet_score || '',
 
           // Course Selection section
           fieldOfStudy: admissionData.field_of_study || '',
@@ -250,20 +294,20 @@ export default function EditAdmissionPage() {
           quota: admissionData.quota || '',
           category: admissionData.category || '',
 
-          // Contact Details section
+          // Contact Details section (using mapped location IDs)
           permanentAddressStreet: admissionData.permanent_address_street || '',
-          permanentAddressTaluk: admissionData.permanent_address_taluk || '',
-          permanentAddressDistrict:
-            admissionData.permanent_address_district || '',
+          permanentAddressTaluk: talukId,
+          permanentAddressDistrict: districtId,
           permanentAddressPinCode:
             admissionData.permanent_address_pin_code || '',
-          permanentAddressState: admissionData.permanent_address_state || '',
+          permanentAddressState: stateId,
           studentMobile: admissionData.student_mobile || '',
           studentEmail: admissionData.student_email || '',
 
           // Accommodation Preferences section
           accommodationType: admissionData.accommodation_type || '',
           hostelType: admissionData.hostel_type || '',
+          foodType: admissionData.food_type || '',
           busRequired: Boolean(admissionData.bus_required),
           busRoute: admissionData.bus_route || '',
           busPickupLocation: admissionData.bus_pickup_location || '',

@@ -540,7 +540,581 @@ export function AcademicInformationForm({
           </>
         );
 
-      // Add cases for other groups...
+      case 'pcbc': // Physics, Chemistry, Biology, Computer Science
+        return (
+          <>
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.physics'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Physics Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Physics marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.chemistry'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Chemistry Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Chemistry marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.biology'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Biology Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Biology marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.computerScience'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Computer Science Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Computer Science marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        );
+
+      case 'pcbn': // Physics, Chemistry, Biology, Nursing
+        return (
+          <>
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.physics'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Physics Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Physics marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.chemistry'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Chemistry Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Chemistry marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.biology'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Biology Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Biology marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.nursing'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Nursing Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Nursing marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        );
+
+      case 'pcmh': // Physics, Chemistry, Mathematics, Home Science
+        return (
+          <>
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.physics'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Physics Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Physics marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.chemistry'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Chemistry Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Chemistry marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.mathematics'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Mathematics Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Mathematics marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.homeScience'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Home Science Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Home Science marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        );
+
+      case 'cseca': // Computer Science, Economics, Commerce, Accountancy
+        return (
+          <>
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.computerScience'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Computer Science Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Computer Science marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.economics'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Economics Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Economics marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.commerce'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Commerce Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Commerce marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.accountancy'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Accountancy Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Accountancy marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        );
+
+      case 'heca': // History, Economics, Commerce, Accountancy
+        return (
+          <>
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.history'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>History Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='History marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.economics'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Economics Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Economics marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.commerce'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Commerce Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Commerce marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.accountancy'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Accountancy Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Accountancy marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        );
+
+      case 'seca': // Statistics, Economics, Commerce, Accountancy
+        return (
+          <>
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.statistics'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Statistics Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Statistics marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.economics'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Economics Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Economics marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.commerce'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Commerce Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Commerce marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.accountancy'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Accountancy Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Accountancy marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        );
+
+      case 'aa': // Accountancy & Auditing
+        return (
+          <>
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.accountancy'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Accountancy Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Accountancy marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.auditing'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Auditing Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Auditing marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.businessStudies'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Business Studies Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Business Studies marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='twelfthMarks.subjects.economics'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Economics Marks</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type='number'
+                      value={field.value || ''}
+                      onChange={(e) => field.onChange(e.target.value || '')}
+                      placeholder='Economics marks'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        );
+
+      case 'others': // Other Groups - allow custom subjects
       default:
         // For other groups, allow custom subjects
         return (
@@ -554,9 +1128,10 @@ export function AcademicInformationForm({
                   <FormControl>
                     <Input
                       {...field}
+                      type='number'
                       value={field.value || ''}
                       onChange={(e) => field.onChange(e.target.value || '')}
-                      placeholder='Subject name and marks'
+                      placeholder='Subject 1 marks'
                     />
                   </FormControl>
                   <FormMessage />
@@ -572,9 +1147,10 @@ export function AcademicInformationForm({
                   <FormControl>
                     <Input
                       {...field}
+                      type='number'
                       value={field.value || ''}
                       onChange={(e) => field.onChange(e.target.value || '')}
-                      placeholder='Subject name and marks'
+                      placeholder='Subject 2 marks'
                     />
                   </FormControl>
                   <FormMessage />
@@ -590,9 +1166,10 @@ export function AcademicInformationForm({
                   <FormControl>
                     <Input
                       {...field}
+                      type='number'
                       value={field.value || ''}
                       onChange={(e) => field.onChange(e.target.value || '')}
-                      placeholder='Subject name and marks'
+                      placeholder='Subject 3 marks'
                     />
                   </FormControl>
                   <FormMessage />
@@ -608,9 +1185,10 @@ export function AcademicInformationForm({
                   <FormControl>
                     <Input
                       {...field}
+                      type='number'
                       value={field.value || ''}
                       onChange={(e) => field.onChange(e.target.value || '')}
-                      placeholder='Subject name and marks'
+                      placeholder='Subject 4 marks'
                     />
                   </FormControl>
                   <FormMessage />
@@ -951,6 +1529,26 @@ export function AcademicInformationForm({
                       <Input
                         {...field}
                         placeholder='Enter NEET roll number if applicable'
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='neetScore'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>NEET Score</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type='number'
+                        min='0'
+                        max='720'
+                        placeholder='Enter NEET score out of 720'
                       />
                     </FormControl>
                     <FormMessage />

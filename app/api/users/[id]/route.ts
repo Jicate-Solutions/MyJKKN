@@ -414,7 +414,7 @@ export async function DELETE(
 
     if (
       profileError ||
-      !['super_admin', 'administrator'].includes(currentProfile.role)
+      !['super_admin', 'administrator', 'hod'].includes(currentProfile.role)
     ) {
       return NextResponse.json(
         { error: 'Insufficient permissions to delete users' },
@@ -425,7 +425,7 @@ export async function DELETE(
     // Check if trying to delete a super admin (only super admins can delete other super admins)
     const { data: targetUser } = await supabase
       .from('profiles')
-      .select('role, full_name, email')
+      .select('role, full_name, email, institution_id')
       .eq('id', id)
       .single();
 
@@ -439,7 +439,84 @@ export async function DELETE(
       );
     }
 
-    // First delete from auth.users table (this will cascade to profiles if properly configured)
+    // HOD role restrictions
+    if (currentProfile.role === 'hod') {
+      // HOD can only delete users from their own institution
+      if (targetUser?.institution_id !== currentProfile.institution_id) {
+        return NextResponse.json(
+          { error: 'HOD users can only delete users from their own institution' },
+          { status: 403 }
+        );
+      }
+
+      // HOD can only delete faculty and staff roles
+      if (!['faculty', 'staff'].includes(targetUser?.role || '')) {
+        return NextResponse.json(
+          { error: 'HOD users can only delete faculty or staff users' },
+          { status: 403 }
+        );
+      }
+    }
+
+    // First, check if this profile email matches any staff records and delete them
+    // Note: Staff records are linked to profiles through email matching, not foreign key
+    let staffRecords: { id: string; institution_email: string }[] | null = null;
+
+    // Get the profile email to find matching staff records
+    const { data: profileData, error: profileFetchError } = await supabaseAdmin
+      .from('profiles')
+      .select('email')
+      .eq('id', id)
+      .single();
+
+    if (!profileFetchError && profileData?.email) {
+      console.log(`Looking for staff records with institution_email: ${profileData.email}`);
+
+      const { data: staffData, error: staffQueryError } = await supabaseAdmin
+        .from('staff')
+        .select('id, institution_email')
+        .eq('institution_email', profileData.email);
+
+      staffRecords = staffData;
+
+      if (staffQueryError) {
+        console.error('Error checking for staff records:', staffQueryError);
+      } else {
+        console.log(`Found ${staffData?.length || 0} staff records matching email ${profileData.email}`);
+      }
+    } else {
+      console.log('Could not fetch profile email or profile not found');
+      if (profileFetchError) {
+        console.error('Profile fetch error:', profileFetchError);
+      }
+    }
+
+    if (staffRecords && staffRecords.length > 0) {
+      console.log(`Found ${staffRecords.length} staff record(s) referencing this profile, deleting them first`);
+
+      // Delete staff records that reference this profile
+      for (const staffRecord of staffRecords) {
+        const { error: staffDeleteError } = await supabaseAdmin
+          .from('staff')
+          .delete()
+          .eq('id', staffRecord.id);
+
+        if (staffDeleteError) {
+          console.error(`Error deleting staff record ${staffRecord.id}:`, staffDeleteError);
+          return NextResponse.json(
+            {
+              error: 'Failed to delete associated staff records',
+              details: staffDeleteError.message
+            },
+            { status: 500 }
+          );
+        } else {
+          console.log(`Successfully deleted staff record ${staffRecord.id}`);
+        }
+      }
+    }
+
+    // Now delete from auth.users table (this will cascade to profiles if properly configured)
     const { error: authDeleteError } =
       await supabaseAdmin.auth.admin.deleteUser(id);
 
@@ -497,7 +574,9 @@ export async function DELETE(
         target_user_id: id,
         target_email: targetUser?.email,
         target_role: targetUser?.role,
-        deleted_by_role: currentProfile?.role
+        deleted_by_role: currentProfile?.role,
+        staff_records_deleted: staffRecords?.length || 0,
+        staff_record_ids: staffRecords?.map(s => s.id) || []
       },
       institutionId: currentProfile?.institution_id,
       statusCode: 200

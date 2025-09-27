@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, PenSquare } from 'lucide-react';
+import { Loader2, PenSquare, ArrowLeft } from 'lucide-react';
 import type { Staff } from '@/types/staff';
 import {
   Breadcrumb,
@@ -132,14 +132,23 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
+        {/* Back Button */}
+
         <div className='flex justify-between items-center'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>
-              {staff.first_name} {staff.last_name}
-            </h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              Staff Details
-            </p>
+          <div className='flex items-center gap-4'>
+            <Button variant='outline' size='sm' asChild>
+              <Link href='/staff/list' className='flex items-center gap-2'>
+                <ArrowLeft className='h-4 w-4' />
+              </Link>
+            </Button>
+            <div className='flex flex-col'>
+              <h1 className='text-2xl font-bold py-1'>
+                {staff.first_name} {staff.last_name}
+              </h1>
+              <p className='text-sm sm:text-base text-muted-foreground'>
+                Staff Details
+              </p>
+            </div>
           </div>
           {canEditStaff ? (
             <Button asChild>

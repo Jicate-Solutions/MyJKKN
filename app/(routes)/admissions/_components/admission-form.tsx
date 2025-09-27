@@ -62,7 +62,8 @@ const basicDetailsSchema = z.object({
   religion: z.string().optional(),
   community: z.string().optional(),
   caste: z.string().optional(),
-  annualIncome: z.string().optional()
+  annualIncome: z.string().optional(),
+  aadharNumber: z.string().optional()
 });
 
 // Schema for academic information - ALL FIELDS ARE OPTIONAL
@@ -84,6 +85,7 @@ const academicInformationSchema = z.object({
   medicalCutoffMarks: z.string().optional(),
   engineeringCutoffMarks: z.string().optional(),
   neetRollNumber: z.string().optional(),
+  neetScore: z.string().optional(),
   counselingApplied: z.boolean().optional(),
   counselingNumber: z.string().optional(),
   firstGraduate: z.boolean().optional()
@@ -115,6 +117,7 @@ const contactDetailsSchema = z.object({
 const accommodationPreferencesSchema = z.object({
   accommodationType: z.string().optional(),
   hostelType: z.string().optional(),
+  foodType: z.string().optional(),
   busRequired: z.boolean().optional(),
   busRoute: z.string().optional(),
   busPickupLocation: z.string().optional(),
@@ -176,6 +179,40 @@ export function AdmissionForm({
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [activeTab]);
+
+  // Handle successful admission creation
+  useEffect(() => {
+    if (createAdmission.isSuccess) {
+      toast.success('Admission application submitted successfully');
+      router.push('/admissions');
+    }
+  }, [createAdmission.isSuccess, router]);
+
+  // Handle admission creation errors
+  useEffect(() => {
+    if (createAdmission.isError) {
+      toast.error(
+        `Failed to submit admission application: ${createAdmission.error?.message || 'Unknown error'}`
+      );
+    }
+  }, [createAdmission.isError, createAdmission.error]);
+
+  // Handle successful admission creation from draft
+  useEffect(() => {
+    if (createAdmissionFromDraft.isSuccess) {
+      toast.success('Admission application submitted successfully');
+      router.push('/admissions');
+    }
+  }, [createAdmissionFromDraft.isSuccess, router]);
+
+  // Handle admission creation from draft errors
+  useEffect(() => {
+    if (createAdmissionFromDraft.isError) {
+      toast.error(
+        `Failed to submit admission application: ${createAdmissionFromDraft.error?.message || 'Unknown error'}`
+      );
+    }
+  }, [createAdmissionFromDraft.isError, createAdmissionFromDraft.error]);
 
   // Helper function to ensure we have proper defaults for nested objects
   const ensureNestedDefaults = (data: any) => {
@@ -267,6 +304,7 @@ export function AdmissionForm({
           community: '',
           caste: '',
           annualIncome: '',
+          aadharNumber: '',
 
           // Academic Information
           lastSchool: '',
@@ -286,6 +324,7 @@ export function AdmissionForm({
           medicalCutoffMarks: '',
           engineeringCutoffMarks: '',
           neetRollNumber: '',
+          neetScore: '',
           counselingApplied: false,
           counselingNumber: '',
           firstGraduate: false,
@@ -311,6 +350,7 @@ export function AdmissionForm({
           // Accommodation Preferences
           accommodationType: '',
           hostelType: '',
+          foodType: '',
           busRequired: false,
           busRoute: '',
           busPickupLocation: '',
@@ -560,6 +600,7 @@ export function AdmissionForm({
       community: formatStringValue(data.community || ''),
       caste: formatStringValue(data.caste || ''),
       annual_income: data.annualIncome || '',
+      aadhar_number: data.aadharNumber || '',
 
       // Academic Information
       last_school: formatStringValue(data.lastSchool || ''),
@@ -585,6 +626,7 @@ export function AdmissionForm({
       medical_cutoff_marks: data.medicalCutoffMarks || '',
       engineering_cutoff_marks: data.engineeringCutoffMarks || '',
       neet_roll_number: data.neetRollNumber || '',
+      neet_score: data.neetScore || '',
       counseling_applied: data.counselingApplied || false,
       counseling_number: data.counselingNumber || '',
       first_graduate: data.firstGraduate || false,
@@ -626,6 +668,7 @@ export function AdmissionForm({
       // Accommodation Preferences
       accommodation_type: formatAccommodationType(data.accommodationType || ''),
       hostel_type: formatStringValue(data.hostelType || ''),
+      food_type: data.foodType || '',
       bus_required: data.busRequired || false,
       bus_route: formatStringValue(data.busRoute || ''),
       bus_pickup_location: formatStringValue(data.busPickupLocation || ''),
@@ -739,38 +782,10 @@ export function AdmissionForm({
         // Check if this is a conversion from draft to final
         if (savedAdmissionId) {
           // Convert draft to final submission
-          createAdmissionFromDraft.mutate(
-            { draftId: savedAdmissionId, data: formattedData },
-            {
-              onSuccess: (data) => {
-                toast.success('Admission application submitted successfully');
-                // Redirect to the admissions list page
-                router.push('/admissions');
-              },
-              onError: (error: Error) => {
-                console.error('Error converting draft to final admission:', error);
-                toast.error(
-                  `Failed to submit admission application: ${error.message}`
-                );
-              }
-            }
-          );
+          createAdmissionFromDraft.mutate({ draftId: savedAdmissionId, data: formattedData });
         } else {
           // Create new admission application (no draft exists)
-          createAdmission.mutate(formattedData, {
-            onSuccess: (data) => {
-              toast.success('Admission application submitted successfully');
-
-              // Redirect to the admissions list page
-              router.push('/admissions');
-            },
-            onError: (error: Error) => {
-              console.error('Error creating admission:', error);
-              toast.error(
-                `Failed to submit admission application: ${error.message}`
-              );
-            }
-          });
+          createAdmission.mutate(formattedData);
         }
       }
     } catch (error: any) {
@@ -798,7 +813,8 @@ export function AdmissionForm({
           'dateOfBirth',
           'gender',
           'religion',
-          'community'
+          'community',
+          'aadharNumber'
         ];
       case 'academic-information':
         return [
@@ -844,6 +860,7 @@ export function AdmissionForm({
       gender: 'Gender',
       religion: 'Religion',
       community: 'Community',
+      aadharNumber: 'Aadhar Number',
       lastSchool: 'Last School',
       boardOfStudy: 'Board of Study',
       'tenthMarks.maxMarks': 'Class 10 Maximum Marks',

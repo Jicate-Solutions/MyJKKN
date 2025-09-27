@@ -248,6 +248,19 @@ export function UserList({
         header: 'Status',
         cell: ({ row }) => {
           const user = row.original;
+
+          // Show pre-registered status if applicable
+          if (user.is_pre_registered) {
+            return (
+              <Badge
+                variant='outline'
+                className='whitespace-nowrap text-orange-600 border-orange-300'
+              >
+                Pre-registered
+              </Badge>
+            );
+          }
+
           return (
             <Badge
               variant={user.is_active ? 'default' : 'secondary'}

@@ -15,6 +15,7 @@ export interface Admission {
   community: string;
   caste: string;
   annual_income: string;
+  aadhar_number?: string;
   last_school: string;
   board_of_study: string;
   tenth_marks: {
@@ -32,6 +33,7 @@ export interface Admission {
   medical_cutoff_marks?: string;
   engineering_cutoff_marks?: string;
   neet_roll_number?: string;
+  neet_score?: string;
   counseling_applied: boolean;
   counseling_number?: string;
   first_graduate: boolean;
@@ -51,6 +53,7 @@ export interface Admission {
   student_email: string;
   accommodation_type: string;
   hostel_type?: string;
+  food_type?: string;
   bus_required?: boolean;
   bus_route?: string;
   bus_pickup_location?: string;

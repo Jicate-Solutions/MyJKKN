@@ -35,6 +35,8 @@ export interface Student {
   medical_cutoff_marks?: string;
   engineering_cutoff_marks?: string;
   neet_roll_number?: string;
+  neet_score?: string;
+  aadhar_number?: string;
   counseling_applied: boolean;
   counseling_number?: string;
   first_graduate: boolean;
@@ -57,6 +59,7 @@ export interface Student {
   student_email: string;
   accommodation_type: string;
   hostel_type?: string;
+  food_type?: string;
   bus_required?: boolean;
   bus_route?: string;
   bus_pickup_location?: string;
@@ -143,6 +146,8 @@ export const studentSchema = z.object({
   medical_cutoff_marks: z.string().optional(),
   engineering_cutoff_marks: z.string().optional(),
   neet_roll_number: z.string().optional(),
+  neet_score: z.string().optional(),
+  aadhar_number: z.string().optional(),
   counseling_applied: z.boolean().optional(),
   counseling_number: z.string().optional(),
   first_graduate: z.boolean().optional(),
@@ -162,6 +167,7 @@ export const studentSchema = z.object({
   student_email: z.string().optional(),
   accommodation_type: z.string().optional(),
   hostel_type: z.string().optional(),
+  food_type: z.string().optional(),
   bus_required: z.boolean().optional(),
   bus_route: z.string().optional(),
   bus_pickup_location: z.string().optional(),
