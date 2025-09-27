@@ -44,6 +44,7 @@
   "enabledMcpjsonServers": [
     "supabase",
     "sequential-thinking",
-    "memory"
+    "memory",
+    "actor-critic-thinking"
   ]
 }

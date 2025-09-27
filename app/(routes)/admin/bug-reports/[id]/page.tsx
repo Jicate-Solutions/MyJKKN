@@ -64,6 +64,7 @@ import {
   GraduationCap
 } from 'lucide-react';
 import { BugReportChat } from '../_components/bug-report-chat';
+import { ConsoleOutput } from '../_components/console-output';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const configs = {
@@ -404,35 +405,7 @@ export default function BugReportDetailsPage() {
 
               {/* Console Logs Card */}
               {report.console_logs && report.console_logs.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className='flex items-center gap-2'>
-                      <Terminal className='w-5 h-5' />
-                      Console Logs
-                      <Badge variant='outline' className='ml-2'>
-                        {report.console_logs.length}
-                      </Badge>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Accordion type='single' collapsible>
-                      <AccordionItem value='console-logs'>
-                        <AccordionTrigger className='text-sm'>
-                          View Console Output
-                        </AccordionTrigger>
-                        <AccordionContent>
-                          <div className='rounded-md bg-slate-950 dark:bg-slate-900 p-4 overflow-x-auto'>
-                            <pre className='text-xs text-slate-100 font-mono'>
-                              <code>
-                                {JSON.stringify(report.console_logs, null, 2)}
-                              </code>
-                            </pre>
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    </Accordion>
-                  </CardContent>
-                </Card>
+                <ConsoleOutput consoleLogs={report.console_logs} />
               )}
             </div>
 
