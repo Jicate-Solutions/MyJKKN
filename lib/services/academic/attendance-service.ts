@@ -1564,6 +1564,52 @@ export class AttendanceService {
     section_id?: string;
   }): Promise<AttendanceStudent[]> {
     try {
+      console.log('🎯 getStudentsForAttendance called with filters:', filters);
+
+      // First, check current user authentication and profile
+      const { data: { user }, error: authError } = await this.supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ Authentication error in getStudentsForAttendance:', authError);
+        throw new Error('User not authenticated');
+      }
+
+      console.log('✅ User authenticated:', user.id);
+
+      // Get current user's profile to understand RLS context
+      const { data: profileData, error: profileError } = await this.supabase
+        .from('profiles')
+        .select('id, role, institution_id, department_id, is_super_admin, email')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) {
+        console.error('❌ Error fetching user profile:', profileError);
+        throw new Error('Failed to fetch user profile');
+      }
+
+      console.log('📋 User profile:', {
+        id: profileData.id,
+        role: profileData.role,
+        institution_id: profileData.institution_id,
+        department_id: profileData.department_id,
+        is_super_admin: profileData.is_super_admin
+      });
+
+      // Check if user meets RLS policy requirements
+      const hasInstitutionAccess = profileData.institution_id === filters.institution_id;
+      const hasDepartmentAccess = profileData.department_id === filters.department_id;
+      const isSuperAdmin = profileData.is_super_admin === true;
+      const isPrivilegedRole = ['admission', 'administrator'].includes(profileData.role);
+
+      console.log('🔐 RLS Policy Check:', {
+        hasInstitutionAccess,
+        hasDepartmentAccess,
+        isSuperAdmin,
+        isPrivilegedRole,
+        userRole: profileData.role,
+        canAccess: isSuperAdmin || isPrivilegedRole || (hasInstitutionAccess && hasDepartmentAccess)
+      });
+
       let query = this.supabase
         .from('students')
         .select(
@@ -1607,19 +1653,48 @@ export class AttendanceService {
 
       query = query.order('roll_number', { ascending: true });
 
+      console.log('🔍 Executing students query with filters:', filters);
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Supabase query error:', error);
+        console.error('❌ Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        throw error;
+      }
+
+      console.log('✅ Query executed successfully, found students:', data?.length || 0);
+
+      if (!data || data.length === 0) {
+        console.warn('⚠️ No students found. This could be due to:');
+        console.warn('  1. RLS policy blocking access (check institution_id and department_id match)');
+        console.warn('  2. No students exist with the given filters');
+        console.warn('  3. All students are inactive');
+        console.warn('Current filter values:', filters);
+        console.warn('User profile values:', {
+          institution_id: profileData.institution_id,
+          department_id: profileData.department_id,
+          role: profileData.role
+        });
+      }
 
       // Transform the data to include student_name constructed from first_name and last_name
-      return (data || []).map((student: any) => ({
+      const transformedData = (data || []).map((student: any) => ({
         ...student,
         student_name:
           `${student.first_name || ''} ${student.last_name || ''}`.trim() ||
           'Unknown Student'
       })) as AttendanceStudent[];
+
+      console.log('📊 Returning transformed student data:', transformedData.length, 'students');
+      return transformedData;
     } catch (error) {
-      console.error('Error fetching students for attendance:', error);
+      console.error('💥 Error in getStudentsForAttendance:', error);
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       throw error;
     }
   }
