@@ -268,7 +268,7 @@ export default function StudentBillingDetailPage() {
         />
 
         {/* Header Section */}
-        <div className='flex flex-col space-y-4 sm:flex-row sm:justify-between sm:items-center sm:space-y-0'>
+        <div className='flex flex-col gap-4'>
           {/* Title and Back Button */}
           <div className='flex items-center gap-3'>
             <Button
@@ -280,18 +280,18 @@ export default function StudentBillingDetailPage() {
               <ArrowLeft className='h-4 w-4' />
             </Button>
             <div className='min-w-0 flex-1'>
-              <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100'>
+              <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate'>
                 {[student.first_name, student.last_name].filter(Boolean).join(' ') || 'N/A'}
               </h1>
-              <p className='text-sm text-muted-foreground mt-1'>
+              <p className='text-sm text-muted-foreground mt-1 hidden sm:block'>
                 Student billing information and transaction history
               </p>
             </div>
           </div>
 
-          {/* Schedule Bill Button - Only this button in header */}
+          {/* Schedule Bill Button - Full width on mobile */}
           {canCreateBills && (
-            <Button asChild className='shrink-0'>
+            <Button asChild className='w-full sm:w-auto sm:self-start'>
               <Link href={`/billing/schedule/new?student_id=${studentId}`}>
                 <Plus className='mr-2 h-4 w-4' />
                 Schedule Bill
@@ -309,10 +309,10 @@ export default function StudentBillingDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className='p-4 sm:p-6'>
-            <div className='flex flex-col lg:flex-row gap-6'>
+            <div className='flex flex-col space-y-6'>
               {/* Student Avatar and Basic Info */}
-              <div className='flex flex-col sm:flex-row lg:flex-col items-center lg:items-center space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-0 lg:space-y-4 lg:w-64 shrink-0'>
-                <Avatar className='h-20 w-20 sm:h-16 sm:w-16 lg:h-24 lg:w-24'>
+              <div className='flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6'>
+                <Avatar className='h-20 w-20 sm:h-16 sm:w-16'>
                   <AvatarFallback className='text-lg font-semibold bg-gradient-to-br from-blue-400 to-indigo-600 text-white'>
                     {[student.first_name, student.last_name]
                       .filter(Boolean)
@@ -320,26 +320,26 @@ export default function StudentBillingDetailPage() {
                       .join('')}
                   </AvatarFallback>
                 </Avatar>
-                <div className='text-center sm:text-left lg:text-center space-y-2'>
+                <div className='text-center sm:text-left space-y-2 flex-1'>
                   <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
                     {[student.first_name, student.last_name].filter(Boolean).join(' ') || 'N/A'}
                   </h3>
                   <p className='text-sm text-muted-foreground'>
                     Roll No: {student.roll_number || 'N/A'}
                   </p>
-                  <div className='flex flex-col items-center lg:items-center gap-2'>
-                    <a 
+                  <div className='flex flex-col sm:flex-row items-center sm:items-start gap-2 sm:gap-4'>
+                    <a
                       href={`mailto:${student.college_email}`}
-                      className='flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline'
+                      className='flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline break-all'
                     >
-                      <Mail className='h-3 w-3' />
-                      {student.college_email}
+                      <Mail className='h-3 w-3 shrink-0' />
+                      <span className='truncate'>{student.college_email}</span>
                     </a>
-                    <a 
+                    <a
                       href={`tel:${student.mobile_number}`}
                       className='flex items-center gap-2 text-sm text-green-600 hover:text-green-800 hover:underline'
                     >
-                      <Phone className='h-3 w-3' />
+                      <Phone className='h-3 w-3 shrink-0' />
                       {student.mobile_number}
                     </a>
                   </div>
@@ -347,77 +347,75 @@ export default function StudentBillingDetailPage() {
               </div>
 
               {/* Academic Information */}
-              <div className='flex-1'>
-                <div className='space-y-4'>
-                  <h4 className='font-semibold text-sm text-gray-700 dark:text-gray-300 uppercase tracking-wide border-b pb-2'>
-                    Academic Information
-                  </h4>
-                  <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                      <Building className='h-4 w-4 text-indigo-600 shrink-0' />
-                      <div className='min-w-0 flex-1'>
-                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                          Institution
-                        </p>
-                        <p className='text-sm text-muted-foreground truncate'>
-                          {student.institution?.name || 'N/A'}
-                        </p>
-                      </div>
+              <div className='space-y-4'>
+                <h4 className='font-semibold text-sm text-gray-700 dark:text-gray-300 uppercase tracking-wide border-b pb-2'>
+                  Academic Information
+                </h4>
+                <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <Building className='h-4 w-4 text-indigo-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Institution
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.institution?.name || 'N/A'}
+                      </p>
                     </div>
-                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                      <GraduationCap className='h-4 w-4 text-purple-600 shrink-0' />
-                      <div className='min-w-0 flex-1'>
-                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                          Degree
-                        </p>
-                        <p className='text-sm text-muted-foreground truncate'>
-                          {student.degree?.degree_name || 'N/A'}
-                        </p>
-                      </div>
+                  </div>
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <GraduationCap className='h-4 w-4 text-purple-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Degree
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.degree?.degree_name || 'N/A'}
+                      </p>
                     </div>
-                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                      <GraduationCap className='h-4 w-4 text-orange-600 shrink-0' />
-                      <div className='min-w-0 flex-1'>
-                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                          Department
-                        </p>
-                        <p className='text-sm text-muted-foreground truncate'>
-                          {student.department?.department_name || 'N/A'}
-                        </p>
-                      </div>
+                  </div>
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <GraduationCap className='h-4 w-4 text-orange-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Department
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.department?.department_name || 'N/A'}
+                      </p>
                     </div>
-                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                      <GraduationCap className='h-4 w-4 text-blue-600 shrink-0' />
-                      <div className='min-w-0 flex-1'>
-                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                          Program
-                        </p>
-                        <p className='text-sm text-muted-foreground truncate'>
-                          {student.program?.program_name || 'N/A'}
-                        </p>
-                      </div>
+                  </div>
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <GraduationCap className='h-4 w-4 text-blue-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Program
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.program?.program_name || 'N/A'}
+                      </p>
                     </div>
-                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                      <Calendar className='h-4 w-4 text-teal-600 shrink-0' />
-                      <div className='min-w-0 flex-1'>
-                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                          Current Semester
-                        </p>
-                        <p className='text-sm text-muted-foreground truncate'>
-                          {student.semester?.semester_name || 'N/A'}
-                        </p>
-                      </div>
+                  </div>
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <Calendar className='h-4 w-4 text-teal-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Current Semester
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.semester?.semester_name || 'N/A'}
+                      </p>
                     </div>
-                    <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
-                      <User className='h-4 w-4 text-green-600 shrink-0' />
-                      <div className='min-w-0 flex-1'>
-                        <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
-                          Section
-                        </p>
-                        <p className='text-sm text-muted-foreground truncate'>
-                          {student.section?.section_name || 'N/A'}
-                        </p>
-                      </div>
+                  </div>
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <User className='h-4 w-4 text-green-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Section
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.section?.section_name || 'N/A'}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -427,25 +425,25 @@ export default function StudentBillingDetailPage() {
         </Card>
 
         {/* Student Summary Cards */}
-        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
           <Card>
-            <CardContent className='p-4'>
+            <CardContent className='p-3 sm:p-4'>
               <div className='flex items-center justify-between'>
-                <div>
+                <div className='min-w-0 flex-1'>
                   <p className='text-sm text-muted-foreground'>Total Bills</p>
-                  <p className='text-2xl font-bold'>
+                  <p className='text-xl sm:text-2xl font-bold'>
                     {billingSummary.summary.total_bills}
                   </p>
                 </div>
-                <FileText className='h-8 w-8 text-blue-600' />
+                <FileText className='h-6 w-6 sm:h-8 sm:w-8 text-blue-600 shrink-0' />
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardContent className='p-4'>
+            <CardContent className='p-3 sm:p-4'>
               <div className='flex items-center justify-between'>
-                <div>
+                <div className='min-w-0 flex-1'>
                   <p className='text-sm text-muted-foreground'>
                     Net Paid Amount
                   </p>
@@ -469,7 +467,7 @@ export default function StudentBillingDetailPage() {
                     if (isFullyRefunded) {
                       return (
                         <div className='space-y-1'>
-                          <p className='text-2xl font-bold text-gray-500'>
+                          <p className='text-xl sm:text-2xl font-bold text-gray-500'>
                             {formatCurrency(0)}
                           </p>
                           <div className='text-xs space-y-1'>
@@ -492,7 +490,7 @@ export default function StudentBillingDetailPage() {
                     } else if (hasRefunds) {
                       return (
                         <div className='space-y-1'>
-                          <p className='text-2xl font-bold text-green-600'>
+                          <p className='text-xl sm:text-2xl font-bold text-green-600'>
                             {formatCurrency(netPaidAmount)}
                           </p>
                           <div className='text-xs text-muted-foreground space-y-1'>
@@ -513,7 +511,7 @@ export default function StudentBillingDetailPage() {
                       );
                     } else {
                       return (
-                        <p className='text-2xl font-bold text-green-600'>
+                        <p className='text-xl sm:text-2xl font-bold text-green-600'>
                           {formatCurrency(netPaidAmount)}
                         </p>
                       );
@@ -521,7 +519,7 @@ export default function StudentBillingDetailPage() {
                   })()}
                 </div>
                 <CreditCard
-                  className={`h-8 w-8 ${
+                  className={`h-6 w-6 sm:h-8 sm:w-8 shrink-0 ${
                     billingSummary.summary.paid_amount <= 0 &&
                     billingSummary.summary.refund_amount > 0
                       ? 'text-gray-500'
@@ -540,7 +538,7 @@ export default function StudentBillingDetailPage() {
               <DollarSign className='h-4 w-4 text-orange-600' />
             </CardHeader>
             <CardContent>
-              <div className='text-lg sm:text-2xl font-bold text-orange-600'>
+              <div className='text-xl sm:text-2xl font-bold text-orange-600'>
                 {formatCurrency(billingSummary.summary.outstanding_amount)}
               </div>
               <p className='text-xs text-muted-foreground'>Pending dues</p>
@@ -555,7 +553,7 @@ export default function StudentBillingDetailPage() {
               <TrendingDown className='h-4 w-4 text-red-600' />
             </CardHeader>
             <CardContent>
-              <div className='text-lg sm:text-2xl font-bold text-red-600'>
+              <div className='text-xl sm:text-2xl font-bold text-red-600'>
                 {formatCurrency(billingSummary.summary.overdue_amount)}
               </div>
               <p className='text-xs text-muted-foreground'>Past due date</p>
@@ -568,8 +566,8 @@ export default function StudentBillingDetailPage() {
           <CardContent className='p-0'>
             <Tabs defaultValue='bills' className='w-full'>
               {/* Tab Header with Filter */}
-              <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 sm:p-6 bg-gray-50 dark:bg-gray-800 border-b'>
-                <TabsList className='grid w-full sm:w-auto grid-cols-3 mb-4 sm:mb-0'>
+              <div className='flex flex-col gap-4 p-4 sm:p-6 bg-gray-50 dark:bg-gray-800 border-b'>
+                <TabsList className='grid w-full grid-cols-3'>
                   <TabsTrigger value='bills' className='text-xs sm:text-sm'>
                     Bills
                   </TabsTrigger>
@@ -584,26 +582,28 @@ export default function StudentBillingDetailPage() {
                   </TabsTrigger>
                 </TabsList>
 
-                <div className='flex items-center gap-2'>
-                  <Filter className='h-4 w-4 text-muted-foreground' />
-                  <Select
-                    value={billStatusFilter}
-                    onValueChange={setBillStatusFilter}
-                  >
-                    <SelectTrigger className='w-32 sm:w-40'>
-                      <SelectValue placeholder='Filter by status' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='all'>All Bills</SelectItem>
-                      <SelectItem value='paid'>Paid</SelectItem>
-                      <SelectItem value='unpaid'>Unpaid</SelectItem>
-                      <SelectItem value='partially_paid'>
-                        Partially Paid
-                      </SelectItem>
-                      <SelectItem value='overdue'>Overdue</SelectItem>
-                      <SelectItem value='cancelled'>Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-2'>
+                  <div className='flex items-center gap-2 flex-1'>
+                    <Filter className='h-4 w-4 text-muted-foreground shrink-0' />
+                    <Select
+                      value={billStatusFilter}
+                      onValueChange={setBillStatusFilter}
+                    >
+                      <SelectTrigger className='w-full sm:w-40'>
+                        <SelectValue placeholder='Filter by status' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='all'>All Bills</SelectItem>
+                        <SelectItem value='paid'>Paid</SelectItem>
+                        <SelectItem value='unpaid'>Unpaid</SelectItem>
+                        <SelectItem value='partially_paid'>
+                          Partially Paid
+                        </SelectItem>
+                        <SelectItem value='overdue'>Overdue</SelectItem>
+                        <SelectItem value='cancelled'>Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button
                     variant='outline'
                     size='sm'
@@ -617,23 +617,24 @@ export default function StudentBillingDetailPage() {
                         ? 'Refreshing...'
                         : 'Refresh billing data'
                     }
+                    className='w-full sm:w-auto'
                   >
                     <RefreshCw
                       className={`h-4 w-4 ${
                         isRefetchingSummary ? 'animate-spin' : ''
                       }`}
                     />
-                    {isRefetchingSummary && (
-                      <span className='ml-1 hidden sm:inline'>
-                        Refreshing...
-                      </span>
+                    {isRefetchingSummary ? (
+                      <span className='ml-2'>Refreshing...</span>
+                    ) : (
+                      <span className='ml-2 sm:hidden'>Refresh</span>
                     )}
                   </Button>
                 </div>
               </div>
 
               {/* Tab Content */}
-              <div className='p-4 sm:p-6'>
+              <div className='p-3 sm:p-6'>
                 <TabsContent value='bills' className='mt-0 space-y-4'>
                   <StudentBillsTable
                     bills={billingSummary.bills}

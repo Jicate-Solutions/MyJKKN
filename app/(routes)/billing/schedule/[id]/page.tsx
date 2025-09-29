@@ -13,7 +13,9 @@ import {
   RefreshCw,
   ArrowLeft,
   FileText,
-  Undo
+  Undo,
+  Percent,
+  CreditCard
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -39,6 +41,7 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
 import type { StudentBill } from '@/types/billing-schedule';
+import { formatCurrency as utilFormatCurrency } from '@/lib/utils';
 
 export default function StudentBillDetailPage() {
   const params = useParams();
@@ -87,10 +90,33 @@ export default function StudentBillDetailPage() {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR'
-    }).format(amount);
+    return utilFormatCurrency(amount, { showDecimals: true });
+  };
+
+  const calculatePaidAmount = (bill: StudentBill): number => {
+    if (!bill.receipt_items || bill.receipt_items.length === 0) return 0;
+
+    const totalPaid = bill.receipt_items.reduce(
+      (total, item) => total + item.amount_paid,
+      0
+    );
+
+    // Calculate total refunds for this bill
+    const totalRefunded = bill.receipt_items.reduce((refundSum, item) => {
+      if (item.receipt?.refunds) {
+        const processedRefunds = item.receipt.refunds
+          .filter((refund) => refund.approval_status === 'processed')
+          .reduce((sum, refund) => sum + refund.refund_amount, 0);
+        return refundSum + processedRefunds;
+      }
+      return refundSum;
+    }, 0);
+
+    return totalPaid - totalRefunded;
+  };
+
+  const calculateOutstanding = (bill: StudentBill): number => {
+    return bill.balance_amount || 0;
   };
 
   const formatDate = (dateString: string) => {
@@ -154,7 +180,7 @@ export default function StudentBillDetailPage() {
 
       <div className='space-y-6 mt-4'>
         {/* Header */}
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
+        <div className='flex flex-col gap-4 sm:justify-between sm:items-start'>
           <div className='flex items-center gap-4'>
             <Button variant='outline' size='sm' onClick={() => router.back()}>
               <ArrowLeft className='h-4 w-4' />
@@ -167,6 +193,31 @@ export default function StudentBillDetailPage() {
             </div>
           </div>
           <div className='flex flex-col sm:flex-row gap-2'>
+            {/* Quick Actions for Unpaid Bills */}
+            {bill.status !== 'paid' && bill.status !== 'cancelled' && (
+              <>
+                <Button
+                  variant='default'
+                  size='sm'
+                  onClick={() =>
+                    router.push(`/billing/receipts/new?bill_id=${billId}`)
+                  }
+                  className='bg-green-600 hover:bg-green-700'
+                >
+                  <CreditCard className='mr-2 h-4 w-4' /> Generate Receipt
+                </Button>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() =>
+                    router.push(`/billing/discounts/new?bill_id=${billId}`)
+                  }
+                >
+                  <Percent className='mr-2 h-4 w-4' /> Apply Discount
+                </Button>
+              </>
+            )}
+
             {canEditBills && (
               <Button variant='outline' asChild>
                 <Link href={`/billing/schedule/${billId}/edit`}>
@@ -257,44 +308,64 @@ export default function StudentBillDetailPage() {
                   </div>
                   <div>
                     <label className='text-sm font-medium text-muted-foreground'>
-                      Email
+                      Institution Email
                     </label>
-                    <p className='font-medium'>{bill.student?.college_email}</p>
+                    <p className='font-medium'>
+                      {bill.student?.college_email || 'N/A'}
+                    </p>
                   </div>
                   <div>
                     <label className='text-sm font-medium text-muted-foreground'>
                       Mobile
                     </label>
                     <p className='font-medium'>
-                      {bill.student?.student_mobile}
+                      {bill.student?.student_mobile || 'N/A'}
                     </p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Institution Information */}
+            {/* Academic Information */}
             <Card>
               <CardHeader>
                 <CardTitle className='flex items-center gap-2'>
                   <Building className='h-5 w-5' />
-                  Institution Information
+                  Academic Information
                 </CardTitle>
               </CardHeader>
               <CardContent className='space-y-4'>
                 <div className='grid grid-cols-2 gap-4'>
                   <div>
                     <label className='text-sm font-medium text-muted-foreground'>
-                      Institution Name
+                      Institution
                     </label>
-                    <p className='font-medium'>{bill.institution?.name}</p>
+                    <p className='font-medium'>
+                      {bill.institution?.name || 'N/A'}
+                    </p>
                   </div>
                   <div>
                     <label className='text-sm font-medium text-muted-foreground'>
-                      Counselling Code
+                      Degree
                     </label>
                     <p className='font-medium'>
-                      {bill.institution?.counselling_code}
+                      {bill.student?.degree?.degree_name || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className='text-sm font-medium text-muted-foreground'>
+                      Department
+                    </label>
+                    <p className='font-medium'>
+                      {bill.student?.department?.department_name || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className='text-sm font-medium text-muted-foreground'>
+                      Semester
+                    </label>
+                    <p className='font-medium'>
+                      {bill.student?.semester?.semester_name || 'N/A'}
                     </p>
                   </div>
                 </div>
@@ -315,7 +386,7 @@ export default function StudentBillDetailPage() {
                     Item Category
                   </label>
                   <p className='font-medium'>
-                    {bill.item_category?.item_category_name}
+                    {bill.item_category?.item_category_name || 'N/A'}
                   </p>
                   {bill.item_category?.parent_category && (
                     <p className='text-sm text-muted-foreground'>
@@ -324,13 +395,15 @@ export default function StudentBillDetailPage() {
                     </p>
                   )}
                 </div>
-                <div>
-                  <label className='text-sm font-medium text-muted-foreground'>
-                    Description
-                  </label>
-                  <p className='font-medium'>{bill.bill_description}</p>
-                </div>
                 <div className='grid grid-cols-2 gap-4'>
+                  <div>
+                    <label className='text-sm font-medium text-muted-foreground'>
+                      Bill Amount
+                    </label>
+                    <p className='font-medium text-lg'>
+                      {formatCurrency(bill.final_amount)}
+                    </p>
+                  </div>
                   <div>
                     <label className='text-sm font-medium text-muted-foreground'>
                       Due Date
@@ -340,21 +413,13 @@ export default function StudentBillDetailPage() {
                       <p className='font-medium'>{formatDate(bill.due_date)}</p>
                     </div>
                   </div>
-                  <div>
-                    <label className='text-sm font-medium text-muted-foreground'>
-                      Status
-                    </label>
-                    <div>{getStatusBadge(bill.status)}</div>
-                  </div>
                 </div>
-                {bill.remarks && (
-                  <div>
-                    <label className='text-sm font-medium text-muted-foreground'>
-                      Remarks
-                    </label>
-                    <p className='font-medium'>{bill.remarks}</p>
-                  </div>
-                )}
+                <div>
+                  <label className='text-sm font-medium text-muted-foreground'>
+                    Status
+                  </label>
+                  <div>{getStatusBadge(bill.status)}</div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -406,12 +471,29 @@ export default function StudentBillDetailPage() {
                     <span>Final Amount:</span>
                     <span>{formatCurrency(bill.final_amount)}</span>
                   </div>
-                  {bill.status === 'partially_paid' && (
-                    <div className='flex justify-between text-orange-600 font-medium'>
-                      <span>Balance Amount:</span>
-                      <span>{formatCurrency(bill.balance_amount)}</span>
-                    </div>
-                  )}
+                  <div className='flex justify-between text-green-600 font-medium'>
+                    <span>Net Paid Amount:</span>
+                    <span>{formatCurrency(calculatePaidAmount(bill))}</span>
+                  </div>
+                  <div
+                    className={`flex justify-between font-medium ${
+                      calculateOutstanding(bill) > 0
+                        ? 'text-red-600'
+                        : 'text-green-600'
+                    }`}
+                  >
+                    <span>Outstanding:</span>
+                    <span>{formatCurrency(calculateOutstanding(bill))}</span>
+                  </div>
+                  {bill.status === 'overdue' &&
+                    calculateOutstanding(bill) > 0 && (
+                      <div className='flex justify-between text-red-700 font-bold'>
+                        <span>Overdue:</span>
+                        <span>
+                          {formatCurrency(calculateOutstanding(bill))}
+                        </span>
+                      </div>
+                    )}
                 </div>
               </CardContent>
             </Card>

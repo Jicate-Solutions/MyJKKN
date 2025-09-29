@@ -69,6 +69,10 @@ export interface StudentBill {
     roll_number?: string;
     college_email: string;
     student_mobile: string;
+    degree?: {
+      id: string;
+      degree_name: string;
+    };
     department?: {
       id: string;
       department_name: string;

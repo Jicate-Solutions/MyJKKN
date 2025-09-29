@@ -79,11 +79,8 @@ import type {
 // Schema for individual billing item
 const billingItemSchema = z.object({
   item_category_id: z.string().min(1, 'Item category is required'),
-  bill_description: z.string().optional(),
-  quantity: z.number().min(1, 'Quantity must be at least 1'),
   unit_amount: z.number().min(0, 'Unit amount must be positive'),
-  tax_amount: z.number().min(0, 'Tax amount must be positive').default(0),
-  remarks: z.string().optional()
+  tax_amount: z.number().min(0, 'Tax amount must be positive').default(0)
 });
 
 // Main form schema with multiple billing items
@@ -142,11 +139,8 @@ export function StudentBillForm({
         billing_items: [
           {
             item_category_id: bill.item_category_id || '',
-            bill_description: bill.bill_description || '',
-            quantity: bill.quantity || 1,
             unit_amount: bill.unit_amount || 0,
-            tax_amount: bill.tax_amount || 0,
-            remarks: bill.remarks || ''
+            tax_amount: bill.tax_amount || 0
           }
         ],
         overall_remarks: bill.remarks || '',
@@ -162,11 +156,8 @@ export function StudentBillForm({
         billing_items: [
           {
             item_category_id: '',
-            bill_description: '',
-            quantity: 1,
             unit_amount: 0,
-            tax_amount: 0,
-            remarks: ''
+            tax_amount: 0
           }
         ],
         overall_remarks: '',
@@ -182,11 +173,8 @@ export function StudentBillForm({
         billing_items: [
           {
             item_category_id: '',
-            bill_description: '',
-            quantity: 1,
             unit_amount: 0,
-            tax_amount: 0,
-            remarks: ''
+            tax_amount: 0
           }
         ],
         overall_remarks: '',
@@ -219,7 +207,7 @@ export function StudentBillForm({
   const calculateTotals = () => {
     const items = watchedValues.billing_items || [];
     const subtotal = items.reduce((sum, item) => {
-      return sum + item.quantity * item.unit_amount;
+      return sum + item.unit_amount;
     }, 0);
     const totalTax = items.reduce((sum, item) => {
       return sum + (item.tax_amount || 0);
@@ -260,11 +248,8 @@ export function StudentBillForm({
         billing_items: [
           {
             item_category_id: bill.item_category_id || '',
-            bill_description: bill.bill_description || '',
-            quantity: bill.quantity || 1,
             unit_amount: bill.unit_amount || 0,
-            tax_amount: bill.tax_amount || 0,
-            remarks: bill.remarks || ''
+            tax_amount: bill.tax_amount || 0
           }
         ],
         overall_remarks: bill.remarks || '',
@@ -302,11 +287,8 @@ export function StudentBillForm({
         billing_items: [
           {
             item_category_id: '',
-            bill_description: '',
-            quantity: 1,
             unit_amount: 0,
-            tax_amount: 0,
-            remarks: ''
+            tax_amount: 0
           }
         ],
         overall_remarks: '',
@@ -374,19 +356,22 @@ export function StudentBillForm({
       // In the future, this could be enhanced to support true multi-item bills
       const firstItem = data.billing_items[0];
 
+      // Get the selected category name for default description
+      const selectedCategory = itemCategories.find(cat => cat.id === firstItem.item_category_id);
+      const defaultDescription = selectedCategory?.item_category_name || 'Billing Item';
+
       const submitData: CreateStudentBillDto = {
         student_id: data.student_id,
         institution_id: data.institution_id,
         item_category_id: firstItem.item_category_id,
-        bill_description: firstItem.bill_description,
+        bill_description: defaultDescription, // Use category name as default description
         due_date: format(data.due_date, 'yyyy-MM-dd'),
-        quantity: firstItem.quantity,
+        quantity: 1, // Default quantity to 1 since it's removed from form
         unit_amount: firstItem.unit_amount,
         tax_amount: firstItem.tax_amount,
-        total_amount: firstItem.quantity * firstItem.unit_amount,
-        final_amount:
-          firstItem.quantity * firstItem.unit_amount + firstItem.tax_amount,
-        remarks: firstItem.remarks || data.overall_remarks,
+        total_amount: firstItem.unit_amount,
+        final_amount: firstItem.unit_amount + firstItem.tax_amount,
+        remarks: data.overall_remarks,
         is_recurring: data.is_recurring,
         recurrence_pattern: data.recurrence_pattern,
         number_of_recurrences: data.number_of_recurrences
@@ -433,11 +418,8 @@ export function StudentBillForm({
   const addBillingItem = () => {
     append({
       item_category_id: '',
-      bill_description: '',
-      quantity: 1,
       unit_amount: 0,
-      tax_amount: 0,
-      remarks: ''
+      tax_amount: 0
     });
   };
 
@@ -751,9 +733,6 @@ export function StudentBillForm({
                           mode='single'
                           selected={field.value}
                           onSelect={field.onChange}
-                          disabled={(date) =>
-                            date < new Date(new Date().setHours(0, 0, 0, 0))
-                          }
                           initialFocus
                         />
                       </PopoverContent>
@@ -806,90 +785,48 @@ export function StudentBillForm({
                       </CardTitle>
                     </CardHeader>
                     <CardContent className='space-y-4'>
+                      <FormField
+                        control={form.control}
+                        name={`billing_items.${index}.item_category_id`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Item Category *</FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              disabled={
+                                !watchedValues.institution_id ||
+                                isLoadingItemCategories
+                              }
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder='Select category' />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {itemCategories.map((category) => (
+                                  <SelectItem
+                                    key={category.id}
+                                    value={category.id}
+                                  >
+                                    {category.item_category_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
                       <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                        <FormField
-                          control={form.control}
-                          name={`billing_items.${index}.item_category_id`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Item Category *</FormLabel>
-                              <Select
-                                onValueChange={field.onChange}
-                                value={field.value}
-                                disabled={
-                                  !watchedValues.institution_id ||
-                                  isLoadingItemCategories
-                                }
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder='Select category' />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {itemCategories.map((category) => (
-                                    <SelectItem
-                                      key={category.id}
-                                      value={category.id}
-                                    >
-                                      {category.item_category_name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name={`billing_items.${index}.bill_description`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Description</FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder='Enter item description'
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
-                        <FormField
-                          control={form.control}
-                          name={`billing_items.${index}.quantity`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Quantity *</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type='number'
-                                  min='1'
-                                  {...field}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      parseInt(e.target.value) || 1
-                                    )
-                                  }
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
                         <FormField
                           control={form.control}
                           name={`billing_items.${index}.unit_amount`}
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Unit Amount (₹) *</FormLabel>
+                              <FormLabel>Base Amount (₹) *</FormLabel>
                               <FormControl>
                                 <Input
                                   type='number'
@@ -937,24 +874,6 @@ export function StudentBillForm({
                         />
                       </div>
 
-                      <FormField
-                        control={form.control}
-                        name={`billing_items.${index}.remarks`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Item Remarks</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                placeholder='Any specific notes for this item'
-                                rows={2}
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
                       {/* Item Total Display */}
                       <div className='p-3 bg-gray-50 dark:bg-gray-800 rounded-lg'>
                         <div className='flex justify-between items-center text-sm'>
@@ -962,12 +881,8 @@ export function StudentBillForm({
                           <span className='font-medium'>
                             ₹
                             {(
-                              (watchedValues.billing_items?.[index]?.quantity ||
-                                0) *
-                                (watchedValues.billing_items?.[index]
-                                  ?.unit_amount || 0) +
-                              (watchedValues.billing_items?.[index]
-                                ?.tax_amount || 0)
+                              (watchedValues.billing_items?.[index]?.unit_amount || 0) +
+                              (watchedValues.billing_items?.[index]?.tax_amount || 0)
                             ).toFixed(2)}
                           </span>
                         </div>

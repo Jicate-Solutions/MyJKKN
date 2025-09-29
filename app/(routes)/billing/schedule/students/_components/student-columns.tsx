@@ -21,14 +21,10 @@ import {
 } from '@/components/ui/tooltip';
 import { StudentForBilling } from '@/types/billing-schedule';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
+import { formatCurrency as utilFormatCurrency } from '@/lib/utils';
 
 const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(amount);
+  return utilFormatCurrency(amount, { showDecimals: true });
 };
 
 const getOutstandingBadge = (amount: number) => {
@@ -114,9 +110,8 @@ export const columns: ColumnDef<StudentForBilling>[] = [
       return (
         <div className='space-y-1'>
           <Link
-            href={`/billing/schedule/new?student_id=${student.id}`}
+            href={`/billing/schedule/students/${student.id}`}
             className='font-medium text-primary hover:text-primary/80 hover:underline cursor-pointer'
-            target='_blank'
           >
             {fullName}
           </Link>

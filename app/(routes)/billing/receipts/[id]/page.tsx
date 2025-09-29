@@ -44,6 +44,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
+import { formatCurrency as utilFormatCurrency } from '@/lib/utils';
 import {
   useBillingReceipt,
   usePrintReceipt,
@@ -156,12 +157,7 @@ export default function ReceiptDetailsPage() {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount);
+    return utilFormatCurrency(amount, { showDecimals: true });
   };
 
   const formatDate = (date: string) => {

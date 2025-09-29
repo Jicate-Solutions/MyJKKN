@@ -10,7 +10,10 @@ import {
   Loader2,
   Receipt,
   ShieldAlert,
-  ShoppingBag
+  ShoppingBag,
+  Plus,
+  Percent,
+  CreditCard
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -33,6 +36,7 @@ import type {
 import { usePermissions } from '@/hooks/use-permissions';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { formatCurrency as utilFormatCurrency } from '@/lib/utils';
 import {
   Table,
   TableBody,
@@ -84,13 +88,24 @@ export default function StudentBillDetailPage() {
   }, [billId, router, canAccess, isSuperAdmin, permissionsLoading]);
 
   const formatCurrency = (amount: number | undefined) => {
-    if (amount === undefined) return 'N/A';
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(amount);
+    return utilFormatCurrency(amount, { showDecimals: true });
+  };
+
+  const calculatePaidAmount = (bill: StudentBill): number => {
+    if (!bill.receipt_items || bill.receipt_items.length === 0) return 0;
+    return bill.receipt_items.reduce((total, item) => total + item.amount_paid, 0);
+  };
+
+  const calculateOutstanding = (bill: StudentBill): number => {
+    return bill.balance_amount || 0;
+  };
+
+  const calculateNetPaidAmount = (bill: StudentBill): number => {
+    const totalPaid = calculatePaidAmount(bill);
+    const totalRefunded = (allRefunds || []).reduce((sum, refund) => {
+      return refund.approval_status === 'processed' ? sum + refund.refund_amount : sum;
+    }, 0);
+    return totalPaid - totalRefunded;
   };
 
   const formatDate = (dateString: string | undefined) => {
@@ -202,9 +217,31 @@ export default function StudentBillDetailPage() {
       <div className='mt-4 space-y-6'>
         <div className='flex justify-between items-center'>
           <h1 className='text-2xl font-bold'>Bill Details</h1>
-          <Button variant='outline' onClick={() => router.back()}>
-            <ArrowLeft className='mr-2 h-4 w-4' /> Back
-          </Button>
+          <div className='flex gap-2'>
+            {/* Action Buttons */}
+            {bill.status !== 'paid' && bill.status !== 'cancelled' && (
+              <>
+                <Button
+                  variant='default'
+                  size='sm'
+                  onClick={() => router.push(`/billing/receipts/new?bill_id=${bill.id}`)}
+                  className='bg-green-600 hover:bg-green-700'
+                >
+                  <CreditCard className='mr-2 h-4 w-4' /> Generate Receipt
+                </Button>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => router.push(`/billing/discounts/new?bill_id=${bill.id}`)}
+                >
+                  <Percent className='mr-2 h-4 w-4' /> Apply Discount
+                </Button>
+              </>
+            )}
+            <Button variant='outline' onClick={() => router.back()}>
+              <ArrowLeft className='mr-2 h-4 w-4' /> Back
+            </Button>
+          </div>
         </div>
 
         {/* Student and Bill Overview */}
@@ -263,16 +300,168 @@ export default function StudentBillDetailPage() {
                 {formatCurrency(bill.final_amount)}
               </p>
               <p>
-                <strong>Paid Amount:</strong>{' '}
-                {formatCurrency(bill.final_amount - bill.balance_amount)}
+                <strong>Net Paid Amount:</strong>{' '}
+                <span className="text-green-600 font-semibold">
+                  {formatCurrency(calculateNetPaidAmount(bill))}
+                </span>
               </p>
               <p>
-                <strong>Balance Amount:</strong>{' '}
-                {formatCurrency(bill.balance_amount)}
+                <strong>Outstanding:</strong>{' '}
+                <span className={`font-semibold ${
+                  calculateOutstanding(bill) > 0 ? 'text-red-600' : 'text-green-600'
+                }`}>
+                  {formatCurrency(calculateOutstanding(bill))}
+                </span>
               </p>
+              {bill.status === 'overdue' && calculateOutstanding(bill) > 0 && (
+                <p>
+                  <strong>Overdue Amount:</strong>{' '}
+                  <span className="text-red-700 font-semibold">
+                    {formatCurrency(calculateOutstanding(bill))}
+                  </span>
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
+
+        {/* Quick Actions Card */}
+        {bill.status !== 'paid' && bill.status !== 'cancelled' && (
+          <Card className='border-2 border-blue-200 dark:border-blue-800'>
+            <CardHeader className='bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950'>
+              <CardTitle className='flex items-center gap-3 text-xl'>
+                <div className='p-2 bg-blue-100 dark:bg-blue-900 rounded-full'>
+                  <Plus className='h-6 w-6 text-blue-600 dark:text-blue-400' />
+                </div>
+                Quick Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className='p-6'>
+              <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                <div className='space-y-3'>
+                  <h3 className='font-semibold text-lg flex items-center gap-2'>
+                    <CreditCard className='h-5 w-5 text-green-600' />
+                    Generate Receipt
+                  </h3>
+                  <p className='text-sm text-muted-foreground'>
+                    Create a new receipt for this bill to record payment
+                  </p>
+                  <Button
+                    onClick={() => router.push(`/billing/receipts/new?bill_id=${bill.id}`)}
+                    className='w-full bg-green-600 hover:bg-green-700'
+                  >
+                    <CreditCard className='mr-2 h-4 w-4' />
+                    Generate Receipt
+                  </Button>
+                </div>
+
+                <div className='space-y-3'>
+                  <h3 className='font-semibold text-lg flex items-center gap-2'>
+                    <Percent className='h-5 w-5 text-orange-600' />
+                    Apply Discount
+                  </h3>
+                  <p className='text-sm text-muted-foreground'>
+                    Apply a discount to reduce the bill amount
+                  </p>
+                  <Button
+                    variant='outline'
+                    onClick={() => router.push(`/billing/discounts/new?bill_id=${bill.id}`)}
+                    className='w-full border-orange-300 text-orange-600 hover:bg-orange-50'
+                  >
+                    <Percent className='mr-2 h-4 w-4' />
+                    Apply Discount
+                  </Button>
+                </div>
+              </div>
+
+              {calculateOutstanding(bill) > 0 && (
+                <div className='mt-4 p-3 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg'>
+                  <div className='flex items-center gap-2 text-yellow-800 dark:text-yellow-200'>
+                    <Receipt className='h-4 w-4' />
+                    <span className='text-sm font-medium'>
+                      Outstanding Amount: {formatCurrency(calculateOutstanding(bill))}
+                    </span>
+                  </div>
+                  <p className='text-xs text-yellow-700 dark:text-yellow-300 mt-1'>
+                    Generate a receipt to record payment or apply a discount to reduce the amount.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Actions for Paid Bills */}
+        {(bill.status === 'paid' || bill.status === 'cancelled') && (
+          <Card className='border-2 border-green-200 dark:border-green-800'>
+            <CardHeader className='bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950'>
+              <CardTitle className='flex items-center gap-3 text-xl'>
+                <div className='p-2 bg-green-100 dark:bg-green-900 rounded-full'>
+                  <Receipt className='h-6 w-6 text-green-600 dark:text-green-400' />
+                </div>
+                Bill Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className='p-6'>
+              <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+                <div className='space-y-3'>
+                  <h3 className='font-semibold text-lg flex items-center gap-2'>
+                    <FileText className='h-5 w-5 text-blue-600' />
+                    View Details
+                  </h3>
+                  <p className='text-sm text-muted-foreground'>
+                    {bill.status === 'paid' ? 'View payment receipts and transaction history' : 'View bill cancellation details'}
+                  </p>
+                  {bill.receipt_items && bill.receipt_items.length > 0 && (
+                    <Button
+                      variant='outline'
+                      onClick={() => router.push(`/billing/receipts/${bill.receipt_items?.[0]?.receipt?.id}`)}
+                      className='w-full'
+                    >
+                      <Receipt className='mr-2 h-4 w-4' />
+                      View Receipt
+                    </Button>
+                  )}
+                </div>
+
+                <div className='space-y-3'>
+                  <h3 className='font-semibold text-lg flex items-center gap-2'>
+                    <Percent className='h-5 w-5 text-purple-600' />
+                    Additional Actions
+                  </h3>
+                  <p className='text-sm text-muted-foreground'>
+                    {bill.status === 'paid' ? 'Process refunds if needed' : 'View related documents'}
+                  </p>
+                  {bill.status === 'paid' && (
+                    <Button
+                      variant='outline'
+                      onClick={() => router.push(`/billing/refunds/new?bill_id=${bill.id}`)}
+                      className='w-full border-purple-300 text-purple-600 hover:bg-purple-50'
+                    >
+                      <ShoppingBag className='mr-2 h-4 w-4' />
+                      Process Refund
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className='mt-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg'>
+                <div className='flex items-center gap-2 text-green-800 dark:text-green-200'>
+                  <ShieldAlert className='h-4 w-4' />
+                  <span className='text-sm font-medium'>
+                    Bill Status: {bill.status === 'paid' ? 'Fully Paid' : 'Cancelled'}
+                  </span>
+                </div>
+                <p className='text-xs text-green-700 dark:text-green-300 mt-1'>
+                  {bill.status === 'paid'
+                    ? 'This bill has been fully paid. You can view receipts or process refunds if needed.'
+                    : 'This bill has been cancelled and no further actions are required.'
+                  }
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Applied Discounts Section */}
         {bill.discounts && bill.discounts.length > 0 && (
