@@ -34,7 +34,13 @@ const fetchBugReports = async (filters: BugReportFilters) => {
 const fetchBugReportById = async (reportId: string) => {
   const response = await fetch(`/api/bug-reports/${reportId}`);
   if (!response.ok) {
-    throw new Error('Failed to fetch bug report details');
+    const errorData = await response.json().catch(() => ({}));
+    const errorMessage = errorData.error || 'Failed to fetch bug report details';
+
+    // Create error with status information
+    const error = new Error(errorMessage);
+    (error as any).status = response.status;
+    throw error;
   }
   return response.json();
 };
@@ -143,8 +149,14 @@ const sendBugReportMessage = async ({
     body: JSON.stringify({ message_text, is_internal, reply_to_message_id })
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to send message');
+    const errorData = await response.json().catch(() => ({}));
+    const errorMessage = errorData.error || 'Failed to send message';
+
+    // Create error with status information
+    const error = new Error(errorMessage);
+    (error as any).status = response.status;
+    (error as any).details = errorData.details;
+    throw error;
   }
   return response.json();
 };
@@ -194,7 +206,16 @@ export const useBugReport = (reportId: string) => {
     enabled: !!reportId, // Only run the query if reportId is available
     refetchInterval: 15000, // Refetch every 15 seconds for detailed view
     refetchOnWindowFocus: true,
-    staleTime: 1 * 60 * 1000 // 1 minute
+    refetchOnMount: true, // Always refetch on mount to catch deletions
+    staleTime: 1 * 60 * 1000, // 1 minute
+    retry: (failureCount, error: any) => {
+      // Don't retry if it's a 404 (deleted bug report)
+      if (error?.status === 404) {
+        return false;
+      }
+      // Retry up to 3 times for other errors
+      return failureCount < 3;
+    }
   });
 };
 
@@ -202,9 +223,10 @@ export const useMyBugReports = () => {
   return useQuery<BugReport[]>({
     queryKey: queryKeys.bugReports.mine(),
     queryFn: fetchMyBugReports,
-    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchInterval: 15000, // Reduced to 15 seconds for faster updates
     refetchOnWindowFocus: true, // Refetch when window gains focus
-    staleTime: 2 * 60 * 1000 // 2 minutes
+    refetchOnMount: true, // Always refetch when component mounts
+    staleTime: 1 * 60 * 1000 // Reduced to 1 minute
   });
 };
 
@@ -307,9 +329,10 @@ export const useBugReportMessages = (reportId: string) => {
     queryKey: [...queryKeys.bugReports.detail(reportId), 'messages'],
     queryFn: () => fetchBugReportMessages(reportId),
     enabled: !!reportId,
-    refetchInterval: 5000, // Refetch every 5 seconds for real-time chat
+    refetchInterval: 2000, // More aggressive - every 2 seconds
     refetchOnWindowFocus: true,
-    staleTime: 30 * 1000 // 30 seconds
+    refetchOnMount: true,
+    staleTime: 10 * 1000 // Reduced to 10 seconds for fresher data
   });
 };
 
@@ -318,8 +341,16 @@ export const useSendBugReportMessage = () => {
   return useMutation({
     mutationFn: sendBugReportMessage,
     onSuccess: (data, variables) => {
-      // Invalidate messages for this bug report
+      // Immediately invalidate and refetch messages for instant updates
       queryClient.invalidateQueries({
+        queryKey: [
+          ...queryKeys.bugReports.detail(variables.reportId),
+          'messages'
+        ]
+      });
+
+      // Force refetch for immediate UI update
+      queryClient.refetchQueries({
         queryKey: [
           ...queryKeys.bugReports.detail(variables.reportId),
           'messages'
@@ -331,6 +362,14 @@ export const useSendBugReportMessage = () => {
         queryKey: [
           ...queryKeys.bugReports.detail(variables.reportId),
           'participants'
+        ]
+      });
+
+      // Also invalidate read counts to update unread indicators
+      queryClient.invalidateQueries({
+        queryKey: [
+          ...queryKeys.bugReports.detail(variables.reportId),
+          'reads'
         ]
       });
     }

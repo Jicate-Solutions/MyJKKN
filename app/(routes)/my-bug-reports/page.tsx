@@ -1,7 +1,10 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMyBugReports } from '@/hooks/bug-reports/use-bug-reports';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -84,6 +87,75 @@ export default function MyBugReportsPage() {
     isFetching,
     refetch
   } = useMyBugReports();
+
+  const supabase = createClientSupabaseClient();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Set up real-time subscription for bug reports changes
+  useEffect(() => {
+    // Get current user to filter notifications
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Subscribe to changes in bug_reports table for current user's reports
+      const channel = supabase
+        .channel('user_bug_reports_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+            schema: 'public',
+            table: 'bug_reports',
+            filter: `reporter_user_id=eq.${user.id}`
+          },
+          (payload) => {
+            console.log('Bug report change detected:', payload);
+
+            // Show notification based on event type
+            if (payload.eventType === 'DELETE') {
+              toast({
+                title: 'Bug Report Deleted',
+                description: 'One of your bug reports has been deleted by an administrator.',
+                variant: 'destructive',
+              });
+
+              // Clear any cached data for the deleted bug report
+              if (payload.old?.id) {
+                // Remove from query cache to prevent stale data
+                queryClient.removeQueries({
+                  queryKey: ['bugReports', 'detail', payload.old.id]
+                });
+                queryClient.removeQueries({
+                  queryKey: ['bugReports', 'detail', payload.old.id, 'messages']
+                });
+              }
+            } else if (payload.eventType === 'UPDATE') {
+              const newStatus = payload.new?.status;
+              const oldStatus = payload.old?.status;
+
+              if (newStatus !== oldStatus) {
+                toast({
+                  title: 'Status Updated',
+                  description: `Bug report status changed to: ${newStatus.replace('_', ' ')}`,
+                });
+              }
+            }
+
+            // Refetch the data when any change occurs
+            refetch();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    };
+
+    getCurrentUser();
+  }, [supabase, refetch]);
 
   // Calculate statistics
   const stats = reports

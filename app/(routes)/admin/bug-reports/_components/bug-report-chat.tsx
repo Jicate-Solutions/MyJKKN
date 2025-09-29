@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -54,11 +54,13 @@ const MessageBubble = ({
 }) => {
   const { data: readStatus } = useMessageReadStatus(reportId, message.id);
   const [isHovered, setIsHovered] = useState(false);
+  const markAsReadAttempted = useRef(false);
 
   useEffect(() => {
     // Auto-mark message as read when it comes into view and isn't from current user
-    if (!isCurrentUser) {
+    if (!isCurrentUser && !markAsReadAttempted.current) {
       const timer = setTimeout(() => {
+        markAsReadAttempted.current = true;
         onMarkAsRead(message.id);
       }, 2000); // Mark as read after 2 seconds
 
@@ -189,7 +191,6 @@ const MessageBubble = ({
 
 export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
   const [message, setMessage] = useState('');
-  const [isInternal, setIsInternal] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -232,14 +233,16 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
         },
         (payload) => {
           console.log('New message received:', payload);
+
+          // Force immediate refetch for real-time updates
           refetchMessages();
           refetchUnreadCount();
 
-          // Show notification for new messages from others
+          // Show notification for new messages from others (usually the user)
           if (payload.new.sender_user_id !== currentUserId) {
             toast({
-              title: 'New message',
-              description: 'Someone sent a new message in this bug report',
+              title: 'New message from user',
+              description: 'The user replied to this bug report',
               duration: 3000,
             });
           }
@@ -266,14 +269,13 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
       await sendMessageMutation.mutateAsync({
         reportId,
         message_text: message.trim(),
-        is_internal: isInternal
+        is_internal: false // All messages are now public/visible to users
       });
 
       setMessage('');
-      refetchMessages();
       toast({
         title: 'Message sent',
-        description: 'Your message has been sent and participants will be notified.'
+        description: 'Your message has been sent to the user.'
       });
     } catch (error) {
       toast({
@@ -285,13 +287,13 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
     }
   };
 
-  const handleMarkAsRead = async (messageId: string) => {
+  const handleMarkAsRead = useCallback(async (messageId: string) => {
     try {
       await markMessageAsRead(messageId);
     } catch (error) {
       console.error('Failed to mark message as read:', error);
     }
-  };
+  }, [markMessageAsRead]);
 
   const handleMarkAllAsRead = async () => {
     try {
@@ -423,40 +425,25 @@ export function BugReportChat({ reportId, reportStatus }: BugReportChatProps) {
             )}
 
             {!isResolved && (
-              <>
-                <div className='flex items-center gap-2'>
-                  <label className='flex items-center gap-2 text-sm'>
-                    <input
-                      type='checkbox'
-                      checked={isInternal}
-                      onChange={(e) => setIsInternal(e.target.checked)}
-                      className='rounded'
-                    />
-                    <Shield className='w-4 h-4' />
-                    Internal message (only visible to staff)
-                  </label>
-                </div>
-
-                <div className='flex gap-2'>
-                  <Textarea
-                    placeholder='Type your message here...'
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    className='flex-1 resize-none'
-                    rows={3}
-                    disabled={sendMessageMutation.isPending}
-                  />
-                  <Button
-                    onClick={handleSendMessage}
-                    disabled={!message.trim() || sendMessageMutation.isPending}
-                    size='sm'
-                    className='shrink-0 self-end'
-                  >
-                    <Send className='w-4 h-4' />
-                  </Button>
-                </div>
-              </>
+              <div className='flex gap-2'>
+                <Textarea
+                  placeholder='Type your message to the user...'
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className='flex-1 resize-none'
+                  rows={3}
+                  disabled={sendMessageMutation.isPending}
+                />
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!message.trim() || sendMessageMutation.isPending}
+                  size='sm'
+                  className='shrink-0 self-end'
+                >
+                  <Send className='w-4 h-4' />
+                </Button>
+              </div>
             )}
           </div>
         </CardContent>

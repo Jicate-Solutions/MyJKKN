@@ -16,9 +16,24 @@ export async function GET(
   const { id: reportId } = await params;
 
   try {
-    // Use admin client to bypass RLS policies that have infinite recursion
+    // Check authentication first
+    const authSupabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+      error: authError
+    } = await authSupabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // Use admin client to bypass RLS policies for data fetching
     const supabase = createAdminClient();
 
+    // Get all messages (simplified - no internal filtering)
     const { data: messages, error } = await supabase
       .from('bug_report_messages')
       .select(
@@ -78,6 +93,36 @@ export async function POST(
     const json = await request.json();
     const { message_text, is_internal, reply_to_message_id } =
       sendMessageSchema.parse(json);
+
+    // First, check if the bug report exists and user has access to it
+    const { data: bugReport, error: bugReportError } = await authSupabase
+      .from('bug_reports')
+      .select('id, reporter_user_id, status')
+      .eq('id', reportId)
+      .maybeSingle();
+
+    if (bugReportError) {
+      console.error(`[BUG_REPORT_MESSAGES_POST] Error checking bug report ${reportId}:`, bugReportError);
+      return NextResponse.json(
+        { error: 'Failed to verify bug report access' },
+        { status: 500 }
+      );
+    }
+
+    if (!bugReport) {
+      return NextResponse.json(
+        { error: 'Bug report not found or you do not have access to it' },
+        { status: 404 }
+      );
+    }
+
+    // Check if the bug report is resolved (optional: prevent new messages on resolved reports)
+    if (bugReport.status === 'resolved') {
+      return NextResponse.json(
+        { error: 'Cannot send messages to a resolved bug report' },
+        { status: 400 }
+      );
+    }
 
     // Use admin client to bypass RLS for operations
     const supabase = createAdminClient();

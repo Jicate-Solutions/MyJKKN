@@ -15,23 +15,43 @@ export async function GET(
   try {
     const supabase = await createServerSupabaseClient();
 
-    // Fetch from the detailed view
+    // Check authentication first
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // Fetch from the detailed view using RLS-friendly approach
     const { data: report, error: reportError } = await supabase
       .from('bug_reports_with_details')
       .select('*')
       .eq('id', reportId)
-      .single();
+      .maybeSingle(); // Use maybeSingle to handle RLS filtering gracefully
 
     if (reportError) {
       console.error(
         `[BUG_REPORTS_GET_BY_ID_API] Supabase error fetching report ${reportId}:`,
         reportError
       );
-      throw reportError;
+      return NextResponse.json(
+        { error: 'Database error while fetching report' },
+        { status: 500 }
+      );
     }
 
     if (!report) {
-      return NextResponse.json({ error: 'Report not found.' }, { status: 404 });
+      // Report doesn't exist or user doesn't have access (filtered by RLS)
+      return NextResponse.json(
+        { error: 'Bug report not found or access denied' },
+        { status: 404 }
+      );
     }
 
     // Transform the data to match the expected DetailedBugReport interface

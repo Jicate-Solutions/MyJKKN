@@ -44,72 +44,89 @@ export async function POST(
       hasAccess = true;
       canViewInternal = initialParticipant.can_view_internal;
     } else {
-      // User is not a participant, check if they should have access
-      console.log('User is not a participant, checking access permissions');
+      // User is not a participant, try alternative access verification
+      console.log('User is not a participant, checking alternative access permissions');
 
-      // Check if user can access this bug report via RLS policies
-      const { data: bugReportAccess, error: accessError } = await supabase
-        .from('bug_reports')
-        .select('id, reporter_user_id, institution_id, department_id')
-        .eq('id', reportId)
+      // First get user profile to check their role and permissions
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('role, is_super_admin, institution_id, department_id')
+        .eq('id', user.id)
         .single();
 
-      if (accessError) {
-        console.error('Bug report access check failed:', accessError);
-        return NextResponse.json(
-          { success: false, error: 'Bug report not found or access denied' },
-          { status: 404 }
-        );
-      }
-
-      if (bugReportAccess) {
-        hasAccess = true;
-
-        // Check if user is admin or has special permissions
-        const { data: userProfile } = await supabase
-          .from('profiles')
-          .select('role, is_super_admin, institution_id, department_id')
-          .eq('id', user.id)
-          .single();
+      if (userProfile) {
+        const isAdmin = userProfile.is_super_admin ||
+                       userProfile.role === 'super_admin' ||
+                       userProfile.role === 'administrator';
+        const isPrincipal = userProfile.role === 'principal';
+        const isHOD = userProfile.role === 'hod';
 
         // Determine internal viewing permissions
-        if (userProfile) {
-          const isAdmin = userProfile.is_super_admin ||
-                         userProfile.role === 'super_admin' ||
-                         userProfile.role === 'administrator';
-          const isPrincipal = userProfile.role === 'principal';
-          const isHOD = userProfile.role === 'hod';
+        canViewInternal = isAdmin || isPrincipal || isHOD;
 
-          canViewInternal = isAdmin || isPrincipal || isHOD;
+        // Try to access the bug report - if this succeeds, user has access
+        // Use a simple select query that RLS will filter
+        const { data: bugReportCheck, error: accessError } = await supabase
+          .from('bug_reports')
+          .select('id, reporter_user_id')
+          .eq('id', reportId)
+          .maybeSingle(); // Use maybeSingle to avoid error on no rows
+
+        if (accessError) {
+          console.error('Bug report access check failed:', accessError);
+          return NextResponse.json(
+            { success: false, error: 'Database error during access check' },
+            { status: 500 }
+          );
         }
 
-        // Auto-create participant record for future efficiency
-        const participantRole = bugReportAccess.reporter_user_id === user.id ? 'reporter' : 'viewer';
+        if (bugReportCheck) {
+          // User has access to this bug report
+          hasAccess = true;
 
-        const { data: insertedParticipant, error: insertError } = await supabase
-          .from('bug_report_participants')
-          .insert({
-            bug_report_id: reportId,
-            user_id: user.id,
-            role: participantRole,
-            can_view_internal: canViewInternal,
-            is_active: true,
-            joined_at: new Date().toISOString()
-          })
-          .select('id, can_view_internal')
-          .single();
+          // Determine participant role
+          const participantRole = bugReportCheck.reporter_user_id === user.id ? 'reporter' : 'viewer';
 
-        if (!insertError && insertedParticipant) {
-          participant = insertedParticipant;
-          console.log(`Auto-created ${participantRole} participant record`);
+          // Try to auto-create participant record for future efficiency
+          const { data: insertedParticipant, error: insertError } = await supabase
+            .from('bug_report_participants')
+            .insert({
+              bug_report_id: reportId,
+              user_id: user.id,
+              role: participantRole,
+              can_view_internal: canViewInternal,
+              is_active: true,
+              joined_at: new Date().toISOString()
+            })
+            .select('id, can_view_internal')
+            .single();
+
+          if (!insertError && insertedParticipant) {
+            participant = insertedParticipant;
+            console.log(`Auto-created ${participantRole} participant record`);
+          } else {
+            // Create a virtual participant object for this request
+            participant = {
+              id: 'virtual',
+              can_view_internal: canViewInternal
+            };
+            console.log('Using virtual participant (insert failed):', insertError);
+          }
         } else {
-          // Create a virtual participant object for this request
-          participant = {
-            id: 'virtual',
-            can_view_internal: canViewInternal
-          };
-          console.log('Using virtual participant (insert failed):', insertError);
+          // User doesn't have access to this bug report
+          console.log('User does not have access to this bug report');
+          return NextResponse.json(
+            { success: false, error: 'Bug report not found or access denied' },
+            { status: 404 }
+          );
         }
+      } else {
+        // Could not get user profile
+        console.error('Could not get user profile');
+        return NextResponse.json(
+          { success: false, error: 'User profile not found' },
+          { status: 404 }
+        );
       }
     }
 
@@ -186,25 +203,36 @@ export async function POST(
       }
 
       // Update participant's last read message and timestamp
-      if (newReadIds.length > 0) {
-        // Get the latest message from the ones just marked as read
-        const { data: latestMessage } = await supabase
-          .from('bug_report_messages')
-          .select('id, created_at')
-          .in('id', newReadIds)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
+      if (newReadIds.length > 0 && participant?.id !== 'virtual') {
+        // Only update if we have a real participant record (not virtual)
+        try {
+          // Get the latest message from the ones just marked as read
+          const { data: latestMessage } = await supabase
+            .from('bug_report_messages')
+            .select('id, created_at')
+            .in('id', newReadIds)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
 
-        if (latestMessage) {
-          await supabase
-            .from('bug_report_participants')
-            .update({
-              last_read_message_id: latestMessage.id,
-              last_read_at: new Date().toISOString()
-            })
-            .eq('bug_report_id', reportId)
-            .eq('user_id', user.id);
+          if (latestMessage) {
+            const { error: updateError } = await supabase
+              .from('bug_report_participants')
+              .update({
+                last_read_message_id: latestMessage.id,
+                last_read_at: new Date().toISOString()
+              })
+              .eq('bug_report_id', reportId)
+              .eq('user_id', user.id);
+
+            if (updateError) {
+              console.warn('Failed to update participant last read info:', updateError);
+              // Don't fail the entire operation for this
+            }
+          }
+        } catch (updateError) {
+          console.warn('Error updating participant read status:', updateError);
+          // Don't fail the entire operation for this
         }
       }
     }
@@ -299,72 +327,89 @@ export async function GET(
         hasAccess = true;
         canViewInternal = initialParticipant.can_view_internal;
       } else {
-        // User is not a participant, check if they should have access
-        console.log('User is not a participant, checking access permissions');
+        // User is not a participant, try alternative access verification
+        console.log('User is not a participant, checking alternative access permissions');
 
-        // Check if user can access this bug report via RLS policies
-        const { data: bugReportAccess, error: accessError } = await supabase
-          .from('bug_reports')
-          .select('id, reporter_user_id, institution_id, department_id')
-          .eq('id', reportId)
+        // First get user profile to check their role and permissions
+        const { data: userProfile } = await supabase
+          .from('profiles')
+          .select('role, is_super_admin, institution_id, department_id')
+          .eq('id', user.id)
           .single();
 
-        if (accessError) {
-          console.error('Bug report access check failed:', accessError);
-          return NextResponse.json(
-            { success: false, error: 'Bug report not found or access denied' },
-            { status: 404 }
-          );
-        }
-
-        if (bugReportAccess) {
-          hasAccess = true;
-
-          // Check if user is admin or has special permissions
-          const { data: userProfile } = await supabase
-            .from('profiles')
-            .select('role, is_super_admin, institution_id, department_id')
-            .eq('id', user.id)
-            .single();
+        if (userProfile) {
+          const isAdmin = userProfile.is_super_admin ||
+                         userProfile.role === 'super_admin' ||
+                         userProfile.role === 'administrator';
+          const isPrincipal = userProfile.role === 'principal';
+          const isHOD = userProfile.role === 'hod';
 
           // Determine internal viewing permissions
-          if (userProfile) {
-            const isAdmin = userProfile.is_super_admin ||
-                           userProfile.role === 'super_admin' ||
-                           userProfile.role === 'administrator';
-            const isPrincipal = userProfile.role === 'principal';
-            const isHOD = userProfile.role === 'hod';
+          canViewInternal = isAdmin || isPrincipal || isHOD;
 
-            canViewInternal = isAdmin || isPrincipal || isHOD;
+          // Try to access the bug report - if this succeeds, user has access
+          // Use a simple select query that RLS will filter
+          const { data: bugReportCheck, error: accessError } = await supabase
+            .from('bug_reports')
+            .select('id, reporter_user_id')
+            .eq('id', reportId)
+            .maybeSingle(); // Use maybeSingle to avoid error on no rows
+
+          if (accessError) {
+            console.error('Bug report access check failed:', accessError);
+            return NextResponse.json(
+              { success: false, error: 'Database error during access check' },
+              { status: 500 }
+            );
           }
 
-          // Auto-create participant record for future efficiency
-          const participantRole = bugReportAccess.reporter_user_id === user.id ? 'reporter' : 'viewer';
+          if (bugReportCheck) {
+            // User has access to this bug report
+            hasAccess = true;
 
-          const { data: insertedParticipant, error: insertError } = await supabase
-            .from('bug_report_participants')
-            .insert({
-              bug_report_id: reportId,
-              user_id: user.id,
-              role: participantRole,
-              can_view_internal: canViewInternal,
-              is_active: true,
-              joined_at: new Date().toISOString()
-            })
-            .select('can_view_internal, last_read_message_id')
-            .single();
+            // Determine participant role
+            const participantRole = bugReportCheck.reporter_user_id === user.id ? 'reporter' : 'viewer';
 
-          if (!insertError && insertedParticipant) {
-            participant = insertedParticipant;
-            console.log(`Auto-created ${participantRole} participant record`);
+            // Try to auto-create participant record for future efficiency
+            const { data: insertedParticipant, error: insertError } = await supabase
+              .from('bug_report_participants')
+              .insert({
+                bug_report_id: reportId,
+                user_id: user.id,
+                role: participantRole,
+                can_view_internal: canViewInternal,
+                is_active: true,
+                joined_at: new Date().toISOString()
+              })
+              .select('can_view_internal, last_read_message_id')
+              .single();
+
+            if (!insertError && insertedParticipant) {
+              participant = insertedParticipant;
+              console.log(`Auto-created ${participantRole} participant record`);
+            } else {
+              // Create a virtual participant object for this request
+              participant = {
+                can_view_internal: canViewInternal,
+                last_read_message_id: null
+              };
+              console.log('Using virtual participant (insert failed):', insertError);
+            }
           } else {
-            // Create a virtual participant object for this request
-            participant = {
-              can_view_internal: canViewInternal,
-              last_read_message_id: null
-            };
-            console.log('Using virtual participant (insert failed):', insertError);
+            // User doesn't have access to this bug report
+            console.log('User does not have access to this bug report');
+            return NextResponse.json(
+              { success: false, error: 'Bug report not found or access denied' },
+              { status: 404 }
+            );
           }
+        } else {
+          // Could not get user profile
+          console.error('Could not get user profile');
+          return NextResponse.json(
+            { success: false, error: 'User profile not found' },
+            { status: 404 }
+          );
         }
       }
 

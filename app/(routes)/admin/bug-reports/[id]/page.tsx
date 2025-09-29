@@ -1,7 +1,8 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   useBugReport,
   useUpdateBugReportStatus,
@@ -141,9 +142,60 @@ export default function BugReportDetailsPage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
-  const { data: report, isLoading, error } = useBugReport(id);
+  const { data: report, isLoading, error, refetch } = useBugReport(id);
   const updateStatusMutation = useUpdateBugReportStatus();
   const deleteReportMutation = useDeleteBugReport();
+  const supabase = createClientSupabaseClient();
+
+  // Set up real-time subscription for this specific bug report
+  useEffect(() => {
+    if (!id) return;
+
+    const channel = supabase
+      .channel(`admin_bug_report_${id}_changes`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'bug_reports',
+          filter: `id=eq.${id}`
+        },
+        (payload) => {
+          console.log('Admin: Bug report change detected:', payload);
+
+          if (payload.eventType === 'DELETE') {
+            // If the bug report was deleted, redirect back to list
+            toast({
+              title: 'Bug Report Deleted',
+              description: 'This bug report was deleted. Redirecting to list...',
+              variant: 'destructive',
+            });
+            setTimeout(() => {
+              router.push('/admin/bug-reports');
+            }, 2000);
+          } else if (payload.eventType === 'UPDATE') {
+            // For updates, refetch the data to get latest changes
+            refetch();
+
+            // Show notification for status changes
+            const newStatus = payload.new?.status;
+            const oldStatus = payload.old?.status;
+            if (newStatus !== oldStatus) {
+              toast({
+                title: 'Status Updated',
+                description: `Bug report status changed to: ${newStatus.replace('_', ' ')}`,
+              });
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, supabase, refetch, router, toast]);
 
   const handleStatusChange = async (status: BugReportStatus) => {
     try {
@@ -182,7 +234,7 @@ export default function BugReportDetailsPage() {
   };
 
   const handleGoBack = () => {
-    router.back();
+    router.push('/admin/bug-reports');
   };
 
   const handleDownloadScreenshot = async () => {

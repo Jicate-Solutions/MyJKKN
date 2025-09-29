@@ -528,7 +528,9 @@ export class BugReportService {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to mark messages as read');
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error || `Failed to mark messages as read`;
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();

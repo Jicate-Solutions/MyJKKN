@@ -50,6 +50,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Don't cache API requests - always fetch fresh
+  if (event.request.url.includes('/api/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   // Handle navigation requests
   if (event.request.mode === 'navigate') {
     event.respondWith(
@@ -68,11 +74,12 @@ self.addEventListener('fetch', (event) => {
       return (
         response ||
         fetch(event.request).then((response) => {
-          // Don't cache non-successful responses
+          // Don't cache non-successful responses or non-GET requests
           if (
             !response ||
             response.status !== 200 ||
-            response.type !== 'basic'
+            response.type !== 'basic' ||
+            event.request.method !== 'GET' // Only cache GET requests
           ) {
             return response;
           }
