@@ -91,21 +91,6 @@ export default function NewReceiptPage() {
     0
   );
 
-  // Update payment amount when pay amounts change
-  const handlePayAmountChange = (billId: string, amount: number) => {
-    const newPayAmounts = { ...billPayAmounts, [billId]: amount };
-    setBillPayAmounts(newPayAmounts);
-
-    // Auto-update total payment amount
-    const newTotalPayAmount = Object.values(newPayAmounts).reduce(
-      (sum, amt) => sum + amt,
-      0
-    );
-    setFormData((prev) => ({
-      ...prev,
-      payment_amount: newTotalPayAmount
-    }));
-  };
 
   useEffect(() => {
     // Redirect to student search if no bill parameters provided
@@ -155,7 +140,7 @@ export default function NewReceiptPage() {
       });
       setBillPayAmounts(initialPayAmounts);
 
-      // Calculate total pay amount and auto-populate student info
+      // Calculate total pay amount (sum of all pending amounts)
       const totalPayAmount = Object.values(initialPayAmounts).reduce(
         (sum, amount) => sum + amount,
         0
@@ -338,7 +323,6 @@ export default function NewReceiptPage() {
                         <TableHead className='text-right'>
                           Pending Amount
                         </TableHead>
-                        <TableHead className='text-right'>Pay Amount</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -398,26 +382,6 @@ export default function NewReceiptPage() {
                               ).toLocaleString()}
                             </div>
                           </TableCell>
-                          <TableCell className='text-right'>
-                            <Input
-                              type='number'
-                              className='w-32 text-right'
-                              value={billPayAmounts[bill.id] || 0}
-                              onChange={(e) =>
-                                handlePayAmountChange(
-                                  bill.id,
-                                  parseFloat(e.target.value) || 0
-                                )
-                              }
-                              min={0}
-                              max={
-                                bill.balance_amount > 0
-                                  ? bill.balance_amount
-                                  : bill.final_amount
-                              }
-                              step={0.01}
-                            />
-                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -432,9 +396,6 @@ export default function NewReceiptPage() {
                         <TableCell className='text-right text-orange-600'>
                           ₹{totalPendingAmount.toLocaleString()}
                         </TableCell>
-                        <TableCell className='text-right text-green-600'>
-                          ₹{totalPayAmount.toLocaleString()}
-                        </TableCell>
                       </TableRow>
                     </tfoot>
                   </Table>
@@ -442,7 +403,7 @@ export default function NewReceiptPage() {
 
                 {/* Payment Summary */}
                 <div className='mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg'>
-                  <div className='grid grid-cols-2 md:grid-cols-4 gap-4 text-sm'>
+                  <div className='grid grid-cols-2 md:grid-cols-3 gap-4 text-sm'>
                     <div>
                       <span className='text-muted-foreground'>
                         Total Bill Amount:
@@ -461,14 +422,6 @@ export default function NewReceiptPage() {
                     </div>
                     <div>
                       <span className='text-muted-foreground'>
-                        Total Payable:
-                      </span>
-                      <div className='font-semibold text-green-600'>
-                        ₹{totalPayAmount.toLocaleString()}
-                      </div>
-                    </div>
-                    <div>
-                      <span className='text-muted-foreground'>
                         Received Amount:
                       </span>
                       <div className='font-semibold text-blue-600'>
@@ -482,7 +435,7 @@ export default function NewReceiptPage() {
 
             <form onSubmit={handleSubmit} className='space-y-6'>
               <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-                {/* Payment Amount */}
+                {/* Received Amount */}
                 <div className='space-y-2'>
                   <Label htmlFor='payment_amount'>Received Amount *</Label>
                   <Input
@@ -502,37 +455,49 @@ export default function NewReceiptPage() {
                   />
                 </div>
 
-                {/* Payer Name */}
+                {/* Payment Mode */}
                 <div className='space-y-2'>
-                  <Label htmlFor='payer_name'>Received From *</Label>
-                  <Input
-                    id='payer_name'
-                    placeholder='Enter payer name'
-                    value={formData.payer_name || ''}
-                    onChange={(e) =>
-                      handleInputChange('payer_name', e.target.value)
+                  <Label htmlFor='payment_mode'>Payment Mode *</Label>
+                  <Select
+                    value={formData.payment_mode || 'cash'}
+                    onValueChange={(value) =>
+                      handleInputChange('payment_mode', value)
                     }
-                    required
-                  />
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='cash'>Cash</SelectItem>
+                      <SelectItem value='online'>Online</SelectItem>
+                      <SelectItem value='bank_transfer'>
+                        Bank Transfer
+                      </SelectItem>
+                      <SelectItem value='dd'>DD</SelectItem>
+                      <SelectItem value='cheque'>Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                {/* Payment Reference */}
-                <div className='space-y-2'>
-                  <Label htmlFor='payment_reference_number'>
-                    Reference Number
-                  </Label>
-                  <Input
-                    id='payment_reference_number'
-                    placeholder='Enter reference number'
-                    value={formData.payment_reference_number || ''}
-                    onChange={(e) =>
-                      handleInputChange(
-                        'payment_reference_number',
-                        e.target.value
-                      )
-                    }
-                  />
-                </div>
+                {/* Reference Number - Only show if payment mode is not cash */}
+                {formData.payment_mode !== 'cash' && (
+                  <div className='space-y-2'>
+                    <Label htmlFor='payment_reference_number'>
+                      Reference Number
+                    </Label>
+                    <Input
+                      id='payment_reference_number'
+                      placeholder='Enter reference number'
+                      value={formData.payment_reference_number || ''}
+                      onChange={(e) =>
+                        handleInputChange(
+                          'payment_reference_number',
+                          e.target.value
+                        )
+                      }
+                    />
+                  </div>
+                )}
 
                 {/* Student Roll Number */}
                 <div className='space-y-2'>
@@ -587,39 +552,15 @@ export default function NewReceiptPage() {
                   </Select>
                 </div>
 
-                {/* Payment Mode */}
+                {/* Received From */}
                 <div className='space-y-2'>
-                  <Label htmlFor='payment_mode'>Payment Mode *</Label>
-                  <Select
-                    value={formData.payment_mode || 'cash'}
-                    onValueChange={(value) =>
-                      handleInputChange('payment_mode', value)
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='cash'>Cash</SelectItem>
-                      <SelectItem value='online'>Online</SelectItem>
-                      <SelectItem value='bank_transfer'>
-                        Bank Transfer
-                      </SelectItem>
-                      <SelectItem value='dd'>DD</SelectItem>
-                      <SelectItem value='cheque'>Cheque</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Payment Date */}
-                <div className='space-y-2'>
-                  <Label htmlFor='payment_paid_date'>Payment Date *</Label>
+                  <Label htmlFor='payer_name'>Received From *</Label>
                   <Input
-                    id='payment_paid_date'
-                    type='date'
-                    value={formData.payment_paid_date || ''}
+                    id='payer_name'
+                    placeholder='Enter payer name'
+                    value={formData.payer_name || ''}
                     onChange={(e) =>
-                      handleInputChange('payment_paid_date', e.target.value)
+                      handleInputChange('payer_name', e.target.value)
                     }
                     required
                   />
@@ -635,6 +576,20 @@ export default function NewReceiptPage() {
                     onChange={(e) =>
                       handleInputChange('payer_contact', e.target.value)
                     }
+                  />
+                </div>
+
+                {/* Payment Date */}
+                <div className='space-y-2'>
+                  <Label htmlFor='payment_paid_date'>Payment Date *</Label>
+                  <Input
+                    id='payment_paid_date'
+                    type='date'
+                    value={formData.payment_paid_date || ''}
+                    onChange={(e) =>
+                      handleInputChange('payment_paid_date', e.target.value)
+                    }
+                    required
                   />
                 </div>
               </div>

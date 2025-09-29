@@ -549,8 +549,11 @@ export class StudentBillService {
             first_name,
             last_name,
             roll_number,
-            student_email,
-            student_mobile
+            college_email,
+            student_mobile,
+            degree:degrees(id, degree_name),
+            department:departments(id, department_name),
+            semester:semesters(id, semester_name)
           ),
           institution:institutions(
             id,

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 import Link from 'next/link';
+import { formatCurrency as utilFormatCurrency } from '@/lib/utils';
 import {
   User,
   Building,
@@ -190,10 +191,7 @@ export const columns: ColumnDef<StudentBill>[] = [
     cell: ({ row }) => {
       const bill = row.original;
       const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-IN', {
-          style: 'currency',
-          currency: 'INR'
-        }).format(amount);
+        return utilFormatCurrency(amount, { showDecimals: true });
       };
 
       return (

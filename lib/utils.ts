@@ -52,14 +52,32 @@ export async function handleApiResponse(response: Response) {
 /**
  * Formats a number as currency in Indian Rupees
  * @param amount - The amount to format
+ * @param options - Formatting options
  * @returns Formatted currency string
  */
-export function formatCurrency(amount: number): string {
+export function formatCurrency(
+  amount: number | undefined | null,
+  options?: {
+    showDecimals?: boolean;
+    minimumFractionDigits?: number;
+    maximumFractionDigits?: number;
+  }
+): string {
+  if (amount === undefined || amount === null) return 'N/A';
+
+  const defaultOptions = {
+    showDecimals: true,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  };
+
+  const finalOptions = { ...defaultOptions, ...options };
+
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2
+    minimumFractionDigits: finalOptions.showDecimals ? finalOptions.minimumFractionDigits : 0,
+    maximumFractionDigits: finalOptions.showDecimals ? finalOptions.maximumFractionDigits : 0
   }).format(amount);
 }
 
