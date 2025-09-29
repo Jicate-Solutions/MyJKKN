@@ -4,9 +4,10 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 // Mark messages as read
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: reportId } = await params;
     const supabase = await createServerSupabaseClient();
     const { messageIds, markAllAsRead } = await request.json();
 
@@ -23,18 +24,98 @@ export async function POST(
       );
     }
 
-    // Verify user is a participant
-    const { data: participant, error: participantError } = await supabase
+    // Check user access using comprehensive approach
+    let participant = null;
+    let hasAccess = false;
+    let canViewInternal = false;
+
+    // First try to get existing participant
+    const { data: initialParticipant, error: participantError } = await supabase
       .from('bug_report_participants')
       .select('id, can_view_internal')
-      .eq('bug_report_id', params.id)
+      .eq('bug_report_id', reportId)
       .eq('user_id', user.id)
       .eq('is_active', true)
       .single();
 
-    if (participantError || !participant) {
+    if (initialParticipant) {
+      // User is already a participant
+      participant = initialParticipant;
+      hasAccess = true;
+      canViewInternal = initialParticipant.can_view_internal;
+    } else {
+      // User is not a participant, check if they should have access
+      console.log('User is not a participant, checking access permissions');
+
+      // Check if user can access this bug report via RLS policies
+      const { data: bugReportAccess, error: accessError } = await supabase
+        .from('bug_reports')
+        .select('id, reporter_user_id, institution_id, department_id')
+        .eq('id', reportId)
+        .single();
+
+      if (accessError) {
+        console.error('Bug report access check failed:', accessError);
+        return NextResponse.json(
+          { success: false, error: 'Bug report not found or access denied' },
+          { status: 404 }
+        );
+      }
+
+      if (bugReportAccess) {
+        hasAccess = true;
+
+        // Check if user is admin or has special permissions
+        const { data: userProfile } = await supabase
+          .from('profiles')
+          .select('role, is_super_admin, institution_id, department_id')
+          .eq('id', user.id)
+          .single();
+
+        // Determine internal viewing permissions
+        if (userProfile) {
+          const isAdmin = userProfile.is_super_admin ||
+                         userProfile.role === 'super_admin' ||
+                         userProfile.role === 'administrator';
+          const isPrincipal = userProfile.role === 'principal';
+          const isHOD = userProfile.role === 'hod';
+
+          canViewInternal = isAdmin || isPrincipal || isHOD;
+        }
+
+        // Auto-create participant record for future efficiency
+        const participantRole = bugReportAccess.reporter_user_id === user.id ? 'reporter' : 'viewer';
+
+        const { data: insertedParticipant, error: insertError } = await supabase
+          .from('bug_report_participants')
+          .insert({
+            bug_report_id: reportId,
+            user_id: user.id,
+            role: participantRole,
+            can_view_internal: canViewInternal,
+            is_active: true,
+            joined_at: new Date().toISOString()
+          })
+          .select('id, can_view_internal')
+          .single();
+
+        if (!insertError && insertedParticipant) {
+          participant = insertedParticipant;
+          console.log(`Auto-created ${participantRole} participant record`);
+        } else {
+          // Create a virtual participant object for this request
+          participant = {
+            id: 'virtual',
+            can_view_internal: canViewInternal
+          };
+          console.log('Using virtual participant (insert failed):', insertError);
+        }
+      }
+    }
+
+    if (!hasAccess || !participant) {
       return NextResponse.json(
-        { success: false, error: 'Access denied' },
+        { success: false, error: 'Access denied - insufficient permissions' },
         { status: 403 }
       );
     }
@@ -46,7 +127,7 @@ export async function POST(
       let query = supabase
         .from('bug_report_messages')
         .select('id')
-        .eq('bug_report_id', params.id)
+        .eq('bug_report_id', reportId)
         .eq('is_deleted', false);
 
       // If user can't view internal messages, exclude them
@@ -122,7 +203,7 @@ export async function POST(
               last_read_message_id: latestMessage.id,
               last_read_at: new Date().toISOString()
             })
-            .eq('bug_report_id', params.id)
+            .eq('bug_report_id', reportId)
             .eq('user_id', user.id);
         }
       }
@@ -151,9 +232,10 @@ export async function POST(
 // Get message read status
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: reportId } = await params;
     const supabase = await createServerSupabaseClient();
     const url = new URL(request.url);
     const messageId = url.searchParams.get('messageId');
@@ -198,67 +280,106 @@ export async function GET(
       });
     } else {
       // Get unread message count for user
+      let participant = null;
+      let hasAccess = false;
+      let canViewInternal = false;
+
+      // First try to get existing participant
       const { data: initialParticipant, error: participantError } = await supabase
         .from('bug_report_participants')
         .select('can_view_internal, last_read_message_id')
-        .eq('bug_report_id', params.id)
+        .eq('bug_report_id', reportId)
         .eq('user_id', user.id)
+        .eq('is_active', true)
         .single();
 
-      let participant = initialParticipant;
+      if (initialParticipant) {
+        // User is already a participant
+        participant = initialParticipant;
+        hasAccess = true;
+        canViewInternal = initialParticipant.can_view_internal;
+      } else {
+        // User is not a participant, check if they should have access
+        console.log('User is not a participant, checking access permissions');
 
-      if (participantError || !participant) {
-        console.error('Participant lookup error:', participantError);
-
-        // Try to auto-add user as participant if they're accessing their own bug report
-        const { data: bugReport } = await supabase
+        // Check if user can access this bug report via RLS policies
+        const { data: bugReportAccess, error: accessError } = await supabase
           .from('bug_reports')
-          .select('reporter_user_id')
-          .eq('id', params.id)
+          .select('id, reporter_user_id, institution_id, department_id')
+          .eq('id', reportId)
           .single();
 
-        if (bugReport?.reporter_user_id === user.id) {
-          // User is the reporter, add them as participant
-          const { error: insertError } = await supabase
-            .from('bug_report_participants')
-            .insert({
-              bug_report_id: params.id,
-              user_id: user.id,
-              role: 'reporter',
-              can_view_internal: false,
-              is_active: true,
-              joined_at: new Date().toISOString()
-            });
-
-          if (!insertError) {
-            // Retry getting participant data
-            const { data: newParticipant } = await supabase
-              .from('bug_report_participants')
-              .select('can_view_internal, last_read_message_id')
-              .eq('bug_report_id', params.id)
-              .eq('user_id', user.id)
-              .single();
-
-            if (newParticipant) {
-              // Continue with the new participant data
-              participant = newParticipant;
-            }
-          }
-        }
-
-        if (!participant) {
+        if (accessError) {
+          console.error('Bug report access check failed:', accessError);
           return NextResponse.json(
-            { success: false, error: 'Access denied - not a participant in this bug report' },
-            { status: 403 }
+            { success: false, error: 'Bug report not found or access denied' },
+            { status: 404 }
           );
         }
+
+        if (bugReportAccess) {
+          hasAccess = true;
+
+          // Check if user is admin or has special permissions
+          const { data: userProfile } = await supabase
+            .from('profiles')
+            .select('role, is_super_admin, institution_id, department_id')
+            .eq('id', user.id)
+            .single();
+
+          // Determine internal viewing permissions
+          if (userProfile) {
+            const isAdmin = userProfile.is_super_admin ||
+                           userProfile.role === 'super_admin' ||
+                           userProfile.role === 'administrator';
+            const isPrincipal = userProfile.role === 'principal';
+            const isHOD = userProfile.role === 'hod';
+
+            canViewInternal = isAdmin || isPrincipal || isHOD;
+          }
+
+          // Auto-create participant record for future efficiency
+          const participantRole = bugReportAccess.reporter_user_id === user.id ? 'reporter' : 'viewer';
+
+          const { data: insertedParticipant, error: insertError } = await supabase
+            .from('bug_report_participants')
+            .insert({
+              bug_report_id: reportId,
+              user_id: user.id,
+              role: participantRole,
+              can_view_internal: canViewInternal,
+              is_active: true,
+              joined_at: new Date().toISOString()
+            })
+            .select('can_view_internal, last_read_message_id')
+            .single();
+
+          if (!insertError && insertedParticipant) {
+            participant = insertedParticipant;
+            console.log(`Auto-created ${participantRole} participant record`);
+          } else {
+            // Create a virtual participant object for this request
+            participant = {
+              can_view_internal: canViewInternal,
+              last_read_message_id: null
+            };
+            console.log('Using virtual participant (insert failed):', insertError);
+          }
+        }
+      }
+
+      if (!hasAccess || !participant) {
+        return NextResponse.json(
+          { success: false, error: 'Access denied - insufficient permissions' },
+          { status: 403 }
+        );
       }
 
       // Count unread messages
       let countQuery = supabase
         .from('bug_report_messages')
         .select('id', { count: 'exact', head: true })
-        .eq('bug_report_id', params.id)
+        .eq('bug_report_id', reportId)
         .eq('is_deleted', false)
         .neq('sender_user_id', user.id); // Don't count own messages
 
