@@ -777,6 +777,9 @@ export default function TimetableDetailPage({
           Array.isArray(timetableData.selected_dates)
         ) {
           setSelectedDates(timetableData.selected_dates);
+        } else {
+          // If no dates are configured in the timetable, start with an empty selection
+          setSelectedDates([]);
         }
       } else {
         // For regular mode, load selected days
@@ -815,6 +818,10 @@ export default function TimetableDetailPage({
         if (typeof window !== 'undefined' && timetableId) {
           localStorage.removeItem(`selectedPeriods-${timetableId}`);
         }
+      } else {
+        // If no periods are configured in the timetable, start with an empty selection
+        // The user will need to configure periods using the period selector
+        setSelectedPeriods([]);
       }
 
       const timetableSlots = await TimetableService.getTimetableSlots(
@@ -1643,14 +1650,24 @@ export default function TimetableDetailPage({
 
   // Add PDF export function
   const exportToPDF = async () => {
-    if (
-      !timetable ||
-      selectedPeriods.length === 0 ||
-      selectedDays.length === 0
-    ) {
+    // Check validation based on timetable format
+    const isValidForExport = () => {
+      if (!timetable || selectedPeriods.length === 0) {
+        return false;
+      }
+
+      if (timetableFormat === 'batch') {
+        return selectedDates.length > 0;
+      } else {
+        return selectedDays.length > 0;
+      }
+    };
+
+    if (!isValidForExport()) {
+      const formatType = timetableFormat === 'batch' ? 'date ranges' : 'days';
       toast({
         title: 'Error',
-        description: 'No timetable data available to export.',
+        description: `No timetable data available to export. Please configure periods and ${formatType}.`,
         variant: 'destructive'
       });
       return;
@@ -1712,82 +1729,241 @@ export default function TimetableDetailPage({
       }
 
       pdf.text(`Generated on: ${format(new Date(), 'PPP')}`, margin, yPosition);
-      yPosition += 15;
+      pdf.text(`Format: ${timetableFormat === 'batch' ? 'Batch (Date-wise)' : 'Regular (Day-wise)'}`, margin, yPosition + 7);
+      yPosition += 22;
 
-      // Prepare table data
-      const tableColumns = [
-        'Period',
-        ...selectedDays.map((day) => day.charAt(0) + day.slice(1).toLowerCase())
-      ];
+      // Prepare table data based on timetable format
+      let tableColumns: string[];
+      let tableRows: string[][];
 
-      const tableRows = selectedPeriods.map((period) => {
-        const row = [
-          `${period.period_name}\n${new Date(
-            `2000-01-01T${period.start_time}`
-          ).toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-          })} - ${new Date(`2000-01-01T${period.end_time}`).toLocaleTimeString(
-            'en-US',
-            {
+      if (timetableFormat === 'batch') {
+        // Helper function to parse date ranges from selectedDates
+        const parseDateRanges = (dateArray: string[]) => {
+          const ranges: Array<{
+            start: string;
+            end: string;
+            dates: string[];
+            rangeMarker: string;
+            displayName: string;
+          }> = [];
+
+          dateArray.forEach((item) => {
+            if (item.startsWith('RANGE:')) {
+              const parts = item.split(':');
+              if (parts.length === 3) {
+                const startDate = parts[1];
+                const endDate = parts[2];
+
+                // Generate all dates in this range
+                const rangeDates: string[] = [];
+                const current = new Date(startDate);
+                const end = new Date(endDate);
+
+                while (current <= end) {
+                  rangeDates.push(current.toISOString().split('T')[0]);
+                  current.setDate(current.getDate() + 1);
+                }
+
+                // Create display name for the range
+                const startFormatted = new Date(startDate).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric'
+                });
+                const endFormatted = new Date(endDate).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
+                });
+
+                const displayName = startDate === endDate
+                  ? `${startFormatted}\n${new Date(startDate).toLocaleDateString('en-US', { weekday: 'short' })}`
+                  : `${startFormatted} -\n${endFormatted}\n(${rangeDates.length} days)`;
+
+                ranges.push({
+                  start: startDate,
+                  end: endDate,
+                  dates: rangeDates,
+                  rangeMarker: item,
+                  displayName
+                });
+              }
+            } else if (!item.includes('RANGE')) {
+              // Individual date
+              const displayName = new Date(item).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+              }) + '\n' + new Date(item).toLocaleDateString('en-US', {
+                weekday: 'short'
+              });
+
+              ranges.push({
+                start: item,
+                end: item,
+                dates: [item],
+                rangeMarker: item,
+                displayName
+              });
+            }
+          });
+
+          return ranges;
+        };
+
+        const dateRanges = parseDateRanges(selectedDates);
+
+        // Create column headers with date ranges
+        tableColumns = [
+          'Period',
+          ...dateRanges.map(range => range.displayName)
+        ];
+
+        // Create rows for each period
+        tableRows = selectedPeriods.map((period) => {
+          const row = [
+            `${period.period_name}\n${new Date(
+              `2000-01-01T${period.start_time}`
+            ).toLocaleTimeString('en-US', {
               hour: 'numeric',
               minute: '2-digit',
               hour12: true
-            }
-          )}`
-        ];
-
-        selectedDays.forEach((day) => {
-          const slot = slots.find(
-            (s) => s.day_of_week === day && s.period_id === period.id
-          );
-
-          if (!slot) {
-            row.push('---');
-          } else if (slot.is_break_slot) {
-            row.push(`BREAK\n${slot.break_description || 'Break Time'}`);
-          } else if (
-            slot.is_combined &&
-            slot.sub_slots &&
-            slot.sub_slots.length > 0
-          ) {
-            const subSlotTexts = slot.sub_slots.map((subSlot: any) => {
-              if (subSlot.is_break_slot) {
-                return `Break: ${subSlot.break_description || 'Break'}`;
+            })} - ${new Date(`2000-01-01T${period.end_time}`).toLocaleTimeString(
+              'en-US',
+              {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
               }
+            )}`
+          ];
 
-              const courseCode = subSlot.course?.course_code || 'Course';
-              const staffName =
-                subSlot.staff_members && subSlot.staff_members.length > 0
-                  ? `${subSlot.staff_members[0]?.first_name || ''} ${
-                      subSlot.staff_members[0]?.last_name || ''
-                    }`
-                  : 'Staff';
+          dateRanges.forEach((range) => {
+            // For each date range, find a representative slot (first slot found in the range)
+            const slot = slots.find(
+              (s) => range.dates.includes(s.slot_date || '') && s.period_id === period.id
+            );
+
+            if (!slot) {
+              row.push('---');
+            } else if (slot.is_break_slot) {
+              row.push(`BREAK\n${slot.break_description || 'Break Time'}`);
+            } else if (
+              slot.is_combined &&
+              slot.sub_slots &&
+              slot.sub_slots.length > 0
+            ) {
+              const subSlotTexts = slot.sub_slots.map((subSlot: any) => {
+                if (subSlot.is_break_slot) {
+                  return `Break: ${subSlot.break_description || 'Break'}`;
+                }
+
+                const courseCode = subSlot.course?.course_code || 'Course';
+                const staffName =
+                  subSlot.staff_members && subSlot.staff_members.length > 0
+                    ? `${subSlot.staff_members[0]?.first_name || ''} ${
+                        subSlot.staff_members[0]?.last_name || ''
+                      }`
+                    : 'Staff';
+                const sectionNames =
+                  subSlot.sections?.map((s: any) => s.section_name).join(', ') ||
+                  'Section';
+
+                return `${courseCode}\n${staffName}\n${sectionNames}`;
+              });
+              row.push(`COMBINED:\n${subSlotTexts.join('\n---\n')}`);
+            } else {
+              // Regular slot
+              const courseCode = slot.course?.course_code || 'Course';
+              const staffNames =
+                slot.staff_members
+                  ?.map((s: any) => `${s.first_name} ${s.last_name}`)
+                  .join(', ') || 'Staff';
               const sectionNames =
-                subSlot.sections?.map((s: any) => s.section_name).join(', ') ||
+                slot.sections?.map((s: any) => s.section_name).join(', ') ||
                 'Section';
 
-              return `${courseCode}\n${staffName}\n${sectionNames}`;
-            });
-            row.push(`COMBINED:\n${subSlotTexts.join('\n---\n')}`);
-          } else {
-            // Regular slot
-            const courseCode = slot.course?.course_code || 'Course';
-            const staffNames =
-              slot.staff_members
-                ?.map((s: any) => `${s.first_name} ${s.last_name}`)
-                .join(', ') || 'Staff';
-            const sectionNames =
-              slot.sections?.map((s: any) => s.section_name).join(', ') ||
-              'Section';
+              row.push(`${courseCode}\n${staffNames}\n${sectionNames}`);
+            }
+          });
 
-            row.push(`${courseCode}\n${staffNames}\n${sectionNames}`);
-          }
+          return row;
         });
+      } else {
+        // Regular mode (existing logic)
+        tableColumns = [
+          'Period',
+          ...selectedDays.map((day) => day.charAt(0) + day.slice(1).toLowerCase())
+        ];
 
-        return row;
-      });
+        tableRows = selectedPeriods.map((period) => {
+          const row = [
+            `${period.period_name}\n${new Date(
+              `2000-01-01T${period.start_time}`
+            ).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            })} - ${new Date(`2000-01-01T${period.end_time}`).toLocaleTimeString(
+              'en-US',
+              {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+              }
+            )}`
+          ];
+
+          selectedDays.forEach((day) => {
+            const slot = slots.find(
+              (s) => s.day_of_week === day && s.period_id === period.id
+            );
+
+            if (!slot) {
+              row.push('---');
+            } else if (slot.is_break_slot) {
+              row.push(`BREAK\n${slot.break_description || 'Break Time'}`);
+            } else if (
+              slot.is_combined &&
+              slot.sub_slots &&
+              slot.sub_slots.length > 0
+            ) {
+              const subSlotTexts = slot.sub_slots.map((subSlot: any) => {
+                if (subSlot.is_break_slot) {
+                  return `Break: ${subSlot.break_description || 'Break'}`;
+                }
+
+                const courseCode = subSlot.course?.course_code || 'Course';
+                const staffName =
+                  subSlot.staff_members && subSlot.staff_members.length > 0
+                    ? `${subSlot.staff_members[0]?.first_name || ''} ${
+                        subSlot.staff_members[0]?.last_name || ''
+                      }`
+                    : 'Staff';
+                const sectionNames =
+                  subSlot.sections?.map((s: any) => s.section_name).join(', ') ||
+                  'Section';
+
+                return `${courseCode}\n${staffName}\n${sectionNames}`;
+              });
+              row.push(`COMBINED:\n${subSlotTexts.join('\n---\n')}`);
+            } else {
+              // Regular slot
+              const courseCode = slot.course?.course_code || 'Course';
+              const staffNames =
+                slot.staff_members
+                  ?.map((s: any) => `${s.first_name} ${s.last_name}`)
+                  .join(', ') || 'Staff';
+              const sectionNames =
+                slot.sections?.map((s: any) => s.section_name).join(', ') ||
+                'Section';
+
+              row.push(`${courseCode}\n${staffNames}\n${sectionNames}`);
+            }
+          });
+
+          return row;
+        });
+      }
 
       // Generate table using autoTable
       autoTable(pdf, {
