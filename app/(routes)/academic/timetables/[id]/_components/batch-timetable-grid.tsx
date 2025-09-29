@@ -104,7 +104,8 @@ export const BatchTimetableGrid = React.forwardRef<
               <div className='flex items-center gap-2 mb-2'>
                 <div className='w-2 h-2 bg-green-500 rounded-full'></div>
                 <span className='text-green-700 font-medium text-sm'>
-                  {dateRanges.length} Date Range{dateRanges.length !== 1 ? 's' : ''} Configured
+                  {dateRanges.length} Date Range
+                  {dateRanges.length !== 1 ? 's' : ''} Configured
                 </span>
               </div>
               <div className='space-y-1'>
@@ -112,32 +113,39 @@ export const BatchTimetableGrid = React.forwardRef<
                   <div key={index} className='text-sm text-green-600'>
                     {range.start === range.end
                       ? new Date(range.start).toLocaleDateString('en-US', {
-                          month: 'short', day: 'numeric', year: 'numeric'
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
                         })
                       : `${new Date(range.start).toLocaleDateString('en-US', {
-                          month: 'short', day: 'numeric'
-                        })} - ${new Date(range.end).toLocaleDateString('en-US', {
-                          month: 'short', day: 'numeric', year: 'numeric'
-                        })} (${range.dates.length} days)`
-                    }
+                          month: 'short',
+                          day: 'numeric'
+                        })} - ${new Date(range.end).toLocaleDateString(
+                          'en-US',
+                          {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric'
+                          }
+                        )} (${range.dates.length} days)`}
                   </div>
                 ))}
               </div>
             </div>
 
             {/* Show periods needed message */}
-            <div
-              className='flex items-center justify-center h-32 bg-amber-50 rounded-lg border border-dashed border-amber-300'
-            >
+            <div className='flex items-center justify-center h-32 bg-amber-50 rounded-lg border border-dashed border-amber-300'>
               <div className='text-center'>
                 <div className='text-amber-600 text-lg mb-2'>
                   Configure Periods to Complete Setup
                 </div>
                 <div className='text-amber-500 text-sm mb-2'>
-                  Your date ranges are ready! Now configure time periods to create your timetable.
+                  Your date ranges are ready! Now configure time periods to
+                  create your timetable.
                 </div>
                 <div className='text-xs text-amber-500'>
-                  Click "Configure Periods" above to set up your time periods.
+                  Click &quot;Configure Periods&quot; above to set up your time
+                  periods.
                 </div>
               </div>
             </div>
@@ -154,10 +162,12 @@ export const BatchTimetableGrid = React.forwardRef<
                 No periods configured
               </div>
               <div className='text-gray-400 text-sm mb-4'>
-                Click "Configure Periods" above to set up your time periods for this batch timetable.
+                Click &quot;Configure Periods&quot; above to set up your time
+                periods for this batch timetable.
               </div>
               <div className='text-xs text-gray-400'>
-                After configuring periods, you can add date ranges and create your timetable schedule.
+                After configuring periods, you can add date ranges and create
+                your timetable schedule.
               </div>
             </div>
           </div>

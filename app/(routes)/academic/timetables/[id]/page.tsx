@@ -262,6 +262,9 @@ export default function TimetableDetailPage({
   const fetchStaffPlanningData = useCallback(async () => {
     if (!timetable) return;
 
+    // Create a local reference to avoid TypeScript null issues
+    const currentTimetable = timetable;
+
     try {
       setLoadingStaffPlanData(true);
 
@@ -270,28 +273,34 @@ export default function TimetableDetailPage({
       let semesterIdForStaffPlan: string | undefined;
 
       // The timetable.semester_id should now always be a UUID after normalization
-      if (typeof timetable.semester_id === 'string' && timetable.semester_id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)) {
+      if (
+        typeof currentTimetable.semester_id === 'string' &&
+        currentTimetable.semester_id.match(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+        )
+      ) {
         // It's already a UUID, use it directly
-        semesterIdForStaffPlan = timetable.semester_id;
+        semesterIdForStaffPlan = currentTimetable.semester_id;
         console.log('Using semester UUID:', semesterIdForStaffPlan);
-      } else if (typeof timetable.semester_id === 'string') {
+      } else if (typeof currentTimetable.semester_id === 'string') {
         // Fallback: if it's still a string name, look it up (for backwards compatibility)
         try {
           console.log(
             'Looking up semester ID for timetable semester:',
-            timetable.semester_id
+            currentTimetable.semester_id
           );
 
           // Find the semester ID by matching semester name within the same program/department context
           const semestersResponse = await SemesterService.getSemesters({
-            program_id: timetable.program_id,
-            department_id: timetable.department_id,
+            program_id: currentTimetable.program_id,
+            department_id: currentTimetable.department_id,
             isActive: true,
             limit: 100
           });
 
           const matchingSemester = semestersResponse.data.find(
-            (semester) => semester.semester_name === timetable.semester_id
+            (semester) =>
+              semester.semester_name === currentTimetable.semester_id
           );
 
           if (matchingSemester) {
@@ -300,12 +309,12 @@ export default function TimetableDetailPage({
               '✓ Found matching semester ID:',
               semesterIdForStaffPlan,
               'for semester:',
-              timetable.semester_id
+              currentTimetable.semester_id
             );
           } else {
             console.warn(
               '✗ No matching semester found for:',
-              timetable.semester_id
+              currentTimetable.semester_id
             );
             console.log(
               'Available semesters:',
@@ -338,10 +347,10 @@ export default function TimetableDetailPage({
       try {
         const consolidatedPlan =
           await StaffPlanService.getConsolidatedStaffPlan(
-            timetable.institution_id,
-            timetable.program_id,
+            currentTimetable.institution_id,
+            currentTimetable.program_id,
             semesterIdForStaffPlan,
-            timetable.academic_year_id
+            currentTimetable.academic_year_id
           );
 
         console.log(
@@ -406,11 +415,11 @@ export default function TimetableDetailPage({
         );
 
         const staffPlanFilters = {
-          institution_id: timetable.institution_id,
-          degree_id: timetable.degree_id,
-          program_id: timetable.program_id,
-          department_id: timetable.department_id,
-          academic_year_id: timetable.academic_year_id,
+          institution_id: currentTimetable.institution_id,
+          degree_id: currentTimetable.degree_id,
+          program_id: currentTimetable.program_id,
+          department_id: currentTimetable.department_id,
+          academic_year_id: currentTimetable.academic_year_id,
           semester_id: semesterIdForStaffPlan,
           isActive: true,
           limit: 10 // Limit to reduce load
@@ -469,6 +478,9 @@ export default function TimetableDetailPage({
   const fetchFilteredSections = useCallback(async () => {
     if (!timetable) return;
 
+    // Create a local reference to avoid TypeScript null issues
+    const currentTimetable = timetable;
+
     try {
       setLoadingFilteredSections(true);
 
@@ -476,24 +488,30 @@ export default function TimetableDetailPage({
       // After normalization, semester_id should be a UUID
       let semesterId: string | null = null;
 
-      if (typeof timetable.semester_id === 'string' && timetable.semester_id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)) {
+      if (
+        typeof currentTimetable.semester_id === 'string' &&
+        currentTimetable.semester_id.match(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+        )
+      ) {
         // It's already a UUID, use it directly
-        semesterId = timetable.semester_id;
+        semesterId = currentTimetable.semester_id;
         console.log('Using semester UUID for sections:', semesterId);
-      } else if (typeof timetable.semester_id === 'string') {
+      } else if (typeof currentTimetable.semester_id === 'string') {
         // Fallback: if it's still a string name, look it up (for backwards compatibility)
         try {
           const semestersResponse = await SemesterService.getSemesters({
-            institution_id: timetable.institution_id,
-            degree_id: timetable.degree_id,
-            program_id: timetable.program_id,
-            department_id: timetable.department_id,
+            institution_id: currentTimetable.institution_id,
+            degree_id: currentTimetable.degree_id,
+            program_id: currentTimetable.program_id,
+            department_id: currentTimetable.department_id,
             isActive: true,
             limit: 100
           });
 
           const matchingSemester = semestersResponse.data.find(
-            (semester) => semester.semester_name === timetable.semester_id
+            (semester) =>
+              semester.semester_name === currentTimetable.semester_id
           );
 
           if (matchingSemester) {
@@ -507,7 +525,7 @@ export default function TimetableDetailPage({
           } else {
             console.warn(
               'No matching semester found for:',
-              timetable.semester_id
+              currentTimetable.semester_id
             );
           }
         } catch (error) {
@@ -516,24 +534,24 @@ export default function TimetableDetailPage({
       }
 
       let sectionsData: any[] = [];
-      if (semesterId && timetable.institution_id) {
+      if (semesterId && currentTimetable.institution_id) {
         // Use the specialized method for semester and institution filtering
         console.log(
           'Fetching sections for semester ID:',
           semesterId,
           'and institution:',
-          timetable.institution_id
+          currentTimetable.institution_id
         );
         sectionsData = await SectionService.getSectionsBySemesterAndInstitution(
           semesterId,
-          timetable.institution_id
+          currentTimetable.institution_id
         );
         console.log('Found filtered sections:', sectionsData.length);
-      } else if (timetable.institution_id) {
+      } else if (currentTimetable.institution_id) {
         // Fallback to filtering by institution only
         console.warn('Using fallback - filtering by institution only');
         const response = await SectionService.getSections({
-          institution_id: timetable.institution_id,
+          institution_id: currentTimetable.institution_id,
           isActive: true,
           limit: 100
         });
@@ -1489,13 +1507,16 @@ export default function TimetableDetailPage({
   const savePeriodSelections = async () => {
     if (!timetable) return;
 
+    // Create a local reference to avoid TypeScript null issues
+    const currentTimetable = timetable;
+
     setSavingPeriods(true);
     try {
       const currentPeriodIds = selectedPeriods.map((p) => p.id);
 
       // For batch mode, handle slot deletion for removed dates
       if (timetableFormat === 'batch') {
-        const previousSelectedDates = timetable.selected_dates || [];
+        const previousSelectedDates = currentTimetable.selected_dates || [];
         const currentSelectedDates = selectedDates;
 
         // Helper function to extract individual dates from range markers
@@ -1652,7 +1673,7 @@ export default function TimetableDetailPage({
   const exportToPDF = async () => {
     // Check validation based on timetable format
     const isValidForExport = () => {
-      if (!timetable || selectedPeriods.length === 0) {
+      if (!currentTimetable || selectedPeriods.length === 0) {
         return false;
       }
 
@@ -1673,6 +1694,9 @@ export default function TimetableDetailPage({
       return;
     }
 
+    // Create a local reference to avoid TypeScript null issues
+    const currentTimetable = timetable!;
+
     try {
       // Show loading toast
       toast({
@@ -1687,8 +1711,10 @@ export default function TimetableDetailPage({
 
       // Set document properties
       pdf.setProperties({
-        title: `Timetable - ${timetable.timetable_name}`,
-        subject: `Timetable for ${timetable.semesters?.semester_name || 'Semester'}`,
+        title: `Timetable - ${currentTimetable.timetable_name}`,
+        subject: `Timetable for ${
+          currentTimetable.semesters?.semester_name || 'Semester'
+        }`,
         creator: 'JKKN Timetable System'
       });
 
@@ -1702,26 +1728,34 @@ export default function TimetableDetailPage({
       pdf.setFont('helvetica', 'normal');
       let yPosition = 40;
 
-      pdf.text(`Timetable: ${timetable.timetable_name}`, margin, yPosition);
+      pdf.text(
+        `Timetable: ${currentTimetable.timetable_name}`,
+        margin,
+        yPosition
+      );
       yPosition += 7;
 
-      if (timetable.institution?.name) {
+      if (currentTimetable.institution?.name) {
         pdf.text(
-          `Institution: ${timetable.institution.name}`,
+          `Institution: ${currentTimetable.institution.name}`,
           margin,
           yPosition
         );
         yPosition += 7;
       }
 
-      if (timetable.semesters?.semester_name) {
-        pdf.text(`Semester: ${timetable.semesters.semester_name}`, margin, yPosition);
+      if (currentTimetable.semesters?.semester_name) {
+        pdf.text(
+          `Semester: ${currentTimetable.semesters.semester_name}`,
+          margin,
+          yPosition
+        );
         yPosition += 7;
       }
 
-      if (timetable.department?.department_name) {
+      if (currentTimetable.department?.department_name) {
         pdf.text(
-          `Department: ${timetable.department.department_name}`,
+          `Department: ${currentTimetable.department.department_name}`,
           margin,
           yPosition
         );
@@ -1729,7 +1763,15 @@ export default function TimetableDetailPage({
       }
 
       pdf.text(`Generated on: ${format(new Date(), 'PPP')}`, margin, yPosition);
-      pdf.text(`Format: ${timetableFormat === 'batch' ? 'Batch (Date-wise)' : 'Regular (Day-wise)'}`, margin, yPosition + 7);
+      pdf.text(
+        `Format: ${
+          timetableFormat === 'batch'
+            ? 'Batch (Date-wise)'
+            : 'Regular (Day-wise)'
+        }`,
+        margin,
+        yPosition + 7
+      );
       yPosition += 22;
 
       // Prepare table data based on timetable format
@@ -1765,19 +1807,28 @@ export default function TimetableDetailPage({
                 }
 
                 // Create display name for the range
-                const startFormatted = new Date(startDate).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric'
-                });
-                const endFormatted = new Date(endDate).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric'
-                });
+                const startFormatted = new Date(startDate).toLocaleDateString(
+                  'en-US',
+                  {
+                    month: 'short',
+                    day: 'numeric'
+                  }
+                );
+                const endFormatted = new Date(endDate).toLocaleDateString(
+                  'en-US',
+                  {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
+                  }
+                );
 
-                const displayName = startDate === endDate
-                  ? `${startFormatted}\n${new Date(startDate).toLocaleDateString('en-US', { weekday: 'short' })}`
-                  : `${startFormatted} -\n${endFormatted}\n(${rangeDates.length} days)`;
+                const displayName =
+                  startDate === endDate
+                    ? `${startFormatted}\n${new Date(
+                        startDate
+                      ).toLocaleDateString('en-US', { weekday: 'short' })}`
+                    : `${startFormatted} -\n${endFormatted}\n(${rangeDates.length} days)`;
 
                 ranges.push({
                   start: startDate,
@@ -1789,13 +1840,16 @@ export default function TimetableDetailPage({
               }
             } else if (!item.includes('RANGE')) {
               // Individual date
-              const displayName = new Date(item).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric'
-              }) + '\n' + new Date(item).toLocaleDateString('en-US', {
-                weekday: 'short'
-              });
+              const displayName =
+                new Date(item).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
+                }) +
+                '\n' +
+                new Date(item).toLocaleDateString('en-US', {
+                  weekday: 'short'
+                });
 
               ranges.push({
                 start: item,
@@ -1815,7 +1869,7 @@ export default function TimetableDetailPage({
         // Create column headers with date ranges
         tableColumns = [
           'Period',
-          ...dateRanges.map(range => range.displayName)
+          ...dateRanges.map((range) => range.displayName)
         ];
 
         // Create rows for each period
@@ -1827,20 +1881,21 @@ export default function TimetableDetailPage({
               hour: 'numeric',
               minute: '2-digit',
               hour12: true
-            })} - ${new Date(`2000-01-01T${period.end_time}`).toLocaleTimeString(
-              'en-US',
-              {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-              }
-            )}`
+            })} - ${new Date(
+              `2000-01-01T${period.end_time}`
+            ).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            })}`
           ];
 
           dateRanges.forEach((range) => {
             // For each date range, find a representative slot (first slot found in the range)
             const slot = slots.find(
-              (s) => range.dates.includes(s.slot_date || '') && s.period_id === period.id
+              (s) =>
+                range.dates.includes(s.slot_date || '') &&
+                s.period_id === period.id
             );
 
             if (!slot) {
@@ -1865,8 +1920,9 @@ export default function TimetableDetailPage({
                       }`
                     : 'Staff';
                 const sectionNames =
-                  subSlot.sections?.map((s: any) => s.section_name).join(', ') ||
-                  'Section';
+                  subSlot.sections
+                    ?.map((s: any) => s.section_name)
+                    .join(', ') || 'Section';
 
                 return `${courseCode}\n${staffName}\n${sectionNames}`;
               });
@@ -1892,7 +1948,9 @@ export default function TimetableDetailPage({
         // Regular mode (existing logic)
         tableColumns = [
           'Period',
-          ...selectedDays.map((day) => day.charAt(0) + day.slice(1).toLowerCase())
+          ...selectedDays.map(
+            (day) => day.charAt(0) + day.slice(1).toLowerCase()
+          )
         ];
 
         tableRows = selectedPeriods.map((period) => {
@@ -1903,14 +1961,13 @@ export default function TimetableDetailPage({
               hour: 'numeric',
               minute: '2-digit',
               hour12: true
-            })} - ${new Date(`2000-01-01T${period.end_time}`).toLocaleTimeString(
-              'en-US',
-              {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-              }
-            )}`
+            })} - ${new Date(
+              `2000-01-01T${period.end_time}`
+            ).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            })}`
           ];
 
           selectedDays.forEach((day) => {
@@ -1940,8 +1997,9 @@ export default function TimetableDetailPage({
                       }`
                     : 'Staff';
                 const sectionNames =
-                  subSlot.sections?.map((s: any) => s.section_name).join(', ') ||
-                  'Section';
+                  subSlot.sections
+                    ?.map((s: any) => s.section_name)
+                    .join(', ') || 'Section';
 
                 return `${courseCode}\n${staffName}\n${sectionNames}`;
               });
@@ -2108,10 +2166,10 @@ export default function TimetableDetailPage({
 
       // Save the PDF
       pdf.save(
-        `Timetable_${timetable.timetable_name.replace(/\s+/g, '_')}_${format(
-          new Date(),
-          'yyyy-MM-dd'
-        )}.pdf`
+        `Timetable_${currentTimetable.timetable_name.replace(
+          /\s+/g,
+          '_'
+        )}_${format(new Date(), 'yyyy-MM-dd')}.pdf`
       );
 
       // Success toast
@@ -2210,8 +2268,8 @@ export default function TimetableDetailPage({
                   </h2>
                   <p className='text-sm text-gray-500'>
                     Schedule for{' '}
-                    {timetable.semesters?.semester_name || 'Semester'}
-                    {timetable.sections?.section_name &&
+                    {timetable?.semesters?.semester_name || 'Semester'}
+                    {timetable?.sections?.section_name &&
                       ` - ${timetable.sections.section_name}`}
                   </p>
                 </div>
