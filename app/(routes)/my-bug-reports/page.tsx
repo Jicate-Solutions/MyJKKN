@@ -6,24 +6,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
-} from '@/components/ui/dialog';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger
-} from '@/components/ui/accordion';
 import { BugReportStatus, BugReport } from '@/types/bugs';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable } from '@/components/ui/data-table';
 import { ColumnDef } from '@tanstack/react-table';
-import Image from 'next/image';
 import {
   Eye,
   Bug,
@@ -33,12 +19,7 @@ import {
   AlertCircle,
   Trophy,
   Target,
-  TrendingUp,
-  Calendar,
-  Monitor,
-  Terminal,
-  ExternalLink,
-  FileImage
+  TrendingUp
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -94,179 +75,6 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   );
 };
 
-const BugDetailsDialog = ({ bug }: { bug: BugReport }) => {
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
-          <Eye className='w-4 h-4' />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className='max-w-4xl max-h-[80vh] overflow-y-auto'>
-        <DialogHeader>
-          <DialogTitle className='flex items-center gap-2'>
-            <Bug className='w-5 h-5' />
-            Bug Report Details - {bug.display_id}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className='space-y-6'>
-          {/* Status and Basic Info */}
-          <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-sm'>Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <BugStatusBadge status={bug.status} />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-sm'>Reported</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='flex items-center gap-2 text-sm'>
-                  <Calendar className='w-4 h-4 text-muted-foreground' />
-                  {new Date(bug.created_at).toLocaleDateString()}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <CardTitle className='text-sm'>Page URL</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <a
-                  href={bug.page_url}
-                  target='_blank'
-                  rel='noopener noreferrer'
-                  className='flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 truncate'
-                >
-                  <ExternalLink className='w-3 h-3 shrink-0' />
-                  <span className='truncate'>{bug.page_url}</span>
-                </a>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Description */}
-          <Card>
-            <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                <FileImage className='w-5 h-5' />
-                Description
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className='text-sm leading-relaxed whitespace-pre-wrap'>
-                {bug.description}
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Screenshot */}
-          {bug.screenshot_url && (
-            <Card>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  <Monitor className='w-5 h-5' />
-                  Screenshot
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='relative rounded-lg overflow-hidden border bg-muted'>
-                  <Image
-                    src={bug.screenshot_url}
-                    alt='Bug report screenshot'
-                    width={800}
-                    height={600}
-                    className='w-full h-auto max-h-96 object-contain'
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Console Logs */}
-          {bug.console_logs && bug.console_logs.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  <Terminal className='w-5 h-5' />
-                  Console Logs
-                  <Badge variant='outline' className='ml-2'>
-                    {bug.console_logs.length}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Accordion type='single' collapsible>
-                  <AccordionItem value='console-logs'>
-                    <AccordionTrigger className='text-sm'>
-                      View Console Output
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <div className='rounded-md bg-slate-950 dark:bg-slate-900 p-4 overflow-x-auto'>
-                        <pre className='text-xs text-slate-100 font-mono'>
-                          <code>
-                            {JSON.stringify(bug.console_logs, null, 2)}
-                          </code>
-                        </pre>
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* System Info */}
-          {bug.metadata && (
-            <Card>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  <Monitor className='w-5 h-5' />
-                  System Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-3'>
-                <div>
-                  <label className='text-sm font-medium text-muted-foreground'>
-                    User Agent
-                  </label>
-                  <p className='text-xs mt-1 break-all'>
-                    {(bug.metadata as any).userAgent || 'Unknown'}
-                  </p>
-                </div>
-                <div>
-                  <label className='text-sm font-medium text-muted-foreground'>
-                    Screen Resolution
-                  </label>
-                  <p className='text-sm mt-1'>
-                    {(bug.metadata as any).screenResolution || 'Unknown'}
-                  </p>
-                </div>
-                {(bug.metadata as any).viewport && (
-                  <div>
-                    <label className='text-sm font-medium text-muted-foreground'>
-                      Viewport
-                    </label>
-                    <p className='text-sm mt-1'>
-                      {(bug.metadata as any).viewport}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-};
 
 export default function MyBugReportsPage() {
   const {
@@ -345,7 +153,11 @@ export default function MyBugReportsPage() {
         header: 'Actions',
         cell: ({ row }) => (
           <div className='text-center'>
-            <BugDetailsDialog bug={row.original} />
+            <Button variant='ghost' size='sm' className='h-8 w-8 p-0' asChild>
+              <Link href={`/my-bug-reports/${row.original.id}`}>
+                <Eye className='w-4 h-4' />
+              </Link>
+            </Button>
           </div>
         )
       }
