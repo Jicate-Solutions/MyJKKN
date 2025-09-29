@@ -79,11 +79,23 @@ function NotificationItemSkeleton() {
   );
 }
 
-export function NotificationBell() {
+interface NotificationBellProps {
+  notifications?: UserNotification[];
+  unreadCount?: number;
+  isLoading?: boolean;
+  markAsRead?: (notificationId: string) => void;
+  markAllAsRead?: () => void;
+}
+
+export function NotificationBell({
+  notifications = [],
+  unreadCount = 0,
+  isLoading = false,
+  markAsRead = () => {},
+  markAllAsRead = () => {}
+}: NotificationBellProps = {}) {
   const [isOpen, setIsOpen] = useState(false);
   const router = useRouter();
-  const { notifications, unreadCount, isLoading, markAsRead, markAllAsRead } =
-    useNotifications();
 
   const handleNotificationClick = (notification: UserNotification) => {
     if (!notification.read_at) {

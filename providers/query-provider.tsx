@@ -12,27 +12,29 @@ export function QueryClientProvider({ children }: { children: ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh longer
+            staleTime: 2 * 60 * 1000, // 2 minutes - reduced for more frequent updates
             gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
-            refetchOnWindowFocus: false, // Don't refetch when window gains focus
-            refetchOnMount: false, // Don't refetch when component mounts - THIS WAS THE MAIN ISSUE
-            refetchOnReconnect: false, // Don't refetch on network reconnect
+            refetchOnWindowFocus: true, // Refetch when window gains focus
+            refetchOnMount: true, // Always refetch when component mounts - FIXED
+            refetchOnReconnect: true, // Refetch on network reconnect
             retry: (failureCount, error) => {
-              // Don't retry on auth errors or RLS policy errors
+              // Don't retry on auth errors, RLS policy errors, or 404s
               const errorMessage = error?.message?.toLowerCase() || '';
               const errorStatus = (error as any)?.status;
               if (
                 errorMessage.includes('unauthorized') ||
                 errorMessage.includes('forbidden') ||
+                errorMessage.includes('not found') ||
                 errorMessage.includes('54001') || // Stack depth error
                 errorMessage.includes('jwt') ||
                 errorMessage.includes('invalid') ||
                 errorStatus === 401 ||
-                errorStatus === 403
+                errorStatus === 403 ||
+                errorStatus === 404 // Don't retry deleted resources
               ) {
                 return false;
               }
-              // Retry only once for other errors (reduced from 2)
+              // Retry only once for other errors
               return failureCount < 1;
             },
             retryDelay: (attemptIndex) =>

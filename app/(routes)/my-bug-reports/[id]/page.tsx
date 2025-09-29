@@ -1,7 +1,9 @@
 'use client';
 
 import { useParams } from 'next/navigation';
+import { useEffect } from 'react';
 import { useBugReport } from '@/hooks/bug-reports/use-bug-reports';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -80,8 +82,42 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
 export default function BugReportDetailPage() {
   const params = useParams();
   const reportId = params.id as string;
+  const supabase = createClientSupabaseClient();
 
-  const { data: bugReport, isLoading, error } = useBugReport(reportId);
+  const { data: bugReport, isLoading, error, refetch } = useBugReport(reportId);
+
+  // Set up real-time subscription for this specific bug report
+  useEffect(() => {
+    if (!reportId) return;
+
+    const channel = supabase
+      .channel(`bug_report_${reportId}_changes`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'bug_reports',
+          filter: `id=eq.${reportId}`
+        },
+        (payload) => {
+          console.log('Bug report detail change detected:', payload);
+
+          if (payload.eventType === 'DELETE') {
+            // If the bug report was deleted, redirect back to list
+            window.location.href = '/my-bug-reports';
+          } else {
+            // For updates, refetch the data
+            refetch();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [reportId, supabase, refetch]);
 
   if (isLoading) {
     return (
@@ -97,14 +133,25 @@ export default function BugReportDetailPage() {
   }
 
   if (error || !bugReport) {
+    // Check if it's a specific error type
+    const isNotFound = error?.message?.includes('404') || error?.message?.includes('not found');
+    const isAccessDenied = error?.message?.includes('access denied');
+
     return (
       <ContentLayout title='Error'>
         <div className='text-center py-12'>
           <Bug className='w-16 h-16 text-muted-foreground mx-auto mb-4' />
-          <h2 className='text-xl font-semibold mb-2'>Bug Report Not Found</h2>
+          <h2 className='text-xl font-semibold mb-2'>
+            {isNotFound ? 'Bug Report Not Found' :
+             isAccessDenied ? 'Access Denied' :
+             'Error Loading Bug Report'}
+          </h2>
           <p className='text-muted-foreground mb-4'>
-            The bug report you&apos;re looking for doesn&apos;t exist or you
-            don&apos;t have access to it.
+            {isNotFound ?
+              'This bug report may have been deleted by an administrator.' :
+             isAccessDenied ?
+              'You do not have permission to access this bug report.' :
+              'The bug report you\'re looking for doesn\'t exist or you don\'t have access to it.'}
           </p>
           <Button asChild>
             <Link href='/my-bug-reports'>

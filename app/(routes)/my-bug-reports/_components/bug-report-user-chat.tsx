@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -55,11 +55,13 @@ const MessageBubble = ({
 }) => {
   const { data: readStatus } = useMessageReadStatus(reportId, message.id);
   const [isHovered, setIsHovered] = useState(false);
+  const markAsReadAttempted = useRef(false);
 
   useEffect(() => {
     // Auto-mark message as read when it comes into view and isn't from current user
-    if (!isCurrentUser) {
+    if (!isCurrentUser && !markAsReadAttempted.current) {
       const timer = setTimeout(() => {
+        markAsReadAttempted.current = true;
         onMarkAsRead(message.id);
       }, 2000); // Mark as read after 2 seconds
 
@@ -232,6 +234,8 @@ export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatP
         },
         (payload) => {
           console.log('New message received:', payload);
+
+          // Force immediate refetch for real-time updates
           refetchMessages();
           refetchUnreadCount();
 
@@ -240,7 +244,7 @@ export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatP
             toast({
               title: 'New message',
               description: 'You received a new message about your bug report',
-              duration: 5000,
+              duration: 3000,
             });
           }
         }
@@ -270,28 +274,49 @@ export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatP
       });
 
       setMessage('');
-      refetchMessages();
       toast({
         title: 'Message sent',
         description: 'Your message has been sent to the support team.'
       });
     } catch (error) {
-      toast({
-        title: 'Failed to send message',
-        description:
-          error instanceof Error ? error.message : 'An error occurred',
-        variant: 'destructive'
-      });
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+
+      // Handle specific error cases
+      if (errorMessage.includes('not found') || errorMessage.includes('access')) {
+        toast({
+          title: 'Bug Report Not Available',
+          description: 'This bug report may have been deleted or you no longer have access to it.',
+          variant: 'destructive'
+        });
+
+        // Redirect to bug reports list after a short delay
+        setTimeout(() => {
+          window.location.href = '/my-bug-reports';
+        }, 3000);
+
+      } else if (errorMessage.includes('resolved')) {
+        toast({
+          title: 'Cannot Send Message',
+          description: 'Messages cannot be sent to resolved bug reports.',
+          variant: 'destructive'
+        });
+      } else {
+        toast({
+          title: 'Failed to send message',
+          description: errorMessage,
+          variant: 'destructive'
+        });
+      }
     }
   };
 
-  const handleMarkAsRead = async (messageId: string) => {
+  const handleMarkAsRead = useCallback(async (messageId: string) => {
     try {
       await markMessageAsRead(messageId);
     } catch (error) {
       console.error('Failed to mark message as read:', error);
     }
-  };
+  }, [markMessageAsRead]);
 
   const handleMarkAllAsRead = async () => {
     try {
@@ -318,8 +343,8 @@ export function BugReportUserChat({ reportId, reportStatus }: BugReportUserChatP
 
   const isResolved = reportStatus === 'resolved';
 
-  // Filter out internal messages for users
-  const visibleMessages = messages.filter(msg => !msg.is_internal);
+  // Messages are already filtered by the API based on user permissions
+  const visibleMessages = messages;
 
   return (
     <div className='space-y-4'>
