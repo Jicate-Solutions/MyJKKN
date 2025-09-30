@@ -1094,4 +1094,40 @@ export class StorageService {
       };
     }
   }
+
+  /**
+   * Delete resource image by URL
+   */
+  static async deleteResourceImageByUrl(
+    imageUrl: string
+  ): Promise<{ error: Error | null }> {
+    if (!imageUrl) {
+      return { error: null }; // No image to delete
+    }
+
+    try {
+      // Extract the file path from the full URL
+      const url = new URL(imageUrl);
+      const path = url.pathname.split(
+        `/storage/v1/object/public/${BUCKETS.RESOURCES}/`
+      )[1];
+
+      if (!path) {
+        throw new Error('Could not extract file path from URL');
+      }
+
+      const { error } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .remove([path]);
+
+      if (error) throw error;
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting resource image by URL:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
 }

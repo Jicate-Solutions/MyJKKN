@@ -1,10 +1,36 @@
 import { Database } from '@/types/supabase';
 import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { Profile } from '@/types/auth';
 
-// Create server client for use in server components
+// Create server client for use in server components and API routes
+export async function createClient() {
+  const cookieStore = await cookies();
+
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch (error) {
+            console.error('Error setting cookies:', error);
+          }
+        }
+      }
+    }
+  );
+}
+
+// Alias for backward compatibility
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies();
 
@@ -39,7 +65,7 @@ export function createServiceRoleClient() {
     throw new Error('Missing Supabase service role credentials');
   }
 
-  return createClient<Database>(supabaseUrl, serviceRoleKey, {
+  return createSupabaseClient<Database>(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false

@@ -1,7 +1,5 @@
 ---
-description: Rules for React components
-globs: *.tsx, *.jsx, **/components/**/*.ts
-alwaysApply: false
+alwaysApply: true
 ---
 Scope: *.tsx, *.jsx, **/components/**/*.ts
 
