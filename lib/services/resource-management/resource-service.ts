@@ -1,0 +1,629 @@
+// lib/services/resource-management/resource-service.ts
+
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { StorageService } from '@/lib/storage/storage-service';
+import type {
+  Resource,
+  CreateResourceDto,
+  UpdateResourceDto,
+  ResourceFilters,
+  ResourceListResponse,
+  BulkOperationResult,
+  ResourceAvailability
+} from '@/types/resource-management';
+
+/**
+ * Resource Service for managing resources
+ *
+ * Provides CRUD operations, availability checking, stock management,
+ * and image handling for resources.
+ */
+export class ResourceService {
+  private static supabase = createClientSupabaseClient();
+
+  /**
+   * Get all resources with filtering and pagination
+   */
+  static async getResources(
+    filters: ResourceFilters = {}
+  ): Promise<ResourceListResponse> {
+    try {
+      let query = this.supabase.from('resources').select(
+        `
+          *,
+          parent_category:resource_parent_categories(id, name, image_url),
+          subcategory:resource_sub_categories(
+            id, 
+            name, 
+            image_url,
+            attribute_definitions:resource_attribute_definitions(*)
+          ),
+          institution:institutions(id, name),
+          department:departments(id, department_name),
+          caretaker:profiles!resources_caretaker_user_id_fkey(
+            id,
+            full_name,
+            email,
+            phone_number
+          ),
+          created_by_user:profiles!resources_created_by_fkey(
+            id,
+            full_name,
+            email
+          ),
+          updated_by_user:profiles!resources_updated_by_fkey(
+            id,
+            full_name,
+            email
+          )
+        `,
+        { count: 'exact' }
+      );
+
+      // Apply filters
+      if (filters.search) {
+        query = query.or(
+          `name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`
+        );
+      }
+
+      if (filters.parent_category_id) {
+        query = query.eq('parent_category_id', filters.parent_category_id);
+      }
+
+      if (filters.subcategory_id) {
+        query = query.eq('subcategory_id', filters.subcategory_id);
+      }
+
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id);
+      }
+
+      if (filters.department_id) {
+        query = query.eq('department_id', filters.department_id);
+      }
+
+      if (filters.status) {
+        query = query.eq('status', filters.status);
+      }
+
+      if (filters.booking_type) {
+        query = query.eq('booking_type', filters.booking_type);
+      }
+
+      if (filters.caretaker_user_ids) {
+        query = query.contains(
+          'caretaker_user_ids',
+          filters.caretaker_user_ids
+        );
+      }
+
+      // Filter by availability date if provided
+      if (filters.available_on) {
+        // This will need to check against reservations - implement later
+        // For now, just filter by status 'available'
+        query = query.eq('status', 'available');
+      }
+
+      // Apply sorting
+      const sortBy = filters.sortBy || 'created_at';
+      const sortOrder = filters.sortOrder || 'desc';
+      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+
+      // Apply pagination
+      const page = filters.page || 1;
+      const limit = filters.limit || 10;
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+
+      query = query.range(from, to);
+
+      const { data: resources, error, count } = await query;
+
+      if (error) throw error;
+
+      return {
+        data: resources || [],
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: count ? Math.ceil(count / limit) : 0
+        }
+      };
+    } catch (error) {
+      console.error('Error fetching resources:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to fetch resources'
+      );
+    }
+  }
+
+  /**
+   * Get a single resource by ID
+   */
+  static async getResource(id: string): Promise<Resource> {
+    try {
+      const { data: resource, error } = await this.supabase
+        .from('resources')
+        .select(
+          `
+            *,
+            parent_category:resource_parent_categories(id, name, image_url),
+            subcategory:resource_sub_categories(
+              id, 
+              name, 
+              image_url,
+              inherit_parent_attributes,
+              attribute_definitions:resource_attribute_definitions(*)
+            ),
+            institution:institutions(id, name),
+            department:departments(id, department_name),
+            caretaker:profiles!resources_caretaker_user_id_fkey(
+              id,
+              full_name,
+              email,
+              phone_number
+            ),
+            created_by_user:profiles!resources_created_by_fkey(
+              id,
+              full_name,
+              email
+            ),
+            updated_by_user:profiles!resources_updated_by_fkey(
+              id,
+              full_name,
+              email
+            )
+          `
+        )
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
+      if (!resource) throw new Error('Resource not found');
+
+      return resource;
+    } catch (error) {
+      console.error('Error fetching resource:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to fetch resource'
+      );
+    }
+  }
+
+  /**
+   * Create a new resource
+   */
+  static async createResource(
+    resourceData: CreateResourceDto,
+    userId: string
+  ): Promise<Resource> {
+    try {
+      // Validate required fields
+      if (!resourceData.name?.trim()) {
+        throw new Error('Resource name is required');
+      }
+
+      if (!resourceData.parent_category_id) {
+        throw new Error('Parent category is required');
+      }
+
+      if (!resourceData.subcategory_id) {
+        throw new Error('Subcategory is required');
+      }
+
+      if (!resourceData.institution_id) {
+        throw new Error('Institution is required');
+      }
+
+      // Check if resource name already exists in the same location
+      const { data: existingResource } = await this.supabase
+        .from('resources')
+        .select('id')
+        .eq('name', resourceData.name.trim())
+        .eq('institution_id', resourceData.institution_id)
+        .eq('department_id', resourceData.department_id || null)
+        .eq('building_number', resourceData.building_number || null)
+        .eq('block_number', resourceData.block_number || null)
+        .eq('room_number', resourceData.room_number || null)
+        .single();
+
+      if (existingResource) {
+        throw new Error(
+          'A resource with this name already exists in this location'
+        );
+      }
+
+      const { data: resource, error } = await this.supabase
+        .from('resources')
+        .insert({
+          ...resourceData,
+          name: resourceData.name.trim(),
+          current_stock_quantity: resourceData.initial_stock_quantity,
+          created_by: userId,
+          updated_by: userId
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return resource;
+    } catch (error) {
+      console.error('Error creating resource:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to create resource'
+      );
+    }
+  }
+
+  /**
+   * Update an existing resource
+   */
+  static async updateResource(
+    id: string,
+    resourceData: UpdateResourceDto,
+    userId: string
+  ): Promise<Resource> {
+    try {
+      // Check if resource exists
+      const existingResource = await this.getResource(id);
+      if (!existingResource) {
+        throw new Error('Resource not found');
+      }
+
+      // Check if new name conflicts with existing resources
+      if (resourceData.name) {
+        const { data: conflictResource } = await this.supabase
+          .from('resources')
+          .select('id')
+          .eq('name', resourceData.name.trim())
+          .eq(
+            'institution_id',
+            resourceData.institution_id || existingResource.institution_id
+          )
+          .neq('id', id)
+          .single();
+
+        if (conflictResource) {
+          throw new Error(
+            'A resource with this name already exists in this location'
+          );
+        }
+      }
+
+      const updateData = {
+        ...resourceData,
+        ...(resourceData.name && { name: resourceData.name.trim() }),
+        updated_by: userId,
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: resource, error } = await this.supabase
+        .from('resources')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return resource;
+    } catch (error) {
+      console.error('Error updating resource:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to update resource'
+      );
+    }
+  }
+
+  /**
+   * Delete a resource by ID
+   */
+  static async deleteResource(id: string): Promise<boolean> {
+    try {
+      // Get resource to check for reservations and images
+      const resource = await this.getResource(id);
+
+      // Check for active reservations
+      const { data: activeReservations } = await this.supabase
+        .from('resource_reservations')
+        .select('id')
+        .eq('resource_id', id)
+        .in('status', ['pending', 'approved']);
+
+      if (activeReservations && activeReservations.length > 0) {
+        throw new Error(
+          `Cannot delete resource "${resource.name}" because it has ${activeReservations.length} active reservation(s). Please cancel them first.`
+        );
+      }
+
+      // Delete the resource
+      const { error } = await this.supabase
+        .from('resources')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Delete resource images from storage if they exist
+      if (resource.image_urls && resource.image_urls.length > 0) {
+        try {
+          for (const imageUrl of resource.image_urls) {
+            await StorageService.deleteResourceImageByUrl(imageUrl);
+          }
+          console.log(
+            `Successfully deleted ${resource.image_urls.length} images for resource ${id}`
+          );
+        } catch (imageError) {
+          console.error(
+            `Failed to delete images for resource ${id}:`,
+            imageError
+          );
+          // Don't fail the entire operation for image cleanup errors
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error deleting resource:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to delete resource'
+      );
+    }
+  }
+
+  /**
+   * Bulk delete resources by IDs
+   */
+  static async bulkDeleteResources(
+    ids: string[]
+  ): Promise<BulkOperationResult> {
+    const result: BulkOperationResult = {
+      success: true,
+      processedCount: 0,
+      errors: []
+    };
+
+    console.log(`Starting bulk delete of ${ids.length} resources with cleanup`);
+
+    for (const id of ids) {
+      try {
+        await this.deleteResource(id);
+        result.processedCount++;
+        console.log(`Successfully deleted resource ${id}`);
+      } catch (error) {
+        result.success = false;
+        result.errors.push({
+          id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        console.error(`Failed to delete resource ${id}:`, error);
+      }
+    }
+
+    console.log(
+      `Bulk delete completed: ${result.processedCount}/${ids.length} resources processed`
+    );
+    return result;
+  }
+
+  /**
+   * Update stock quantity
+   */
+  static async updateStockQuantity(
+    id: string,
+    quantity: number,
+    userId: string
+  ): Promise<Resource> {
+    try {
+      if (quantity < 0) {
+        throw new Error('Stock quantity cannot be negative');
+      }
+
+      const { data: resource, error } = await this.supabase
+        .from('resources')
+        .update({
+          current_stock_quantity: quantity,
+          updated_by: userId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return resource;
+    } catch (error) {
+      console.error('Error updating stock quantity:', error);
+      throw new Error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update stock quantity'
+      );
+    }
+  }
+
+  /**
+   * Check resource availability for a given time period
+   */
+  static async checkAvailability(
+    resourceId: string,
+    startTime: string,
+    endTime: string
+  ): Promise<{ available: boolean; conflictingReservations?: any[] }> {
+    try {
+      const { data: reservations, error } = await this.supabase
+        .from('resource_reservations')
+        .select('*')
+        .eq('resource_id', resourceId)
+        .in('status', ['pending', 'approved'])
+        .or(`and(start_time.lte.${endTime},end_time.gte.${startTime})`);
+
+      if (error) throw error;
+
+      const hasConflicts = reservations && reservations.length > 0;
+
+      return {
+        available: !hasConflicts,
+        conflictingReservations: hasConflicts ? reservations : undefined
+      };
+    } catch (error) {
+      console.error('Error checking availability:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to check availability'
+      );
+    }
+  }
+
+  /**
+   * Get resources for select/dropdown
+   */
+  static async getResourcesForSelect(
+    institutionId?: string,
+    departmentId?: string
+  ): Promise<Array<{ id: string; name: string; status: string }>> {
+    try {
+      let query = this.supabase
+        .from('resources')
+        .select('id, name, status')
+        .eq('status', 'available')
+        .order('name');
+
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      if (departmentId) {
+        query = query.eq('department_id', departmentId);
+      }
+
+      const { data: resources, error } = await query;
+
+      if (error) throw error;
+
+      return resources || [];
+    } catch (error) {
+      console.error('Error fetching resources for select:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to fetch resources'
+      );
+    }
+  }
+
+  /**
+   * Get resource usage statistics
+   */
+  static async getResourceUsageStats(resourceId: string): Promise<{
+    totalReservations: number;
+    completedReservations: number;
+    cancelledReservations: number;
+    noShowReservations: number;
+    averageDuration: number;
+    utilizationRate: number;
+  }> {
+    try {
+      const { data: stats, error } = await this.supabase.rpc(
+        'get_resource_usage_stats',
+        {
+          p_resource_id: resourceId
+        }
+      );
+
+      if (error) {
+        // If function doesn't exist, calculate manually
+        const { data: reservations } = await this.supabase
+          .from('resource_reservations')
+          .select('status, start_time, end_time')
+          .eq('resource_id', resourceId);
+
+        const total = reservations?.length || 0;
+        const completed =
+          reservations?.filter((r) => r.status === 'completed').length || 0;
+        const cancelled =
+          reservations?.filter((r) => r.status === 'cancelled').length || 0;
+        const noShow =
+          reservations?.filter((r) => r.status === 'no_show').length || 0;
+
+        return {
+          totalReservations: total,
+          completedReservations: completed,
+          cancelledReservations: cancelled,
+          noShowReservations: noShow,
+          averageDuration: 0,
+          utilizationRate: total > 0 ? (completed / total) * 100 : 0
+        };
+      }
+
+      return stats;
+    } catch (error) {
+      console.error('Error fetching usage stats:', error);
+      throw new Error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to fetch usage statistics'
+      );
+    }
+  }
+
+  /**
+   * Search resources by name or description
+   */
+  static async searchResources(query: string): Promise<Resource[]> {
+    try {
+      const { data: resources, error } = await this.supabase
+        .from('resources')
+        .select(
+          `
+            *,
+            parent_category:resource_parent_categories(id, name),
+            subcategory:resource_sub_categories(id, name),
+            institution:institutions(id, name)
+          `
+        )
+        .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
+        .in('status', ['available', 'occupied'])
+        .order('name')
+        .limit(10);
+
+      if (error) throw error;
+
+      return resources || [];
+    } catch (error) {
+      console.error('Error searching resources:', error);
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to search resources'
+      );
+    }
+  }
+
+  /**
+   * Update resource usage count
+   */
+  static async incrementUsageCount(resourceId: string): Promise<void> {
+    try {
+      await this.supabase.rpc('increment_resource_usage', {
+        resource_id: resourceId
+      });
+    } catch (error) {
+      console.error('Error incrementing usage count:', error);
+      // Don't throw error as this is non-critical
+    }
+  }
+
+  /**
+   * Update resource reservation count
+   */
+  static async incrementReservationCount(resourceId: string): Promise<void> {
+    try {
+      await this.supabase.rpc('increment_resource_reservations', {
+        resource_id: resourceId
+      });
+    } catch (error) {
+      console.error('Error incrementing reservation count:', error);
+      // Don't throw error as this is non-critical
+    }
+  }
+}

@@ -39,7 +39,12 @@ export const RESERVATION_STATUS = {
 
 export const BOOKING_TYPE = {
   ALL_DAY: 'all_day',
-  TIME_SLOTS: 'time_slots'
+  TIME_SLOTS: 'time_slots',
+  NO_BOOKING: 'no_booking',
+  // Legacy values for backward compatibility
+  RESERVATION: 'reservation',
+  WALK_IN: 'walk_in',
+  BOTH: 'both'
 } as const;
 
 export const APPROVAL_TYPE = {
@@ -150,14 +155,17 @@ export interface Resource {
   department_id?: string;
   building_number?: string;
   block_number?: string;
+  floor_number?: string;
   room_number?: string;
+  location_notes?: string;
   vendor_name?: string;
   vendor_email?: string;
+  vendor_contact?: string;
   vendor_mobile?: string;
   vendor_address?: string;
   initial_stock_quantity: number;
   current_stock_quantity: number;
-  caretaker_user_id?: string;
+  caretaker_user_ids?: string[]; // Support multiple caretakers
   purchase_date?: string;
   warranty_expiry_date?: string;
   maintenance_schedule?: string;
@@ -169,6 +177,10 @@ export interface Resource {
   access_roles: string[]; // Array of role IDs
   custom_attributes: Record<string, any>;
   qr_code?: string;
+  image_urls?: string[];
+  tags?: string[];
+  usage_count?: number;
+  reservation_count?: number;
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -189,13 +201,38 @@ export interface Resource {
     id: string;
     full_name: string;
     email: string;
+    phone_number?: string;
     mobile?: string;
+  };
+  created_by_user?: {
+    id: string;
+    full_name: string;
+    email: string;
+  };
+  updated_by_user?: {
+    id: string;
+    full_name: string;
+    email: string;
   };
   reservations?: Reservation[];
 }
 
 // Booking Configuration Interface
 export interface BookingConfiguration {
+  max_advance_days?: number;
+  min_advance_hours?: number;
+  max_duration_hours?: number;
+  min_duration_hours?: number;
+  max_bookings_per_user?: number;
+  slot_duration?: number; // in minutes
+  allow_overlap?: boolean;
+  require_approval?: boolean;
+  auto_cancel_no_show?: boolean;
+  send_reminders?: boolean;
+  operating_hours?: {
+    start: string;
+    end: string;
+  };
   max_booking_duration?: number; // in hours
   advance_booking_limit?: number; // in days
   concurrent_booking_limit?: number;
@@ -214,13 +251,36 @@ export interface TimeSlot {
 
 // Approval Configuration Interface
 export interface ApprovalConfiguration {
-  approval_type: ApprovalType;
-  approvers: ApproverConfig[];
-  escalation_rules?: EscalationRule[];
-  auto_approval_amount?: number;
+  enabled?: boolean;
+  approval_type?: ApprovalType; // Sequential, Parallel, or Conditional
+  approvers?: Array<{
+    id: string; // Unique ID for this approver entry
+    user_id?: string; // Specific user ID
+    role_key?: string; // Or role key from custom_roles
+    level: number; // Order/level in approval chain
+    is_required: boolean; // Is this approver required?
+    can_delegate?: boolean; // Can delegate to others?
+  }>;
+  auto_approve_hours?: number; // Auto-approve if no action after X hours
+  escalation_hours?: number; // Escalate to next level after X hours
+  escalation_rules?: Array<{
+    from_level: number; // Escalate from this level
+    to_user_id?: string; // Escalate to this user
+    to_role_key?: string; // Or to this role
+    condition?: string; // Condition for escalation
+  }>;
+  auto_approval_conditions?: Array<{
+    condition_type: 'booking_hours' | 'resource_value' | 'user_role' | 'custom';
+    operator: 'less_than' | 'greater_than' | 'equals' | 'contains';
+    value: string | number;
+    auto_approve: boolean; // Auto-approve or auto-reject
+  }>;
+  allow_parallel_approval?: boolean; // All approvers can approve at once
+  notify_requester?: boolean; // Notify requester on status changes
+  require_all_approvers?: boolean; // For parallel: require all or any?
 }
 
-// Approver Configuration Interface
+// Legacy Approver Config (kept for backward compatibility)
 export interface ApproverConfig {
   user_id: string;
   role_id?: string;
@@ -238,9 +298,9 @@ export interface EscalationRule {
 
 // Reminder Configuration Interface
 export interface ReminderConfiguration {
-  reminder_frequency: number; // in hours
-  reminder_recipients: string[]; // user IDs
-  escalation_timeline: number; // in hours
+  reminder_frequency?: number; // in hours
+  reminder_recipients?: string[]; // user IDs or roles (requester, caretaker, approver)
+  escalation_timeline?: number; // in hours
   auto_cancellation_hours?: number;
 }
 
@@ -350,16 +410,29 @@ export interface CreateResourceDto {
   department_id?: string;
   building_number?: string;
   block_number?: string;
+  floor_number?: string;
   room_number?: string;
+  location_notes?: string;
+  // Vendor/Supplier fields - Structured
   vendor_name?: string;
   vendor_email?: string;
   vendor_mobile?: string;
-  vendor_address?: string;
+  vendor_address_line1?: string;
+  vendor_address_line2?: string;
+  vendor_city?: string;
+  vendor_state?: string;
+  vendor_zip?: string;
+  vendor_contract_details?: string;
+  vendor_support_contact?: string;
   initial_stock_quantity: number;
-  caretaker_user_id?: string;
+  caretaker_user_ids?: string[]; // Support multiple caretakers
   purchase_date?: string;
   warranty_expiry_date?: string;
   maintenance_schedule?: string;
+  // Lifecycle management fields
+  depreciation_rate?: number; // Percentage per year
+  current_value?: number; // Current calculated value
+  disposal_date?: string; // Future disposal date
   status: ResourceStatus;
   booking_type: BookingType;
   booking_config: BookingConfiguration;
@@ -367,6 +440,8 @@ export interface CreateResourceDto {
   reminder_config: ReminderConfiguration;
   access_roles: string[];
   custom_attributes: Record<string, any>;
+  image_urls?: string[];
+  tags?: string[];
 }
 
 // Update Resource DTO
@@ -425,7 +500,7 @@ export interface ResourceFilters {
   department_id?: string;
   status?: ResourceStatus;
   booking_type?: BookingType;
-  caretaker_user_id?: string;
+  caretaker_user_ids?: string[]; // Filter by multiple caretakers
   available_on?: string; // Date filter for availability
   page?: number;
   limit?: number;
@@ -536,23 +611,34 @@ export const resourceSchema = z.object({
   description: z
     .string()
     .min(1, 'Description is required')
-    .min(10, 'Description too short'),
+    .min(50, 'Description must be at least 50 characters'),
   parent_category_id: z.string().min(1, 'Parent category is required'),
   subcategory_id: z.string().min(1, 'Subcategory is required'),
   institution_id: z.string().min(1, 'Institution is required'),
   department_id: z.string().optional(),
   building_number: z.string().optional(),
   block_number: z.string().optional(),
+  floor_number: z.string().optional(),
   room_number: z.string().optional(),
+  location_notes: z.string().optional(),
   vendor_name: z.string().optional(),
   vendor_email: z.string().email().optional().or(z.literal('')),
   vendor_mobile: z.string().optional(),
-  vendor_address: z.string().optional(),
+  vendor_address_line1: z.string().optional(),
+  vendor_address_line2: z.string().optional(),
+  vendor_city: z.string().optional(),
+  vendor_state: z.string().optional(),
+  vendor_zip: z.string().optional(),
+  vendor_contract_details: z.string().optional(),
+  vendor_support_contact: z.string().optional(),
   initial_stock_quantity: z.number().min(1, 'Initial stock must be at least 1'),
-  caretaker_user_id: z.string().optional(),
+  caretaker_user_ids: z.array(z.string()).optional(),
   purchase_date: z.string().optional(),
   warranty_expiry_date: z.string().optional(),
   maintenance_schedule: z.string().optional(),
+  depreciation_rate: z.number().min(0).max(100).optional(),
+  current_value: z.number().min(0).optional(),
+  disposal_date: z.string().optional(),
   status: z.enum([
     RESOURCE_STATUS.AVAILABLE,
     RESOURCE_STATUS.OCCUPIED,
@@ -560,9 +646,18 @@ export const resourceSchema = z.object({
     RESOURCE_STATUS.OUT_OF_ORDER,
     RESOURCE_STATUS.RETIRED
   ]),
-  booking_type: z.enum([BOOKING_TYPE.ALL_DAY, BOOKING_TYPE.TIME_SLOTS]),
+  booking_type: z.enum([
+    BOOKING_TYPE.RESERVATION,
+    BOOKING_TYPE.WALK_IN,
+    BOOKING_TYPE.BOTH
+  ]),
+  booking_config: z.record(z.any()).optional(),
+  approval_config: z.record(z.any()).optional(),
+  reminder_config: z.record(z.any()).optional(),
   access_roles: z.array(z.string()),
-  custom_attributes: z.record(z.any())
+  custom_attributes: z.record(z.any()),
+  image_urls: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional()
 });
 
 // Reservation Schema

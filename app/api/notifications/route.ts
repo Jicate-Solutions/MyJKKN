@@ -1,69 +1,107 @@
+// app/api/notifications/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
+import {
+  getNotifications,
+  createNotification,
+  bulkUpdateNotifications,
+  markAllAsRead,
+  deleteAllRead
+} from '@/lib/services/notification/notification-service';
+import { createNotificationSchema } from '@/types/notification';
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createServerSupabaseClient();
-
-    // Get the current user
+    const supabase = await createClient();
     const {
-      data: { user },
-      error: authError
+      data: { user }
     } = await supabase.auth.getUser();
 
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Parse query parameters
-    const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
-    const unreadOnly = searchParams.get('unread_only') === 'true';
+    const searchParams = request.nextUrl.searchParams;
+    const filters = {
+      user_id: user.id,
+      type: (searchParams.get('type') as any) || undefined,
+      category: (searchParams.get('category') as any) || undefined,
+      priority: (searchParams.get('priority') as any) || undefined,
+      status: (searchParams.get('status') as any) || undefined,
+      is_read: searchParams.get('is_read')
+        ? searchParams.get('is_read') === 'true'
+        : undefined,
+      is_archived: searchParams.get('is_archived')
+        ? searchParams.get('is_archived') === 'true'
+        : undefined,
+      search: searchParams.get('search') || undefined,
+      from_date: searchParams.get('from_date') || undefined,
+      to_date: searchParams.get('to_date') || undefined,
+      limit: searchParams.get('limit')
+        ? parseInt(searchParams.get('limit')!)
+        : undefined,
+      offset: searchParams.get('offset')
+        ? parseInt(searchParams.get('offset')!)
+        : undefined
+    };
 
-    const offset = (page - 1) * limit;
-
-    // Use raw SQL query to ensure proper join
-    const { data: notifications, error } = await supabase.rpc(
-      'get_user_notifications',
-      {
-        p_user_id: user.id,
-        p_offset: offset,
-        p_limit: limit,
-        p_unread_only: unreadOnly
-      }
-    );
-
-    if (error) {
-      console.error('Error fetching notifications:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch notifications' },
-        { status: 500 }
-      );
-    }
-
-    // Get unread count
-    const { count: unreadCount, error: countError } = await supabase
-      .from('user_notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .is('read_at', null);
-
-    if (countError) {
-      console.error('Error fetching unread count:', countError);
-    }
+    const notifications = await getNotifications(filters);
 
     return NextResponse.json({
-      notifications,
-      unread_count: unreadCount || 0,
-      page,
-      limit,
-      has_more: notifications.length === limit
+      data: notifications,
+      count: notifications.length
     });
-  } catch (error) {
-    console.error('Error in notifications endpoint:', error);
+  } catch (error: any) {
+    console.error('Error fetching notifications:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: error.message || 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+
+    // Handle bulk operations
+    if (body.action === 'bulk_update') {
+      await bulkUpdateNotifications(body.data);
+      return NextResponse.json({ success: true });
+    }
+
+    if (body.action === 'mark_all_read') {
+      await markAllAsRead(user.id);
+      return NextResponse.json({ success: true });
+    }
+
+    if (body.action === 'delete_all_read') {
+      await deleteAllRead(user.id);
+      return NextResponse.json({ success: true });
+    }
+
+    // Create notification
+    const validatedData = createNotificationSchema.parse(body);
+    const notification = await createNotification(validatedData);
+
+    return NextResponse.json({
+      data: notification,
+      message: 'Notification created successfully'
+    });
+  } catch (error: any) {
+    console.error('Error creating notification:', error);
+    return NextResponse.json(
+      { error: error.message || 'Internal server error' },
       { status: 500 }
     );
   }

@@ -49,7 +49,10 @@ import {
   Bookmark,
   Cpu,
   CheckSquare,
-  TrendingUp
+  TrendingUp,
+  Wrench,
+  FileBarChart2,
+  History
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 
@@ -210,12 +213,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
     'resources.subcategories.edit',
   '/resource-management/resources': 'resources.resources.view',
   '/resource-management/resources/new': 'resources.resources.create',
+  '/resource-management/resources/[id]': 'resources.resources.view',
   '/resource-management/resources/[id]/edit': 'resources.resources.edit',
   '/resource-management/reservations': 'resources.reservations.view',
+  '/resource-management/reservations/my-reservations':
+    'resources.reservations.view',
   '/resource-management/reservations/new': 'resources.reservations.create',
+  '/resource-management/reservations/[id]': 'resources.reservations.view',
   '/resource-management/reservations/[id]/edit': 'resources.reservations.edit',
-  '/resource-management/approvals': 'resources.approvals.view',
-  '/resource-management/analytics': 'resources.analytics.view'
+  '/resource-management/reservations/approvals': 'resources.approvals.view',
+  '/resource-management/maintenance': 'resources.maintenance.view',
+  '/resource-management/analytics': 'resources.analytics.view',
+  '/resource-management/analytics-dashboard': 'resources.analytics.view',
+  '/audit-trail': 'audit.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -529,6 +539,15 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Resource Management',
       menus: [
         {
+          href: '/resource-management/analytics-dashboard',
+          label: 'Dashboard',
+          active: pathname.startsWith(
+            '/resource-management/analytics-dashboard'
+          ),
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
           href: '/resource-management/categories',
           label: 'Categories',
           active: pathname === '',
@@ -560,13 +579,34 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Reservations',
           active: pathname.startsWith('/resource-management/reservations'),
           icon: Calendar,
+          submenus: [
+            {
+              href: '/resource-management/reservations',
+              label: 'All Reservations',
+              active: pathname === '/resource-management/reservations'
+            },
+            {
+              href: '/resource-management/reservations/my-reservations',
+              label: 'My Reservations',
+              active:
+                pathname === '/resource-management/reservations/my-reservations'
+            }
+          ]
+        },
+        {
+          href: '/resource-management/reservations/approvals',
+          label: 'Approvals',
+          active: pathname.startsWith(
+            '/resource-management/reservations/approvals'
+          ),
+          icon: CheckSquare,
           submenus: []
         },
         {
-          href: '/resource-management/approvals',
-          label: 'Approvals',
-          active: pathname.startsWith('/resource-management/approvals'),
-          icon: CheckSquare,
+          href: '/resource-management/maintenance',
+          label: 'Maintenance',
+          active: pathname.startsWith('/resource-management/maintenance'),
+          icon: Wrench,
           submenus: []
         },
         {
@@ -718,6 +758,13 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admin/notifications/new'
             }
           ]
+        },
+        {
+          href: '/audit-trail',
+          label: 'Audit Trail',
+          active: pathname.startsWith('/audit-trail'),
+          icon: History,
+          submenus: []
         }
       ]
     },
@@ -861,3 +908,4 @@ export function GetRoleBasedPages(
     })
     .filter((group) => group.menus.length > 0); // Remove empty groups
 }
+
