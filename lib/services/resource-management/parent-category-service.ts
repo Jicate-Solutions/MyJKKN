@@ -153,10 +153,18 @@ export class ParentCategoryService {
         updated_by_user = updatedUser;
       }
 
+      // Get usage count (number of resources using this category)
+      const { count: usageCount } = await this.supabase
+        .from('resources')
+        .select('*', { count: 'exact', head: true })
+        .eq('parent_category_id', id);
+
       // Combine the data
       const result = {
         ...category,
         subcategories: subcategories || [],
+        subcategories_count: subcategories?.length || 0,
+        usage_count: usageCount || 0,
         created_by_user,
         updated_by_user
       };

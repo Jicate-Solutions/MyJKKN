@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
@@ -52,9 +52,14 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useStaff } from '@/hooks/staff/use-staff';
 import { SubCategoryService } from '@/lib/services/resource-management/sub-category-service';
-import { Loader2, Upload, Trash2, Eye } from 'lucide-react';
+import { ResourceService } from '@/lib/services/resource-management/resource-service';
+import { generateResourceCode, isValidResourceCode } from '@/lib/utils/resource-id-generator';
+import { Loader2, Upload, Trash2, Eye, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
+import { DateAvailabilityConfigComponent } from './date-availability-config';
+import { TimeSlotConfigComponent } from './time-slot-config';
+import type { DateAvailabilityConfig, TimeSlotConfig } from '@/types/resource-management';
 
 interface ResourceFormProps {
   resource?: Resource;
@@ -71,6 +76,8 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
   const [attributeDefinitions, setAttributeDefinitions] = useState<any[]>([]);
   const [loadingAttributes, setLoadingAttributes] = useState(false);
   const [pendingImageFiles, setPendingImageFiles] = useState<File[]>([]); // Store files temporarily until form submission
+  const [resourceCode, setResourceCode] = useState((resource as any)?.resource_code || '');
+  const [generatingCode, setGeneratingCode] = useState(false);
 
   const { createResource, updateResource } = useResourceOperations();
 
@@ -170,7 +177,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
           limit: 0 // Don't fetch if no institution
         }
   );
-  const staff = staffData?.data || [];
+  const staff = useMemo(() => staffData?.data || [], [staffData]);
 
   // Debug logging
   useEffect(() => {
@@ -213,6 +220,68 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
     fetchAttributeDefinitions();
   }, [subcategoryId]);
 
+  // Auto-generate resource code when category and institution change (in create mode)
+  useEffect(() => {
+    if (mode === 'create' && parentCategoryId && selectedInstitutionId) {
+      handleGenerateResourceCode(true); // true = silent mode (no toast)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parentCategoryId, selectedInstitutionId, mode]);
+
+  // Auto-generate resource code when category and institution are selected
+  const handleGenerateResourceCode = async (silent: boolean = false) => {
+    const categoryId = form.getValues('parent_category_id');
+    const institutionId = form.getValues('institution_id');
+
+    if (!categoryId || !institutionId) {
+      if (!silent) {
+        toast.error('Please select category and institution first');
+      }
+      return;
+    }
+
+    try {
+      setGeneratingCode(true);
+
+      // Get category and institution names
+      const category = parentCategories.find((c: any) => c.id === categoryId);
+      const institution = institutions.find((inst: any) => inst.id === institutionId);
+
+      if (!category || !institution) {
+        if (!silent) {
+          toast.error('Could not find category or institution details');
+        }
+        return;
+      }
+
+      // Get count of existing resources
+      const count = await ResourceService.getResourceCountForIdGeneration(
+        categoryId,
+        institutionId
+      );
+
+      // Generate the code
+      const code = generateResourceCode(
+        category.name,
+        institution.name,
+        count
+      );
+
+      setResourceCode(code);
+      // Only show success toast if not in silent mode
+      if (!silent) {
+        toast.success('Resource code generated successfully');
+      }
+    } catch (error) {
+      console.error('Error generating resource code:', error);
+      if (!silent) {
+        toast.error('Failed to generate resource code');
+      }
+    } finally {
+      setGeneratingCode(false);
+    }
+  };
+
   const onSubmit = async (data: FormData) => {
     try {
       setIsSubmitting(true);
@@ -251,8 +320,66 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
         );
       }
 
-      // Update data with uploaded image URLs
-      const finalData = { ...data, image_urls: uploadedImageUrls };
+      // Auto-generate resource code if in create mode and not already generated
+      let finalResourceCode = resourceCode;
+      if (mode === 'create' && !finalResourceCode) {
+        const categoryId = data.parent_category_id;
+        const institutionId = data.institution_id;
+
+        if (!categoryId || !institutionId) {
+          toast.error('Please select both category and institution');
+          setIsSubmitting(false);
+          return;
+        }
+
+        try {
+          // Get category and institution names
+          const category = parentCategories.find((c: any) => c.id === categoryId);
+          const institution = institutions.find((inst: any) => inst.id === institutionId);
+
+          if (!category || !institution) {
+            toast.error('Could not find category or institution details');
+            setIsSubmitting(false);
+            return;
+          }
+
+          // Get count of existing resources
+          const count = await ResourceService.getResourceCountForIdGeneration(
+            categoryId,
+            institutionId
+          );
+
+          // Generate the code
+          finalResourceCode = generateResourceCode(
+            category.name,
+            institution.name,
+            count
+          );
+
+          setResourceCode(finalResourceCode);
+          console.log('Auto-generated resource code on submit:', finalResourceCode);
+        } catch (error) {
+          console.error('Error generating resource code:', error);
+          toast.error('Failed to generate resource code');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // Clean up date fields - convert empty strings to undefined
+      const cleanedData = {
+        ...data,
+        purchase_date: data.purchase_date || undefined,
+        warranty_expiry_date: data.warranty_expiry_date || undefined,
+        disposal_date: (data as any).disposal_date || undefined,
+      };
+
+      // Update data with uploaded image URLs and resource code
+      const finalData = {
+        ...cleanedData,
+        image_urls: uploadedImageUrls,
+        resource_code: finalResourceCode
+      };
 
       let result;
       if (mode === 'create') {
@@ -478,31 +605,31 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name='status'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Status <span className='text-red-500'>*</span>
-                    </FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select status' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value='available'>Available</SelectItem>
-                        <SelectItem value='occupied'>Occupied</SelectItem>
-                        <SelectItem value='maintenance'>Maintenance</SelectItem>
-                        <SelectItem value='retired'>Retired</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Resource Code Field - Auto-generated */}
+              <FormItem>
+                <FormLabel>
+                  Resource Code <span className='text-red-500'>*</span>
+                </FormLabel>
+                <div className='flex gap-2'>
+                  <Input
+                    placeholder={generatingCode ? 'Generating...' : 'Auto-generated when category & institution selected'}
+                    value={resourceCode}
+                    disabled
+                    className='bg-muted'
+                  />
+                  {mode === 'create' && generatingCode && (
+                    <div className='flex items-center px-3'>
+                      <Loader2 className='h-4 w-4 animate-spin text-primary' />
+                    </div>
+                  )}
+                </div>
+                <p className='text-xs text-muted-foreground'>
+                  {mode === 'create'
+                    ? 'Automatically generated based on category and institution'
+                    : 'Resource code cannot be changed after creation'
+                  }
+                </p>
+              </FormItem>
 
               <FormField
                 control={form.control}
@@ -874,6 +1001,33 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
           </CardHeader>
           <CardContent className='p-6 space-y-6'>
             <div className='grid gap-6 md:grid-cols-2'>
+              {/* Status Field - Moved here */}
+              <FormField
+                control={form.control}
+                name='status'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Status <span className='text-red-500'>*</span>
+                    </FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select status' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='available'>Available</SelectItem>
+                        <SelectItem value='occupied'>Occupied</SelectItem>
+                        <SelectItem value='maintenance'>Maintenance</SelectItem>
+                        <SelectItem value='retired'>Retired</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name='initial_stock_quantity'
@@ -1173,13 +1327,30 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Maintenance Schedule</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='e.g., Monthly, Quarterly, Annually'
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>How often to maintain</FormDescription>
+                    <Select
+                      onValueChange={(value) =>
+                        field.onChange(value === 'none' ? undefined : value)
+                      }
+                      value={field.value || 'none'}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select maintenance schedule' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='none'>Not Required</SelectItem>
+                        <SelectItem value='weekly'>Weekly</SelectItem>
+                        <SelectItem value='monthly'>Monthly</SelectItem>
+                        <SelectItem value='quarterly'>Quarterly</SelectItem>
+                        <SelectItem value='semi-annually'>Semi-Annually</SelectItem>
+                        <SelectItem value='annually'>Annually</SelectItem>
+                        <SelectItem value='as-needed'>As Needed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      How often maintenance should be performed
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1305,6 +1476,42 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* Enhanced Date Availability Configuration */}
+        {(bookingType === 'reservation' || bookingType === 'both') && (
+          <DateAvailabilityConfigComponent
+            config={
+              bookingConfig.date_availability || {
+                mode: 'all_dates',
+                same_day_booking: true
+              }
+            }
+            onChange={(dateConfig: DateAvailabilityConfig) =>
+              updateBookingConfig('date_availability', dateConfig)
+            }
+          />
+        )}
+
+        {/* Enhanced Time Slot Configuration */}
+        {(bookingType === 'reservation' || bookingType === 'both') && (
+          <TimeSlotConfigComponent
+            config={
+              bookingConfig.time_slot_config || {
+                operating_hours: {
+                  default: { start: '09:00', end: '17:00' }
+                },
+                slot_generation: 'automatic',
+                automatic_config: {
+                  slot_duration: 60,
+                  buffer_time: 0
+                }
+              }
+            }
+            onChange={(timeConfig: TimeSlotConfig) =>
+              updateBookingConfig('time_slot_config', timeConfig)
+            }
+          />
+        )}
 
         <Card>
           <CardHeader>

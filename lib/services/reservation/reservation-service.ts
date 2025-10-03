@@ -332,7 +332,29 @@ export class ReservationService {
       return [];
     }
 
-    // Get existing reservations for the date
+    // Import the new services
+    const { DateAvailabilityService } = await import(
+      '@/lib/services/resource-management/date-availability-service'
+    );
+    const { TimeSlotGeneratorService } = await import(
+      '@/lib/services/resource-management/time-slot-generator-service'
+    );
+
+    const bookingConfig = resource.booking_config as any;
+
+    // Step 1: Check if date is available using DateAvailabilityService
+    const dateConfig = bookingConfig?.date_availability;
+    if (dateConfig && !DateAvailabilityService.isDateAvailable(dateConfig, date)) {
+      return []; // No slots if date unavailable
+    }
+
+    // Step 2: Generate slots using TimeSlotGeneratorService
+    const timeConfig = bookingConfig?.time_slot_config;
+    const generatedSlots = timeConfig
+      ? TimeSlotGeneratorService.generateSlotsForDate(timeConfig, date, resourceId)
+      : this.generateLegacySlots(date, bookingConfig, resourceId);
+
+    // Step 3: Get existing reservations for the date
     const startOfDay = `${date}T00:00:00Z`;
     const endOfDay = `${date}T23:59:59Z`;
 
@@ -344,35 +366,63 @@ export class ReservationService {
       .gte('start_time', startOfDay)
       .lte('end_time', endOfDay);
 
-    // Generate time slots based on booking config
-    const bookingConfig = resource.booking_config as any;
-    const slots: TimeSlot[] = [];
+    // Step 4: Mark booked slots
+    return generatedSlots.map((slot) => {
+      const isBooked = reservations?.some((r) => {
+        const reservationStart = new Date(r.start_time);
+        const reservationEnd = new Date(r.end_time);
+        const slotStart = new Date(slot.start_time);
+        const slotEnd = new Date(slot.end_time);
+
+        // Check for overlap
+        return reservationStart < slotEnd && reservationEnd > slotStart;
+      });
+
+      return {
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        is_available: !isBooked,
+        resource_id: resourceId,
+        slot_name: slot.slot_name, // Pass through custom slot name
+        max_capacity: slot.max_capacity, // Pass through capacity
+        existing_reservation_id: isBooked
+          ? reservations?.find((r) => {
+              const reservationStart = new Date(r.start_time);
+              const reservationEnd = new Date(r.end_time);
+              const slotStart = new Date(slot.start_time);
+              const slotEnd = new Date(slot.end_time);
+              return reservationStart < slotEnd && reservationEnd > slotStart;
+            })?.id
+          : undefined
+      };
+    });
+  }
+
+  /**
+   * Generate legacy slots for backward compatibility
+   */
+  private static generateLegacySlots(
+    date: string,
+    bookingConfig: any,
+    resourceId: string
+  ): Array<{ start_time: string; end_time: string; is_available: boolean; resource_id: string; slot_name?: string; max_capacity?: number }> {
+    const slots = [];
 
     // Default: 1-hour slots from 9 AM to 5 PM
-    const slotDuration = bookingConfig?.slot_duration || 60; // minutes
     const startHour = bookingConfig?.operating_hours?.start || 9;
     const endHour = bookingConfig?.operating_hours?.end || 17;
 
     for (let hour = startHour; hour < endHour; hour++) {
-      const slotStart = `${date}T${hour.toString().padStart(2, '0')}:00:00Z`;
+      const slotStart = `${date}T${hour.toString().padStart(2, '0')}:00:00`;
       const slotEnd = `${date}T${(hour + 1)
         .toString()
-        .padStart(2, '0')}:00:00Z`;
-
-      const isBooked = reservations?.some(
-        (r) => r.start_time <= slotStart && r.end_time >= slotEnd
-      );
+        .padStart(2, '0')}:00:00`;
 
       slots.push({
         start_time: slotStart,
         end_time: slotEnd,
-        is_available: !isBooked,
-        resource_id: resourceId,
-        existing_reservation_id: isBooked
-          ? reservations?.find(
-              (r) => r.start_time <= slotStart && r.end_time >= slotEnd
-            )?.id
-          : undefined
+        is_available: true,
+        resource_id: resourceId
       });
     }
 
@@ -387,14 +437,70 @@ export class ReservationService {
     month: number,
     year: number
   ): Promise<CalendarSlot[]> {
+    const supabase = createClientSupabaseClient();
+
+    // Get resource booking configuration
+    const { data: resource } = await supabase
+      .from('resources')
+      .select('booking_config, status')
+      .eq('id', resourceId)
+      .single();
+
+    if (!resource) {
+      throw new Error('Resource not found');
+    }
+
+    // Import DateAvailabilityService
+    const { DateAvailabilityService } = await import(
+      '@/lib/services/resource-management/date-availability-service'
+    );
+
     const daysInMonth = new Date(year, month, 0).getDate();
     const calendar: CalendarSlot[] = [];
+    const bookingConfig = resource.booking_config as any;
+    const dateAvailability = bookingConfig?.date_availability;
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = `${year}-${month.toString().padStart(2, '0')}-${day
         .toString()
         .padStart(2, '0')}`;
+
+      // Check if date is available based on DateAvailabilityService
+      const isDateAvailable = DateAvailabilityService.isDateAvailable(
+        dateAvailability,
+        date
+      );
+
+      // If date is not available (blocked by date config), mark it as unavailable
+      if (!isDateAvailable) {
+        calendar.push({
+          date,
+          slots: [],
+          is_fully_booked: false,
+          is_partially_booked: false,
+          is_available: false,
+          is_maintenance: false,
+          is_date_unavailable: true // New flag to indicate date is blocked by config
+        });
+        continue;
+      }
+
+      // Get time slots for available dates
       const slots = await this.getAvailableSlots(resourceId, date);
+
+      // If no slots were generated, it means date is unavailable
+      if (slots.length === 0) {
+        calendar.push({
+          date,
+          slots: [],
+          is_fully_booked: false,
+          is_partially_booked: false,
+          is_available: false,
+          is_maintenance: resource.status === 'maintenance',
+          is_date_unavailable: true
+        });
+        continue;
+      }
 
       const fullyBooked = slots.every((s) => !s.is_available);
       const partiallyBooked =
@@ -407,7 +513,8 @@ export class ReservationService {
         is_fully_booked: fullyBooked,
         is_partially_booked: partiallyBooked,
         is_available: available,
-        is_maintenance: false // Can be enhanced to check maintenance schedule
+        is_maintenance: resource.status === 'maintenance',
+        is_date_unavailable: false
       });
     }
 

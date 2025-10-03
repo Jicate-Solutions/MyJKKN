@@ -1,6 +1,7 @@
 'use client';
 
 import { Toaster } from '@/components/ui/toaster';
+import { Toaster as HotToaster } from 'react-hot-toast';
 import { AuthProvider } from '@/providers/auth-provider';
 import AdminPanelLayout from '@/components/layout/admin-panel-layout';
 import { QueryClientProvider } from '@/providers/query-provider';
@@ -17,6 +18,18 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
         <AuthProvider>
           {children}
           <Toaster />
+          <HotToaster
+            position="top-right"
+            reverseOrder={false}
+            gutter={8}
+            toastOptions={{
+              duration: 4000,
+              style: {
+                fontSize: '14px',
+                fontWeight: '500',
+              }
+            }}
+          />
           <BugReporterWidget />
         </AuthProvider>
       </QueryClientProvider>

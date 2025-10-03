@@ -3,7 +3,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { toast } from '@/hooks/use-toast';
+import toast from 'react-hot-toast';
 import { ReservationService } from '@/lib/services/reservation/reservation-service';
 import { useAuth } from '@/hooks/use-auth';
 import type {
@@ -41,24 +41,53 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservationAnalytics'] });
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
 
-      toast({
-        title: 'Reservation created',
-        description:
-          data.status === 'pending'
-            ? 'Your reservation is pending approval'
-            : 'Your reservation has been confirmed',
-        variant: 'default'
-      });
+      toast.success(
+        data.status === 'pending'
+          ? '🎉 Reservation Created!\nYour reservation is pending approval. You will be notified once it is reviewed.'
+          : '✅ Reservation Confirmed!\nYour reservation has been successfully confirmed.',
+        {
+          duration: 6000, // Show for 6 seconds
+          style: {
+            background: '#10b981',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px',
+            maxWidth: '500px'
+          },
+          iconTheme: {
+            primary: '#fff',
+            secondary: '#10b981'
+          }
+        }
+      );
 
       router.push(`/resource-management/reservations/${data.id}`);
     },
     onError: (error: any) => {
       console.error('Error creating reservation:', error);
-      toast({
-        title: 'Failed to create reservation',
-        description: error.message || 'An unexpected error occurred',
-        variant: 'destructive'
-      });
+      toast.error(
+        `❌ Failed to Create Reservation\n${
+          error.message || 'An unexpected error occurred. Please try again.'
+        }`,
+        {
+          duration: 5000,
+          style: {
+            background: '#ef4444',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px',
+            maxWidth: '500px'
+          },
+          iconTheme: {
+            primary: '#fff',
+            secondary: '#ef4444'
+          }
+        }
+      );
     }
   });
 
@@ -72,19 +101,37 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['my-reservations'] });
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
 
-      toast({
-        title: 'Reservation updated',
-        description: 'Your reservation has been updated successfully',
-        variant: 'default'
-      });
+      toast.success(
+        '✅ Reservation Updated!\nYour reservation has been updated successfully.',
+        {
+          duration: 4000,
+          style: {
+            background: '#10b981',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     },
     onError: (error: any) => {
       console.error('Error updating reservation:', error);
-      toast({
-        title: 'Failed to update reservation',
-        description: error.message || 'An unexpected error occurred',
-        variant: 'destructive'
-      });
+      toast.error(
+        `❌ Update Failed\n${error.message || 'An unexpected error occurred'}`,
+        {
+          duration: 4000,
+          style: {
+            background: '#ef4444',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     }
   });
 
@@ -97,21 +144,39 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
 
-      toast({
-        title: 'Reservation deleted',
-        description: 'The reservation has been deleted successfully',
-        variant: 'default'
-      });
+      toast.success(
+        '🗑️ Reservation Deleted\nThe reservation has been deleted successfully.',
+        {
+          duration: 4000,
+          style: {
+            background: '#10b981',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
 
       router.push('/resource-management/reservations');
     },
     onError: (error: any) => {
       console.error('Error deleting reservation:', error);
-      toast({
-        title: 'Failed to delete reservation',
-        description: error.message || 'An unexpected error occurred',
-        variant: 'destructive'
-      });
+      toast.error(
+        `❌ Delete Failed\n${error.message || 'An unexpected error occurred'}`,
+        {
+          duration: 4000,
+          style: {
+            background: '#ef4444',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     }
   });
 
@@ -134,19 +199,39 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservationAnalytics'] });
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
 
-      toast({
-        title: 'Reservation approved',
-        description: 'The reservation has been approved successfully',
-        variant: 'default'
-      });
+      toast.success(
+        '✅ Reservation Approved!\nThe reservation has been approved successfully.',
+        {
+          duration: 5000,
+          style: {
+            background: '#10b981',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     },
     onError: (error: any) => {
       console.error('Error approving reservation:', error);
-      toast({
-        title: 'Failed to approve reservation',
-        description: error.message || 'An unexpected error occurred',
-        variant: 'destructive'
-      });
+      toast.error(
+        `❌ Approval Failed\n${
+          error.message || 'An unexpected error occurred'
+        }`,
+        {
+          duration: 4000,
+          style: {
+            background: '#ef4444',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     }
   });
 
@@ -169,19 +254,39 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservationAnalytics'] });
       queryClient.invalidateQueries({ queryKey: ['dashboardSummary'] });
 
-      toast({
-        title: 'Reservation rejected',
-        description: 'The reservation has been rejected',
-        variant: 'default'
-      });
+      toast.success(
+        '✅ Reservation Rejected!\nThe reservation has been rejected successfully.',
+        {
+          duration: 5000,
+          style: {
+            background: '#10b981',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     },
     onError: (error: any) => {
       console.error('Error rejecting reservation:', error);
-      toast({
-        title: 'Failed to reject reservation',
-        description: error.message || 'An unexpected error occurred',
-        variant: 'destructive'
-      });
+      toast.error(
+        `❌ Rejection Failed\n${
+          error.message || 'An unexpected error occurred'
+        }`,
+        {
+          duration: 4000,
+          style: {
+            background: '#ef4444',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     }
   });
 
@@ -198,19 +303,39 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
 
-      toast({
-        title: 'Reservation cancelled',
-        description: 'Your reservation has been cancelled',
-        variant: 'default'
-      });
+      toast.success(
+        '✅ Reservation Cancelled!\nYour reservation has been cancelled successfully.',
+        {
+          duration: 5000,
+          style: {
+            background: '#10b981',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     },
     onError: (error: any) => {
       console.error('Error cancelling reservation:', error);
-      toast({
-        title: 'Failed to cancel reservation',
-        description: error.message || 'An unexpected error occurred',
-        variant: 'destructive'
-      });
+      toast.error(
+        `❌ Cancellation Failed\n${
+          error.message || 'An unexpected error occurred'
+        }`,
+        {
+          duration: 4000,
+          style: {
+            background: '#ef4444',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     }
   });
 
@@ -225,19 +350,36 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservation', data.id] });
       queryClient.invalidateQueries({ queryKey: ['my-reservations'] });
 
-      toast({
-        title: 'Checked in',
-        description: 'You have been checked in successfully',
-        variant: 'default'
+      toast.success('✅ Checked In!\nYou have been checked in successfully.', {
+        duration: 5000,
+        style: {
+          background: '#10b981',
+          color: '#fff',
+          fontSize: '14px',
+          fontWeight: '500',
+          padding: '16px',
+          borderRadius: '8px'
+        }
       });
     },
     onError: (error: any) => {
       console.error('Error checking in:', error);
-      toast({
-        title: 'Failed to check in',
-        description: error.message || 'An unexpected error occurred',
-        variant: 'destructive'
-      });
+      toast.error(
+        `❌ Check-in Failed\n${
+          error.message || 'An unexpected error occurred'
+        }`,
+        {
+          duration: 4000,
+          style: {
+            background: '#ef4444',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     }
   });
 
@@ -254,19 +396,39 @@ export function useReservationOperations() {
       queryClient.invalidateQueries({ queryKey: ['reservation-stats'] });
       queryClient.invalidateQueries({ queryKey: ['resource-availability'] });
 
-      toast({
-        title: 'Checked out',
-        description: 'You have been checked out successfully',
-        variant: 'default'
-      });
+      toast.success(
+        '✅ Checked Out!\nYou have been checked out successfully.',
+        {
+          duration: 5000,
+          style: {
+            background: '#10b981',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     },
     onError: (error: any) => {
       console.error('Error checking out:', error);
-      toast({
-        title: 'Failed to check out',
-        description: error.message || 'An unexpected error occurred',
-        variant: 'destructive'
-      });
+      toast.error(
+        `❌ Check-out Failed\n${
+          error.message || 'An unexpected error occurred'
+        }`,
+        {
+          duration: 4000,
+          style: {
+            background: '#ef4444',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '500',
+            padding: '16px',
+            borderRadius: '8px'
+          }
+        }
+      );
     }
   });
 

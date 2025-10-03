@@ -29,11 +29,22 @@ export async function getNotifications(
   filters: NotificationFilters = {}
 ): Promise<Notification[]> {
   let query = supabase
-    .from('notifications')
+    .from('user_notifications')
     .select(
       `
       *,
-      user:profiles!notifications_user_id_fkey(id, full_name, email)
+      notification:notifications!user_notifications_notification_id_fkey(
+        id,
+        title,
+        body,
+        url,
+        icon,
+        category,
+        priority,
+        metadata,
+        created_at
+      ),
+      user:profiles!user_notifications_user_id_fkey(id, full_name, email)
     `
     )
     .order('created_at', { ascending: false });
@@ -42,34 +53,12 @@ export async function getNotifications(
     query = query.eq('user_id', filters.user_id);
   }
 
-  if (filters.type) {
-    query = query.eq('type', filters.type);
-  }
-
-  if (filters.category) {
-    query = query.eq('category', filters.category);
-  }
-
-  if (filters.priority) {
-    query = query.eq('priority', filters.priority);
-  }
-
-  if (filters.status) {
-    query = query.eq('status', filters.status);
-  }
-
   if (filters.is_read !== undefined) {
-    query = query.eq('is_read', filters.is_read);
-  }
-
-  if (filters.is_archived !== undefined) {
-    query = query.eq('is_archived', filters.is_archived);
-  }
-
-  if (filters.search) {
-    query = query.or(
-      `title.ilike.%${filters.search}%,message.ilike.%${filters.search}%`
-    );
+    if (filters.is_read) {
+      query = query.not('read_at', 'is', null);
+    } else {
+      query = query.is('read_at', null);
+    }
   }
 
   if (filters.from_date) {
@@ -101,11 +90,22 @@ export async function getNotification(
   id: string
 ): Promise<Notification | null> {
   const { data, error } = await supabase
-    .from('notifications')
+    .from('user_notifications')
     .select(
       `
       *,
-      user:profiles!notifications_user_id_fkey(id, full_name, email)
+      notification:notifications!user_notifications_notification_id_fkey(
+        id,
+        title,
+        body,
+        url,
+        icon,
+        category,
+        priority,
+        metadata,
+        created_at
+      ),
+      user:profiles!user_notifications_user_id_fkey(id, full_name, email)
     `
     )
     .eq('id', id)
@@ -202,22 +202,22 @@ export async function bulkUpdateNotifications(
 }
 
 export async function markAsRead(notificationId: string): Promise<void> {
-  await updateNotification(notificationId, {
-    is_read: true,
-    status: NotificationStatus.READ
-  });
+  const { error } = await supabase
+    .from('user_notifications')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', notificationId);
+
+  if (error) throw error;
 }
 
 export async function markAllAsRead(userId: string): Promise<void> {
   const { error } = await supabase
-    .from('notifications')
+    .from('user_notifications')
     .update({
-      is_read: true,
-      status: 'read',
       read_at: new Date().toISOString()
     })
     .eq('user_id', userId)
-    .eq('is_read', false);
+    .is('read_at', null);
 
   if (error) throw error;
 }
@@ -233,10 +233,10 @@ export async function archiveNotification(
 
 export async function deleteAllRead(userId: string): Promise<void> {
   const { error } = await supabase
-    .from('notifications')
+    .from('user_notifications')
     .delete()
     .eq('user_id', userId)
-    .eq('is_read', true);
+    .not('read_at', 'is', null);
 
   if (error) throw error;
 }
@@ -246,19 +246,19 @@ export async function deleteAllRead(userId: string): Promise<void> {
 export async function getNotificationStats(
   userId: string
 ): Promise<NotificationStats> {
-  const { data: notifications, error } = await supabase
-    .from('notifications')
-    .select('type, category, priority, is_read, is_archived')
+  const { data: userNotifications, error } = await supabase
+    .from('user_notifications')
+    .select('read_at, notification:notifications!user_notifications_notification_id_fkey(category, priority)')
     .eq('user_id', userId);
 
   if (error) throw error;
 
   const stats: NotificationStats = {
-    total_notifications: notifications?.length || 0,
+    total_notifications: userNotifications?.length || 0,
     unread_count:
-      notifications?.filter((n) => !n.is_read && !n.is_archived).length || 0,
-    read_count: notifications?.filter((n) => n.is_read).length || 0,
-    archived_count: notifications?.filter((n) => n.is_archived).length || 0,
+      userNotifications?.filter((n) => !n.read_at).length || 0,
+    read_count: userNotifications?.filter((n) => n.read_at).length || 0,
+    archived_count: 0,
     by_category: [],
     by_type: [],
     by_priority: []
@@ -266,8 +266,10 @@ export async function getNotificationStats(
 
   // Group by category
   const categoryMap = new Map<string, number>();
-  notifications?.forEach((n: any) => {
-    categoryMap.set(n.category, (categoryMap.get(n.category) || 0) + 1);
+  userNotifications?.forEach((n: any) => {
+    if (n.notification?.category) {
+      categoryMap.set(n.notification.category, (categoryMap.get(n.notification.category) || 0) + 1);
+    }
   });
   stats.by_category = Array.from(categoryMap.entries()).map(
     ([category, count]) => ({
@@ -276,20 +278,12 @@ export async function getNotificationStats(
     })
   );
 
-  // Group by type
-  const typeMap = new Map<string, number>();
-  notifications?.forEach((n: any) => {
-    typeMap.set(n.type, (typeMap.get(n.type) || 0) + 1);
-  });
-  stats.by_type = Array.from(typeMap.entries()).map(([type, count]) => ({
-    type: type as NotificationType,
-    count
-  }));
-
   // Group by priority
   const priorityMap = new Map<string, number>();
-  notifications?.forEach((n: any) => {
-    priorityMap.set(n.priority, (priorityMap.get(n.priority) || 0) + 1);
+  userNotifications?.forEach((n: any) => {
+    if (n.notification?.priority) {
+      priorityMap.set(n.notification.priority, (priorityMap.get(n.notification.priority) || 0) + 1);
+    }
   });
   stats.by_priority = Array.from(priorityMap.entries()).map(
     ([priority, count]) => ({

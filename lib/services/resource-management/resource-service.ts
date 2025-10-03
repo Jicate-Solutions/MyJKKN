@@ -33,18 +33,20 @@ export class ResourceService {
           *,
           parent_category:resource_parent_categories(id, name, image_url),
           subcategory:resource_sub_categories(
-            id, 
-            name, 
+            id,
+            name,
             image_url,
             attribute_definitions:resource_attribute_definitions(*)
           ),
           institution:institutions(id, name),
           department:departments(id, department_name),
-          caretaker:profiles!resources_caretaker_user_id_fkey(
+          caretaker:staff!resources_caretaker_user_id_fkey(
             id,
-            full_name,
+            first_name,
+            last_name,
             email,
-            phone_number
+            phone,
+            designation
           ),
           created_by_user:profiles!resources_created_by_fkey(
             id,
@@ -151,19 +153,21 @@ export class ResourceService {
             *,
             parent_category:resource_parent_categories(id, name, image_url),
             subcategory:resource_sub_categories(
-              id, 
-              name, 
+              id,
+              name,
               image_url,
               inherit_parent_attributes,
               attribute_definitions:resource_attribute_definitions(*)
             ),
             institution:institutions(id, name),
             department:departments(id, department_name),
-            caretaker:profiles!resources_caretaker_user_id_fkey(
+            caretaker:staff!resources_caretaker_user_id_fkey(
               id,
-              full_name,
+              first_name,
+              last_name,
               email,
-              phone_number
+              phone,
+              designation
             ),
             created_by_user:profiles!resources_created_by_fkey(
               id,
@@ -197,7 +201,8 @@ export class ResourceService {
    */
   static async createResource(
     resourceData: CreateResourceDto,
-    userId: string
+    userId: string,
+    customResourceCode?: string
   ): Promise<Resource> {
     try {
       // Validate required fields
@@ -217,8 +222,31 @@ export class ResourceService {
         throw new Error('Institution is required');
       }
 
+      // Use resource_code from resourceData if not provided as parameter
+      const resourceCode = customResourceCode || resourceData.resource_code;
+      console.log('Resource code being used:', resourceCode);
+
+      // Check if resource code already exists (if provided)
+      if (resourceCode) {
+        const { data: existingCode, error: codeCheckError } = await this.supabase
+          .from('resources')
+          .select('id')
+          .eq('resource_code', resourceCode)
+          .maybeSingle();
+
+        if (codeCheckError) {
+          console.error('Error checking resource code:', codeCheckError);
+        }
+
+        if (existingCode) {
+          throw new Error(
+            'A resource with this code already exists. Please use a different code.'
+          );
+        }
+      }
+
       // Check if resource name already exists in the same location
-      const { data: existingResource } = await this.supabase
+      const { data: existingResource, error: nameCheckError } = await this.supabase
         .from('resources')
         .select('id')
         .eq('name', resourceData.name.trim())
@@ -227,7 +255,11 @@ export class ResourceService {
         .eq('building_number', resourceData.building_number || null)
         .eq('block_number', resourceData.block_number || null)
         .eq('room_number', resourceData.room_number || null)
-        .single();
+        .maybeSingle();
+
+      if (nameCheckError) {
+        console.error('Error checking resource name:', nameCheckError);
+      }
 
       if (existingResource) {
         throw new Error(
@@ -235,26 +267,77 @@ export class ResourceService {
         );
       }
 
+      // Map form fields to database columns based on actual schema
+      const { caretaker_user_ids, ...otherData } = resourceData;
+
+      // Debug logging
+      console.log('Raw caretaker_user_ids from form:', caretaker_user_ids);
+
+      // Filter out empty/invalid caretaker IDs
+      const validCaretakerIds = caretaker_user_ids?.filter(
+        (id) => id && typeof id === 'string' && id.trim() !== ''
+      ) || [];
+
+      console.log('Filtered validCaretakerIds:', validCaretakerIds);
+
+      const dbData = {
+        ...otherData,
+        name: resourceData.name.trim(),
+        resource_code: resourceCode, // Use the resolved resource code
+        caretaker_user_id: validCaretakerIds[0] || null, // Single caretaker
+        caretaker_user_ids: validCaretakerIds.length > 0 ? validCaretakerIds : [], // Array of caretakers
+        current_stock_quantity: resourceData.initial_stock_quantity,
+        created_by: userId,
+        updated_by: userId
+      };
+
+      console.log('Final caretaker values:', {
+        caretaker_user_id: dbData.caretaker_user_id,
+        caretaker_user_ids: dbData.caretaker_user_ids
+      });
+
       const { data: resource, error } = await this.supabase
         .from('resources')
-        .insert({
-          ...resourceData,
-          name: resourceData.name.trim(),
-          current_stock_quantity: resourceData.initial_stock_quantity,
-          created_by: userId,
-          updated_by: userId
-        })
+        .insert(dbData)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Database error creating resource:', error);
+
+        // Handle specific error codes
+        if (error.code === '23505') {
+          // Unique constraint violation
+          throw new Error(
+            'A resource with this information already exists. Please check the resource code, name, or location.'
+          );
+        }
+
+        if (error.code === '23503') {
+          // Foreign key constraint violation
+          if (error.message?.includes('caretaker_user_id')) {
+            throw new Error(
+              'Invalid caretaker selected. Please select a valid staff member or leave it empty.'
+            );
+          }
+          throw new Error(
+            'Invalid reference data. Please check all selected values.'
+          );
+        }
+
+        throw error;
+      }
 
       return resource;
     } catch (error) {
       console.error('Error creating resource:', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to create resource'
-      );
+
+      // If it's already a formatted error message, throw it as is
+      if (error instanceof Error) {
+        throw error;
+      }
+
+      throw new Error('Failed to create resource');
     }
   }
 
@@ -275,7 +358,7 @@ export class ResourceService {
 
       // Check if new name conflicts with existing resources
       if (resourceData.name) {
-        const { data: conflictResource } = await this.supabase
+        const { data: conflictResource, error: conflictCheckError } = await this.supabase
           .from('resources')
           .select('id')
           .eq('name', resourceData.name.trim())
@@ -284,7 +367,11 @@ export class ResourceService {
             resourceData.institution_id || existingResource.institution_id
           )
           .neq('id', id)
-          .single();
+          .maybeSingle();
+
+        if (conflictCheckError) {
+          console.error('Error checking resource name conflict:', conflictCheckError);
+        }
 
         if (conflictResource) {
           throw new Error(
@@ -293,9 +380,21 @@ export class ResourceService {
         }
       }
 
+      // Map form fields to database columns based on actual schema
+      const { caretaker_user_ids, ...otherData } = resourceData;
+
+      // Filter out empty/invalid caretaker IDs
+      const validCaretakerIds = caretaker_user_ids?.filter(
+        (id) => id && id.trim() !== ''
+      ) || [];
+
       const updateData = {
-        ...resourceData,
+        ...otherData,
         ...(resourceData.name && { name: resourceData.name.trim() }),
+        ...(caretaker_user_ids !== undefined && {
+          caretaker_user_id: validCaretakerIds[0] || null,
+          caretaker_user_ids: validCaretakerIds.length > 0 ? validCaretakerIds : []
+        }),
         updated_by: userId,
         updated_at: new Date().toISOString()
       };
@@ -320,26 +419,18 @@ export class ResourceService {
 
   /**
    * Delete a resource by ID
+   *
+   * Note: Database has CASCADE delete configured for:
+   * - resource_reservations (all reservations will be deleted)
+   * - resource_usage_logs (all usage logs will be deleted)
+   * - resource_approvals (via reservations cascade)
    */
   static async deleteResource(id: string): Promise<boolean> {
     try {
-      // Get resource to check for reservations and images
+      // Get resource to retrieve image URLs for cleanup
       const resource = await this.getResource(id);
 
-      // Check for active reservations
-      const { data: activeReservations } = await this.supabase
-        .from('resource_reservations')
-        .select('id')
-        .eq('resource_id', id)
-        .in('status', ['pending', 'approved']);
-
-      if (activeReservations && activeReservations.length > 0) {
-        throw new Error(
-          `Cannot delete resource "${resource.name}" because it has ${activeReservations.length} active reservation(s). Please cancel them first.`
-        );
-      }
-
-      // Delete the resource
+      // Delete the resource (database will cascade delete all related data)
       const { error } = await this.supabase
         .from('resources')
         .delete()
@@ -364,6 +455,10 @@ export class ResourceService {
           // Don't fail the entire operation for image cleanup errors
         }
       }
+
+      console.log(
+        `Successfully deleted resource "${resource.name}" and all related data (reservations, usage logs, approvals)`
+      );
 
       return true;
     } catch (error) {
@@ -596,6 +691,29 @@ export class ResourceService {
       throw new Error(
         error instanceof Error ? error.message : 'Failed to search resources'
       );
+    }
+  }
+
+  /**
+   * Get count of resources by category and institution for ID generation
+   */
+  static async getResourceCountForIdGeneration(
+    categoryId: string,
+    institutionId: string
+  ): Promise<number> {
+    try {
+      const { count, error} = await this.supabase
+        .from('resources')
+        .select('*', { count: 'exact', head: true })
+        .eq('parent_category_id', categoryId)
+        .eq('institution_id', institutionId);
+
+      if (error) throw error;
+
+      return count || 0;
+    } catch (error) {
+      console.error('Error getting resource count:', error);
+      return 0; // Return 0 on error to allow fallback to random ID
     }
   }
 

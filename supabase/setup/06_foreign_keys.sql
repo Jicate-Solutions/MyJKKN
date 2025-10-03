@@ -626,10 +626,12 @@ ALTER TABLE resources
     REFERENCES resource_sub_categories(id)
     ON DELETE SET NULL;
 
+-- Updated 2025-01-16: Changed from profiles to staff table
+-- Caretakers are staff members, not general user profiles
 ALTER TABLE resources
     ADD CONSTRAINT fk_resources_caretaker
     FOREIGN KEY (caretaker_user_id)
-    REFERENCES profiles(id)
+    REFERENCES staff(id)
     ON DELETE SET NULL;
 
 -- RESOURCE_RESERVATIONS TABLE

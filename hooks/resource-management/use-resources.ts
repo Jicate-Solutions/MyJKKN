@@ -182,7 +182,9 @@ export function useResourceOperations() {
       setLoading(true);
       const success = await ResourceService.deleteResource(id);
       if (success) {
-        toast.success('Resource deleted successfully');
+        toast.success(
+          'Resource and all related data (reservations, usage logs, approvals) deleted successfully'
+        );
       }
       return success;
     } catch (err) {
@@ -203,11 +205,11 @@ export function useResourceOperations() {
 
         if (result.success) {
           toast.success(
-            `Successfully deleted ${result.processedCount} resources`
+            `Successfully deleted ${result.processedCount} resource(s) and all related data`
           );
         } else {
           toast.error(
-            `Deleted ${result.processedCount} resources, but ${result.errors.length} failed`
+            `Deleted ${result.processedCount} resource(s), but ${result.errors.length} failed`
           );
         }
 
