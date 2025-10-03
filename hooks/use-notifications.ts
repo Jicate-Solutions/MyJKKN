@@ -47,10 +47,10 @@ export function useNotifications() {
           ...prev,
           notifications:
             page === 1
-              ? data.notifications
-              : [...prev.notifications, ...data.notifications],
-          unreadCount: data.unread_count,
-          hasMore: data.has_more,
+              ? data.notifications || []
+              : [...(prev.notifications || []), ...(data.notifications || [])],
+          unreadCount: data.unread_count || 0,
+          hasMore: data.has_more || false,
           isLoading: false,
           error: null
         }));
@@ -89,7 +89,7 @@ export function useNotifications() {
       // Update local state
       setState((prev) => ({
         ...prev,
-        notifications: prev.notifications.map((notification) =>
+        notifications: (prev.notifications || []).map((notification) =>
           !notificationIds ||
           notificationIds.includes(notification.notification_id)
             ? { ...notification, read_at: new Date().toISOString() }
@@ -121,12 +121,13 @@ export function useNotifications() {
   const loadMore = useCallback(() => {
     if (!state.hasMore || state.isLoading) return;
 
-    const nextPage = Math.floor(state.notifications.length / 20) + 1;
+    const currentLength = state.notifications?.length ?? 0;
+    const nextPage = Math.floor(currentLength / 20) + 1;
     fetchNotifications(nextPage);
   }, [
     state.hasMore,
     state.isLoading,
-    state.notifications.length,
+    state.notifications?.length,
     fetchNotifications
   ]);
 
@@ -195,7 +196,7 @@ export function useNotifications() {
                     ...prev,
                     notifications: [
                       newNotification as unknown as UserNotification,
-                      ...prev.notifications
+                      ...(prev.notifications || [])
                     ],
                     unreadCount: prev.unreadCount + 1
                   }));

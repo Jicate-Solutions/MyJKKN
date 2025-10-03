@@ -57,16 +57,16 @@ export function ImagesTab({ resource }: ImagesTabProps) {
   return (
     <div className='space-y-6'>
       {/* Primary Image */}
-      <Card>
+      <Card className='w-[500px] h-[400px]'>
         <CardContent className='p-6'>
           <h3 className='text-lg font-semibold mb-4'>Primary Image</h3>
-          <div className='relative aspect-video rounded-lg overflow-hidden bg-gray-100 border'>
+          <div className='relative aspect-video rounded-lg overflow-hidden bg-gray-100 border h-[300px] w-[400px]'>
             <Image
               src={imageUrls[0]}
               alt={`${resource.name} - Primary`}
               className='h-full w-full object-contain'
-              width={100}
-              height={100}
+              width={500}
+              height={500}
             />
             <div className='absolute top-4 right-4 flex gap-2'>
               <Button
@@ -105,12 +105,15 @@ export function ImagesTab({ resource }: ImagesTabProps) {
                   key={index}
                   className='relative group aspect-square rounded-lg overflow-hidden bg-gray-100 border cursor-pointer'
                   onClick={() => setSelectedImage(url)}
-                >
-                  <img
+                > 
+                  <Image
                     src={url}
                     alt={`${resource.name} - Image ${index + 2}`}
                     className='h-full w-full object-cover transition-transform group-hover:scale-110'
+                    width={500}
+                    height={500}
                   />
+
                   <div className='absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2'>
                     <Button
                       size='sm'
@@ -160,10 +163,12 @@ export function ImagesTab({ resource }: ImagesTabProps) {
           </DialogHeader>
           {selectedImage && (
             <div className='relative aspect-video'>
-              <img
+              <Image
                 src={selectedImage}
                 alt={resource.name}
                 className='h-full w-full object-contain rounded-lg'
+                width={500}
+                height={500}
               />
             </div>
           )}

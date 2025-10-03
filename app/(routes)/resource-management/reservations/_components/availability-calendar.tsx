@@ -5,7 +5,9 @@ import { useState, useMemo } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  Ban,
+  AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -100,21 +102,66 @@ export function AvailabilityCalendar({
     return checkDate < today;
   };
 
-  // Get cell color based on availability
+  // Get cell color based on availability - Enhanced with better colors
   const getCellColor = (
     slot: CalendarSlot | undefined,
     isPastDate: boolean
   ) => {
-    if (!slot || isPastDate)
-      return 'bg-muted text-muted-foreground cursor-not-allowed';
-    if (slot.is_maintenance) return 'bg-gray-500 text-white cursor-not-allowed';
-    if (slot.is_available)
-      return 'bg-green-100 hover:bg-green-200 text-green-900 cursor-pointer border-green-300';
-    if (slot.is_partially_booked)
-      return 'bg-yellow-100 hover:bg-yellow-200 text-yellow-900 cursor-pointer border-yellow-300';
-    if (slot.is_fully_booked)
-      return 'bg-red-100 text-red-900 cursor-not-allowed border-red-300';
+    // Past dates - gray
+    if (isPastDate) return 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200';
+
+    // No slot data
+    if (!slot) return 'bg-muted text-muted-foreground cursor-not-allowed';
+
+    // Date unavailable (blocked by date config) - RED
+    if (slot.is_date_unavailable) {
+      return 'bg-red-50 text-red-700 cursor-not-allowed border-red-200 hover:bg-red-100';
+    }
+
+    // Maintenance - Orange
+    if (slot.is_maintenance) {
+      return 'bg-orange-50 text-orange-700 cursor-not-allowed border-orange-200';
+    }
+
+    // Fully available - GREEN
+    if (slot.is_available && slot.slots.length > 0) {
+      return 'bg-green-50 hover:bg-green-100 text-green-900 cursor-pointer border-green-300 hover:border-green-400 transition-all';
+    }
+
+    // Partially booked - Yellow/Amber
+    if (slot.is_partially_booked) {
+      return 'bg-amber-50 hover:bg-amber-100 text-amber-900 cursor-pointer border-amber-300 hover:border-amber-400 transition-all';
+    }
+
+    // Fully booked - Red (lighter than unavailable)
+    if (slot.is_fully_booked) {
+      return 'bg-red-100 text-red-800 cursor-not-allowed border-red-300';
+    }
+
     return 'bg-background cursor-pointer';
+  };
+
+  // Get icon for date status
+  const getDateIcon = (slot: CalendarSlot | undefined, isPastDate: boolean) => {
+    if (isPastDate) return null;
+    if (!slot) return null;
+
+    if (slot.is_date_unavailable) {
+      return <Ban className='h-3 w-3 text-red-600' />;
+    }
+    if (slot.is_maintenance) {
+      return <AlertTriangle className='h-3 w-3 text-orange-600' />;
+    }
+    if (slot.is_available && slot.slots.length > 0) {
+      return <div className='h-2 w-2 rounded-full bg-green-600' />;
+    }
+    if (slot.is_partially_booked) {
+      return <div className='h-2 w-2 rounded-full bg-amber-600' />;
+    }
+    if (slot.is_fully_booked) {
+      return <div className='h-2 w-2 rounded-full bg-red-600' />;
+    }
+    return null;
   };
 
   // Handle date click
@@ -128,7 +175,8 @@ export function AvailabilityCalendar({
       !slot ||
       isPast(dayNumber) ||
       slot.is_fully_booked ||
-      slot.is_maintenance
+      slot.is_maintenance ||
+      slot.is_date_unavailable
     ) {
       return; // Don't allow selection
     }
@@ -149,6 +197,15 @@ export function AvailabilityCalendar({
       return { type: 'day' as const, dayNumber, key: `day-${dayNumber}` };
     });
   }, [calendar.length, firstDayOfMonth]);
+
+  // Calculate statistics
+  const stats = useMemo(() => {
+    const available = calendar.filter((s) => s.is_available && !s.is_date_unavailable).length;
+    const unavailable = calendar.filter((s) => s.is_date_unavailable).length;
+    const fullyBooked = calendar.filter((s) => s.is_fully_booked).length;
+    const partiallyBooked = calendar.filter((s) => s.is_partially_booked).length;
+    return { available, unavailable, fullyBooked, partiallyBooked };
+  }, [calendar]);
 
   return (
     <Card>
@@ -173,28 +230,28 @@ export function AvailabilityCalendar({
       </CardHeader>
 
       <CardContent>
-        {/* Legend */}
-        <div className='mb-4 flex flex-wrap items-center gap-3 text-xs'>
-          <div className='flex items-center gap-1'>
-            <div className='h-3 w-3 rounded bg-green-100 border border-green-300' />
-            <span>Available</span>
+        {/* Enhanced Legend */}
+        <div className='mb-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs'>
+          <div className='flex items-center gap-1.5 px-2 py-1 rounded border bg-green-50 border-green-300'>
+            <div className='h-3 w-3 rounded bg-green-500' />
+            <span className='font-medium'>Available</span>
           </div>
-          <div className='flex items-center gap-1'>
-            <div className='h-3 w-3 rounded bg-yellow-100 border border-yellow-300' />
-            <span>Partially Booked</span>
+          <div className='flex items-center gap-1.5 px-2 py-1 rounded border bg-amber-50 border-amber-300'>
+            <div className='h-3 w-3 rounded bg-amber-500' />
+            <span className='font-medium'>Partial</span>
           </div>
-          <div className='flex items-center gap-1'>
-            <div className='h-3 w-3 rounded bg-red-100 border border-red-300' />
-            <span>Fully Booked</span>
+          <div className='flex items-center gap-1.5 px-2 py-1 rounded border bg-red-50 border-red-300'>
+            <div className='h-3 w-3 rounded bg-red-500' />
+            <span className='font-medium'>Unavailable</span>
           </div>
-          <div className='flex items-center gap-1'>
-            <div className='h-3 w-3 rounded bg-gray-500' />
-            <span>Maintenance</span>
+          <div className='flex items-center gap-1.5 px-2 py-1 rounded border bg-orange-50 border-orange-300'>
+            <AlertTriangle className='h-3 w-3 text-orange-600' />
+            <span className='font-medium'>Maintenance</span>
           </div>
         </div>
 
         {/* Calendar Grid */}
-        <div className='rounded-lg border'>
+        <div className='rounded-lg border overflow-hidden'>
           {/* Days of Week Header */}
           <div className='grid grid-cols-7 border-b bg-muted/50'>
             {daysOfWeek.map((day) => (
@@ -238,33 +295,31 @@ export function AvailabilityCalendar({
                   <div
                     key={cell.key}
                     className={`
-                      aspect-square border-b border-r p-2 transition-colors
+                      aspect-square border-b border-r p-1.5 transition-all
                       ${getCellColor(slot, isPastDate)}
-                      ${isSelected ? 'ring-2 ring-primary ring-inset' : ''}
+                      ${isSelected ? 'ring-2 ring-primary ring-inset shadow-lg' : ''}
                     `}
                     onClick={() => handleDateClick(dayNumber)}
                   >
-                    <div className='flex h-full flex-col items-center justify-center'>
+                    <div className='flex h-full flex-col items-center justify-between'>
+                      {/* Date Number */}
                       <div
                         className={`
-                          text-sm font-medium
+                          text-sm font-semibold
                           ${
                             isTodayDate
-                              ? 'flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground'
+                              ? 'flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-primary/30'
                               : ''
                           }
                         `}
                       >
                         {dayNumber}
                       </div>
-                      {slot && !isPastDate && (
-                        <div className='mt-1 text-[10px] leading-none'>
-                          {slot.is_available && '✓'}
-                          {slot.is_partially_booked && '~'}
-                          {slot.is_fully_booked && '✕'}
-                          {slot.is_maintenance && '⚠'}
-                        </div>
-                      )}
+
+                      {/* Status Icon */}
+                      <div className='flex items-center justify-center mt-auto'>
+                        {getDateIcon(slot, isPastDate)}
+                      </div>
                     </div>
                   </div>
                 );
@@ -273,20 +328,61 @@ export function AvailabilityCalendar({
           )}
         </div>
 
+        {/* Statistics */}
+        {!isLoading && calendar.length > 0 && (
+          <div className='mt-4 grid grid-cols-2 md:grid-cols-4 gap-3'>
+            <div className='rounded-lg border border-green-200 bg-green-50 p-3 text-center'>
+              <div className='text-2xl font-bold text-green-700'>{stats.available}</div>
+              <div className='text-xs text-green-600'>Available</div>
+            </div>
+            <div className='rounded-lg border border-amber-200 bg-amber-50 p-3 text-center'>
+              <div className='text-2xl font-bold text-amber-700'>{stats.partiallyBooked}</div>
+              <div className='text-xs text-amber-600'>Partial</div>
+            </div>
+            <div className='rounded-lg border border-red-200 bg-red-50 p-3 text-center'>
+              <div className='text-2xl font-bold text-red-700'>
+                {stats.fullyBooked + stats.unavailable}
+              </div>
+              <div className='text-xs text-red-600'>Unavailable</div>
+            </div>
+            <div className='rounded-lg border border-gray-200 bg-gray-50 p-3 text-center'>
+              <div className='text-2xl font-bold text-gray-700'>{calendar.length}</div>
+              <div className='text-xs text-gray-600'>Total Days</div>
+            </div>
+          </div>
+        )}
+
         {/* Selected Date Info */}
         {selectedDate && (
-          <div className='mt-4 rounded-lg bg-muted p-3'>
-            <p className='text-sm font-medium'>
-              Selected Date:{' '}
-              <span className='text-primary'>
-                {new Date(selectedDate).toLocaleDateString('default', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                })}
-              </span>
-            </p>
+          <div className='mt-4 rounded-lg bg-primary/10 border border-primary/20 p-4'>
+            <div className='flex items-start justify-between gap-3'>
+              <div>
+                <p className='text-sm font-medium text-muted-foreground'>Selected Date</p>
+                <p className='text-lg font-bold text-primary'>
+                  {new Date(selectedDate).toLocaleDateString('default', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </p>
+                {(() => {
+                  const slot = calendar.find((s) => s.date === selectedDate);
+                  if (slot && slot.slots.length > 0) {
+                    const availableSlots = slot.slots.filter((s) => s.is_available).length;
+                    return (
+                      <p className='text-sm text-muted-foreground mt-1'>
+                        {availableSlots} of {slot.slots.length} time slots available
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+              <Badge variant='default' className='shrink-0'>
+                Selected
+              </Badge>
+            </div>
           </div>
         )}
       </CardContent>

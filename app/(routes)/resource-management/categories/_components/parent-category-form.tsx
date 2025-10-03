@@ -78,6 +78,7 @@ export function ParentCategoryForm({
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
+  const [isBlobUrl, setIsBlobUrl] = useState(false); // Track if imagePreview is a blob URL
 
   // Generate a consistent UUID for new categories
   const [categoryUUID] = useState(() => category?.id || generateUUID());
@@ -112,20 +113,34 @@ export function ParentCategoryForm({
     }
 
     setImageFile(file);
-    if (imagePreview) {
+    // Only revoke if it's a blob URL we created
+    if (imagePreview && isBlobUrl) {
       URL.revokeObjectURL(imagePreview);
     }
-    setImagePreview(URL.createObjectURL(file));
+    const blobUrl = URL.createObjectURL(file);
+    setImagePreview(blobUrl);
+    setIsBlobUrl(true);
   };
 
   // Remove image
   const handleRemoveImage = () => {
     setImageFile(null);
-    if (imagePreview) {
+    // Only revoke if it's a blob URL we created
+    if (imagePreview && isBlobUrl) {
       URL.revokeObjectURL(imagePreview);
     }
     setImagePreview(null);
+    setIsBlobUrl(false);
   };
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (imagePreview && isBlobUrl) {
+        URL.revokeObjectURL(imagePreview);
+      }
+    };
+  }, [imagePreview, isBlobUrl]);
 
   // Get category initials for avatar fallback
   const getCategoryInitials = (name: string) => {
@@ -310,10 +325,12 @@ export function ParentCategoryForm({
                       {/* Image Preview */}
                       <div className='flex justify-center'>
                         <Avatar className='h-24 w-24'>
-                          <AvatarImage
-                            src={imagePreview || ''}
-                            alt='Category'
-                          />
+                          {imagePreview && (
+                            <AvatarImage
+                              src={imagePreview}
+                              alt='Category'
+                            />
+                          )}
                           <AvatarFallback className='bg-primary/10'>
                             {imagePreview ? (
                               <ImageIcon className='h-8 w-8' />

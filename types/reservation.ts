@@ -188,6 +188,8 @@ export interface TimeSlot {
   is_available: boolean;
   resource_id: string;
   existing_reservation_id?: string;
+  slot_name?: string; // For custom named slots
+  max_capacity?: number; // For slots with capacity limits
 }
 
 // Calendar View Data
@@ -198,6 +200,7 @@ export interface CalendarSlot {
   is_partially_booked: boolean;
   is_available: boolean;
   is_maintenance: boolean;
+  is_date_unavailable?: boolean; // Date is blocked by date availability config
 }
 
 export interface MonthCalendar {

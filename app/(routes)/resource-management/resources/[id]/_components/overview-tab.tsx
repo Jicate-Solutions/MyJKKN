@@ -14,15 +14,15 @@ interface OverviewTabProps {
 
 export function OverviewTab({ resource }: OverviewTabProps) {
   return (
-    <div className='grid gap-6 md:grid-cols-2'>
+    <div className='grid gap-6 lg:grid-cols-2'>
       {/* Basic Information */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Basic Information</CardTitle>
+      <Card className='h-fit'>
+        <CardHeader className='pb-4'>
+          <CardTitle className='text-lg'>Basic Information</CardTitle>
         </CardHeader>
-        <CardContent className='space-y-4'>
-          <div>
-            <p className='text-sm font-medium text-muted-foreground'>
+        <CardContent className='space-y-5'>
+          <div className='space-y-1.5'>
+            <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
               Resource Name
             </p>
             <p className='text-base font-semibold'>{resource.name}</p>
@@ -30,27 +30,27 @@ export function OverviewTab({ resource }: OverviewTabProps) {
 
           <Separator />
 
-          <div>
-            <p className='text-sm font-medium text-muted-foreground'>
+          <div className='space-y-1.5'>
+            <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
               Description
             </p>
-            <p className='text-base'>
-              {resource.description || 'No description'}
+            <p className='text-sm leading-relaxed'>
+              {resource.description || 'No description provided'}
             </p>
           </div>
 
           <Separator />
 
-          <div>
-            <p className='text-sm font-medium text-muted-foreground'>
+          <div className='space-y-2'>
+            <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
               Category
             </p>
-            <div className='flex items-center gap-2 mt-1'>
-              <Badge variant='outline'>
+            <div className='flex flex-wrap items-center gap-2'>
+              <Badge variant='outline' className='font-medium'>
                 {resource.parent_category?.name || 'N/A'}
               </Badge>
               <span className='text-muted-foreground'>→</span>
-              <Badge variant='outline'>
+              <Badge variant='outline' className='font-medium'>
                 {resource.subcategory?.name || 'N/A'}
               </Badge>
             </div>
@@ -58,10 +58,12 @@ export function OverviewTab({ resource }: OverviewTabProps) {
 
           <Separator />
 
-          <div>
-            <p className='text-sm font-medium text-muted-foreground'>Status</p>
+          <div className='space-y-2'>
+            <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
+              Status
+            </p>
             <Badge
-              className={`mt-1 ${
+              className={`capitalize ${
                 resource.status === 'available'
                   ? 'bg-green-100 text-green-800'
                   : resource.status === 'occupied'
@@ -78,13 +80,13 @@ export function OverviewTab({ resource }: OverviewTabProps) {
           {resource.tags && resource.tags.length > 0 && (
             <>
               <Separator />
-              <div>
-                <p className='text-sm font-medium text-muted-foreground mb-2'>
+              <div className='space-y-2'>
+                <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
                   Tags
                 </p>
                 <div className='flex flex-wrap gap-2'>
                   {resource.tags.map((tag, index) => (
-                    <Badge key={index} variant='secondary'>
+                    <Badge key={index} variant='secondary' className='font-medium'>
                       {tag}
                     </Badge>
                   ))}
@@ -96,25 +98,25 @@ export function OverviewTab({ resource }: OverviewTabProps) {
       </Card>
 
       {/* Stock & Vendor */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Stock & Vendor Information</CardTitle>
+      <Card className='h-fit'>
+        <CardHeader className='pb-4'>
+          <CardTitle className='text-lg'>Stock & Vendor Information</CardTitle>
         </CardHeader>
-        <CardContent className='space-y-4'>
-          <div className='grid grid-cols-2 gap-4'>
-            <div>
-              <p className='text-sm font-medium text-muted-foreground'>
+        <CardContent className='space-y-5'>
+          <div className='grid grid-cols-2 gap-6'>
+            <div className='space-y-1.5'>
+              <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
                 Initial Stock
               </p>
-              <p className='text-2xl font-bold'>
+              <p className='text-3xl font-bold'>
                 {resource.initial_stock_quantity || 0}
               </p>
             </div>
-            <div>
-              <p className='text-sm font-medium text-muted-foreground'>
+            <div className='space-y-1.5'>
+              <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
                 Current Stock
               </p>
-              <p className='text-2xl font-bold'>
+              <p className='text-3xl font-bold'>
                 {resource.current_stock_quantity || 0}
               </p>
             </div>
@@ -124,62 +126,74 @@ export function OverviewTab({ resource }: OverviewTabProps) {
 
           {resource.caretaker && (
             <>
-              <div>
-                <p className='text-sm font-medium text-muted-foreground'>
+              <div className='space-y-2'>
+                <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
                   Caretaker
                 </p>
-                <p className='text-base font-semibold'>
-                  {resource.caretaker.full_name}
-                </p>
-                <p className='text-sm text-muted-foreground'>
-                  {resource.caretaker.email}
-                </p>
-                {resource.caretaker.phone_number && (
-                  <p className='text-sm text-muted-foreground'>
-                    {resource.caretaker.phone_number}
+                <div className='space-y-1'>
+                  <p className='text-base font-semibold'>
+                    {resource.caretaker.first_name} {resource.caretaker.last_name}
                   </p>
-                )}
+                  {resource.caretaker.designation && (
+                    <p className='text-xs text-muted-foreground'>
+                      {resource.caretaker.designation}
+                    </p>
+                  )}
+                  <p className='text-sm text-muted-foreground'>
+                    {resource.caretaker.email}
+                  </p>
+                  {resource.caretaker.phone && (
+                    <p className='text-sm text-muted-foreground'>
+                      {resource.caretaker.phone}
+                    </p>
+                  )}
+                </div>
               </div>
               <Separator />
             </>
           )}
 
           {resource.vendor_name && (
-            <div>
-              <p className='text-sm font-medium text-muted-foreground'>
-                Vendor Details
-              </p>
-              <div className='mt-2 space-y-1'>
-                <p className='text-base font-semibold'>
-                  {resource.vendor_name}
+            <>
+              <div className='space-y-2'>
+                <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
+                  Vendor Details
                 </p>
-                {resource.vendor_contact && (
-                  <p className='text-sm text-muted-foreground'>
-                    {resource.vendor_contact}
+                <div className='space-y-1'>
+                  <p className='text-base font-semibold'>
+                    {resource.vendor_name}
                   </p>
-                )}
-                {resource.vendor_email && (
-                  <p className='text-sm text-muted-foreground'>
-                    {resource.vendor_email}
-                  </p>
-                )}
-                {resource.vendor_address && (
-                  <p className='text-sm text-muted-foreground'>
-                    {resource.vendor_address}
-                  </p>
-                )}
+                  {resource.vendor_contact && (
+                    <p className='text-sm text-muted-foreground'>
+                      {resource.vendor_contact}
+                    </p>
+                  )}
+                  {resource.vendor_email && (
+                    <p className='text-sm text-muted-foreground'>
+                      {resource.vendor_email}
+                    </p>
+                  )}
+                  {resource.vendor_address && (
+                    <p className='text-sm text-muted-foreground'>
+                      {resource.vendor_address}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+              <Separator />
+            </>
           )}
 
           {(resource.purchase_date ||
             resource.warranty_expiry_date ||
             resource.maintenance_schedule) && (
-            <>
-              <Separator />
+            <div className='space-y-3'>
+              <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
+                Important Dates
+              </p>
               <div className='space-y-2'>
                 {resource.purchase_date && (
-                  <div className='flex justify-between'>
+                  <div className='flex justify-between items-center py-1.5'>
                     <span className='text-sm text-muted-foreground'>
                       Purchase Date
                     </span>
@@ -189,7 +203,7 @@ export function OverviewTab({ resource }: OverviewTabProps) {
                   </div>
                 )}
                 {resource.warranty_expiry_date && (
-                  <div className='flex justify-between'>
+                  <div className='flex justify-between items-center py-1.5'>
                     <span className='text-sm text-muted-foreground'>
                       Warranty Expiry
                     </span>
@@ -199,57 +213,63 @@ export function OverviewTab({ resource }: OverviewTabProps) {
                   </div>
                 )}
                 {resource.maintenance_schedule && (
-                  <div className='flex justify-between'>
+                  <div className='flex justify-between items-center py-1.5'>
                     <span className='text-sm text-muted-foreground'>
                       Maintenance Schedule
                     </span>
-                    <span className='text-sm font-medium'>
-                      {resource.maintenance_schedule}
+                    <span className='text-sm font-medium capitalize'>
+                      {resource.maintenance_schedule.replace(/-/g, ' ')}
                     </span>
                   </div>
                 )}
               </div>
-            </>
+            </div>
           )}
         </CardContent>
       </Card>
 
       {/* Metadata */}
-      <Card className='md:col-span-2'>
-        <CardHeader>
-          <CardTitle>System Information</CardTitle>
+      <Card className='lg:col-span-2'>
+        <CardHeader className='pb-4'>
+          <CardTitle className='text-lg'>System Information</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className='grid gap-4 md:grid-cols-3'>
-            <div>
-              <p className='text-sm font-medium text-muted-foreground'>
+          <div className='grid gap-6 sm:grid-cols-2 lg:grid-cols-3'>
+            <div className='space-y-2'>
+              <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
                 Created At
               </p>
-              <p className='text-base'>{formatDate(resource.created_at)}</p>
-              {resource.created_by_user && (
-                <p className='text-sm text-muted-foreground'>
-                  by {resource.created_by_user.full_name}
-                </p>
-              )}
+              <div className='space-y-1'>
+                <p className='text-sm font-medium'>{formatDate(resource.created_at)}</p>
+                {resource.created_by_user && (
+                  <p className='text-xs text-muted-foreground'>
+                    by {resource.created_by_user.full_name}
+                  </p>
+                )}
+              </div>
             </div>
 
-            <div>
-              <p className='text-sm font-medium text-muted-foreground'>
+            <div className='space-y-2'>
+              <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
                 Last Updated
               </p>
-              <p className='text-base'>{formatDate(resource.updated_at)}</p>
-              {resource.updated_by_user && (
-                <p className='text-sm text-muted-foreground'>
-                  by {resource.updated_by_user.full_name}
-                </p>
-              )}
+              <div className='space-y-1'>
+                <p className='text-sm font-medium'>{formatDate(resource.updated_at)}</p>
+                {resource.updated_by_user && (
+                  <p className='text-xs text-muted-foreground'>
+                    by {resource.updated_by_user.full_name}
+                  </p>
+                )}
+              </div>
             </div>
 
-            <div>
-              <p className='text-sm font-medium text-muted-foreground'>
-                Resource ID
+            <div className='space-y-2'>
+              <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>
+                Resource Code
               </p>
-              <p className='text-base font-mono'>{resource.id}</p>
+              <p className='text-xs font-mono bg-muted px-2 py-1.5 rounded break-all'>
+                {resource.resource_code || 'N/A'}
+              </p>
             </div>
           </div>
         </CardContent>

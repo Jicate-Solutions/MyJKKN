@@ -44,6 +44,7 @@ import { useResourceUsageStats } from '@/hooks/resource-management/use-resources
 import { formatDate } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
 import Image from 'next/image';
+import { BeatLoader } from 'react-spinners';
 
 // Import tab components
 import {
@@ -83,7 +84,15 @@ export default function ResourceDetailsPage({
     if (!resource) return;
 
     const confirmed = window.confirm(
-      `Are you sure you want to delete "${resource.name}"? This action cannot be undone.`
+      `⚠️ DELETE RESOURCE: "${resource.name}"\n\n` +
+      `This will permanently delete:\n` +
+      `• The resource and all its details\n` +
+      `• All reservations (pending, approved, completed)\n` +
+      `• All approval records\n` +
+      `• All usage history and logs\n` +
+      `• All uploaded images\n\n` +
+      `This action CANNOT be undone.\n\n` +
+      `Are you sure you want to proceed?`
     );
 
     if (confirmed && id) {
@@ -97,21 +106,16 @@ export default function ResourceDetailsPage({
 
   if (loading) {
     return (
-      <ContentLayout title='Resource Details'>
-        <div className='flex min-h-[400px] items-center justify-center py-6'>
-          <Card className='p-8 text-center'>
-            <Loader2 className='h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground' />
-            <p className='text-muted-foreground'>Loading resource details...</p>
-          </Card>
-        </div>
-      </ContentLayout>
+      <div className='flex justify-center items-center p-6'>
+        <BeatLoader color='#00e902' />
+      </div>
     );
   }
 
   if (error || !resource) {
     return (
       <ContentLayout title='Resource Details'>
-        <div className='flex min-h-[400px] items-center justify-center py-6'>
+        <div className='flex justify-center items-center p-6'>
           <Card className='p-8 text-center'>
             <XCircle className='h-12 w-12 text-destructive mx-auto mb-4' />
             <h2 className='text-xl font-semibold mb-2'>Resource Not Found</h2>
@@ -188,96 +192,118 @@ export default function ResourceDetailsPage({
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className='space-y-6 mt-4'>
-        {/* Header */}
-        <div className='flex items-start justify-between'>
-          <div className='flex items-start gap-4'>
-            {/* Resource Image */}
-            {resource.image_urls && resource.image_urls.length > 0 ? (
-              <Image
-                src={resource.image_urls[0]}
-                alt={resource.name}
-                className='h-20 w-20 rounded-lg object-cover border'
-                width={80}
-                height={80}
-              />
-            ) : (
-              <div className='flex h-20 w-20 items-center justify-center rounded-lg bg-gray-100 border'>
-                <Package className='h-10 w-10 text-gray-400' />
-              </div>
-            )}
+      <div className='space-y-6 mt-6'>
+        {/* Header Card */}
+        <Card>
+          <CardContent className='p-6'>
+            <div className='flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between'>
+              <div className='flex flex-col gap-6 sm:flex-row sm:items-start flex-1'>
+                {/* Resource Image */}
+                <div className='shrink-0'>
+                  {resource.image_urls && resource.image_urls.length > 0 ? (
+                    <Image
+                      src={resource.image_urls[0]}
+                      alt={resource.name}
+                      className='h-24 w-24 rounded-xl object-cover border-2 border-border shadow-sm'
+                      width={500}
+                      height={500}
+                    />
+                  ) : (
+                    <div className='flex h-24 w-24 items-center justify-center rounded-xl bg-muted border-2 border-border'>
+                      <Package className='h-12 w-12 text-muted-foreground' />
+                    </div>
+                  )}
+                </div>
 
-            <div className='space-y-2'>
-              <div className='flex items-center gap-3'>
-                <h1 className='text-3xl font-bold tracking-tight'>
-                  {resource.name}
-                </h1>
-                <Badge className={getStatusColor()}>
-                  <div className='flex items-center gap-1'>
-                    {getStatusIcon()}
-                    {resource.status}
+                {/* Resource Info */}
+                <div className='space-y-3 flex-1 min-w-0'>
+                  <div className='space-y-2'>
+                    <div className='flex flex-wrap items-center gap-3'>
+                      <h1 className='text-2xl sm:text-3xl font-bold tracking-tight'>
+                        {resource.name}
+                      </h1>
+                      <Badge className={getStatusColor()}>
+                        <div className='flex items-center gap-1.5'>
+                          {getStatusIcon()}
+                          <span className='capitalize'>{resource.status}</span>
+                        </div>
+                      </Badge>
+                    </div>
+
+                    {resource.description && (
+                      <p className='text-sm sm:text-base text-muted-foreground line-clamp-2'>
+                        {resource.description}
+                      </p>
+                    )}
                   </div>
-                </Badge>
+
+                  <div className='flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4 text-sm text-muted-foreground'>
+                    <div className='flex items-center gap-2'>
+                      <MapPin className='h-4 w-4 shrink-0' />
+                      <span className='truncate'>
+                        {resource.institution?.name}
+                        {resource.department &&
+                          ` - ${resource.department.department_name}`}
+                      </span>
+                    </div>
+                    <div className='flex items-center gap-2'>
+                      <Calendar className='h-4 w-4 shrink-0' />
+                      <span>Created {formatDate(resource.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {resource.description && (
-                <p className='text-muted-foreground max-w-2xl'>
-                  {resource.description}
-                </p>
-              )}
-
-              <div className='flex items-center gap-4 text-sm text-muted-foreground'>
-                <div className='flex items-center gap-1'>
-                  <MapPin className='h-4 w-4' />
-                  {resource.institution?.name}
-                  {resource.department &&
-                    ` - ${resource.department.department_name}`}
-                </div>
-                <div className='flex items-center gap-1'>
-                  <Calendar className='h-4 w-4' />
-                  Created {formatDate(resource.created_at)}
-                </div>
+              {/* Action Buttons */}
+              <div className='flex flex-row gap-2 sm:gap-3 lg:flex-col xl:flex-row lg:shrink-0'>
+                <Button
+                  variant='outline'
+                  onClick={() => router.back()}
+                  className='flex-1 lg:flex-none'
+                >
+                  <ArrowLeft className='mr-2 h-4 w-4' />
+                  <span className='hidden sm:inline'>Back</span>
+                </Button>
+                <Link
+                  href={`/resource-management/resources/${id}/edit`}
+                  className='flex-1 lg:flex-none'
+                >
+                  <Button variant='outline' className='w-full'>
+                    <Edit className='mr-2 h-4 w-4' />
+                    <span className='hidden sm:inline'>Edit</span>
+                  </Button>
+                </Link>
+                <Button
+                  variant='destructive'
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className='flex-1 lg:flex-none'
+                >
+                  {deleting ? (
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  ) : (
+                    <Trash2 className='mr-2 h-4 w-4' />
+                  )}
+                  <span className='hidden sm:inline'>Delete</span>
+                </Button>
               </div>
             </div>
-          </div>
-
-          <div className='flex items-center gap-2'>
-            <Button variant='outline' onClick={() => router.back()}>
-              <ArrowLeft className='mr-2 h-4 w-4' />
-              Back
-            </Button>
-            <Link href={`/resource-management/resources/${id}/edit`}>
-              <Button variant='outline'>
-                <Edit className='mr-2 h-4 w-4' />
-                Edit
-              </Button>
-            </Link>
-            <Button
-              variant='destructive'
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              ) : (
-                <Trash2 className='mr-2 h-4 w-4' />
-              )}
-              Delete
-            </Button>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Quick Stats */}
-        <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between pb-2'>
-              <CardTitle className='text-sm font-medium'>
+        <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+          <Card className='hover:shadow-md transition-shadow'>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-3'>
+              <CardTitle className='text-sm font-medium text-muted-foreground'>
                 Current Stock
               </CardTitle>
-              <Package className='h-4 w-4 text-muted-foreground' />
+              <div className='h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center'>
+                <Package className='h-5 w-5 text-primary' />
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className='text-2xl font-bold'>
+            <CardContent className='space-y-1'>
+              <div className='text-3xl font-bold'>
                 {resource.current_stock_quantity || 0}
               </div>
               <p className='text-xs text-muted-foreground'>
@@ -286,15 +312,17 @@ export default function ResourceDetailsPage({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between pb-2'>
-              <CardTitle className='text-sm font-medium'>
+          <Card className='hover:shadow-md transition-shadow'>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-3'>
+              <CardTitle className='text-sm font-medium text-muted-foreground'>
                 Total Reservations
               </CardTitle>
-              <Calendar className='h-4 w-4 text-muted-foreground' />
+              <div className='h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center'>
+                <Calendar className='h-5 w-5 text-blue-600' />
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className='text-2xl font-bold'>
+            <CardContent className='space-y-1'>
+              <div className='text-3xl font-bold'>
                 {stats?.totalReservations || 0}
               </div>
               <p className='text-xs text-muted-foreground'>
@@ -303,15 +331,17 @@ export default function ResourceDetailsPage({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between pb-2'>
-              <CardTitle className='text-sm font-medium'>
+          <Card className='hover:shadow-md transition-shadow'>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-3'>
+              <CardTitle className='text-sm font-medium text-muted-foreground'>
                 Utilization Rate
               </CardTitle>
-              <BarChart3 className='h-4 w-4 text-muted-foreground' />
+              <div className='h-9 w-9 rounded-lg bg-green-500/10 flex items-center justify-center'>
+                <BarChart3 className='h-5 w-5 text-green-600' />
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className='text-2xl font-bold'>
+            <CardContent className='space-y-1'>
+              <div className='text-3xl font-bold'>
                 {stats?.utilizationRate?.toFixed(1) || 0}%
               </div>
               <p className='text-xs text-muted-foreground'>
@@ -320,13 +350,17 @@ export default function ResourceDetailsPage({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between pb-2'>
-              <CardTitle className='text-sm font-medium'>Usage Count</CardTitle>
-              <Users className='h-4 w-4 text-muted-foreground' />
+          <Card className='hover:shadow-md transition-shadow'>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-3'>
+              <CardTitle className='text-sm font-medium text-muted-foreground'>
+                Usage Count
+              </CardTitle>
+              <div className='h-9 w-9 rounded-lg bg-orange-500/10 flex items-center justify-center'>
+                <Users className='h-5 w-5 text-orange-600' />
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className='text-2xl font-bold'>
+            <CardContent className='space-y-1'>
+              <div className='text-3xl font-bold'>
                 {resource.usage_count || 0}
               </div>
               <p className='text-xs text-muted-foreground'>Total uses</p>
@@ -336,34 +370,55 @@ export default function ResourceDetailsPage({
 
         {/* Tabs */}
         <Tabs defaultValue='overview' className='space-y-6'>
-          <TabsList className='grid w-full grid-cols-7'>
-            <TabsTrigger value='overview'>
-              <Package className='h-4 w-4 mr-2' />
-              Overview
+          <TabsList className='w-full grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 h-auto gap-2 bg-muted/50 p-1'>
+            <TabsTrigger
+              value='overview'
+              className='flex items-center gap-2 data-[state=active]:bg-background'
+            >
+              <Package className='h-4 w-4' />
+              <span className='hidden sm:inline'>Overview</span>
             </TabsTrigger>
-            <TabsTrigger value='location'>
-              <MapPin className='h-4 w-4 mr-2' />
-              Location
+            <TabsTrigger
+              value='location'
+              className='flex items-center gap-2 data-[state=active]:bg-background'
+            >
+              <MapPin className='h-4 w-4' />
+              <span className='hidden sm:inline'>Location</span>
             </TabsTrigger>
-            <TabsTrigger value='booking'>
-              <Calendar className='h-4 w-4 mr-2' />
-              Booking
+            <TabsTrigger
+              value='booking'
+              className='flex items-center gap-2 data-[state=active]:bg-background'
+            >
+              <Calendar className='h-4 w-4' />
+              <span className='hidden sm:inline'>Booking</span>
             </TabsTrigger>
-            <TabsTrigger value='approval'>
-              <CheckCircle2 className='h-4 w-4 mr-2' />
-              Approval
+            <TabsTrigger
+              value='approval'
+              className='flex items-center gap-2 data-[state=active]:bg-background'
+            >
+              <CheckCircle2 className='h-4 w-4' />
+              <span className='hidden sm:inline'>Approval</span>
             </TabsTrigger>
-            <TabsTrigger value='attributes'>
-              <Settings className='h-4 w-4 mr-2' />
-              Attributes
+            <TabsTrigger
+              value='attributes'
+              className='flex items-center gap-2 data-[state=active]:bg-background'
+            >
+              <Settings className='h-4 w-4' />
+              <span className='hidden sm:inline'>Attributes</span>
             </TabsTrigger>
-            <TabsTrigger value='images'>
-              <ImageIcon className='h-4 w-4 mr-2' />
-              Images
+            <TabsTrigger
+              value='images'
+              className='flex items-center gap-2 data-[state=active]:bg-background'
+            >
+              <ImageIcon className='h-4 w-4' />
+              <span className='hidden sm:inline'>Images</span>
             </TabsTrigger>
-            <TabsTrigger value='stats'>
-              <BarChart3 className='h-4 w-4 mr-2' />
-              Statistics
+            <TabsTrigger
+              value='stats'
+              className='flex items-center gap-2 data-[state=active]:bg-background'
+            >
+              <BarChart3 className='h-4 w-4' />
+              <span className='hidden sm:inline'>Statistics</span>
             </TabsTrigger>
           </TabsList>
 

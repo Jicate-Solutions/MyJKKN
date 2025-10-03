@@ -148,6 +148,7 @@ export interface SubCategory {
 export interface Resource {
   id: string;
   name: string;
+  resource_code?: string;
   description: string;
   parent_category_id: string;
   subcategory_id: string;
@@ -199,10 +200,11 @@ export interface Resource {
   };
   caretaker?: {
     id: string;
-    full_name: string;
+    first_name: string;
+    last_name: string;
     email: string;
-    phone_number?: string;
-    mobile?: string;
+    phone?: string;
+    designation?: string;
   };
   created_by_user?: {
     id: string;
@@ -217,8 +219,112 @@ export interface Resource {
   reservations?: Reservation[];
 }
 
-// Booking Configuration Interface
-export interface BookingConfiguration {
+// ===== ENHANCED BOOKING AVAILABILITY CONFIGURATION =====
+
+// Date Availability Configuration
+export interface DateAvailabilityConfig {
+  // Availability Mode
+  mode: 'all_dates' | 'custom_dates' | 'weekly_pattern' | 'blackout_dates';
+
+  // Custom Date Ranges
+  custom_date_ranges?: DateRange[];
+
+  // Weekly Pattern
+  weekly_pattern?: {
+    days_of_week: number[]; // 0 = Sunday, 6 = Saturday
+    exclude_holidays: boolean;
+  };
+
+  // Blackout Dates
+  blackout_dates?: BlackoutDate[];
+
+  // Advanced
+  advance_booking_limit?: number; // days
+  same_day_booking?: boolean;
+}
+
+export interface DateRange {
+  id: string;
+  start_date: string; // YYYY-MM-DD
+  end_date: string; // YYYY-MM-DD
+  label?: string;
+  recurring?: {
+    frequency: 'yearly' | 'monthly';
+    pattern?: string;
+  };
+}
+
+export interface BlackoutDate {
+  id: string;
+  date: string; // YYYY-MM-DD
+  reason: string;
+  override_roles?: string[]; // Can bypass blackout
+}
+
+// Time Slot Configuration
+export interface TimeSlotConfig {
+  // Operating Hours
+  operating_hours: OperatingHours;
+
+  // Slot Generation
+  slot_generation: 'automatic' | 'custom';
+
+  // Automatic Slots
+  automatic_config?: {
+    slot_duration: number; // minutes
+    buffer_time: number; // minutes between slots
+    break_times?: BreakTime[];
+  };
+
+  // Custom Slots
+  custom_slots?: CustomTimeSlot[];
+
+  // Day-Specific Schedules
+  day_specific_schedules?: DaySchedule[];
+}
+
+export interface OperatingHours {
+  default: {
+    start: string; // HH:MM
+    end: string; // HH:MM
+  };
+  timezone?: string;
+}
+
+export interface CustomTimeSlot {
+  id: string;
+  name: string; // e.g., "Morning Session"
+  start_time: string; // HH:MM
+  end_time: string; // HH:MM
+  max_capacity: number; // concurrent bookings
+  days_of_week?: number[]; // which days this slot is available
+  is_active: boolean;
+}
+
+export interface BreakTime {
+  id: string;
+  start_time: string; // HH:MM
+  end_time: string; // HH:MM
+  reason?: string;
+}
+
+export interface DaySchedule {
+  day_of_week: number; // 0-6
+  operating_hours: {
+    start: string;
+    end: string;
+  };
+  custom_slots?: CustomTimeSlot[];
+  is_closed?: boolean;
+}
+
+// Enhanced Booking Configuration
+export interface EnhancedBookingConfiguration {
+  // Enhanced fields
+  date_availability?: DateAvailabilityConfig;
+  time_slot_config?: TimeSlotConfig;
+
+  // Legacy/existing fields (for backward compatibility)
   max_advance_days?: number;
   min_advance_hours?: number;
   max_duration_hours?: number;
@@ -240,6 +346,9 @@ export interface BookingConfiguration {
   buffer_time?: number; // in minutes
   auto_approval_conditions?: Record<string, any>;
 }
+
+// Booking Configuration Interface (backward compatible alias)
+export interface BookingConfiguration extends EnhancedBookingConfiguration {}
 
 // Time Slot Interface
 export interface TimeSlot {
@@ -404,6 +513,7 @@ export interface UpdateAttributeDefinitionDto
 export interface CreateResourceDto {
   name: string;
   description: string;
+  resource_code?: string; // Auto-generated or custom resource code
   parent_category_id: string;
   subcategory_id: string;
   institution_id: string;
@@ -611,7 +721,7 @@ export const resourceSchema = z.object({
   description: z
     .string()
     .min(1, 'Description is required')
-    .min(50, 'Description must be at least 50 characters'),
+    .min(10, 'Description must be at least 10 characters'),
   parent_category_id: z.string().min(1, 'Parent category is required'),
   subcategory_id: z.string().min(1, 'Subcategory is required'),
   institution_id: z.string().min(1, 'Institution is required'),

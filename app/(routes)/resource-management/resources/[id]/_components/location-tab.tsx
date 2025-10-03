@@ -32,7 +32,7 @@ export function LocationTab({ resource }: LocationTabProps) {
             <p className='text-sm font-medium text-muted-foreground'>
               Institution
             </p>
-            <p className='text-lg font-semibold'>
+            <p className='text-base font-semibold'>
               {resource.institution?.name || 'N/A'}
             </p>
           </div>
@@ -42,7 +42,7 @@ export function LocationTab({ resource }: LocationTabProps) {
               <p className='text-sm font-medium text-muted-foreground'>
                 Department
               </p>
-              <p className='text-lg font-semibold'>
+              <p className='text-base font-semibold'>
                 {resource.department.department_name}
               </p>
             </div>
@@ -75,7 +75,7 @@ export function LocationTab({ resource }: LocationTabProps) {
                   <p className='text-sm font-medium text-muted-foreground'>
                     Building
                   </p>
-                  <p className='text-base font-semibold'>
+                  <p className='text-sm font-semibold'>
                     {resource.building_number}
                   </p>
                 </div>
@@ -86,7 +86,7 @@ export function LocationTab({ resource }: LocationTabProps) {
                   <p className='text-sm font-medium text-muted-foreground'>
                     Block
                   </p>
-                  <p className='text-base font-semibold'>
+                  <p className='text-sm font-semibold'>
                     {resource.block_number}
                   </p>
                 </div>
@@ -97,7 +97,7 @@ export function LocationTab({ resource }: LocationTabProps) {
                   <p className='text-sm font-medium text-muted-foreground'>
                     Floor
                   </p>
-                  <p className='text-base font-semibold'>
+                  <p className='text-sm font-semibold'>
                     {resource.floor_number}
                   </p>
                 </div>

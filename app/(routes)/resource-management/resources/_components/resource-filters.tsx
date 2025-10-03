@@ -3,7 +3,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Filter, X } from 'lucide-react';
+import { Search, Filter, X, ChevronDown, RotateCcw } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,10 +15,11 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger
-} from '@/components/ui/popover';
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger
+} from '@/components/ui/collapsible';
+import { Card, CardContent } from '@/components/ui/card';
 import type { ResourceFilters } from '@/types/resource-management';
 import { useParentCategoriesSelect } from '@/hooks/resource-management/use-parent-categories';
 import { useSubCategoriesSelect } from '@/hooks/resource-management/use-sub-categories';
@@ -40,13 +41,14 @@ export function ResourceFiltersComponent({
   const [showFilters, setShowFilters] = useState(false);
 
   const { institutions } = useUserInstitutionAccess();
-  const institutionId = institutions[0]?.institution_id;
   const { categories: parentCategories } = useParentCategoriesSelect();
   const { categories: subcategories } = useSubCategoriesSelect(
     filters.parent_category_id
   );
+
+  // Fetch departments based on selected institution filter
   const { data: departmentsData } = useDepartments({
-    institution_id: institutionId
+    institution_id: filters.institution_id
   });
   const departments = departmentsData?.data || [];
 
@@ -84,14 +86,15 @@ export function ResourceFiltersComponent({
   const hasActiveFilters =
     filters.parent_category_id ||
     filters.subcategory_id ||
+    filters.institution_id ||
     filters.department_id ||
     filters.status ||
     filters.booking_type;
 
   return (
     <div className='space-y-4'>
+      {/* Search Bar - Always Visible */}
       <div className='flex items-center gap-4'>
-        {/* Search */}
         <div className='relative flex-1'>
           <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
           <Input
@@ -112,62 +115,128 @@ export function ResourceFiltersComponent({
           )}
         </div>
 
-        {/* Filter Toggle */}
-        <Popover open={showFilters} onOpenChange={setShowFilters}>
-          <PopoverTrigger asChild>
-            <Button variant='outline' className='gap-2'>
-              <Filter className='h-4 w-4' />
-              Filters
-              {hasActiveFilters && (
-                <span className='ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground'>
-                  •
-                </span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className='w-80' align='end'>
-            <div className='space-y-4'>
-              <div className='flex items-center justify-between'>
-                <h4 className='font-medium'>Filters</h4>
-                {hasActiveFilters && (
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    onClick={handleClearFilters}
+        {/* Toggle Filters Button */}
+        <Button
+          variant='outline'
+          onClick={() => setShowFilters(!showFilters)}
+          className='gap-2'
+        >
+          <Filter className='h-4 w-4' />
+          {showFilters ? 'Hide Filters' : 'Show Filters'}
+          {hasActiveFilters && (
+            <span className='ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground'>
+              •
+            </span>
+          )}
+          <ChevronDown
+            className={`h-4 w-4 transition-transform ${
+              showFilters ? 'rotate-180' : ''
+            }`}
+          />
+        </Button>
+
+        {hasActiveFilters && (
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={handleClearFilters}
+            className='gap-2'
+          >
+            <RotateCcw className='h-4 w-4' />
+            Clear All
+          </Button>
+        )}
+      </div>
+
+      {/* Collapsible Filters Section */}
+      <Collapsible open={showFilters} onOpenChange={setShowFilters}>
+        <CollapsibleContent>
+          <Card>
+            <CardContent className='pt-6'>
+              <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'>
+                {/* Institution Filter */}
+                <div className='space-y-2'>
+                  <Label>Institution</Label>
+                  <Select
+                    value={filters.institution_id || 'all'}
+                    onValueChange={(value) =>
+                      onFilterChange({
+                        institution_id: value === 'all' ? undefined : value,
+                        department_id: undefined // Reset department when institution changes
+                      })
+                    }
                   >
-                    Clear all
-                  </Button>
-                )}
-              </div>
+                    <SelectTrigger>
+                      <SelectValue placeholder='All institutions' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All institutions</SelectItem>
+                      {institutions.map((inst) => (
+                        <SelectItem key={inst.institution_id} value={inst.institution_id}>
+                          {inst.institution_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              {/* Parent Category Filter */}
-              <div className='space-y-2'>
-                <Label>Category</Label>
-                <Select
-                  value={filters.parent_category_id || 'all'}
-                  onValueChange={(value) =>
-                    onFilterChange({
-                      parent_category_id: value === 'all' ? undefined : value,
-                      subcategory_id: undefined
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder='All categories' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>All categories</SelectItem>
-                    {parentCategories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                {/* Department Filter - Only enabled when institution is selected */}
+                <div className='space-y-2'>
+                  <Label>Department</Label>
+                  <Select
+                    value={filters.department_id || 'all'}
+                    onValueChange={(value) =>
+                      onFilterChange({
+                        department_id: value === 'all' ? undefined : value
+                      })
+                    }
+                    disabled={!filters.institution_id}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={
+                        filters.institution_id
+                          ? 'All departments'
+                          : 'Select institution first'
+                      } />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All departments</SelectItem>
+                      {departments.map((dept: any) => (
+                        <SelectItem key={dept.id} value={dept.id}>
+                          {dept.department_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              {/* Sub Category Filter */}
-              {filters.parent_category_id && (
+                {/* Parent Category Filter */}
+                <div className='space-y-2'>
+                  <Label>Category</Label>
+                  <Select
+                    value={filters.parent_category_id || 'all'}
+                    onValueChange={(value) =>
+                      onFilterChange({
+                        parent_category_id: value === 'all' ? undefined : value,
+                        subcategory_id: undefined
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='All categories' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All categories</SelectItem>
+                      {parentCategories.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Sub Category Filter - Only enabled when parent category is selected */}
                 <div className='space-y-2'>
                   <Label>Sub-Category</Label>
                   <Select
@@ -177,9 +246,14 @@ export function ResourceFiltersComponent({
                         subcategory_id: value === 'all' ? undefined : value
                       })
                     }
+                    disabled={!filters.parent_category_id}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder='All sub-categories' />
+                      <SelectValue placeholder={
+                        filters.parent_category_id
+                          ? 'All sub-categories'
+                          : 'Select category first'
+                      } />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='all'>All sub-categories</SelectItem>
@@ -191,121 +265,131 @@ export function ResourceFiltersComponent({
                     </SelectContent>
                   </Select>
                 </div>
-              )}
 
-              {/* Department Filter */}
-              <div className='space-y-2'>
-                <Label>Department</Label>
-                <Select
-                  value={filters.department_id || 'all'}
-                  onValueChange={(value) =>
-                    onFilterChange({
-                      department_id: value === 'all' ? undefined : value
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder='All departments' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>All departments</SelectItem>
-                    {departments.map((dept: any) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        {dept.department_name}
+                {/* Status Filter */}
+                <div className='space-y-2'>
+                  <Label>Status</Label>
+                  <Select
+                    value={filters.status || 'all'}
+                    onValueChange={(value) =>
+                      onFilterChange({
+                        status: (value === 'all' ? undefined : value) as any
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='All statuses' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All statuses</SelectItem>
+                      <SelectItem value='available'>Available</SelectItem>
+                      <SelectItem value='occupied'>Occupied</SelectItem>
+                      <SelectItem value='maintenance'>Maintenance</SelectItem>
+                      <SelectItem value='retired'>Retired</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Booking Type Filter */}
+                <div className='space-y-2'>
+                  <Label>Booking Type</Label>
+                  <Select
+                    value={filters.booking_type || 'all'}
+                    onValueChange={(value) =>
+                      onFilterChange({
+                        booking_type: (value === 'all' ? undefined : value) as any
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='All booking types' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All booking types</SelectItem>
+                      <SelectItem value='reservation'>Reservation</SelectItem>
+                      <SelectItem value='walk_in'>Walk-in</SelectItem>
+                      <SelectItem value='both'>Both</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Sort By */}
+                <div className='space-y-2'>
+                  <Label>Sort By</Label>
+                  <Select
+                    value={filters.sortBy || 'created_at'}
+                    onValueChange={(value) =>
+                      onFilterChange({ sortBy: value as any })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='created_at'>Created Date</SelectItem>
+                      <SelectItem value='name'>Name</SelectItem>
+                      <SelectItem value='status'>Status</SelectItem>
+                      <SelectItem value='reservation_count'>
+                        Reservations
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                      <SelectItem value='usage_count'>Usage</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              {/* Status Filter */}
-              <div className='space-y-2'>
-                <Label>Status</Label>
-                <Select
-                  value={filters.status || 'all'}
-                  onValueChange={(value) =>
-                    onFilterChange({
-                      status: (value === 'all' ? undefined : value) as any
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder='All statuses' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>All statuses</SelectItem>
-                    <SelectItem value='available'>Available</SelectItem>
-                    <SelectItem value='occupied'>Occupied</SelectItem>
-                    <SelectItem value='maintenance'>Maintenance</SelectItem>
-                    <SelectItem value='retired'>Retired</SelectItem>
-                  </SelectContent>
-                </Select>
+                {/* Sort Order */}
+                <div className='space-y-2'>
+                  <Label>Sort Order</Label>
+                  <Select
+                    value={filters.sortOrder || 'desc'}
+                    onValueChange={(value) =>
+                      onFilterChange({ sortOrder: value as 'asc' | 'desc' })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='desc'>Descending</SelectItem>
+                      <SelectItem value='asc'>Ascending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-
-              {/* Booking Type Filter */}
-              <div className='space-y-2'>
-                <Label>Booking Type</Label>
-                <Select
-                  value={filters.booking_type || 'all'}
-                  onValueChange={(value) =>
-                    onFilterChange({
-                      booking_type: (value === 'all' ? undefined : value) as any
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder='All booking types' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>All booking types</SelectItem>
-                    <SelectItem value='reservation'>Reservation</SelectItem>
-                    <SelectItem value='walk_in'>Walk-in</SelectItem>
-                    <SelectItem value='both'>Both</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Sort Options */}
-              <div className='space-y-2'>
-                <Label>Sort By</Label>
-                <Select
-                  value={`${filters.sortBy || 'created_at'}-${
-                    filters.sortOrder || 'desc'
-                  }`}
-                  onValueChange={(value) => {
-                    const [sortBy, sortOrder] = value.split('-');
-                    onFilterChange({
-                      sortBy: sortBy as any,
-                      sortOrder: sortOrder as 'asc' | 'desc'
-                    });
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='created_at-desc'>
-                      Newest First
-                    </SelectItem>
-                    <SelectItem value='created_at-asc'>Oldest First</SelectItem>
-                    <SelectItem value='name-asc'>Name (A-Z)</SelectItem>
-                    <SelectItem value='name-desc'>Name (Z-A)</SelectItem>
-                    <SelectItem value='reservation_count-desc'>
-                      Most Reserved
-                    </SelectItem>
-                    <SelectItem value='usage_count-desc'>Most Used</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+            </CardContent>
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Active Filters Display */}
       {hasActiveFilters && (
         <div className='flex flex-wrap items-center gap-2'>
           <span className='text-sm text-muted-foreground'>Active filters:</span>
+          {filters.institution_id && (
+            <Button
+              variant='secondary'
+              size='sm'
+              onClick={() =>
+                onFilterChange({
+                  institution_id: undefined,
+                  department_id: undefined
+                })
+              }
+            >
+              Institution
+              <X className='ml-2 h-3 w-3' />
+            </Button>
+          )}
+          {filters.department_id && (
+            <Button
+              variant='secondary'
+              size='sm'
+              onClick={() => onFilterChange({ department_id: undefined })}
+            >
+              Department
+              <X className='ml-2 h-3 w-3' />
+            </Button>
+          )}
           {filters.parent_category_id && (
             <Button
               variant='secondary'
@@ -328,16 +412,6 @@ export function ResourceFiltersComponent({
               onClick={() => onFilterChange({ subcategory_id: undefined })}
             >
               Sub-Category
-              <X className='ml-2 h-3 w-3' />
-            </Button>
-          )}
-          {filters.department_id && (
-            <Button
-              variant='secondary'
-              size='sm'
-              onClick={() => onFilterChange({ department_id: undefined })}
-            >
-              Department
               <X className='ml-2 h-3 w-3' />
             </Button>
           )}

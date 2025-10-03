@@ -95,10 +95,10 @@ class AnalyticsService {
     // Base query with filters
     let resourceQuery = supabase.from('resources').select(`
         *,
-        parent_category:parent_categories(id, name),
-        sub_category:sub_categories(id, name),
+        parent_category:resource_parent_categories(id, name),
+        subcategory:resource_sub_categories(id, name),
         institution:institutions(id, name),
-        department:departments(id, name)
+        department:departments(id, department_name)
       `);
 
     if (filters.institution_id) {
@@ -220,35 +220,60 @@ class AnalyticsService {
       filters.end_date
     );
 
+    // First, get filtered resource IDs if institution/department filters exist
+    let resourceIds: string[] | undefined;
+    if (filters.institution_id || filters.department_id) {
+      let resourceQuery = supabase
+        .from('resources')
+        .select('id');
+
+      if (filters.institution_id) {
+        resourceQuery = resourceQuery.eq('institution_id', filters.institution_id);
+      }
+      if (filters.department_id) {
+        resourceQuery = resourceQuery.eq('department_id', filters.department_id);
+      }
+
+      const { data: filteredResources } = await resourceQuery;
+      resourceIds = filteredResources?.map((r: any) => r.id) || [];
+
+      // If no resources found with filters, return empty data
+      if (resourceIds.length === 0) {
+        return {
+          total_reservations: 0,
+          completed_reservations: 0,
+          cancelled_reservations: 0,
+          pending_reservations: 0,
+          no_show_count: 0,
+          avg_duration_hours: 0,
+          total_revenue: 0,
+          by_status: [],
+          by_resource: [],
+          by_time_slot: [],
+          trend_data: []
+        };
+      }
+    }
+
     let reservationQuery = supabase
       .from('resource_reservations')
       .select(
         `
         *,
         resource:resources(id, name, institution_id, department_id),
-        user:profiles!reserved_by_user_id(id, full_name)
+        user:profiles!resource_reservations_user_id_fkey(id, full_name)
       `
       )
-      .gte('start_date', dateRange.start_date)
-      .lte('end_date', dateRange.end_date);
+      .gte('start_time', dateRange.start_date)
+      .lte('end_time', dateRange.end_date);
 
-    if (filters.institution_id) {
-      reservationQuery = reservationQuery.eq(
-        'resource.institution_id',
-        filters.institution_id
-      );
+    // Apply resource ID filter if we have filtered resources
+    if (resourceIds) {
+      reservationQuery = reservationQuery.in('resource_id', resourceIds);
     }
-    if (filters.department_id) {
-      reservationQuery = reservationQuery.eq(
-        'resource.department_id',
-        filters.department_id
-      );
-    }
+
     if (filters.resource_id) {
-      reservationQuery = reservationQuery.eq(
-        'resource_id',
-        filters.resource_id
-      );
+      reservationQuery = reservationQuery.eq('resource_id', filters.resource_id);
     }
 
     const { data: reservations, error } = await reservationQuery;
@@ -267,8 +292,8 @@ class AnalyticsService {
     // Calculate average duration
     const total_hours =
       reservations?.reduce((sum: number, r: any) => {
-        const start = new Date(r.start_date);
-        const end = new Date(r.end_date);
+        const start = new Date(r.start_time);
+        const end = new Date(r.end_time);
         const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
         return sum + hours;
       }, 0) || 0;
@@ -309,8 +334,8 @@ class AnalyticsService {
       }
       const res = resourceMap.get(resId);
       res.reservation_count++;
-      const start = new Date(reservation.start_date);
-      const end = new Date(reservation.end_date);
+      const start = new Date(reservation.start_time);
+      const end = new Date(reservation.end_time);
       const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
       res.total_hours += hours;
       res.revenue += reservation.total_amount || 0;
@@ -339,107 +364,23 @@ class AnalyticsService {
 
   /**
    * Get maintenance analytics
+   * Note: resource_maintenance_logs table doesn't exist yet
+   * Returning empty/mock data until table is created
    */
   async getMaintenanceAnalytics(
     filters: AnalyticsFilters
   ): Promise<MaintenanceAnalytics> {
-    const dateRange = this.getDateRange(
-      filters.period || AnalyticsPeriod.LAST_30_DAYS,
-      filters.start_date,
-      filters.end_date
-    );
-
-    let maintenanceQuery = supabase
-      .from('resource_maintenance_logs')
-      .select(
-        `
-        *,
-        resource:resources(id, name, institution_id, department_id)
-      `
-      )
-      .gte('scheduled_date', dateRange.start_date)
-      .lte('scheduled_date', dateRange.end_date);
-
-    if (filters.institution_id) {
-      maintenanceQuery = maintenanceQuery.eq(
-        'resource.institution_id',
-        filters.institution_id
-      );
-    }
-    if (filters.resource_id) {
-      maintenanceQuery = maintenanceQuery.eq(
-        'resource_id',
-        filters.resource_id
-      );
-    }
-
-    const { data: maintenanceLogs, error } = await maintenanceQuery;
-    if (error) throw error;
-
-    const total_maintenance = maintenanceLogs?.length || 0;
-    const scheduled_maintenance =
-      maintenanceLogs?.filter((m: any) => m.status === 'scheduled').length || 0;
-    const completed_maintenance =
-      maintenanceLogs?.filter((m: any) => m.status === 'completed').length || 0;
-    const overdue_maintenance =
-      maintenanceLogs?.filter((m: any) => {
-        const scheduledDate = new Date(m.scheduled_date);
-        return scheduledDate < new Date() && m.status === 'scheduled';
-      }).length || 0;
-
-    const total_cost =
-      maintenanceLogs?.reduce(
-        (sum: number, m: any) => sum + (m.cost || 0),
-        0
-      ) || 0;
-    const avg_cost_per_maintenance =
-      total_maintenance > 0 ? total_cost / total_maintenance : 0;
-
-    // Type breakdown
-    const typeMap = new Map<string, any>();
-    maintenanceLogs?.forEach((log: any) => {
-      const type = log.maintenance_type || 'unknown';
-      if (!typeMap.has(type)) {
-        typeMap.set(type, {
-          maintenance_type: type,
-          count: 0,
-          total_cost: 0,
-          avg_cost: 0
-        });
-      }
-      const t = typeMap.get(type);
-      t.count++;
-      t.total_cost += log.cost || 0;
-    });
-
-    const by_type = Array.from(typeMap.values()).map((t) => ({
-      ...t,
-      avg_cost: t.count > 0 ? t.total_cost / t.count : 0
-    }));
-
-    // Priority breakdown
-    const priorityMap = new Map<number, any>();
-    maintenanceLogs?.forEach((log: any) => {
-      const priority = log.priority || 0;
-      if (!priorityMap.has(priority)) {
-        priorityMap.set(priority, {
-          priority,
-          count: 0,
-          avg_resolution_days: 0
-        });
-      }
-      priorityMap.get(priority).count++;
-    });
-
+    // TODO: Implement when resource_maintenance_logs table is created
+    // For now, return empty analytics to prevent errors
     return {
-      total_maintenance,
-      scheduled_maintenance,
-      completed_maintenance,
-      overdue_maintenance,
-      total_cost,
-      avg_cost_per_maintenance,
-      by_type,
-      by_priority: Array.from(priorityMap.values()),
+      total_maintenance: 0,
+      scheduled_maintenance: 0,
+      completed_maintenance: 0,
+      overdue_maintenance: 0,
+      total_cost: 0,
+      avg_cost_per_maintenance: 0,
+      by_type: [],
+      by_priority: [],
       cost_trend: []
     };
   }
@@ -459,11 +400,11 @@ class AnalyticsService {
       .select(
         `
         *,
-        user:profiles!reserved_by_user_id(id, full_name, email)
+        user:profiles!resource_reservations_user_id_fkey(id, full_name, email)
       `
       )
-      .gte('start_date', dateRange.start_date)
-      .lte('end_date', dateRange.end_date);
+      .gte('start_time', dateRange.start_date)
+      .lte('end_time', dateRange.end_date);
     if (error) throw error;
 
     const userMap = new Map<string, any>();
@@ -481,8 +422,8 @@ class AnalyticsService {
       }
       const user = userMap.get(userId);
       user.reservation_count++;
-      const start = new Date(reservation.start_date);
-      const end = new Date(reservation.end_date);
+      const start = new Date(reservation.start_time);
+      const end = new Date(reservation.end_time);
       const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
       user.total_hours += hours;
       user.total_spent += reservation.total_amount || 0;

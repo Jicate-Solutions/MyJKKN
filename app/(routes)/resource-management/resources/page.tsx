@@ -218,15 +218,7 @@ export default function ResourcesPage() {
         </Badge>
       )
     },
-    {
-      accessorKey: 'booking_type',
-      header: 'Booking Type',
-      cell: ({ row }: { row: any }) => (
-        <Badge className={getBookingTypeColor(row.getValue('booking_type'))}>
-          {row.getValue('booking_type')?.replace('_', ' ')}
-        </Badge>
-      )
-    },
+
     {
       accessorKey: 'current_stock_quantity',
       header: 'Stock',
@@ -243,27 +235,7 @@ export default function ResourcesPage() {
         );
       }
     },
-    {
-      accessorKey: 'reservation_count',
-      header: 'Reservations',
-      cell: ({ row }: { row: any }) => (
-        <span className='text-sm'>
-          {row.getValue('reservation_count') || 0}
-        </span>
-      )
-    },
-    {
-      accessorKey: 'created_at',
-      header: 'Created',
-      cell: ({ row }: { row: any }) => {
-        const date = row.getValue('created_at') as string;
-        return (
-          <span className='text-sm text-muted-foreground'>
-            {format(new Date(date), 'MMM dd, yyyy')}
-          </span>
-        );
-      }
-    },
+
     {
       id: 'actions',
       header: 'Actions',
