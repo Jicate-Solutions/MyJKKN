@@ -2,21 +2,34 @@
 
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Trash2, Clock } from 'lucide-react';
-import type { TimeSlotConfig, CustomTimeSlot, BreakTime } from '@/types/resource-management';
+import type {
+  TimeSlotConfig,
+  CustomTimeSlot,
+  BreakTime
+} from '@/types/resource-management';
 
 interface TimeSlotConfigProps {
   config: TimeSlotConfig;
   onChange: (config: TimeSlotConfig) => void;
 }
 
-export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProps) {
+export function TimeSlotConfigComponent({
+  config,
+  onChange
+}: TimeSlotConfigProps) {
   const slotGeneration = config.slot_generation || 'automatic';
 
   const updateConfig = (updates: Partial<TimeSlotConfig>) => {
@@ -45,7 +58,10 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
 
   // Update custom slot
   const updateCustomSlot = (id: string, updates: Partial<CustomTimeSlot>) => {
-    const slots = config.custom_slots?.map((s) => (s.id === id ? { ...s, ...updates } : s)) || [];
+    const slots =
+      config.custom_slots?.map((s) =>
+        s.id === id ? { ...s, ...updates } : s
+      ) || [];
     updateConfig({ custom_slots: slots });
   };
 
@@ -57,10 +73,7 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
       end_time: '13:00',
       reason: 'Lunch Break'
     };
-    const breaks = [
-      ...(config.automatic_config?.break_times || []),
-      newBreak
-    ];
+    const breaks = [...(config.automatic_config?.break_times || []), newBreak];
     updateConfig({
       automatic_config: {
         ...config.automatic_config,
@@ -73,7 +86,8 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
 
   // Remove break time
   const removeBreakTime = (id: string) => {
-    const breaks = config.automatic_config?.break_times?.filter((b) => b.id !== id) || [];
+    const breaks =
+      config.automatic_config?.break_times?.filter((b) => b.id !== id) || [];
     updateConfig({
       automatic_config: {
         ...config.automatic_config,
@@ -87,8 +101,9 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
   // Update break time
   const updateBreakTime = (id: string, updates: Partial<BreakTime>) => {
     const breaks =
-      config.automatic_config?.break_times?.map((b) => (b.id === id ? { ...b, ...updates } : b)) ||
-      [];
+      config.automatic_config?.break_times?.map((b) =>
+        b.id === id ? { ...b, ...updates } : b
+      ) || [];
     updateConfig({
       automatic_config: {
         ...config.automatic_config,
@@ -150,7 +165,8 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                     operating_hours: {
                       ...config.operating_hours,
                       default: {
-                        start: config.operating_hours?.default?.start || '09:00',
+                        start:
+                          config.operating_hours?.default?.start || '09:00',
                         end: e.target.value
                       }
                     }
@@ -166,7 +182,9 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
           <Label>Slot Generation Method</Label>
           <RadioGroup
             value={slotGeneration}
-            onValueChange={(value: any) => updateConfig({ slot_generation: value })}
+            onValueChange={(value: any) =>
+              updateConfig({ slot_generation: value })
+            }
           >
             <div className='flex items-center space-x-2'>
               <RadioGroupItem value='automatic' id='automatic' />
@@ -186,7 +204,9 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
         {/* Automatic Configuration */}
         {slotGeneration === 'automatic' && (
           <div className='space-y-4 rounded-lg border p-4 bg-muted/20'>
-            <Label className='text-sm font-medium'>Automatic Slot Settings</Label>
+            <Label className='text-sm font-medium'>
+              Automatic Slot Settings
+            </Label>
 
             <div className='grid gap-4 md:grid-cols-2'>
               <div className='space-y-2'>
@@ -224,7 +244,8 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                     updateConfig({
                       automatic_config: {
                         ...config.automatic_config,
-                        slot_duration: config.automatic_config?.slot_duration || 60,
+                        slot_duration:
+                          config.automatic_config?.slot_duration || 60,
                         buffer_time: parseInt(e.target.value) || 0
                       }
                     })
@@ -240,14 +261,22 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
             <div className='space-y-3 mt-4'>
               <div className='flex items-center justify-between'>
                 <Label className='text-xs font-medium'>Break Times</Label>
-                <Button type='button' size='sm' variant='outline' onClick={addBreakTime}>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='outline'
+                  onClick={addBreakTime}
+                >
                   <Plus className='h-4 w-4 mr-2' />
                   Add Break
                 </Button>
               </div>
 
               {config.automatic_config?.break_times?.map((breakTime) => (
-                <div key={breakTime.id} className='rounded-lg border p-3 space-y-3 bg-background'>
+                <div
+                  key={breakTime.id}
+                  className='rounded-lg border p-3 space-y-3 bg-background'
+                >
                   <div className='flex items-center justify-between'>
                     <Label className='text-xs font-medium'>Break Period</Label>
                     <Button
@@ -267,7 +296,9 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                         type='time'
                         value={breakTime.start_time}
                         onChange={(e) =>
-                          updateBreakTime(breakTime.id, { start_time: e.target.value })
+                          updateBreakTime(breakTime.id, {
+                            start_time: e.target.value
+                          })
                         }
                       />
                     </div>
@@ -277,7 +308,9 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                         type='time'
                         value={breakTime.end_time}
                         onChange={(e) =>
-                          updateBreakTime(breakTime.id, { end_time: e.target.value })
+                          updateBreakTime(breakTime.id, {
+                            end_time: e.target.value
+                          })
                         }
                       />
                     </div>
@@ -286,7 +319,11 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                       <Input
                         placeholder='e.g., Lunch'
                         value={breakTime.reason || ''}
-                        onChange={(e) => updateBreakTime(breakTime.id, { reason: e.target.value })}
+                        onChange={(e) =>
+                          updateBreakTime(breakTime.id, {
+                            reason: e.target.value
+                          })
+                        }
                       />
                     </div>
                   </div>
@@ -301,7 +338,12 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
           <div className='space-y-4 rounded-lg border p-4 bg-muted/20'>
             <div className='flex items-center justify-between'>
               <Label className='text-sm font-medium'>Custom Time Slots</Label>
-              <Button type='button' size='sm' variant='outline' onClick={addCustomSlot}>
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                onClick={addCustomSlot}
+              >
                 <Clock className='h-4 w-4 mr-2' />
                 Add Slot
               </Button>
@@ -309,13 +351,17 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
 
             {(!config.custom_slots || config.custom_slots.length === 0) && (
               <p className='text-sm text-muted-foreground text-center py-4'>
-                No custom slots configured. Click "Add Slot" to define time slots.
+                No custom slots configured. Click &quot;Add Slot&quot; to define
+                time slots.
               </p>
             )}
 
             <div className='space-y-3'>
               {config.custom_slots?.map((slot) => (
-                <div key={slot.id} className='rounded-lg border p-4 space-y-3 bg-background'>
+                <div
+                  key={slot.id}
+                  className='rounded-lg border p-4 space-y-3 bg-background'
+                >
                   <div className='flex items-center justify-between'>
                     <Label className='text-sm font-medium'>Time Slot</Label>
                     <Button
@@ -333,7 +379,9 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                     <Input
                       placeholder='e.g., Morning Session'
                       value={slot.name}
-                      onChange={(e) => updateCustomSlot(slot.id, { name: e.target.value })}
+                      onChange={(e) =>
+                        updateCustomSlot(slot.id, { name: e.target.value })
+                      }
                     />
                   </div>
 
@@ -344,7 +392,9 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                         type='time'
                         value={slot.start_time}
                         onChange={(e) =>
-                          updateCustomSlot(slot.id, { start_time: e.target.value })
+                          updateCustomSlot(slot.id, {
+                            start_time: e.target.value
+                          })
                         }
                       />
                     </div>
@@ -353,7 +403,11 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                       <Input
                         type='time'
                         value={slot.end_time}
-                        onChange={(e) => updateCustomSlot(slot.id, { end_time: e.target.value })}
+                        onChange={(e) =>
+                          updateCustomSlot(slot.id, {
+                            end_time: e.target.value
+                          })
+                        }
                       />
                     </div>
                     <div className='space-y-2'>
@@ -363,27 +417,37 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                         min='1'
                         value={slot.max_capacity}
                         onChange={(e) =>
-                          updateCustomSlot(slot.id, { max_capacity: parseInt(e.target.value) || 1 })
+                          updateCustomSlot(slot.id, {
+                            max_capacity: parseInt(e.target.value) || 1
+                          })
                         }
                       />
                     </div>
                   </div>
 
                   <div className='space-y-2'>
-                    <Label className='text-xs'>Available Days (leave empty for all days)</Label>
+                    <Label className='text-xs'>
+                      Available Days (leave empty for all days)
+                    </Label>
                     <div className='flex flex-wrap gap-2'>
                       {daysOfWeek.map((day) => (
-                        <div key={day.value} className='flex items-center space-x-1'>
+                        <div
+                          key={day.value}
+                          className='flex items-center space-x-1'
+                        >
                           <Checkbox
                             id={`${slot.id}-day-${day.value}`}
-                            checked={slot.days_of_week?.includes(day.value) || false}
+                            checked={
+                              slot.days_of_week?.includes(day.value) || false
+                            }
                             onCheckedChange={(checked) => {
                               const currentDays = slot.days_of_week || [];
                               const newDays = checked
                                 ? [...currentDays, day.value].sort()
                                 : currentDays.filter((d) => d !== day.value);
                               updateCustomSlot(slot.id, {
-                                days_of_week: newDays.length > 0 ? newDays : undefined
+                                days_of_week:
+                                  newDays.length > 0 ? newDays : undefined
                               });
                             }}
                           />
@@ -406,7 +470,10 @@ export function TimeSlotConfigComponent({ config, onChange }: TimeSlotConfigProp
                         updateCustomSlot(slot.id, { is_active: !!checked })
                       }
                     />
-                    <Label htmlFor={`${slot.id}-active`} className='font-normal text-xs'>
+                    <Label
+                      htmlFor={`${slot.id}-active`}
+                      className='font-normal text-xs'
+                    >
                       Slot is active
                     </Label>
                   </div>
