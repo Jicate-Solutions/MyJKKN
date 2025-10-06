@@ -12,7 +12,6 @@ export async function GET(request: NextRequest) {
   try {
     const requestUrl = new URL(request.url);
     const code = requestUrl.searchParams.get('code');
-    const state = requestUrl.searchParams.get('state');
     const origin = requestUrl.origin;
 
     // Early return if no code
@@ -23,99 +22,6 @@ export async function GET(request: NextRequest) {
     }
 
     const cookieStore = await cookies();
-
-    // First try to get child app auth from state parameter (more reliable)
-    let childAppAuth: any = null;
-    let returnTo: string | null = null;
-    let isChildAppAuth = false;
-
-    if (state) {
-      try {
-        // Try to decode our custom state (base64 without padding)
-        const paddedState = state + '='.repeat((4 - (state.length % 4)) % 4);
-        const stateData = JSON.parse(atob(paddedState));
-
-        if (stateData.childAppAuth) {
-          childAppAuth = stateData.childAppAuth;
-          console.log(
-            '[Auth Callback] Child app auth from state:',
-            childAppAuth
-          );
-        }
-
-        if (stateData.returnTo) {
-          returnTo = stateData.returnTo;
-          console.log('[Auth Callback] Return URL from state:', returnTo);
-        }
-
-        if (stateData.isChildAppAuth) {
-          isChildAppAuth = true;
-          console.log('[Auth Callback] Is child app auth:', true);
-        }
-      } catch (e) {
-        console.log(
-          '[Auth Callback] Could not parse state as our data, trying direct decode'
-        );
-        try {
-          // Fallback: try direct base64 decode
-          const stateData = JSON.parse(atob(state));
-          if (stateData.childAppAuth) {
-            childAppAuth = stateData.childAppAuth;
-          }
-        } catch (e2) {
-          console.log('[Auth Callback] State is not our encoded data');
-        }
-      }
-    }
-
-    // Fallback to cookie if state doesn't have our data
-    if (!childAppAuth) {
-      const childAppAuthCookie = cookieStore.get('child_app_auth');
-
-      // Log for debugging
-      console.log('[Auth Callback] Cookie found:', !!childAppAuthCookie);
-      console.log('[Auth Callback] Cookie value:', childAppAuthCookie?.value);
-
-      if (childAppAuthCookie) {
-        try {
-          // Decode the URL-encoded cookie value
-          const decodedValue = decodeURIComponent(childAppAuthCookie.value);
-          childAppAuth = JSON.parse(decodedValue);
-          console.log(
-            '[Auth Callback] Parsed child app auth from cookie:',
-            childAppAuth
-          );
-        } catch (e) {
-          console.error('[Auth Callback] Failed to parse cookie:', e);
-          // Try without decoding as fallback
-          try {
-            childAppAuth = JSON.parse(childAppAuthCookie.value);
-          } catch (e2) {
-            console.error(
-              '[Auth Callback] Failed to parse cookie even without decode:',
-              e2
-            );
-          }
-        }
-      }
-    }
-
-    // Also check for return_to cookie if we don't have it from state
-    if (!returnTo) {
-      const returnCookie = cookieStore.get('child_app_return');
-      if (returnCookie) {
-        try {
-          returnTo = decodeURIComponent(returnCookie.value);
-          isChildAppAuth = true; // If we have a return cookie, it's a child app auth
-          console.log(
-            '[Auth Callback] Found return URL from cookie:',
-            returnTo
-          );
-        } catch (e) {
-          console.error('[Auth Callback] Failed to decode return cookie:', e);
-        }
-      }
-    }
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -361,56 +267,7 @@ export async function GET(request: NextRequest) {
 
       // If profile exists but not completed
       if (!actualProfile.profile_completed) {
-        // Clear child app auth cookie if present
-        if (childAppAuth) {
-          cookieStore.delete('child_app_auth');
-        }
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));
-      }
-
-      // If this is a child app authentication request
-      console.log('[Auth Callback] Checking child app auth:', {
-        hasChildAppAuth: !!childAppAuth,
-        hasReturnTo: !!returnTo,
-        isChildAppAuth,
-        childAppAuth,
-        returnTo,
-        profileCompleted: existingProfile?.profile_completed
-      });
-
-      // If we have a return URL (from child app flow), redirect there
-      if (returnTo && isChildAppAuth) {
-        console.log('[Auth Callback] Redirecting to return URL:', returnTo);
-        // Clear the cookies
-        cookieStore.delete('child_app_auth');
-        cookieStore.delete('child_app_return');
-        return NextResponse.redirect(new URL(returnTo, origin));
-      }
-
-      // If we have child app auth data, redirect to consent
-      if (childAppAuth && childAppAuth.app_id && childAppAuth.redirect_uri) {
-        // Clear the cookies
-        cookieStore.delete('child_app_auth');
-        cookieStore.delete('child_app_return');
-
-        // Redirect to the child app consent page
-        const consentUrl = new URL('/auth/child-app/consent', origin);
-        consentUrl.searchParams.append('app_id', childAppAuth.app_id);
-        consentUrl.searchParams.append(
-          'redirect_uri',
-          childAppAuth.redirect_uri
-        );
-        consentUrl.searchParams.append('response_type', 'code');
-        if (childAppAuth.scope)
-          consentUrl.searchParams.append('scope', childAppAuth.scope);
-        if (childAppAuth.state)
-          consentUrl.searchParams.append('state', childAppAuth.state);
-
-        console.log(
-          '[Auth Callback] Redirecting to consent page:',
-          consentUrl.toString()
-        );
-        return NextResponse.redirect(consentUrl);
       }
 
       // If profile exists and is completed, redirect based on role
