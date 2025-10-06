@@ -40,61 +40,13 @@ const EducationalHero = () => {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [isChildAppAuth, setIsChildAppAuth] = useState(false);
-  const [returnTo, setReturnTo] = useState<string | null>(null);
-
-  // Initialize childAppAuth based on URL params immediately
-  const getInitialChildAppAuth = () => {
-    if (typeof window === 'undefined') return null;
-
-    const params = new URLSearchParams(window.location.search);
-    let appId = params.get('app_id');
-    let redirectUri = params.get('redirect_uri');
-    let scope = params.get('scope');
-    let state = params.get('state');
-
-    // Check redirect parameter as fallback
-    if (!appId || !redirectUri) {
-      const redirectParam = params.get('redirect');
-      if (redirectParam) {
-        try {
-          const redirectUrl = new URL(decodeURIComponent(redirectParam));
-          const redirectParams = new URLSearchParams(redirectUrl.search);
-          appId = appId || redirectParams.get('app_id');
-          redirectUri = redirectUri || redirectParams.get('redirect_uri');
-          scope = scope || redirectParams.get('scope');
-          state = state || redirectParams.get('state');
-        } catch (e) {
-          // Invalid redirect URL, ignore
-        }
-      }
-    }
-
-    if (appId && redirectUri) {
-      return {
-        app_id: appId,
-        redirect_uri: redirectUri,
-        scope: scope || undefined,
-        state: state || undefined
-      };
-    }
-
-    return null;
-  };
-
-  const [childAppAuth, setChildAppAuth] = useState<{
-    app_id: string;
-    redirect_uri: string;
-    scope?: string;
-    state?: string;
-  } | null>(getInitialChildAppAuth());
 
   const router = useRouter();
 
   // Prevent recreation of client on each render
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
-  // Combined auth check and child app detection
+  // Auth check
   useEffect(() => {
     let isMounted = true;
     let hasRun = false; // Prevent multiple runs
@@ -112,80 +64,6 @@ export default function LoginPage() {
         console.log('[Login Page] Student redirect detected, stopping auth check');
         setIsCheckingAuth(false);
         return;
-      }
-
-      // Check if this is a child app authentication request
-      const isChildApp = params.get('child_app_auth') === 'true';
-      const returnUrl = params.get('return_to');
-
-      // Set state values
-      setIsChildAppAuth(isChildApp);
-      setReturnTo(returnUrl);
-
-      console.log('[Login Page] URL params:', {
-        isChildAppAuth: isChildApp,
-        returnTo: returnUrl,
-        allParams: Array.from(params.entries())
-      });
-
-      // First, check for child app authentication params directly in URL
-      let appId = params.get('app_id');
-      let redirectUri = params.get('redirect_uri');
-      let scope = params.get('scope');
-      let state = params.get('state');
-
-      // If not found directly, check if they're in the redirect parameter
-      const redirectParam = params.get('redirect');
-      if (!appId && redirectParam) {
-        try {
-          const redirectUrl = new URL(decodeURIComponent(redirectParam));
-          const redirectParams = new URLSearchParams(redirectUrl.search);
-          appId = redirectParams.get('app_id');
-          redirectUri = redirectParams.get('redirect_uri');
-          scope = redirectParams.get('scope');
-          state = redirectParams.get('state');
-        } catch (e) {
-          // Invalid redirect URL, ignore
-          console.debug('Invalid redirect URL in parameters:', e);
-        }
-      }
-
-      // Store child app auth if present
-      let childAppAuthData = null;
-      if (appId && redirectUri) {
-        childAppAuthData = {
-          app_id: appId,
-          redirect_uri: redirectUri,
-          scope: scope || undefined,
-          state: state || undefined
-        };
-        setChildAppAuth(childAppAuthData);
-        // Store in cookie for callback with better settings
-        const isSecure = window.location.protocol === 'https:';
-        // Use encodeURIComponent to ensure special characters don't break the cookie
-        const encodedData = encodeURIComponent(
-          JSON.stringify(childAppAuthData)
-        );
-        const cookieString = `child_app_auth=${encodedData}; path=/; max-age=600; SameSite=Lax${
-          isSecure ? '; Secure' : ''
-        }`;
-        document.cookie = cookieString;
-
-        // Also store return_to separately for better reliability
-        if (returnUrl) {
-          const returnCookie = `child_app_return=${encodeURIComponent(
-            returnUrl
-          )}; path=/; max-age=600; SameSite=Lax${isSecure ? '; Secure' : ''}`;
-          document.cookie = returnCookie;
-        }
-
-        // Log for debugging
-        console.log(
-          '[Login Page] Setting child app auth cookie:',
-          childAppAuthData
-        );
-        console.log('[Login Page] Cookie string:', cookieString);
-        console.log('[Login Page] All cookies after set:', document.cookie);
       }
 
       // Don't redirect if coming from error page
@@ -206,38 +84,7 @@ export default function LoginPage() {
         if (!isMounted) return;
 
         if (!error && data.user) {
-          console.log('[Login Page] User authenticated, checking redirect:', {
-            isChildAppAuth,
-            hasReturnTo: !!returnTo,
-            returnTo,
-            hasChildAppAuthData: !!childAppAuthData,
-            childAppAuthData
-          });
-
-          // If this is a child app auth request with return_to, redirect there
-          if (isChildAppAuth && returnTo) {
-            console.log('[Login Page] Redirecting to return_to:', returnTo);
-            router.push(returnTo);
-            return;
-          }
-
-          // If this is a child app auth request, redirect to consent page
-          if (childAppAuthData) {
-            const consentParams = new URLSearchParams({
-              app_id: childAppAuthData.app_id,
-              redirect_uri: childAppAuthData.redirect_uri,
-              response_type: 'code'
-            });
-            if (childAppAuthData.scope)
-              consentParams.append('scope', childAppAuthData.scope);
-            if (childAppAuthData.state)
-              consentParams.append('state', childAppAuthData.state);
-
-            const consentUrl = `/auth/child-app/consent?${consentParams.toString()}`;
-            console.log('[Login Page] Redirecting to consent:', consentUrl);
-            router.push(consentUrl);
-            return;
-          }
+          console.log('[Login Page] User authenticated');
 
           // User is authenticated, check their role
           const { data: profile } = await supabase
@@ -366,40 +213,15 @@ export default function LoginPage() {
       console.log('[Login Page] Current origin:', window.location.origin);
       console.log('[Login Page] OAuth redirect URL:', redirectTo);
 
-      // Build OAuth options with state parameter for child app auth
-      const oauthOptions: any = {
-        redirectTo,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent'
-        }
-      };
-
-      // If there's child app auth, encode it in the state parameter
-      // Also preserve the return_to URL for after OAuth
-      if (childAppAuth || returnTo || isChildAppAuth) {
-        // Encode child app auth data and return URL in state parameter
-        const stateData = {
-          childAppAuth: childAppAuth || null,
-          returnTo: returnTo || null,
-          isChildAppAuth: isChildAppAuth || false
-        };
-
-        // Use a more robust encoding that survives OAuth
-        const encodedState = btoa(JSON.stringify(stateData)).replace(/=/g, '');
-        oauthOptions.queryParams.state = encodedState;
-
-        console.log(
-          '[Login Page] Adding to OAuth state:',
-          stateData,
-          'Encoded as:',
-          encodedState
-        );
-      }
-
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: oauthOptions
+        options: {
+          redirectTo,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent'
+          }
+        }
       });
 
       if (error) throw error;
@@ -494,18 +316,11 @@ export default function LoginPage() {
             {/* Welcome Text */}
             <div className='text-center space-y-2'>
               <h2 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
-                {childAppAuth ? 'Sign In Required' : 'Welcome Back'}
+                Welcome Back
               </h2>
               <p className='text-gray-600 dark:text-gray-400 text-sm'>
-                {childAppAuth
-                  ? 'Please sign in to continue to the application'
-                  : 'Sign in to access your learning portal'}
+                Sign in to access your learning portal
               </p>
-              {childAppAuth && (
-                <p className='text-xs text-gray-500 dark:text-gray-400 mt-2'>
-                  Authenticating for: {childAppAuth.redirect_uri}
-                </p>
-              )}
             </div>
 
             {/* Google Sign In */}
@@ -553,8 +368,8 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Google One Tap - Only show if NOT child app auth and not checking auth */}
-          {!isCheckingAuth && !childAppAuth && <GoogleOneTap />}
+          {/* Google One Tap */}
+          {!isCheckingAuth && <GoogleOneTap />}
         </div>
       </div>
     </div>
