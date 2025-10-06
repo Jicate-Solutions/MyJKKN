@@ -1378,6 +1378,41 @@ CREATE POLICY "usage_logs_select_institution" ON resource_usage_logs
 CREATE POLICY "usage_logs_insert_system" ON resource_usage_logs
     FOR INSERT WITH CHECK (true);
 
+-- RESOURCE_MAINTENANCE_LOGS TABLE
+-- Updated: 2025-10-06 - Added RLS policies for maintenance tables
+ALTER TABLE resource_maintenance_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "maintenance_logs_select_all" ON resource_maintenance_logs
+    FOR SELECT USING (true);
+
+CREATE POLICY "maintenance_logs_insert_authenticated" ON resource_maintenance_logs
+    FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "maintenance_logs_update_creator_or_assigned" ON resource_maintenance_logs
+    FOR UPDATE USING (
+        created_by = auth.uid() OR
+        assigned_to_user_id = auth.uid() OR
+        is_super_admin()
+    );
+
+CREATE POLICY "maintenance_logs_delete_creator" ON resource_maintenance_logs
+    FOR DELETE USING (created_by = auth.uid() OR is_super_admin());
+
+-- RESOURCE_MAINTENANCE_SCHEDULES TABLE
+ALTER TABLE resource_maintenance_schedules ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "maintenance_schedules_select_all" ON resource_maintenance_schedules
+    FOR SELECT USING (true);
+
+CREATE POLICY "maintenance_schedules_insert_authenticated" ON resource_maintenance_schedules
+    FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "maintenance_schedules_update_authenticated" ON resource_maintenance_schedules
+    FOR UPDATE USING (auth.uid() IS NOT NULL OR is_super_admin());
+
+CREATE POLICY "maintenance_schedules_delete_authenticated" ON resource_maintenance_schedules
+    FOR DELETE USING (auth.uid() IS NOT NULL OR is_super_admin());
+
 -- RESOURCE CATEGORY TABLES (5 policies for parent, 4 for others)
 ALTER TABLE resource_parent_categories ENABLE ROW LEVEL SECURITY;
 

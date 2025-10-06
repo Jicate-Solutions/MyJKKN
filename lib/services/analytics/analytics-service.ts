@@ -364,24 +364,126 @@ class AnalyticsService {
 
   /**
    * Get maintenance analytics
-   * Note: resource_maintenance_logs table doesn't exist yet
-   * Returning empty/mock data until table is created
    */
   async getMaintenanceAnalytics(
     filters: AnalyticsFilters
   ): Promise<MaintenanceAnalytics> {
-    // TODO: Implement when resource_maintenance_logs table is created
-    // For now, return empty analytics to prevent errors
+    const dateRange = this.getDateRange(
+      filters.period || AnalyticsPeriod.LAST_30_DAYS,
+      filters.start_date,
+      filters.end_date
+    );
+
+    let query = supabase
+      .from('resource_maintenance_logs')
+      .select('*')
+      .gte('scheduled_date', dateRange.start_date)
+      .lte('scheduled_date', dateRange.end_date);
+
+    if (filters.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.department_id) {
+      query = query.eq('department_id', filters.department_id);
+    }
+    if (filters.resource_id) {
+      query = query.eq('resource_id', filters.resource_id);
+    }
+
+    const { data: maintenanceLogs, error } = await query;
+    if (error) throw error;
+
+    const total_maintenance = maintenanceLogs?.length || 0;
+    const scheduled_maintenance =
+      maintenanceLogs?.filter((log: any) => log.status === 'scheduled').length ||
+      0;
+    const completed_maintenance =
+      maintenanceLogs?.filter((log: any) => log.status === 'completed').length ||
+      0;
+    const in_progress =
+      maintenanceLogs?.filter((log: any) => log.status === 'in_progress')
+        .length || 0;
+
+    // Calculate overdue maintenance
+    const today = new Date();
+    const overdue_maintenance =
+      maintenanceLogs?.filter((log: any) => {
+        const scheduledDate = new Date(log.scheduled_date);
+        return (
+          scheduledDate < today &&
+          (log.status === 'scheduled' || log.status === 'in_progress')
+        );
+      }).length || 0;
+
+    // Calculate costs
+    const total_cost =
+      maintenanceLogs?.reduce(
+        (sum: number, log: any) => sum + (log.cost || 0),
+        0
+      ) || 0;
+    const avg_cost_per_maintenance =
+      total_maintenance > 0 ? total_cost / total_maintenance : 0;
+
+    // By type breakdown
+    const typeMap = new Map<string, number>();
+    maintenanceLogs?.forEach((log: any) => {
+      const type = log.maintenance_type || 'unknown';
+      typeMap.set(type, (typeMap.get(type) || 0) + 1);
+    });
+
+    const by_type = Array.from(typeMap.entries()).map(([type, count]) => ({
+      maintenance_type: type,
+      count,
+      percentage: (count / total_maintenance) * 100
+    }));
+
+    // By priority breakdown
+    const priorityMap = new Map<number, number>();
+    maintenanceLogs?.forEach((log: any) => {
+      const priority = log.priority || 2;
+      priorityMap.set(priority, (priorityMap.get(priority) || 0) + 1);
+    });
+
+    const by_priority = Array.from(priorityMap.entries()).map(
+      ([priority, count]) => ({
+        priority,
+        count,
+        percentage: (count / total_maintenance) * 100
+      })
+    );
+
+    // Cost trend by month
+    const costByMonth = new Map<string, number>();
+    maintenanceLogs?.forEach((log: any) => {
+      const date = new Date(log.scheduled_date);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      costByMonth.set(monthKey, (costByMonth.get(monthKey) || 0) + (log.cost || 0));
+    });
+
+    const cost_trend = Array.from(costByMonth.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, cost]) => ({
+        period: month,
+        cost,
+        count:
+          maintenanceLogs?.filter((log: any) => {
+            const date = new Date(log.scheduled_date);
+            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            return monthKey === month;
+          }).length || 0
+      }));
+
     return {
-      total_maintenance: 0,
-      scheduled_maintenance: 0,
-      completed_maintenance: 0,
-      overdue_maintenance: 0,
-      total_cost: 0,
-      avg_cost_per_maintenance: 0,
-      by_type: [],
-      by_priority: [],
-      cost_trend: []
+      total_maintenance,
+      scheduled_maintenance,
+      completed_maintenance,
+      overdue_maintenance,
+      in_progress_maintenance: in_progress,
+      total_cost,
+      avg_cost_per_maintenance,
+      by_type,
+      by_priority,
+      cost_trend
     };
   }
 

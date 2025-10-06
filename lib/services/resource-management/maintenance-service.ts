@@ -78,15 +78,31 @@ class MaintenanceService {
       .select(
         `
         *,
-        resource:resources(id, name, resource_code, parent_category_id, sub_category_id),
-        assigned_to:profiles!assigned_to_user_id(id, full_name, email, phone),
+        resource:resources(id, name, resource_code, parent_category_id, subcategory_id),
+        assigned_to:profiles!assigned_to_user_id(id, full_name, email, phone_number),
         created_by_user:profiles!created_by(id, full_name, email)
       `
       )
       .eq('id', id)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[MaintenanceService] Error fetching log:', {
+        error,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
+      throw error;
+    }
+
+    if (!data) {
+      console.error('[MaintenanceService] No data found for ID:', id);
+      throw new Error('Maintenance log not found');
+    }
+
+    console.log('[MaintenanceService] Successfully fetched log:', data.id, data.title);
     return data;
   }
 

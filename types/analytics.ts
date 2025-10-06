@@ -128,6 +128,7 @@ export interface MaintenanceAnalytics {
   scheduled_maintenance: number;
   completed_maintenance: number;
   overdue_maintenance: number;
+  in_progress_maintenance?: number;
   total_cost: number;
   avg_cost_per_maintenance: number;
   by_type: MaintenanceTypeAnalytics[];
@@ -138,18 +139,17 @@ export interface MaintenanceAnalytics {
 export interface MaintenanceTypeAnalytics {
   maintenance_type: string;
   count: number;
-  total_cost: number;
-  avg_cost: number;
+  percentage: number;
 }
 
 export interface MaintenancePriorityAnalytics {
   priority: number;
   count: number;
-  avg_resolution_days: number;
+  percentage: number;
 }
 
 export interface CostTrendData {
-  date: string;
+  period: string;
   cost: number;
   count: number;
 }

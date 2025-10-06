@@ -679,6 +679,39 @@ ALTER TABLE resource_usage_logs
     REFERENCES profiles(id)
     ON DELETE CASCADE;
 
+-- RESOURCE_MAINTENANCE_LOGS TABLE
+-- Updated: 2025-10-06 - Added foreign keys for maintenance tables
+ALTER TABLE resource_maintenance_logs
+    ADD CONSTRAINT fk_maintenance_logs_resource
+    FOREIGN KEY (resource_id)
+    REFERENCES resources(id)
+    ON DELETE CASCADE;
+
+ALTER TABLE resource_maintenance_logs
+    ADD CONSTRAINT fk_maintenance_logs_assigned_to
+    FOREIGN KEY (assigned_to_user_id)
+    REFERENCES profiles(id)
+    ON DELETE SET NULL;
+
+ALTER TABLE resource_maintenance_logs
+    ADD CONSTRAINT fk_maintenance_logs_created_by
+    FOREIGN KEY (created_by)
+    REFERENCES profiles(id)
+    ON DELETE CASCADE;
+
+-- RESOURCE_MAINTENANCE_SCHEDULES TABLE
+ALTER TABLE resource_maintenance_schedules
+    ADD CONSTRAINT fk_maintenance_schedules_resource
+    FOREIGN KEY (resource_id)
+    REFERENCES resources(id)
+    ON DELETE CASCADE;
+
+ALTER TABLE resource_maintenance_schedules
+    ADD CONSTRAINT fk_maintenance_schedules_assigned_to
+    FOREIGN KEY (assigned_to_user_id)
+    REFERENCES profiles(id)
+    ON DELETE SET NULL;
+
 -- RESOURCE_SUB_CATEGORIES TABLE
 ALTER TABLE resource_sub_categories
     ADD CONSTRAINT fk_sub_categories_parent_cat
