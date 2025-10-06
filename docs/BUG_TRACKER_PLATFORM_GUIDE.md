@@ -1,6 +1,7 @@
 # 🐛 Bug Tracker Platform - Complete Development Guide
 
 ## Table of Contents
+
 1. [System Architecture Overview](#system-architecture-overview)
 2. [Database Design](#database-design)
 3. [Parent App Development](#parent-app-development)
@@ -15,6 +16,7 @@
 ## 1. System Architecture Overview
 
 ### Architecture Diagram
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    MyJKKN (Parent App)                      │
@@ -54,6 +56,7 @@
 ```
 
 ### Tech Stack
+
 - **Authentication**: MyJKKN OAuth 2.0 (Parent App Authentication)
 - **Bug Tracker App**: Next.js 15 (App Router), TypeScript, Tailwind CSS, Shadcn/ui
 - **Database**: Supabase (PostgreSQL) - Data storage only
@@ -211,13 +214,13 @@ CREATE TABLE bug_reports (
   reporter_email VARCHAR(255),
   reporter_name VARCHAR(255),
   reporter_metadata JSONB DEFAULT '{}', -- Store external user info
-  
+
   -- Bug details
   title VARCHAR(500),
   description TEXT NOT NULL,
   page_url TEXT NOT NULL,
   screenshot_url TEXT,
-  
+
   -- Technical details
   console_logs JSONB,
   network_logs JSONB,
@@ -225,28 +228,28 @@ CREATE TABLE bug_reports (
   device_info JSONB,
   session_info JSONB,
   error_stack TEXT,
-  
+
   -- Status tracking
   status VARCHAR(50) NOT NULL DEFAULT 'new', -- new, acknowledged, in_progress, resolved, closed, wont_fix
   priority VARCHAR(20) DEFAULT 'medium', -- critical, high, medium, low
   severity VARCHAR(20) DEFAULT 'minor', -- blocker, critical, major, minor, trivial
   category VARCHAR(100), -- ui, functionality, performance, security, etc
   tags TEXT[],
-  
+
   -- Assignment
   assigned_to UUID REFERENCES cached_users(id) ON DELETE SET NULL, -- MyJKKN user ID
   assigned_team_id UUID REFERENCES teams(id) ON DELETE SET NULL,
-  
+
   -- Timestamps
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   acknowledged_at TIMESTAMP WITH TIME ZONE,
   resolved_at TIMESTAMP WITH TIME ZONE,
   closed_at TIMESTAMP WITH TIME ZONE,
-  
+
   -- Metrics
   resolution_time_hours INTEGER,
-  
+
   UNIQUE(application_id, display_id)
 );
 
@@ -443,13 +446,13 @@ DECLARE
 BEGIN
   -- Get application prefix (first 3 letters of app name)
   SELECT UPPER(LEFT(name, 3)) INTO v_prefix FROM applications WHERE id = NEW.application_id;
-  
+
   -- Count existing bugs for this app
   SELECT COUNT(*) + 1 INTO v_count FROM bug_reports WHERE application_id = NEW.application_id;
-  
+
   -- Generate display_id
   NEW.display_id = v_prefix || '-' || LPAD(v_count::TEXT, 5, '0');
-  
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -510,7 +513,7 @@ CREATE TRIGGER log_bug_activity_trigger
 
 -- Bug report dashboard view
 CREATE VIEW bug_reports_dashboard AS
-SELECT 
+SELECT
   br.*,
   a.name as app_name,
   a.slug as app_slug,
@@ -528,7 +531,7 @@ LEFT JOIN users u ON br.assigned_to = u.id;
 
 -- Leaderboard view
 CREATE VIEW leaderboard_view AS
-SELECT 
+SELECT
   l.*,
   u.full_name,
   u.email,
@@ -541,7 +544,7 @@ ORDER BY l.points DESC, l.total_bugs DESC;
 
 -- App statistics view
 CREATE VIEW app_statistics AS
-SELECT 
+SELECT
   a.id,
   a.name,
   a.slug,
@@ -559,15 +562,15 @@ GROUP BY a.id, a.name, a.slug;
 -- =====================================================
 
 -- Insert default organization
-INSERT INTO organizations (id, name, slug, domain) VALUES 
+INSERT INTO organizations (id, name, slug, domain) VALUES
   ('00000000-0000-0000-0000-000000000001', 'Demo Organization', 'demo-org', 'demo.example.com');
 
 -- Insert default admin user
-INSERT INTO users (id, email, full_name) VALUES 
+INSERT INTO users (id, email, full_name) VALUES
   ('00000000-0000-0000-0000-000000000002', 'admin@example.com', 'Admin User');
 
 -- Link admin to organization
-INSERT INTO organization_members (organization_id, user_id, role) VALUES 
+INSERT INTO organization_members (organization_id, user_id, role) VALUES
   ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'admin');
 ```
 
@@ -576,7 +579,7 @@ INSERT INTO organization_members (organization_id, user_id, role) VALUES
 ```sql
 -- Create storage buckets (Run in Supabase SQL Editor)
 INSERT INTO storage.buckets (id, name, public)
-VALUES 
+VALUES
   ('bug-screenshots', 'bug-screenshots', true),
   ('bug-attachments', 'bug-attachments', true),
   ('app-logos', 'app-logos', true);
@@ -605,7 +608,7 @@ npm install html2canvas
 
 # Install Shadcn/ui
 npx shadcn-ui@latest init
-npx shadcn-ui@latest add button card dialog form input label select 
+npx shadcn-ui@latest add button card dialog form input label select
 npx shadcn-ui@latest add table tabs textarea toast dropdown-menu
 npx shadcn-ui@latest add avatar badge separator skeleton
 npx shadcn-ui@latest add command popover calendar
@@ -618,7 +621,7 @@ Create `.env.local`:
 
 ```env
 # MyJKKN Parent App Configuration
-NEXT_PUBLIC_PARENT_APP_URL=https://my.jkkn.ac.in
+NEXT_PUBLIC_PARENT_APP_URL=https://jkkn.ai
 NEXT_PUBLIC_APP_ID=your_bug_tracker_app_id
 NEXT_PUBLIC_API_KEY=your_api_key_from_myjkkn
 NEXT_PUBLIC_REDIRECT_URI=http://localhost:3000/auth/callback
@@ -778,7 +781,7 @@ export class ParentAuthService {
 
   private constructor() {
     this.config = {
-      parentAppUrl: process.env.NEXT_PUBLIC_PARENT_APP_URL || 'https://my.jkkn.ac.in',
+      parentAppUrl: process.env.NEXT_PUBLIC_PARENT_APP_URL || 'https://jkkn.ai',
       appId: process.env.NEXT_PUBLIC_APP_ID || '',
       redirectUri: process.env.NEXT_PUBLIC_REDIRECT_URI || window.location.origin + '/auth/callback',
       scopes: ['read', 'write', 'profile']
@@ -795,18 +798,18 @@ export class ParentAuthService {
   // Initialize OAuth2 authentication flow
   async initiateLogin(state?: string): Promise<void> {
     const authUrl = new URL(`${this.config.parentAppUrl}/auth/child-app/consent`);
-    
+
     authUrl.searchParams.append('response_type', 'code');
     authUrl.searchParams.append('client_id', this.config.appId);
     authUrl.searchParams.append('app_id', this.config.appId);
     authUrl.searchParams.append('redirect_uri', this.config.redirectUri);
     authUrl.searchParams.append('scope', this.config.scopes.join(' '));
     authUrl.searchParams.append('state', state || this.generateState());
-    
+
     if (!state) {
       sessionStorage.setItem('oauth_state', authUrl.searchParams.get('state')!);
     }
-    
+
     window.location.href = authUrl.toString();
   }
 
@@ -816,10 +819,10 @@ export class ParentAuthService {
     if (state !== savedState) {
       throw new Error('Invalid state parameter');
     }
-    
+
     const response = await fetch(`${this.config.parentAppUrl}/api/auth/child-app/token`, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'X-API-Key': process.env.NEXT_PUBLIC_API_KEY || ''
       },
@@ -837,10 +840,10 @@ export class ParentAuthService {
 
     const session = await response.json();
     this.saveSession(session);
-    
+
     // Sync user data to local database
     await this.syncUserToDatabase(session.user);
-    
+
     sessionStorage.removeItem('oauth_state');
     return session;
   }
@@ -859,19 +862,19 @@ export class ParentAuthService {
 
   private saveSession(session: UserSession): void {
     const expiresAt = new Date(Date.now() + session.expires_in * 1000);
-    
-    Cookies.set('access_token', session.access_token, { 
+
+    Cookies.set('access_token', session.access_token, {
       expires: expiresAt,
       secure: true,
       sameSite: 'strict'
     });
-    
-    Cookies.set('refresh_token', session.refresh_token, { 
+
+    Cookies.set('refresh_token', session.refresh_token, {
       expires: 30,
       secure: true,
       sameSite: 'strict'
     });
-    
+
     localStorage.setItem('user_data', JSON.stringify(session.user));
   }
 
@@ -1054,7 +1057,7 @@ Create `public/widget/bug-tracker-widget.js`:
       z-index: 999999;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
-    
+
     .bug-tracker-button {
       width: 56px;
       height: 56px;
@@ -1068,18 +1071,18 @@ Create `public/widget/bug-tracker-widget.js`:
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       transition: transform 0.2s, box-shadow 0.2s;
     }
-    
+
     .bug-tracker-button:hover {
       transform: scale(1.05);
       box-shadow: 0 6px 20px rgba(0,0,0,0.2);
     }
-    
+
     .bug-tracker-button svg {
       width: 24px;
       height: 24px;
       fill: white;
     }
-    
+
     .bug-tracker-modal {
       position: fixed;
       top: 0;
@@ -1092,11 +1095,11 @@ Create `public/widget/bug-tracker-widget.js`:
       justify-content: center;
       z-index: 1000000;
     }
-    
+
     .bug-tracker-modal.open {
       display: flex;
     }
-    
+
     .bug-tracker-content {
       background: white;
       border-radius: 12px;
@@ -1106,20 +1109,20 @@ Create `public/widget/bug-tracker-widget.js`:
       overflow-y: auto;
       box-shadow: 0 20px 60px rgba(0,0,0,0.3);
     }
-    
+
     .bug-tracker-header {
       padding: 24px;
       border-bottom: 1px solid #e5e7eb;
       position: relative;
     }
-    
+
     .bug-tracker-title {
       font-size: 20px;
       font-weight: 600;
       color: #111827;
       margin: 0;
     }
-    
+
     .bug-tracker-close {
       position: absolute;
       top: 24px;
@@ -1129,15 +1132,15 @@ Create `public/widget/bug-tracker-widget.js`:
       cursor: pointer;
       padding: 4px;
     }
-    
+
     .bug-tracker-body {
       padding: 24px;
     }
-    
+
     .bug-tracker-form-group {
       margin-bottom: 20px;
     }
-    
+
     .bug-tracker-label {
       display: block;
       font-size: 14px;
@@ -1145,7 +1148,7 @@ Create `public/widget/bug-tracker-widget.js`:
       color: #374151;
       margin-bottom: 8px;
     }
-    
+
     .bug-tracker-input,
     .bug-tracker-textarea {
       width: 100%;
@@ -1156,38 +1159,38 @@ Create `public/widget/bug-tracker-widget.js`:
       transition: border-color 0.2s;
       box-sizing: border-box;
     }
-    
+
     .bug-tracker-input:focus,
     .bug-tracker-textarea:focus {
       outline: none;
       border-color: #667eea;
     }
-    
+
     .bug-tracker-textarea {
       min-height: 100px;
       resize: vertical;
     }
-    
+
     .bug-tracker-screenshot {
       margin-top: 8px;
       border-radius: 6px;
       overflow: hidden;
       border: 1px solid #d1d5db;
     }
-    
+
     .bug-tracker-screenshot img {
       width: 100%;
       height: auto;
       display: block;
     }
-    
+
     .bug-tracker-actions {
       display: flex;
       gap: 12px;
       padding: 24px;
       border-top: 1px solid #e5e7eb;
     }
-    
+
     .bug-tracker-btn {
       padding: 10px 20px;
       border-radius: 6px;
@@ -1197,32 +1200,32 @@ Create `public/widget/bug-tracker-widget.js`:
       transition: background-color 0.2s;
       border: none;
     }
-    
+
     .bug-tracker-btn-primary {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
       flex: 1;
     }
-    
+
     .bug-tracker-btn-secondary {
       background: #f3f4f6;
       color: #374151;
     }
-    
+
     .bug-tracker-btn:hover {
       opacity: 0.9;
     }
-    
+
     .bug-tracker-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
-    
+
     .bug-tracker-success {
       padding: 24px;
       text-align: center;
     }
-    
+
     .bug-tracker-success-icon {
       width: 64px;
       height: 64px;
@@ -1233,25 +1236,25 @@ Create `public/widget/bug-tracker-widget.js`:
       align-items: center;
       justify-content: center;
     }
-    
+
     .bug-tracker-success-icon svg {
       width: 32px;
       height: 32px;
       fill: white;
     }
-    
+
     .bug-tracker-success-title {
       font-size: 18px;
       font-weight: 600;
       color: #111827;
       margin-bottom: 8px;
     }
-    
+
     .bug-tracker-success-message {
       color: #6b7280;
       font-size: 14px;
     }
-    
+
     @media (max-width: 640px) {
       .bug-tracker-content {
         width: 95%;
@@ -1284,12 +1287,12 @@ Create `public/widget/bug-tracker-widget.js`:
             }
           }).join(' ')
         });
-        
+
         // Keep last 100 logs
         if (consoleLogs.length > 100) {
           consoleLogs.shift();
         }
-        
+
         originalConsole[method].apply(console, args);
       };
     });
@@ -1297,7 +1300,7 @@ Create `public/widget/bug-tracker-widget.js`:
 
   // Network request capture
   const networkLogs = [];
-  
+
   function captureNetwork() {
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
@@ -1307,7 +1310,7 @@ Create `public/widget/bug-tracker-widget.js`:
         method: args[1]?.method || 'GET',
         timestamp: new Date().toISOString()
       };
-      
+
       return originalFetch.apply(this, args)
         .then(response => {
           networkLogs.push({
@@ -1316,12 +1319,12 @@ Create `public/widget/bug-tracker-widget.js`:
             duration: Date.now() - startTime,
             type: 'fetch'
           });
-          
+
           // Keep last 50 requests
           if (networkLogs.length > 50) {
             networkLogs.shift();
           }
-          
+
           return response;
         })
         .catch(error => {
@@ -1341,7 +1344,7 @@ Create `public/widget/bug-tracker-widget.js`:
       const xhr = new originalXHR();
       const originalOpen = xhr.open;
       const originalSend = xhr.send;
-      
+
       xhr.open = function(method, url, ...args) {
         xhr._requestInfo = {
           method,
@@ -1350,10 +1353,10 @@ Create `public/widget/bug-tracker-widget.js`:
         };
         return originalOpen.apply(xhr, [method, url, ...args]);
       };
-      
+
       xhr.send = function(...args) {
         const startTime = Date.now();
-        
+
         xhr.addEventListener('loadend', function() {
           if (xhr._requestInfo) {
             networkLogs.push({
@@ -1362,16 +1365,16 @@ Create `public/widget/bug-tracker-widget.js`:
               duration: Date.now() - startTime,
               type: 'xhr'
             });
-            
+
             if (networkLogs.length > 50) {
               networkLogs.shift();
             }
           }
         });
-        
+
         return originalSend.apply(xhr, args);
       };
-      
+
       return xhr;
     };
   }
@@ -1431,7 +1434,7 @@ Create `public/widget/bug-tracker-widget.js`:
     const ua = navigator.userAgent;
     let browser = 'Unknown';
     let version = 'Unknown';
-    
+
     if (ua.indexOf('Firefox') > -1) {
       browser = 'Firefox';
       version = ua.match(/Firefox\/(\d+)/)?.[1] || 'Unknown';
@@ -1445,7 +1448,7 @@ Create `public/widget/bug-tracker-widget.js`:
       browser = 'Edge';
       version = ua.match(/Edge\/(\d+)/)?.[1] || 'Unknown';
     }
-    
+
     return {
       name: browser,
       version: version,
@@ -1479,41 +1482,41 @@ Create `public/widget/bug-tracker-widget.js`:
       this.screenshot = null;
       this.authToken = null;
       this.currentUser = null;
-      
+
       if (!this.config.apiKey || !this.config.apiUrl || !this.config.myJkknUrl) {
         console.error('BugTracker: API key, API URL, and MyJKKN URL are required');
         return;
       }
-      
+
       this.init();
     }
-    
+
     async init() {
       // Inject styles
       const style = document.createElement('style');
       style.textContent = WIDGET_STYLES;
       document.head.appendChild(style);
-      
+
       // Start capturing
       if (this.config.captureConsole) {
         captureConsole();
       }
-      
+
       if (this.config.captureNetwork) {
         captureNetwork();
       }
-      
+
       // Authenticate with MyJKKN
       await this.authenticateUser();
-      
+
       // Create widget
       this.createWidget();
-      
+
       // Track page views
       const pageViews = parseInt(sessionStorage.getItem('bug_tracker_page_views') || '0');
       sessionStorage.setItem('bug_tracker_page_views', String(pageViews + 1));
     }
-    
+
     async authenticateUser() {
       // Check for existing MyJKKN token
       const token = localStorage.getItem('myjkkn_token');
@@ -1525,18 +1528,18 @@ Create `public/widget/bug-tracker-widget.js`:
           return;
         }
       }
-      
+
       // Check for OAuth callback
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get('code');
-      
+
       if (code) {
         await this.exchangeCodeForToken(code);
         // Clean URL after auth
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
-    
+
     async validateToken(token) {
       try {
         const response = await fetch(`${this.config.myJkknUrl}/api/auth/child-app/validate`, {
@@ -1549,14 +1552,14 @@ Create `public/widget/bug-tracker-widget.js`:
             client_id: this.config.appId
           })
         });
-        
+
         return response.ok;
       } catch (error) {
         console.error('Token validation failed:', error);
         return false;
       }
     }
-    
+
     async exchangeCodeForToken(code) {
       try {
         const response = await fetch(`${this.config.myJkknUrl}/api/auth/child-app/token`, {
@@ -1572,15 +1575,15 @@ Create `public/widget/bug-tracker-widget.js`:
             redirect_uri: window.location.origin + window.location.pathname
           })
         });
-        
+
         if (!response.ok) {
           throw new Error('Token exchange failed');
         }
-        
+
         const data = await response.json();
         this.authToken = data.access_token;
         localStorage.setItem('myjkkn_token', this.authToken);
-        
+
         // Sync user data with bug tracker
         await this.syncUserWithTracker(data.user);
         await this.fetchUserProfile();
@@ -1588,7 +1591,7 @@ Create `public/widget/bug-tracker-widget.js`:
         console.error('OAuth token exchange failed:', error);
       }
     }
-    
+
     async syncUserWithTracker(userData) {
       try {
         await fetch(`${this.config.apiUrl}/api/auth/sync-user`, {
@@ -1604,7 +1607,7 @@ Create `public/widget/bug-tracker-widget.js`:
         console.error('User sync failed:', error);
       }
     }
-    
+
     async fetchUserProfile() {
       try {
         const response = await fetch(`${this.config.myJkknUrl}/api/auth/me`, {
@@ -1612,7 +1615,7 @@ Create `public/widget/bug-tracker-widget.js`:
             'Authorization': `Bearer ${this.authToken}`
           }
         });
-        
+
         if (response.ok) {
           this.currentUser = await response.json();
         }
@@ -1620,12 +1623,12 @@ Create `public/widget/bug-tracker-widget.js`:
         console.error('Failed to fetch user profile:', error);
       }
     }
-    
+
     createWidget() {
       // Create container
       this.container = document.createElement('div');
       this.container.className = 'bug-tracker-widget';
-      
+
       // Position widget
       switch(this.config.position) {
         case 'bottom-right':
@@ -1645,7 +1648,7 @@ Create `public/widget/bug-tracker-widget.js`:
           this.container.style.left = '20px';
           break;
       }
-      
+
       // Create button
       this.button = document.createElement('button');
       this.button.className = 'bug-tracker-button';
@@ -1655,7 +1658,7 @@ Create `public/widget/bug-tracker-widget.js`:
         </svg>
       `;
       this.button.onclick = () => this.open();
-      
+
       // Create modal
       this.modal = document.createElement('div');
       this.modal.className = 'bug-tracker-modal';
@@ -1675,17 +1678,17 @@ Create `public/widget/bug-tracker-widget.js`:
                 <label class="bug-tracker-label">Title (Optional)</label>
                 <input type="text" class="bug-tracker-input" name="title" placeholder="Brief summary of the issue">
               </div>
-              
+
               <div class="bug-tracker-form-group">
                 <label class="bug-tracker-label">Description *</label>
                 <textarea class="bug-tracker-textarea" name="description" placeholder="Please describe the issue in detail..." required></textarea>
               </div>
-              
+
               <div class="bug-tracker-form-group">
                 <label class="bug-tracker-label">Your Email (Optional)</label>
                 <input type="email" class="bug-tracker-input" name="email" placeholder="your@email.com">
               </div>
-              
+
               <div class="bug-tracker-form-group" id="screenshot-preview" style="display: none;">
                 <label class="bug-tracker-label">Screenshot</label>
                 <div class="bug-tracker-screenshot">
@@ -1700,15 +1703,15 @@ Create `public/widget/bug-tracker-widget.js`:
           </div>
         </div>
       `;
-      
+
       // Append to DOM
       this.container.appendChild(this.button);
       document.body.appendChild(this.container);
       document.body.appendChild(this.modal);
-      
+
       // Setup close button
       this.modal.querySelector('.bug-tracker-close').onclick = () => this.close();
-      
+
       // Close on backdrop click
       this.modal.onclick = (e) => {
         if (e.target === this.modal) {
@@ -1716,11 +1719,11 @@ Create `public/widget/bug-tracker-widget.js`:
         }
       };
     }
-    
+
     async open() {
       this.isOpen = true;
       this.modal.classList.add('open');
-      
+
       // Capture screenshot
       if (this.config.captureScreenshot) {
         this.screenshot = await captureScreenshot();
@@ -1730,14 +1733,14 @@ Create `public/widget/bug-tracker-widget.js`:
         }
       }
     }
-    
+
     close() {
       this.isOpen = false;
       this.modal.classList.remove('open');
       this.modal.querySelector('form').reset();
       document.getElementById('screenshot-preview').style.display = 'none';
     }
-    
+
     async submit() {
       // Check if user is authenticated
       if (!this.authToken) {
@@ -1747,31 +1750,31 @@ Create `public/widget/bug-tracker-widget.js`:
         authUrl.searchParams.append('redirect_uri', window.location.href);
         authUrl.searchParams.append('response_type', 'code');
         authUrl.searchParams.append('scope', 'profile,bug_report');
-        
+
         if (confirm('Please login with MyJKKN to submit bug reports. You will be redirected to login.')) {
           window.location.href = authUrl.toString();
         }
         return;
       }
-      
+
       const form = document.getElementById('bug-tracker-form');
       const formData = new FormData(form);
-      
+
       // Get form values
       const title = formData.get('title');
       const description = formData.get('description');
       const email = formData.get('email') || this.currentUser?.email;
-      
+
       if (!description) {
         alert('Please provide a description');
         return;
       }
-      
+
       // Disable submit button
       const submitBtn = this.modal.querySelector('.bug-tracker-btn-primary');
       submitBtn.disabled = true;
       submitBtn.textContent = 'Submitting...';
-      
+
       // Prepare data
       const bugData = {
         api_key: this.config.apiKey,
@@ -1797,7 +1800,7 @@ Create `public/widget/bug-tracker-widget.js`:
         session_info: getSessionInfo(),
         error_stack: window.lastError || null
       };
-      
+
       try {
         const response = await fetch(`${this.config.apiUrl}/api/widget/report`, {
           method: 'POST',
@@ -1809,16 +1812,16 @@ Create `public/widget/bug-tracker-widget.js`:
           },
           body: JSON.stringify(bugData)
         });
-        
+
         if (!response.ok) {
           throw new Error('Failed to submit bug report');
         }
-        
+
         const result = await response.json();
-        
+
         // Show success message
         this.showSuccess(result.display_id);
-        
+
       } catch (error) {
         console.error('Failed to submit bug report:', error);
         alert('Failed to submit bug report. Please try again.');
@@ -1826,11 +1829,11 @@ Create `public/widget/bug-tracker-widget.js`:
         submitBtn.textContent = 'Submit Report';
       }
     }
-    
+
     showSuccess(bugId) {
       const body = this.modal.querySelector('.bug-tracker-body');
       const actions = this.modal.querySelector('.bug-tracker-actions');
-      
+
       body.innerHTML = `
         <div class="bug-tracker-success">
           <div class="bug-tracker-success-icon">
@@ -1845,11 +1848,11 @@ Create `public/widget/bug-tracker-widget.js`:
           </div>
         </div>
       `;
-      
+
       actions.innerHTML = `
         <button class="bug-tracker-btn bug-tracker-btn-primary" onclick="BugTracker.close()">Close</button>
       `;
-      
+
       // Auto close after 5 seconds
       setTimeout(() => {
         this.close();
@@ -1882,7 +1885,7 @@ Create `public/widget/bug-tracker-widget.js`:
 
 Create `WIDGET_INTEGRATION.md`:
 
-```markdown
+````markdown
 # Bug Tracker Widget Integration Guide
 
 ## Quick Start
@@ -1901,7 +1904,7 @@ Add this code before the closing `</body>` tag of your HTML:
   };
 </script>
 <script src="https://your-bug-tracker.com/widget/bug-tracker-widget.js"></script>
-```
+````
 
 ### 2. React Integration
 
@@ -1946,7 +1949,7 @@ import { BugTracker } from './components/BugTracker';
 
 function App() {
   const user = useAuth();
-  
+
   return (
     <>
       {/* Your app content */}
@@ -2082,7 +2085,7 @@ export class BugTrackerService {
     script.src = `${environment.bugTrackerUrl}/widget/bug-tracker-widget.js`;
     script.async = true;
     document.body.appendChild(script);
-    
+
     this.scriptLoaded = true;
   }
 
@@ -2132,7 +2135,7 @@ window.BugTrackerConfig = {
   captureNetwork: true,          // Capture network requests
   captureDevice: true,           // Capture device information
   environment: 'production',     // Environment: development, staging, production
-  
+
   // User information (if available)
   user: {
     id: '123',
@@ -2227,7 +2230,8 @@ You can customize the widget appearance by overriding CSS variables:
 - Documentation: https://your-bug-tracker.com/docs
 - Support Email: support@your-bug-tracker.com
 - GitHub Issues: https://github.com/your-org/bug-tracker-widget
-```
+
+````
 
 ---
 
@@ -2266,14 +2270,14 @@ export async function POST(request: NextRequest) {
     // Get MyJKKN token from headers
     const authHeader = request.headers.get('authorization');
     const myJkknToken = request.headers.get('x-myjkkn-token');
-    
+
     if (!authHeader || !myJkknToken) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
       );
     }
-    
+
     // Validate token with MyJKKN
     const tokenValidationResponse = await fetch(
       `${process.env.MYJKKN_API_URL}/api/auth/child-app/validate`,
@@ -2288,25 +2292,25 @@ export async function POST(request: NextRequest) {
         })
       }
     );
-    
+
     if (!tokenValidationResponse.ok) {
       return NextResponse.json(
         { error: 'Invalid authentication token' },
         { status: 401 }
       );
     }
-    
+
     const userData = await tokenValidationResponse.json();
-    
+
     // Parse request body
     const body = await request.json();
-    
+
     // Validate data
     const data = reportSchema.parse(body);
-    
+
     // Verify API key
     const supabase = await createServerSupabaseClient();
-    
+
     const { data: app, error: appError } = await supabase
       .from('applications')
       .select('*, organization:organizations(*)')
@@ -2314,21 +2318,21 @@ export async function POST(request: NextRequest) {
       .eq('id', data.app_id)
       .eq('is_active', true)
       .single();
-    
+
     if (appError || !app) {
       return NextResponse.json(
         { error: 'Invalid API key or app ID' },
         { status: 401 }
       );
     }
-    
+
     // Check domain restriction
     const origin = request.headers.get('origin');
     if (app.allowed_domains?.length > 0) {
-      const isAllowed = app.allowed_domains.some(domain => 
+      const isAllowed = app.allowed_domains.some(domain =>
         origin?.includes(domain)
       );
-      
+
       if (!isAllowed) {
         return NextResponse.json(
           { error: 'Domain not allowed' },
@@ -2336,7 +2340,7 @@ export async function POST(request: NextRequest) {
         );
       }
     }
-    
+
     // Upload screenshot if provided
     let screenshotUrl = null;
     if (data.screenshot_url) {
@@ -2344,23 +2348,23 @@ export async function POST(request: NextRequest) {
       const base64Data = data.screenshot_url.split(',')[1];
       const buffer = Buffer.from(base64Data, 'base64');
       const fileName = `${app.id}/${Date.now()}.png`;
-      
+
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('bug-screenshots')
         .upload(fileName, buffer, {
           contentType: 'image/png',
           cacheControl: '3600'
         });
-      
+
       if (!uploadError) {
         const { data: { publicUrl } } = supabase.storage
           .from('bug-screenshots')
           .getPublicUrl(fileName);
-        
+
         screenshotUrl = publicUrl;
       }
     }
-    
+
     // Create bug report
     const { data: bugReport, error: bugError } = await supabase
       .from('bug_reports')
@@ -2384,7 +2388,7 @@ export async function POST(request: NextRequest) {
       })
       .select()
       .single();
-    
+
     if (bugError) {
       console.error('Bug report creation error:', bugError);
       return NextResponse.json(
@@ -2392,7 +2396,7 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-    
+
     // Send webhook if configured
     if (app.webhook_url) {
       // Fire and forget webhook
@@ -2408,24 +2412,24 @@ export async function POST(request: NextRequest) {
         })
       }).catch(console.error);
     }
-    
+
     // Return success response
     return NextResponse.json({
       success: true,
       display_id: bugReport.display_id,
       message: 'Bug report submitted successfully'
     });
-    
+
   } catch (error) {
     console.error('Widget API error:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Invalid data', details: error.errors },
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -2445,7 +2449,7 @@ export async function OPTIONS(request: NextRequest) {
     },
   });
 }
-```
+````
 
 ### 5.2 User Sync API
 
@@ -2476,9 +2480,9 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
-    
+
     const token = authHeader.replace('Bearer ', '');
-    
+
     // Validate token with MyJKKN
     const tokenValidationResponse = await fetch(
       `${process.env.MYJKKN_API_URL}/api/auth/child-app/validate`,
@@ -2493,21 +2497,21 @@ export async function POST(request: NextRequest) {
         })
       }
     );
-    
+
     if (!tokenValidationResponse.ok) {
       return NextResponse.json(
         { error: 'Invalid authentication token' },
         { status: 401 }
       );
     }
-    
+
     // Parse user data
     const body = await request.json();
     const userData = userSyncSchema.parse(body);
-    
+
     // Sync user to cached_users table
     const supabase = await createServerSupabaseClient();
-    
+
     const { data: cachedUser, error } = await supabase
       .from('cached_users')
       .upsert({
@@ -2524,7 +2528,7 @@ export async function POST(request: NextRequest) {
       })
       .select()
       .single();
-    
+
     if (error) {
       console.error('User sync error:', error);
       return NextResponse.json(
@@ -2532,7 +2536,7 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-    
+
     return NextResponse.json({
       success: true,
       user: cachedUser
@@ -2579,6 +2583,7 @@ NEXT_PUBLIC_WIDGET_URL=https://bugtracker.example.com/widget/bug-tracker-widget.
 ### 6.2 MyJKKN OAuth Setup
 
 1. **Register Your App in MyJKKN**:
+
    - Go to MyJKKN Admin Panel > OAuth Applications
    - Create new application with:
      - Name: "Bug Tracker Platform"
@@ -2609,10 +2614,12 @@ vercel --prod
 ### 6.2 Widget CDN Setup
 
 1. **Option 1: Serve from Parent App**
+
    - Widget file is at `/public/widget/bug-tracker-widget.js`
    - Accessible at `https://your-app.com/widget/bug-tracker-widget.js`
 
 2. **Option 2: CDN Deployment**
+
    ```bash
    # Upload to CDN (e.g., Cloudflare, AWS S3)
    aws s3 cp public/widget/bug-tracker-widget.js s3://your-bucket/widget/
@@ -2648,11 +2655,11 @@ export async function validateMyJKKNToken(
 ): Promise<{ isValid: boolean; user?: any }> {
   const authHeader = request.headers.get('authorization');
   const myJkknToken = request.headers.get('x-myjkkn-token');
-  
+
   if (!authHeader || !myJkknToken) {
     return { isValid: false };
   }
-  
+
   try {
     const response = await fetch(
       `${process.env.MYJKKN_API_URL}/api/auth/child-app/validate`,
@@ -2667,11 +2674,11 @@ export async function validateMyJKKNToken(
         })
       }
     );
-    
+
     if (!response.ok) {
       return { isValid: false };
     }
-    
+
     const user = await response.json();
     return { isValid: true, user };
   } catch (error) {
@@ -2683,14 +2690,14 @@ export async function validateMyJKKNToken(
 // Middleware to protect API routes
 export async function requireAuth(request: NextRequest) {
   const { isValid, user } = await validateMyJKKNToken(request);
-  
+
   if (!isValid) {
     return new NextResponse(
       JSON.stringify({ error: 'Unauthorized' }),
       { status: 401 }
     );
   }
-  
+
   return { user };
 }
 ```
@@ -2718,7 +2725,7 @@ export async function verifyApiKey(
   appId: string
 ): Promise<boolean> {
   const supabase = createServerSupabaseClient();
-  
+
   const { data, error } = await supabase
     .from('applications')
     .select('id')
@@ -2726,7 +2733,7 @@ export async function verifyApiKey(
     .eq('id', appId)
     .eq('is_active', true)
     .single();
-  
+
   return !error && !!data;
 }
 ```
@@ -2747,11 +2754,11 @@ export function rateLimit(
   limit: number = 10
 ): boolean {
   const current = rateLimitCache.get(identifier) || 0;
-  
+
   if (current >= limit) {
     return false;
   }
-  
+
   rateLimitCache.set(identifier, current + 1);
   return true;
 }
@@ -2759,14 +2766,14 @@ export function rateLimit(
 // Usage in API route
 export async function POST(request: NextRequest) {
   const identifier = request.headers.get('x-api-key') || 'anonymous';
-  
+
   if (!rateLimit(identifier, 30)) {
     return NextResponse.json(
       { error: 'Rate limit exceeded' },
       { status: 429 }
     );
   }
-  
+
   // Continue with request...
 }
 ```
@@ -2800,9 +2807,9 @@ describe('Widget Report API', () => {
         error: null
       })
     };
-    
+
     (createServerSupabaseClient as jest.Mock).mockResolvedValue(mockSupabase);
-    
+
     const request = new Request('http://localhost:3000/api/widget/report', {
       method: 'POST',
       body: JSON.stringify({
@@ -2813,15 +2820,15 @@ describe('Widget Report API', () => {
         // ... other fields
       })
     });
-    
+
     const response = await POST(request);
     const data = await response.json();
-    
+
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
     expect(data.display_id).toBe('BUG-001');
   });
-  
+
   it('should reject invalid API key', async () => {
     // Test implementation...
   });
@@ -2838,20 +2845,20 @@ import BugReportPage from '@/app/(dashboard)/bugs/page';
 describe('Bug Report Flow', () => {
   it('should display bug reports list', async () => {
     render(<BugReportPage />);
-    
+
     await waitFor(() => {
       expect(screen.getByText('Bug Reports')).toBeInTheDocument();
     });
-    
+
     // Test filters
     const statusFilter = screen.getByRole('combobox', { name: /status/i });
     fireEvent.change(statusFilter, { target: { value: 'new' } });
-    
+
     await waitFor(() => {
       expect(screen.getAllByText('New')).toHaveLength.greaterThan(0);
     });
   });
-  
+
   it('should update bug status', async () => {
     // Test implementation...
   });
@@ -2868,20 +2875,20 @@ test.describe('Bug Widget', () => {
   test('should open bug report modal', async ({ page }) => {
     // Navigate to test app with widget
     await page.goto('http://localhost:3001');
-    
+
     // Click widget button
     await page.click('.bug-tracker-button');
-    
+
     // Check modal is visible
     await expect(page.locator('.bug-tracker-modal')).toBeVisible();
-    
+
     // Fill form
     await page.fill('[name="description"]', 'Test bug description');
     await page.fill('[name="email"]', 'test@example.com');
-    
+
     // Submit
     await page.click('text=Submit Report');
-    
+
     // Check success message
     await expect(page.locator('.bug-tracker-success')).toBeVisible();
   });
@@ -2895,6 +2902,7 @@ test.describe('Bug Widget', () => {
 This comprehensive guide provides everything needed to build a production-ready bug tracking platform with MyJKKN OAuth authentication:
 
 ### Key Features:
+
 1. **MyJKKN OAuth Integration** - Centralized authentication through MyJKKN
 2. **Multi-tenant architecture** - Supporting multiple organizations and apps
 3. **Embeddable widget** - Framework-agnostic JavaScript widget with MyJKKN auth
@@ -2905,6 +2913,7 @@ This comprehensive guide provides everything needed to build a production-ready 
 8. **User data caching** - Efficient cached_users table for MyJKKN user data
 
 ### Technology Stack:
+
 - **Authentication**: MyJKKN OAuth 2.0
 - **Database**: Supabase PostgreSQL (database only, not auth)
 - **Storage**: Supabase Storage for screenshots
@@ -2914,6 +2923,7 @@ This comprehensive guide provides everything needed to build a production-ready 
 - **Deployment**: Vercel
 
 ### Getting Started:
+
 1. **Register your app in MyJKKN** - Get Client ID and Secret
 2. **Set up Supabase** - Create project and run migrations
 3. **Configure environment** - Add MyJKKN OAuth credentials
@@ -2922,6 +2932,7 @@ This comprehensive guide provides everything needed to build a production-ready 
 6. **Start tracking** - Users authenticate via MyJKKN and submit bug reports
 
 ### MyJKKN OAuth Flow:
+
 1. Widget checks for existing MyJKKN token
 2. If not authenticated, redirects to MyJKKN login
 3. After successful auth, token is validated with MyJKKN

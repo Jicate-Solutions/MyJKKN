@@ -121,7 +121,7 @@ export class ParentAuthService {
 
   private constructor() {
     this.config = {
-      parentAppUrl: process.env.NEXT_PUBLIC_PARENT_APP_URL || 'https://my.jkkn.ac.in',
+      parentAppUrl: process.env.NEXT_PUBLIC_PARENT_APP_URL || 'https://jkkn.ai',
       appId: process.env.NEXT_PUBLIC_APP_ID || '',
       redirectUri: process.env.NEXT_PUBLIC_REDIRECT_URI || (typeof window !== 'undefined' ? window.location.origin + '/auth/callback' : '/auth/callback'),
       scopes: ['read', 'write', 'profile']
@@ -561,7 +561,7 @@ export function ProtectedRoute({
   // Environment variables - UPDATED with API key requirement
   const envExample = `# .env.local
 # MyJKKN Parent App Configuration
-NEXT_PUBLIC_PARENT_APP_URL=https://my.jkkn.ac.in
+NEXT_PUBLIC_PARENT_APP_URL=https://jkkn.ai
 NEXT_PUBLIC_APP_ID=your_app_id_here
 NEXT_PUBLIC_API_KEY=your_api_key_here  # REQUIRED for API calls
 
@@ -663,7 +663,7 @@ export default function HomePage() {
   const oauthEndpoints = `# OAuth 2.0 Endpoints
 
 ## Authorization Endpoint (Consent Page)
-GET https://my.jkkn.ac.in/auth/child-app/consent
+GET https://jkkn.ai/auth/child-app/consent
 Parameters:
 - response_type=code (required)
 - client_id={your_app_id} (required)
@@ -673,7 +673,7 @@ Parameters:
 - state={random_string} (REQUIRED for CSRF protection)
 
 ## Token Exchange Endpoint
-POST https://my.jkkn.ac.in/api/auth/child-app/token
+POST https://jkkn.ai/api/auth/child-app/token
 Headers:
 - Content-Type: application/json
 - X-API-Key: {your_api_key} (REQUIRED)
@@ -686,7 +686,7 @@ Body:
 }
 
 ## Token Refresh Endpoint
-POST https://my.jkkn.ac.in/api/auth/child-app/token
+POST https://jkkn.ai/api/auth/child-app/token
 Headers:
 - Content-Type: application/json
 - X-API-Key: {your_api_key} (REQUIRED)
@@ -698,7 +698,7 @@ Body:
 }
 
 ## Token Validation Endpoint
-POST https://my.jkkn.ac.in/api/auth/child-app/validate
+POST https://jkkn.ai/api/auth/child-app/validate
 Headers:
 - Content-Type: application/json
 - X-API-Key: {your_api_key} (REQUIRED)
@@ -709,7 +709,7 @@ Body:
 }
 
 ## Logout Endpoint (Child App Session Only)
-POST https://my.jkkn.ac.in/api/auth/child-app/logout
+POST https://jkkn.ai/api/auth/child-app/logout
 Headers:
 - Content-Type: application/json
 Body:
@@ -728,10 +728,10 @@ The parent app session remains active for seamless re-authentication.`;
 
 ## 1. Test Authorization URL
 Open this in your browser:
-https://my.jkkn.ac.in/auth/child-app/consent?response_type=code&app_id=YOUR_APP_ID&redirect_uri=http://localhost:3001/auth/callback&scope=read write profile&state=test123
+https://jkkn.ai/auth/child-app/consent?response_type=code&app_id=YOUR_APP_ID&redirect_uri=http://localhost:3001/auth/callback&scope=read write profile&state=test123
 
 ## 2. Test Token Exchange
-curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
+curl -X POST https://jkkn.ai/api/auth/child-app/token \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: YOUR_API_KEY" \\
   -d '{
@@ -742,7 +742,7 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
   }'
 
 ## 3. Test Token Validation
-curl -X POST https://my.jkkn.ac.in/api/auth/child-app/validate \\
+curl -X POST https://jkkn.ai/api/auth/child-app/validate \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: YOUR_API_KEY" \\
   -d '{
@@ -751,7 +751,7 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/validate \\
   }'
 
 ## 4. Test Token Refresh
-curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
+curl -X POST https://jkkn.ai/api/auth/child-app/token \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: YOUR_API_KEY" \\
   -d '{
@@ -783,7 +783,10 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
           <strong>Prerequisites:</strong> Before starting, ensure you have:
           <ul className='mt-2 space-y-1 text-sm'>
             <li>• Your App ID from MyJKKN admin panel</li>
-            <li>• Your API Key from MyJKKN admin panel (required for all API calls)</li>
+            <li>
+              • Your API Key from MyJKKN admin panel (required for all API
+              calls)
+            </li>
             <li>• Your application registered in MyJKKN</li>
             <li>• Redirect URIs configured in MyJKKN</li>
             <li>• Next.js 14+ project with TypeScript</li>
@@ -795,7 +798,11 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
       <Alert className='border-green-200 bg-green-50 dark:bg-green-950/20'>
         <Sparkles className='h-4 w-4 text-green-600' />
         <AlertDescription>
-          <strong>🎉 Optimized Backend:</strong> The MyJKKN authentication system now uses an optimized storage structure that reduces database usage by <strong>99%</strong>. Auth codes and sessions are automatically cleaned up, ensuring optimal performance even with thousands of users and multiple child apps.
+          <strong>🎉 Optimized Backend:</strong> The MyJKKN authentication
+          system now uses an optimized storage structure that reduces database
+          usage by <strong>99%</strong>. Auth codes and sessions are
+          automatically cleaned up, ensuring optimal performance even with
+          thousands of users and multiple child apps.
         </AlertDescription>
       </Alert>
 
@@ -803,11 +810,13 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
       <Alert className='border-purple-200 bg-purple-50 dark:bg-purple-950/20'>
         <Bot className='h-4 w-4 text-purple-600' />
         <AlertDescription>
-          <strong>📚 Complete Working Example:</strong> Check out our fully functional test application that demonstrates the complete authentication flow:
+          <strong>📚 Complete Working Example:</strong> Check out our fully
+          functional test application that demonstrates the complete
+          authentication flow:
           <div className='mt-2'>
-            <a 
-              href='https://github.com/JKKN-Institutions/child-app-auth-flow-integration' 
-              target='_blank' 
+            <a
+              href='https://github.com/JKKN-Institutions/child-app-auth-flow-integration'
+              target='_blank'
               rel='noopener noreferrer'
               className='inline-flex items-center gap-2 text-purple-700 hover:text-purple-900 font-medium underline'
             >
@@ -816,7 +825,8 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
             </a>
           </div>
           <div className='mt-2 text-sm'>
-            This repository includes all the code shown in this guide, fully tested and ready to use as a template for your own child app.
+            This repository includes all the code shown in this guide, fully
+            tested and ready to use as a template for your own child app.
           </div>
         </AlertDescription>
       </Alert>
@@ -825,39 +835,66 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
       <Tabs defaultValue='overview' className='space-y-4'>
         <div className='w-full overflow-x-auto pb-2'>
           <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 md:grid md:grid-cols-9 md:gap-0'>
-            <TabsTrigger value='overview' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+            <TabsTrigger
+              value='overview'
+              className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            >
               <span className='hidden sm:inline'>Overview</span>
               <span className='sm:hidden'>Overview</span>
             </TabsTrigger>
-            <TabsTrigger value='quickstart' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+            <TabsTrigger
+              value='quickstart'
+              className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            >
               <span className='hidden sm:inline'>Quick Start</span>
               <span className='sm:hidden'>Start</span>
             </TabsTrigger>
-            <TabsTrigger value='implementation' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+            <TabsTrigger
+              value='implementation'
+              className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            >
               <span className='hidden sm:inline'>Code</span>
               <span className='sm:hidden'>Code</span>
             </TabsTrigger>
-            <TabsTrigger value='permissions' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+            <TabsTrigger
+              value='permissions'
+              className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            >
               <span className='hidden sm:inline'>Permissions</span>
               <span className='sm:hidden'>Perms</span>
             </TabsTrigger>
-            <TabsTrigger value='supabase' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+            <TabsTrigger
+              value='supabase'
+              className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            >
               <span className='hidden sm:inline'>Supabase</span>
               <span className='sm:hidden'>DB</span>
             </TabsTrigger>
-            <TabsTrigger value='endpoints' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+            <TabsTrigger
+              value='endpoints'
+              className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            >
               <span className='hidden sm:inline'>Endpoints</span>
               <span className='sm:hidden'>API</span>
             </TabsTrigger>
-            <TabsTrigger value='testing' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+            <TabsTrigger
+              value='testing'
+              className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            >
               <span className='hidden sm:inline'>Testing</span>
               <span className='sm:hidden'>Test</span>
             </TabsTrigger>
-            <TabsTrigger value='troubleshoot' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+            <TabsTrigger
+              value='troubleshoot'
+              className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            >
               <span className='hidden sm:inline'>Debug</span>
               <span className='sm:hidden'>Debug</span>
             </TabsTrigger>
-            <TabsTrigger value='reference' className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'>
+            <TabsTrigger
+              value='reference'
+              className='data-[state=active]:bg-primary data-[state=active]:text-primary-foreground'
+            >
               <span className='hidden sm:inline'>Reference</span>
               <span className='sm:hidden'>Ref</span>
             </TabsTrigger>
@@ -992,7 +1029,9 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
                   <div className='flex items-start gap-3'>
                     <Sparkles className='h-5 w-5 text-green-600 mt-0.5' />
                     <div>
-                      <div className='font-medium'>Seamless Re-authentication</div>
+                      <div className='font-medium'>
+                        Seamless Re-authentication
+                      </div>
                       <div className='text-sm text-muted-foreground'>
                         Parent session preserved after logout
                       </div>
@@ -1014,9 +1053,10 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
               <Alert className='border-orange-200 bg-orange-50 dark:bg-orange-950/20'>
                 <AlertCircle className='h-4 w-4 text-orange-600' />
                 <AlertDescription>
-                  <strong>Critical Implementation Note:</strong> The logout function must ONLY clear 
-                  the child app session, NOT the parent app session. This prevents the double 
-                  authentication issue and enables seamless re-authentication.
+                  <strong>Critical Implementation Note:</strong> The logout
+                  function must ONLY clear the child app session, NOT the parent
+                  app session. This prevents the double authentication issue and
+                  enables seamless re-authentication.
                 </AlertDescription>
               </Alert>
 
@@ -1059,12 +1099,13 @@ curl -X POST https://my.jkkn.ac.in/api/auth/child-app/token \\
                     </p>
                     <div className='mt-3 bg-slate-950 rounded-lg p-3'>
                       <code className='text-sm text-slate-50'>
-                        git clone https://github.com/JKKN-Institutions/child-app-auth-flow-integration.git
+                        git clone
+                        https://github.com/JKKN-Institutions/child-app-auth-flow-integration.git
                       </code>
                     </div>
-                    <a 
-                      href='https://github.com/JKKN-Institutions/child-app-auth-flow-integration' 
-                      target='_blank' 
+                    <a
+                      href='https://github.com/JKKN-Institutions/child-app-auth-flow-integration'
+                      target='_blank'
                       rel='noopener noreferrer'
                       className='inline-flex items-center gap-1 text-sm text-purple-700 hover:text-purple-900 font-medium underline mt-2'
                     >
@@ -1673,7 +1714,7 @@ export async function GET(request: NextRequest) {
   const token = authHeader.substring(7);
   
   // Validate token with parent app
-  const response = await fetch('https://my.jkkn.ac.in/api/auth/child-app/validate', {
+  const response = await fetch('https://jkkn.ai/api/auth/child-app/validate', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -2658,7 +2699,7 @@ CREATE POLICY "Users can view own data" ON your_table
                 </h3>
                 <CodeBlock
                   code={`// Simple logout redirect
-window.location.href = 'https://my.jkkn.ac.in/logout?app_id=YOUR_APP_ID&redirect_uri=https://your-app.com';
+window.location.href = 'https://jkkn.ai/logout?app_id=YOUR_APP_ID&redirect_uri=https://your-app.com';
 
 // Or using the service
 await parentAuthService.logout('https://your-app.com');`}
@@ -3081,25 +3122,25 @@ class ParentAuthService {
                         <div>
                           Base URL:{' '}
                           <code className='bg-background px-1 rounded'>
-                            https://my.jkkn.ac.in
+                            https://jkkn.ai
                           </code>
                         </div>
                         <div>
                           Auth URL:{' '}
                           <code className='bg-background px-1 rounded'>
-                            https://my.jkkn.ac.in/auth/authorize
+                            https://jkkn.ai/auth/authorize
                           </code>
                         </div>
                         <div>
                           Token URL:{' '}
                           <code className='bg-background px-1 rounded'>
-                            https://my.jkkn.ac.in/api/auth/child-app/token
+                            https://jkkn.ai/api/auth/child-app/token
                           </code>
                         </div>
                         <div>
                           Logout URL:{' '}
                           <code className='bg-background px-1 rounded'>
-                            https://my.jkkn.ac.in/logout
+                            https://jkkn.ai/logout
                           </code>
                         </div>
                       </div>
@@ -3115,7 +3156,7 @@ class ParentAuthService {
                 </h3>
                 <CodeBlock
                   code={`# Required Configuration
-NEXT_PUBLIC_PARENT_APP_URL=https://my.jkkn.ac.in
+NEXT_PUBLIC_PARENT_APP_URL=https://jkkn.ai
 NEXT_PUBLIC_APP_ID=your_app_id_from_admin_panel
 
 # Callback URLs (choose one based on environment)
@@ -3190,7 +3231,7 @@ location.pathname
 
 // 5. Test OAuth URL construction
 const buildOAuthUrl = (appId, redirectUri) => {
-  const url = new URL('https://my.jkkn.ac.in/auth/authorize');
+  const url = new URL('https://jkkn.ai/auth/authorize');
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', appId);
   url.searchParams.set('app_id', appId);

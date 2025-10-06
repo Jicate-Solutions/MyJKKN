@@ -211,6 +211,7 @@ if (handled) return;
 
 if (processing) {
 return (
+
 <div className='flex flex-col items-center justify-center min-h-screen bg-background'>
 <div className='animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4'></div>
 <p className='text-muted-foreground'>Processing authentication...</p>
@@ -223,6 +224,7 @@ Please wait, you will be redirected shortly.
 
 if (error) {
 return (
+
 <div className='flex flex-col items-center justify-center min-h-screen bg-background p-4'>
 <div className='w-full max-w-md text-center'>
 <AlertTriangle className='mx-auto h-12 w-12 text-destructive mb-4' />
@@ -247,6 +249,7 @@ export default function CallbackPage() {
 return (
 <Suspense
 fallback={
+
 <div className='flex items-center justify-center min-h-screen'>
 <div className='animate-spin rounded-full h-12 w-12 border-b-2 border-primary'></div>
 </div>
@@ -501,7 +504,7 @@ redirectToParent
     // Redirect appropriately
     if (redirectToParent) {
       window.location.href =
-        process.env.NEXT_PUBLIC_PARENT_APP_URL || 'https://my.jkkn.ac.in';
+        process.env.NEXT_PUBLIC_PARENT_APP_URL || 'https://jkkn.ai';
     } else {
       window.location.href = '/login';
     }
@@ -754,35 +757,34 @@ headers: {
   const state = this.generateState();
   sessionStorage.setItem('oauth_state', state);
 
+  if (redirectUrl) {
+  sessionStorage.setItem('post_login_redirect', redirectUrl);
+  }
 
-    if (redirectUrl) {
-      sessionStorage.setItem('post_login_redirect', redirectUrl);
-    }
+  // Use the child app authorization endpoint
+  const authUrl = new URL(
+  '/auth/child-app/consent',
+  process.env.NEXT_PUBLIC_PARENT_APP_URL!
+  );
+  authUrl.searchParams.append('response_type', 'code');
+  authUrl.searchParams.append('client_id', process.env.NEXT_PUBLIC_APP_ID!);
+  authUrl.searchParams.append('app_id', process.env.NEXT_PUBLIC_APP_ID!);
+  authUrl.searchParams.append(
+  'redirect_uri',
+  process.env.NEXT_PUBLIC_REDIRECT_URI!
+  );
+  authUrl.searchParams.append('scope', 'read write profile');
+  authUrl.searchParams.append('state', state);
 
-    // Use the child app authorization endpoint
-    const authUrl = new URL(
-      '/auth/child-app/consent',
-      process.env.NEXT_PUBLIC_PARENT_APP_URL!
-    );
-    authUrl.searchParams.append('response_type', 'code');
-    authUrl.searchParams.append('client_id', process.env.NEXT_PUBLIC_APP_ID!);
-    authUrl.searchParams.append('app_id', process.env.NEXT_PUBLIC_APP_ID!);
-    authUrl.searchParams.append(
-      'redirect_uri',
-      process.env.NEXT_PUBLIC_REDIRECT_URI!
-    );
-    authUrl.searchParams.append('scope', 'read write profile');
-    authUrl.searchParams.append('state', state);
+  // ADD THIS DEBUG LOG
+  console.log('🔍 ParentAuthService Login URL:', authUrl.toString());
+  console.log('🔍 Environment Variables:', {
+  PARENT_APP_URL: process.env.NEXT_PUBLIC_PARENT_APP_URL,
+  APP_ID: process.env.NEXT_PUBLIC_APP_ID,
+  REDIRECT_URI: process.env.NEXT_PUBLIC_REDIRECT_URI
+  });
 
-    // ADD THIS DEBUG LOG
-    console.log('🔍 ParentAuthService Login URL:', authUrl.toString());
-    console.log('🔍 Environment Variables:', {
-      PARENT_APP_URL: process.env.NEXT_PUBLIC_PARENT_APP_URL,
-      APP_ID: process.env.NEXT_PUBLIC_APP_ID,
-      REDIRECT_URI: process.env.NEXT_PUBLIC_REDIRECT_URI
-    });
-
-    window.location.href = authUrl.toString();
+  window.location.href = authUrl.toString();
 
 }
 
@@ -907,11 +909,10 @@ hasRefreshToken: !!refreshToken
   return this.refreshPromise;
   }
 
-
-    this.refreshPromise = this._doRefreshToken();
-    const result = await this.refreshPromise;
-    this.refreshPromise = null;
-    return result;
+  this.refreshPromise = this.\_doRefreshToken();
+  const result = await this.refreshPromise;
+  this.refreshPromise = null;
+  return result;
 
 }
 
@@ -956,15 +957,14 @@ throw new Error('No refresh token available');
   logout(redirectToParent: boolean = true): void {
   console.log('🔍 Logout initiated, redirectToParent:', redirectToParent);
 
+  // Clear local session first
+  this.clearSession();
 
-    // Clear local session first
-    this.clearSession();
-
-    if (redirectToParent) {
-      const logoutUrl = new URL(
-        '/api/auth/child-app/logout',
-        process.env.NEXT_PUBLIC_PARENT_APP_URL!
-      );
+  if (redirectToParent) {
+  const logoutUrl = new URL(
+  '/api/auth/child-app/logout',
+  process.env.NEXT_PUBLIC_PARENT_APP_URL!
+  );
 
       // Enhanced logout with seamless re-auth support
       // The parent app will only clear child app session, not parent session
@@ -975,7 +975,8 @@ throw new Error('No refresh token available');
         }&redirect_uri=${encodeURIComponent(
           window.location.origin
         )}&seamless_reauth=true`;
-    }
+
+  }
 
 }
 
@@ -999,9 +1000,8 @@ throw new Error('No refresh token available');
   return false;
   }
 
-
-    try {
-      const validation = await this.validateToken(token);
+  try {
+  const validation = await this.validateToken(token);
 
       if (validation.valid && validation.user) {
         // Update user data in case it changed
@@ -1015,10 +1015,11 @@ throw new Error('No refresh token available');
       }
 
       return false;
-    } catch (error) {
-      console.error('Session validation error:', error);
-      return false;
-    }
+
+  } catch (error) {
+  console.error('Session validation error:', error);
+  return false;
+  }
 
 }
 
@@ -1189,6 +1190,7 @@ login();
 
 if (isLoading) {
 return (
+
 <div className='flex items-center justify-center min-h-screen bg-background'>
 <div className='animate-spin rounded-full h-12 w-12 border-b-2 border-primary'></div>
 </div>
@@ -1200,6 +1202,7 @@ return null;
 }
 
 return (
+
 <div className='flex flex-col items-center justify-center min-h-screen bg-background p-4'>
 <div className='mb-8 text-center'>
 <h1 className='text-4xl font-bold'>MyJKKN Child App</h1>
@@ -1257,6 +1260,7 @@ function DashboardContent() {
 const { user, logout } = useAuth();
 
 return (
+
 <div className='min-h-screen bg-background'>
 <header className='bg-card border-b'>
 <div className='container mx-auto py-4 px-6 flex justify-between items-center'>

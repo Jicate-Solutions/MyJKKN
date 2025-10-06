@@ -1,18 +1,20 @@
 # Vercel MCP Server Token Setup
 
 ## ⚠️ IMPORTANT: Token Required
+
 The Vercel MCP server has been added to `.mcp.json` but needs your Vercel Access Token.
 
 ## Step 1: Get Your Vercel Access Token
 
 1. **Go to Vercel Dashboard**:
+
    - Visit: https://vercel.com/account/tokens
 
 2. **Create a New Token**:
    - Click "Create Token"
    - Name: "MyJKKN MCP Server" (or any name you prefer)
-   
 3. **Select Permissions** (Recommended):
+
    - ✅ Full Account (for complete access)
    - OR select specific scopes:
      - Deployments (Read/Write)
@@ -29,18 +31,21 @@ The Vercel MCP server has been added to `.mcp.json` but needs your Vercel Access
 ## Step 2: Add Token to .mcp.json
 
 ### Option A: Direct Edit (Quick)
+
 1. Open `.mcp.json`
 2. Find the line: `"VERCEL_ACCESS_TOKEN": "YOUR_VERCEL_TOKEN_HERE"`
 3. Replace `YOUR_VERCEL_TOKEN_HERE` with your actual token
 4. Save the file
 
 ### Option B: Using Command (Secure)
+
 ```bash
 # Set as environment variable instead (more secure)
 setx VERCEL_ACCESS_TOKEN "your-actual-token-here"
 ```
 
 Then update `.mcp.json`:
+
 ```json
 "vercel": {
   "command": "cmd",
@@ -54,6 +59,7 @@ Then update `.mcp.json`:
 ## Step 3: Restart Claude Code
 
 After adding the token:
+
 ```bash
 # Restart Claude Code to load new configuration
 claude restart
@@ -62,6 +68,7 @@ claude restart
 ## Step 4: Verify Connection
 
 Test if Vercel MCP is working:
+
 ```bash
 # Check MCP servers status
 claude mcp list
@@ -73,11 +80,13 @@ claude mcp list
 ## 🔒 Security Best Practices
 
 ### DO NOT:
+
 - ❌ Commit `.mcp.json` with real tokens to Git
 - ❌ Share your token with anyone
 - ❌ Use tokens in client-side code
 
 ### DO:
+
 - ✅ Add `.mcp.json` to `.gitignore` if it contains tokens
 - ✅ Use environment variables for tokens
 - ✅ Rotate tokens regularly
@@ -86,6 +95,7 @@ claude mcp list
 ## 📝 Add to .gitignore
 
 Make sure `.mcp.json` is in your `.gitignore`:
+
 ```bash
 echo ".mcp.json" >> .gitignore
 ```
@@ -95,17 +105,20 @@ echo ".mcp.json" >> .gitignore
 Once connected, you can:
 
 1. **Deployment Management**:
+
    - "Show my recent Vercel deployments"
-   - "Get deployment status for my.jkkn.ac.in"
+   - "Get deployment status for jkkn.ai"
    - "Show deployment logs"
 
 2. **Project Configuration**:
+
    - "List environment variables for MyJKKN"
    - "Update build settings"
    - "Configure domains"
 
 3. **Domain Management**:
-   - "Check SSL certificate for my.jkkn.ac.in"
+
+   - "Check SSL certificate for jkkn.ai"
    - "Verify domain configuration"
    - "Show DNS records"
 
@@ -117,12 +130,14 @@ Once connected, you can:
 ## 🚨 Troubleshooting
 
 ### If Token Doesn't Work:
+
 1. Verify token hasn't expired
 2. Check token has correct permissions
 3. Ensure no extra spaces/characters
 4. Try regenerating token
 
 ### If MCP Server Fails:
+
 ```bash
 # Remove and re-add
 claude mcp remove vercel
@@ -133,6 +148,7 @@ claude restart
 ```
 
 ### Check Logs:
+
 ```bash
 # View Claude Code logs for errors
 claude logs
