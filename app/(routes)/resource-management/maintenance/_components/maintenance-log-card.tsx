@@ -7,7 +7,7 @@ import {
   CheckCircle2,
   XCircle,
   PlayCircle,
-  DollarSign
+  IndianRupee
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -195,7 +195,7 @@ export function MaintenanceLogCard({
           {/* Cost */}
           {log.cost !== null && log.cost !== undefined && (
             <div className='flex items-center gap-2 text-muted-foreground'>
-              <DollarSign className='h-4 w-4' />
+              <IndianRupee className='h-4 w-4' />
               <span>
                 Cost:{' '}
                 <span className='font-medium text-foreground'>

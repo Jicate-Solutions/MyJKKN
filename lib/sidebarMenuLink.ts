@@ -608,13 +608,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/resource-management/maintenance'),
           icon: Wrench,
           submenus: []
-        },
-        {
-          href: '/resource-management/analytics',
-          label: 'Analytics',
-          active: pathname.startsWith('/resource-management/analytics'),
-          icon: TrendingUp,
-          submenus: []
         }
       ]
     },

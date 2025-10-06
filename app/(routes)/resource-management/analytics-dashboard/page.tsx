@@ -24,7 +24,8 @@ import { Calendar, Download, BarChart3, AlertCircle } from 'lucide-react';
 import { AnalyticsPeriod } from '@/types/analytics';
 import {
   useDashboardSummary,
-  useAnalyticsFilters
+  useAnalyticsFilters,
+  useMaintenanceAnalytics
 } from '@/hooks/analytics/use-analytics';
 import { useAuth } from '@/hooks/use-auth';
 import { AnalyticsKPICards } from './_components/analytics-kpi-cards';
@@ -33,6 +34,7 @@ import { ReservationStatusChart } from './_components/reservation-status-chart';
 import { FinancialOverviewChart } from './_components/financial-overview-chart';
 import { TopResourcesTable } from './_components/top-resources-table';
 import { InstitutionComparisonChart } from './_components/institution-comparison-chart';
+import { MaintenanceAnalyticsCard } from './_components/maintenance-analytics-card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
@@ -58,6 +60,8 @@ export default function AnalyticsDashboardPage() {
 
   const { filters: rbacFilters, canViewAll } = useAnalyticsFilters(baseFilters);
   const { data, isLoading, error } = useDashboardSummary(rbacFilters);
+  const { data: maintenanceData, isLoading: loadingMaintenance } =
+    useMaintenanceAnalytics(rbacFilters);
 
   const handleExport = () => {
     // TODO: Implement export functionality
@@ -181,6 +185,14 @@ export default function AnalyticsDashboardPage() {
       {/* KPI Cards */}
       <div className='mb-8'>
         <AnalyticsKPICards data={data} isLoading={isLoading} />
+      </div>
+
+      {/* Maintenance Analytics */}
+      <div className='mb-8'>
+        <MaintenanceAnalyticsCard
+          data={maintenanceData}
+          isLoading={loadingMaintenance}
+        />
       </div>
 
       {/* Charts Grid */}

@@ -933,6 +933,44 @@ CREATE TABLE IF NOT EXISTS public.resource_approvals (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Resource Maintenance Logs
+-- Updated: 2025-10-06 - Added maintenance tracking tables for resource management
+CREATE TABLE IF NOT EXISTS public.resource_maintenance_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    resource_id UUID NOT NULL,
+    maintenance_type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    scheduled_date DATE NOT NULL,
+    completed_date DATE,
+    status VARCHAR(50) DEFAULT 'scheduled'::character varying,
+    priority INTEGER DEFAULT 2 CHECK (priority BETWEEN 1 AND 4),
+    assigned_to_user_id UUID,
+    cost NUMERIC(10,2),
+    notes TEXT,
+    attachments JSONB DEFAULT '[]'::jsonb,
+    created_by UUID NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
+);
+
+-- Resource Maintenance Schedules
+CREATE TABLE IF NOT EXISTS public.resource_maintenance_schedules (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    resource_id UUID NOT NULL,
+    maintenance_type VARCHAR(50) NOT NULL,
+    frequency_days INTEGER NOT NULL CHECK (frequency_days > 0),
+    last_maintenance_date DATE,
+    next_maintenance_date DATE NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    reminder_days_before INTEGER DEFAULT 7,
+    assigned_to_user_id UUID,
+    description TEXT,
+    estimated_cost NUMERIC(10,2),
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
+);
+
 -- =====================================================
 -- SECTION 12: BUG REPORTING
 -- =====================================================
@@ -1224,6 +1262,16 @@ CREATE TABLE IF NOT EXISTS public.user_app_favorites (
 CREATE INDEX IF NOT EXISTS idx_user_app_favorites_user_id ON user_app_favorites(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_app_favorites_application_id ON user_app_favorites(application_id);
 CREATE INDEX IF NOT EXISTS idx_user_app_favorites_created_at ON user_app_favorites(created_at DESC);
+
+-- Maintenance tables indexes
+CREATE INDEX IF NOT EXISTS idx_maintenance_logs_resource ON resource_maintenance_logs(resource_id);
+CREATE INDEX IF NOT EXISTS idx_maintenance_logs_status ON resource_maintenance_logs(status);
+CREATE INDEX IF NOT EXISTS idx_maintenance_logs_scheduled ON resource_maintenance_logs(scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_maintenance_logs_assigned_to ON resource_maintenance_logs(assigned_to_user_id);
+CREATE INDEX IF NOT EXISTS idx_maintenance_logs_created_by ON resource_maintenance_logs(created_by);
+CREATE INDEX IF NOT EXISTS idx_maintenance_schedules_resource ON resource_maintenance_schedules(resource_id);
+CREATE INDEX IF NOT EXISTS idx_maintenance_schedules_next_date ON resource_maintenance_schedules(next_maintenance_date);
+CREATE INDEX IF NOT EXISTS idx_maintenance_schedules_active ON resource_maintenance_schedules(is_active);
 
 -- Enable RLS
 ALTER TABLE user_app_favorites ENABLE ROW LEVEL SECURITY;
