@@ -51,7 +51,7 @@ When updating any SQL file:
 
 ## 📊 Current Database Objects
 
-### Tables (56 total in database, 19 in setup file)
+### Tables (53 total in database - Updated 2025-01-20)
 
 | Module          | Tables                                                                                                                                                                                                                  | Count | Status                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------- |
@@ -68,10 +68,10 @@ When updating any SQL file:
 | API             | api_keys                                                                                                                                                                                                                | 1     | ✅                          |
 | User Management | profiles, users, user_institution_access, custom_roles                                                                                                                                                                  | 4     | ✅                          |
 | Dashboard       | dashboard_configurations, dashboard_widgets, dashboard_widget_types                                                                                                                                                     | 3     | ✅                          |
-| Child App Auth  | registered_child_apps, child_app_sessions, child_app_access_logs, child_app_permissions, user_child_app_permissions                                                                                                     | 5     | ✅                          |
+| Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
 | Other           | applications (with parent auth), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth        |
 
-### Functions (237 total)
+### Functions (236 total - Updated 2025-01-20)
 
 | Category              | Location               | Count | Purpose                         |
 | --------------------- | ---------------------- | ----- | ------------------------------- |
@@ -91,7 +91,7 @@ When updating any SQL file:
 | Utilities             | setup/02_functions.sql | 10+   | Helper functions                |
 | Dashboard             | setup/02_functions.sql | 2     | Dashboard reporting             |
 | Permissions           | setup/02_functions.sql | 6     | Role and permission checks      |
-| Child App Auth        | setup/02_functions.sql | 2     | Session cleanup, access logging |
+| Child App Auth        | ~~setup/02_functions.sql~~ | 0     | ~~Session cleanup~~ (REMOVED 2025-01-20) |
 
 ### RLS Policies (250+ total)
 
@@ -178,6 +178,17 @@ When updating any SQL file:
 ```
 
 ## 📝 Change Log
+
+### 2025-01-20
+
+- **Child App Authentication Cleanup**
+  - Dropped 3 child app tables (child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions)
+  - Dropped 1 function (cleanup_expired_child_app_sessions)
+  - Total cleanup: 440 rows, ~1.8 MB of data
+  - Reason: Authentication flow moved to separate auth server (auth.jkkn.ai)
+  - Migration: 20250120_cleanup_child_app_tables.sql
+  - Preserved: applications and profiles tables (data synced to auth server)
+  - Updated table comments to reflect new architecture
 
 ### 2025-01-17
 
