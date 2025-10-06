@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { corsHeaders } from '@/lib/cors';
 import { createHash } from 'crypto';
 import type { Database } from '@/types/supabase';
@@ -13,21 +12,17 @@ export async function GET(request: NextRequest) {
       response.headers.set(key, value);
     });
 
-    const cookieStore = await cookies();
+    // Use service role key for API key authentication to bypass RLS
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
+          get() {
+            return undefined;
           },
-          set(name: string, value: string, options: any) {
-            cookieStore.set(name, value, options);
-          },
-          remove(name: string, options: any) {
-            cookieStore.set(name, '', { ...options, maxAge: 0 });
-          }
+          set() {},
+          remove() {}
         }
       }
     );
