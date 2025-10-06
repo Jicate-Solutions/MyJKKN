@@ -20,26 +20,7 @@ import type {
   StaffTenureAnalytics,
   StaffProfileAnalytics
 } from '@/types/staff';
-import { CreateUserRequest } from '@/types/users';
 import toast from 'react-hot-toast';
-
-// Helper function to generate a random password
-function generateTemporaryPassword(length = 12): string {
-  const charset =
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=';
-  let password = '';
-  for (let i = 0, n = charset.length; i < length; ++i) {
-    password += charset.charAt(Math.floor(Math.random() * n));
-  }
-  // Ensure password meets basic complexity (example: at least one number and one uppercase)
-  if (!/\d/.test(password)) {
-    password += Math.floor(Math.random() * 10);
-  }
-  if (!/[A-Z]/.test(password)) {
-    password += String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  }
-  return password.slice(0, length);
-}
 
 interface CreateStaffDto {
   first_name: string;
@@ -158,166 +139,64 @@ export class StaffService {
 
       if (error) throw error;
 
-      // Auto create user account if institution_email exists
+      // Profile auto-creation is handled by the database trigger (sync_staff_to_profiles)
+      // The trigger creates/updates a profile when staff with institution_email is created
       if (staff.institution_email) {
         try {
           console.log(
-            `Checking profile creation for staff ${staff.id} with email ${staff.institution_email}`
+            `Profile will be auto-created by database trigger for staff ${staff.id} with email ${staff.institution_email}`
           );
 
-          // Give the trigger a moment to complete
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          // Give the trigger time to complete (500ms to ensure it finishes)
+          await new Promise((resolve) => setTimeout(resolve, 500));
 
-          // Check if trigger already created a profile
-          const { data: existingProfile } = await this.supabase
+          // Verify the profile was created by the trigger
+          const { data: createdProfile } = await this.supabase
             .from('profiles')
-            .select('id, email')
+            .select('id, email, role, is_pre_registered')
             .eq('email', staff.institution_email)
             .single();
 
-          if (existingProfile) {
+          if (createdProfile) {
             console.log(
-              `Profile already exists for ${staff.institution_email}, trigger worked successfully`
+              `✓ Profile auto-created successfully for ${staff.institution_email}`,
+              {
+                profile_id: createdProfile.id,
+                role: createdProfile.role,
+                is_pre_registered: createdProfile.is_pre_registered
+              }
             );
+
             if (!suppressToast) {
               toast.success(
-                `Staff created successfully with existing user account`
+                `Staff created successfully! User can now login with Google using ${staff.institution_email}`
               );
-            }
-            return staff;
-          }
-
-          // Since we can't access auth.users table, check if profile exists in profiles table only
-          // If no profile exists, we'll proceed to create one via the API
-          console.log(
-            `No profile found for ${staff.institution_email}, proceeding to create user account`
-          );
-
-          // Neither auth user nor profile exists, create via API
-          console.log(
-            `Creating new user account for staff ${staff.id} with email ${staff.institution_email}`
-          );
-
-          const tempPassword = generateTemporaryPassword();
-          const userPayload: CreateUserRequest = {
-            email: staff.institution_email,
-            full_name: `${staff.first_name} ${staff.last_name}`,
-            role: 'faculty', // Faculty role
-            phone_number: staff.phone || null,
-            institution_id: staff.institution_id
-          };
-
-          console.log('User payload:', JSON.stringify(userPayload, null, 2));
-
-          // Use absolute URL to ensure it works in all environments
-          const apiUrl =
-            typeof window !== 'undefined'
-              ? '/api/users'
-              : `${
-                  process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-                }/api/users`;
-
-          console.log('API URL for user creation:', apiUrl);
-
-          // Get current user session for authorization headers
-          const { data: sessionData } = await this.supabase.auth.getSession();
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/json'
-          };
-
-          // Add session cookies if available
-          if (sessionData?.session) {
-            console.log('Adding session authorization for user creation');
-          }
-
-          const userResponse = await fetch(apiUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(userPayload),
-            cache: 'no-store',
-            credentials: 'include'
-          });
-
-          console.log('User creation response status:', userResponse.status);
-          const userData = await userResponse.json();
-          console.log(
-            'User creation response:',
-            JSON.stringify(userData, null, 2)
-          );
-
-          if (!userResponse.ok) {
-            // Check for 409 Conflict (User already exists)
-            if (userResponse.status === 409) {
-              console.warn(
-                `User with email ${userPayload.email} already exists (this is expected if the trigger created it)`
-              );
-              if (!suppressToast) {
-                toast.success(
-                  `Staff created successfully! User profile for ${userPayload.email} already exists.`
-                );
-              }
-            } else if (userResponse.status === 400) {
-              // Handle validation errors
-              console.error(
-                'User creation validation error:',
-                userData.error || userData.details || userData.message,
-                'Status:',
-                userResponse.status
-              );
-              if (!suppressToast) {
-                toast.error(
-                  `Staff created, but user account validation failed: ${
-                    userData.error ||
-                    userData.details ||
-                    userData.message ||
-                    'Validation error'
-                  }`
-                );
-              }
-            } else {
-              // Handle other errors
-              console.error(
-                'Failed to automatically create user:',
-                userData.error ||
-                  userData.details ||
-                  userData.message ||
-                  'Unknown API error',
-                'Status:',
-                userResponse.status,
-                'Full response:',
-                userData
-              );
-              if (!suppressToast) {
-                toast.error(
-                  `Staff created, but failed to create user account: ${
-                    userData.error ||
-                    userData.details ||
-                    userData.message ||
-                    'Unknown error'
-                  }`
-                );
-              }
             }
           } else {
-            console.log(
-              `Successfully created user for staff ${staff.id} with email ${staff.institution_email}`
+            console.warn(
+              `⚠ Profile not found after staff creation for ${staff.institution_email}. The trigger may have failed.`
             );
+
             if (!suppressToast) {
-              toast.success(`Staff and user account created successfully`);
+              toast.warning(
+                `Staff created, but profile creation may be pending. Please check the database.`
+              );
             }
           }
-        } catch (apiError) {
-          console.error('Error in staff user creation process:', apiError);
+        } catch (profileCheckError) {
+          console.error('Error verifying profile creation:', profileCheckError);
+          // Don't fail the staff creation if profile check fails
           if (!suppressToast) {
-            toast.error(
-              `Staff created, but encountered an error in user account process: ${
-                apiError instanceof Error ? apiError.message : 'Unknown error'
-              }`
+            toast.success(
+              `Staff created successfully. Profile creation will be handled automatically.`
             );
           }
         }
       } else {
-        console.log('No institution_email provided, skipping user creation');
+        console.log('No institution_email provided, profile will not be created');
+        if (!suppressToast) {
+          toast.success(`Staff created successfully`);
+        }
       }
 
       return staff;
