@@ -34,7 +34,7 @@ export default function StaffApiDocs(): ReactElement {
   const aiPrompt = `I need to implement a feature to fetch staff data from the MyJKKN API system. The API requires authentication using an API key.
 
 Key details:
-- Base URL: https://my.jkkn.ac.in/api
+- Base URL: https://jkkn.ai/api
 - API Key format: jkkn_xxxxx_xxxxx (provided by administrator)
 - Authentication: Bearer token in Authorization header
 - Module: staff
@@ -67,7 +67,7 @@ Please show me a complete implementation using Next.js 14, TypeScript, and Tailw
     listStaff: `// Fetch staff list example
 const fetchStaff = async (apiKey) => {
   try {
-    const response = await fetch('https://my.jkkn.ac.in/api/api-management/staff', {
+    const response = await fetch('https://jkkn.ai/api/api-management/staff', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -90,7 +90,7 @@ const fetchStaff = async (apiKey) => {
     getStaffMember: `// Fetch specific staff member example
 const fetchStaffMember = async (apiKey, staffId) => {
   try {
-    const response = await fetch(\`https://my.jkkn.ac.in/api/api-management/staff/\${staffId}\`, {
+    const response = await fetch(\`https://jkkn.ai/api/api-management/staff/\${staffId}\`, {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -114,7 +114,7 @@ const fetchStaffMember = async (apiKey, staffId) => {
 const fetchStaffWithFilters = async (apiKey, filters = {}) => {
   try {
     // Create URL with query parameters
-    const url = new URL('https://my.jkkn.ac.in/api/api-management/staff');
+    const url = new URL('https://jkkn.ai/api/api-management/staff');
     
     // Add filters to URL
     Object.entries(filters).forEach(([key, value]) => {
@@ -158,7 +158,7 @@ fetchStaffWithFilters(apiKey, filters);`,
 const fetchAllStaff = async (apiKey, filters = {}) => {
   try {
     // Create URL with query parameters, including all=true
-    const url = new URL('https://my.jkkn.ac.in/api/api-management/staff');
+    const url = new URL('https://jkkn.ai/api/api-management/staff');
     
     // Always add all=true to get all records
     url.searchParams.append('all', 'true');
@@ -281,7 +281,7 @@ interface StaffFilters {
 import { StaffMember, PaginatedResponse, StaffFilters } from './types';
 
 export class StaffApiService {
-  private baseUrl = 'https://my.jkkn.ac.in/api/api-management';
+  private baseUrl = 'https://jkkn.ai/api/api-management';
   private apiKey: string;
 
   constructor(apiKey: string) {

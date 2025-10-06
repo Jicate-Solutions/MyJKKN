@@ -38,7 +38,7 @@ export default function OrganizationApiDocs() {
   ) => `I need to implement a feature to fetch data from the MyJKKN API system. The API requires authentication using an API key.
 
 Key details:
-- Base URL: https://my.jkkn.ac.in/api
+- Base URL: https://jkkn.ai/api
 - API Key format: jk_xxxxx_xxxxx (provided by administrator)
 - Authentication: Bearer token in Authorization header
 - Module: ${module}
@@ -70,7 +70,7 @@ Please show me a complete implementation using Next.js 14, TypeScript, and Tailw
     institutions: `// Fetch institutions example
 const fetchInstitutions = async (apiKey) => {
   try {
-    const response = await fetch('https://my.jkkn.ac.in/api/api-management/organizations/institutions', {
+    const response = await fetch('https://jkkn.ai/api/api-management/organizations/institutions', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -93,7 +93,7 @@ const fetchInstitutions = async (apiKey) => {
     departments: `// Fetch departments example
 const fetchDepartments = async (apiKey) => {
   try {
-    const response = await fetch('https://my.jkkn.ac.in/api/api-management/organizations/departments', {
+    const response = await fetch('https://jkkn.ai/api/api-management/organizations/departments', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -116,7 +116,7 @@ const fetchDepartments = async (apiKey) => {
     programs: `// Fetch programs example
 const fetchPrograms = async (apiKey) => {
   try {
-    const response = await fetch('https://my.jkkn.ac.in/api/api-management/organizations/programs', {
+    const response = await fetch('https://jkkn.ai/api/api-management/organizations/programs', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -139,7 +139,7 @@ const fetchPrograms = async (apiKey) => {
     degrees: `// Fetch degrees example
 const fetchDegrees = async (apiKey) => {
   try {
-    const response = await fetch('https://my.jkkn.ac.in/api/api-management/organizations/degrees', {
+    const response = await fetch('https://jkkn.ai/api/api-management/organizations/degrees', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -162,7 +162,7 @@ const fetchDegrees = async (apiKey) => {
     courses: `// Fetch courses example
 const fetchCourses = async (apiKey) => {
   try {
-    const response = await fetch('https://my.jkkn.ac.in/api/api-management/organizations/courses', {
+    const response = await fetch('https://jkkn.ai/api/api-management/organizations/courses', {
       method: 'GET',
       headers: {
         'Authorization': \`Bearer \${apiKey}\`,
@@ -672,7 +672,7 @@ interface ApiFetcherProps {
   body?: unknown;
 }
 
-const BASE_URL = 'https://my.jkkn.ac.in/api';
+const BASE_URL = 'https://jkkn.ai/api';
 
 export const ApiFetcher: React.FC<ApiFetcherProps> = ({
   endpoint,

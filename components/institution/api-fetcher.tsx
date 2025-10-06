@@ -11,7 +11,7 @@ interface ApiFetcherProps {
   body?: unknown;
 }
 
-const BASE_URL = 'https://my.jkkn.ac.in/api';
+const BASE_URL = 'https://jkkn.ai/api';
 
 export const ApiFetcher: React.FC<ApiFetcherProps> = ({
   endpoint,
