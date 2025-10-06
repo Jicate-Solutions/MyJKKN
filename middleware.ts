@@ -2,38 +2,39 @@ import { createServerClient, CookieOptions } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { PROTECTED_ROUTES } from './lib/auth/protected-routes';
+import { profileCache } from './lib/auth/profile-cache';
+import { routeMatcher } from './lib/auth/route-matcher';
 
-// Define public paths
-const PUBLIC_PATHS = [
+// Define public paths - optimized with Set for O(1) lookup
+const PUBLIC_PATHS_SET = new Set([
   '/', // Allow root path to avoid ERR_FAILED issues
   '/auth/login',
   '/auth/callback',
   '/auth/complete-profile',
-  '/auth/child-app/consent', // Add child app consent page
-  '/auth/child-app/authorize', // Add child app authorize page
   '/unauthorized',
-  '/students/onboarding' // Add onboarding path for pending students
-];
+  '/students/onboarding', // Add onboarding path for pending students
+  '/sw.js',
+  '/manifest.json',
+  '/browserconfig.xml',
+  '/pwa-test.html'
+]);
 
-// Helper to check if path is public
-const isPublicPath = (path: string) =>
-  PUBLIC_PATHS.includes(path) ||
-  path.startsWith('/_next') ||
-  path.startsWith('/api') ||
-  path.includes('favicon.ico') ||
-  path === '/sw.js' ||
-  path === '/manifest.json' ||
-  path === '/browserconfig.xml' ||
-  path.startsWith('/icons/') ||
-  path.startsWith('/pwa-test.html') ||
-  path.endsWith('.js') ||
-  path.endsWith('.css') ||
-  path.endsWith('.png') ||
-  path.endsWith('.ico') ||
-  path.endsWith('.svg') ||
-  path.endsWith('.json') ||
-  path.endsWith('.xml') ||
-  path.endsWith('.html');
+// Regex for static assets - single check instead of multiple endsWith
+const STATIC_ASSET_PATTERN = /^\/(_next|icons)|\.(?:js|css|png|ico|svg|json|xml|html|woff2?)$/;
+
+// Optimized helper to check if path is public - O(1) lookup
+const isPublicPath = (path: string): boolean => {
+  // Fast exact match check (O(1))
+  if (PUBLIC_PATHS_SET.has(path)) return true;
+
+  // Single regex check for static assets and API routes
+  if (STATIC_ASSET_PATTERN.test(path)) return true;
+
+  // Special cases
+  if (path.startsWith('/api') || path.includes('favicon.ico')) return true;
+
+  return false;
+};
 
 export async function middleware(request: NextRequest) {
   try {
@@ -79,40 +80,7 @@ export async function middleware(request: NextRequest) {
       return response;
     }
 
-    // Handle CORS for child-app API routes
-    if (request.nextUrl.pathname.startsWith('/api/auth/child-app/')) {
-      const origin = request.headers.get('origin');
-
-      // Handle preflight requests
-      if (request.method === 'OPTIONS') {
-        return new NextResponse(null, {
-          status: 200,
-          headers: {
-            'Access-Control-Allow-Origin': origin || '*',
-            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers':
-              'Content-Type, Authorization, X-API-Key',
-            'Access-Control-Allow-Credentials': 'true',
-            'Access-Control-Max-Age': '86400'
-          }
-        });
-      }
-
-      // For actual requests, add CORS headers
-      const res = NextResponse.next();
-      res.headers.set('Access-Control-Allow-Origin', origin || '*');
-      res.headers.set(
-        'Access-Control-Allow-Methods',
-        'GET, POST, PUT, DELETE, OPTIONS'
-      );
-      res.headers.set(
-        'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, X-API-Key'
-      );
-      res.headers.set('Access-Control-Allow-Credentials', 'true');
-
-      return res;
-    }
+    // Child app CORS removed - authentication now handled by separate auth server
 
     // Skip middleware for public paths BEFORE creating Supabase client
     if (isPublicPath(currentPath)) {
@@ -167,15 +135,24 @@ export async function middleware(request: NextRequest) {
     res.headers.set('x-user-id', user.id);
     res.headers.set('x-user-email', user.email || '');
 
-    // Fetch and verify user profile
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+    // Fetch and verify user profile - with caching for performance
+    let profile = profileCache.get(user.id);
 
-    if (profileError) {
-      return NextResponse.redirect(new URL('/unauthorized', request.url));
+    if (!profile) {
+      // Cache miss - fetch from database
+      const { data, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) {
+        return NextResponse.redirect(new URL('/unauthorized', request.url));
+      }
+
+      profile = data;
+      // Store in cache for future requests (5-minute TTL)
+      profileCache.set(user.id, profile);
     }
 
     // Check if user account is active
@@ -280,16 +257,35 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // Check protected routes access
-    for (const [_, config] of Object.entries(PROTECTED_ROUTES)) {
-      if (config.paths.some((path) => currentPath.startsWith(path))) {
-        // Verify role-based access
-        if (!profile.role || !config.roles.includes(profile.role)) {
-          return NextResponse.redirect(new URL('/unauthorized', request.url));
-        }
+    // Check protected routes access - enhanced with dynamic permissions
+    // For custom roles, fetch permissions from database
+    let userPermissions: Record<string, boolean> | undefined;
 
-        // Add role info to headers for protected routes
-        res.headers.set('x-user-role', profile.role);
+    if (profile.role && !['super_admin', 'administrator', 'faculty', 'staff', 'student', 'guest', 'driver'].includes(profile.role)) {
+      // This is a custom role - fetch permissions from custom_roles table
+      const { data: customRole } = await supabase
+        .from('custom_roles')
+        .select('permissions')
+        .eq('name', profile.role)
+        .eq('is_active', true)
+        .single();
+
+      if (customRole?.permissions) {
+        userPermissions = customRole.permissions as Record<string, boolean>;
+      }
+    }
+
+    // Check access with both role and permissions
+    if (!routeMatcher.hasAccess(currentPath, profile.role, userPermissions)) {
+      return NextResponse.redirect(new URL('/unauthorized', request.url));
+    }
+
+    // Add role info to headers if route is protected
+    const routeConfig = routeMatcher.match(currentPath);
+    if (routeConfig) {
+      res.headers.set('x-user-role', profile.role);
+      if (routeConfig.permission) {
+        res.headers.set('x-required-permission', routeConfig.permission);
       }
     }
 
@@ -309,8 +305,6 @@ export const config = {
     '/manifest.json',
     '/sw.js',
     '/browserconfig.xml',
-    // API routes for child app authentication (CORS handling)
-    '/api/auth/child-app/:path*',
     // Protected routes
     '/system/:path*',
     '/settings/:path*',
