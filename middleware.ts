@@ -122,6 +122,10 @@ export async function middleware(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (userError) {
+      // FIXED: Clear stale profile cache on auth error to prevent stuck loading states
+      if (user?.id) {
+        profileCache.delete(user.id);
+      }
       return NextResponse.redirect(new URL('/auth/login', request.url));
     }
 
@@ -147,6 +151,8 @@ export async function middleware(request: NextRequest) {
         .single();
 
       if (profileError) {
+        // FIXED: Clear cache on profile fetch error
+        profileCache.delete(user.id);
         return NextResponse.redirect(new URL('/unauthorized', request.url));
       }
 

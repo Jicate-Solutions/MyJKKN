@@ -25,6 +25,7 @@ import { useRouter } from 'next/navigation';
 import { CourseService } from '@/lib/services/organization/course-service';
 import { toast } from 'react-hot-toast';
 import { Course } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -40,7 +41,13 @@ export function DataTableRowActions<TData>({
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
+  const { canAccess, isSuperAdmin } = usePermissions();
   const course = row.original as Course;
+
+  const canView = isSuperAdmin || canAccess('organizations.courses', 'view');
+  const canEdit = isSuperAdmin || canAccess('organizations.courses', 'edit');
+  const canDelete =
+    isSuperAdmin || canAccess('organizations.courses', 'delete');
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -60,6 +67,13 @@ export function DataTableRowActions<TData>({
     }
   };
 
+  // Don't render the menu if user has no permissions
+  const hasAnyPermission = canView || canEdit || canDelete;
+
+  if (!hasAnyPermission) {
+    return null;
+  }
+
   return (
     <>
       <DropdownMenu>
@@ -73,28 +87,36 @@ export function DataTableRowActions<TData>({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-[160px]'>
-          <DropdownMenuItem
-            onClick={() => router.push(`/organizations/courses/${course.id}`)}
-          >
-            <Eye className='mr-2 h-4 w-4' />
-            View
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() =>
-              router.push(`/organizations/courses/${course.id}/edit`)
-            }
-          >
-            <Edit className='mr-2 h-4 w-4' />
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => setShowDeleteAlert(true)}
-            className='text-destructive'
-          >
-            <Trash className='mr-2 h-4 w-4' />
-            Delete
-          </DropdownMenuItem>
+          {canView && (
+            <DropdownMenuItem
+              onClick={() =>
+                router.push(`/organizations/courses/${course.id}`)
+              }
+            >
+              <Eye className='mr-2 h-4 w-4' />
+              View
+            </DropdownMenuItem>
+          )}
+          {canEdit && (
+            <DropdownMenuItem
+              onClick={() =>
+                router.push(`/organizations/courses/${course.id}/edit`)
+              }
+            >
+              <Edit className='mr-2 h-4 w-4' />
+              Edit
+            </DropdownMenuItem>
+          )}
+          {(canView || canEdit) && canDelete && <DropdownMenuSeparator />}
+          {canDelete && (
+            <DropdownMenuItem
+              onClick={() => setShowDeleteAlert(true)}
+              className='text-destructive'
+            >
+              <Trash className='mr-2 h-4 w-4' />
+              Delete
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

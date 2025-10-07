@@ -25,6 +25,7 @@ import { useRouter } from 'next/navigation';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { toast } from 'react-hot-toast';
 import { Semester } from '@/types/organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -40,7 +41,12 @@ export function DataTableRowActions<TData>({
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
+  const { canAccess, isSuperAdmin } = usePermissions();
   const semester = row.original as Semester;
+
+  const canEdit = isSuperAdmin || canAccess('organizations.semesters', 'edit');
+  const canDelete =
+    isSuperAdmin || canAccess('organizations.semesters', 'delete');
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -60,6 +66,13 @@ export function DataTableRowActions<TData>({
     }
   };
 
+  // Don't render the menu if user has no permissions
+  const hasAnyPermission = canEdit || canDelete;
+
+  if (!hasAnyPermission) {
+    return null;
+  }
+
   return (
     <>
       <DropdownMenu>
@@ -73,22 +86,26 @@ export function DataTableRowActions<TData>({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-[160px]'>
-          <DropdownMenuItem
-            onClick={() =>
-              router.push(`/organizations/semesters/${semester.id}/edit`)
-            }
-          >
-            <Edit className='mr-2 h-4 w-4' />
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => setShowDeleteAlert(true)}
-            className='text-destructive'
-          >
-            <Trash className='mr-2 h-4 w-4' />
-            Delete
-          </DropdownMenuItem>
+          {canEdit && (
+            <DropdownMenuItem
+              onClick={() =>
+                router.push(`/organizations/semesters/${semester.id}/edit`)
+              }
+            >
+              <Edit className='mr-2 h-4 w-4' />
+              Edit
+            </DropdownMenuItem>
+          )}
+          {canEdit && canDelete && <DropdownMenuSeparator />}
+          {canDelete && (
+            <DropdownMenuItem
+              onClick={() => setShowDeleteAlert(true)}
+              className='text-destructive'
+            >
+              <Trash className='mr-2 h-4 w-4' />
+              Delete
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

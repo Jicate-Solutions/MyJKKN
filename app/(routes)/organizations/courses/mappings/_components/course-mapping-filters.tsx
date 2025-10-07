@@ -19,6 +19,8 @@ import { CourseMappingsSearchParams } from './data-table-schema';
 import BulkUploadCourseMappings from './bulk-upload-course-mappings';
 import DownloadCourseMappingTemplateButton from './download-course-mapping-template';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
+import { useUserDepartmentAccess } from '@/hooks/use-user-department-access';
 
 interface CourseMappingFiltersProps {
   searchParams: CourseMappingsSearchParams;
@@ -47,10 +49,19 @@ export function CourseMappingFilters({
     Array<{ id: string; semester_name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
+  const { profile } = useAuth();
   const { canAccess, isSuperAdmin } = usePermissions();
-  
+  const { departmentId, hasDepartmentRestriction } = useUserDepartmentAccess();
+
   const canEditCourses =
     isSuperAdmin || canAccess('organizations.courses', 'edit');
+
+  // Auto-select user's institution if they have one and no filter is set
+  useEffect(() => {
+    if (profile?.institution_id && !searchParams.institution_id) {
+      onFilterChange('institution_id', profile.institution_id);
+    }
+  }, [profile?.institution_id]);
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -76,6 +87,23 @@ export function CourseMappingFilters({
             searchParams.institution_id as string
           );
           setDegrees(data);
+
+          // If user has department restriction, auto-select the degree containing their department
+          if (hasDepartmentRestriction && departmentId && !searchParams.degree_id) {
+            // Fetch the department to get its degree_id
+            try {
+              const { data: deptData } = await DepartmentService.getDepartments({
+                institution_id: searchParams.institution_id,
+                isActive: true
+              });
+              const userDept = deptData.find(d => d.id === departmentId);
+              if (userDept?.degree_id) {
+                onFilterChange('degree_id', userDept.degree_id);
+              }
+            } catch (error) {
+              console.error('Error loading user department:', error);
+            }
+          }
         } catch (error) {
           console.error('Error loading degrees:', error);
         } finally {
@@ -86,7 +114,7 @@ export function CourseMappingFilters({
       }
     }
     loadDegrees();
-  }, [searchParams.institution_id]);
+  }, [searchParams.institution_id, departmentId, hasDepartmentRestriction]);
 
   useEffect(() => {
     async function loadDepartments() {
@@ -96,7 +124,19 @@ export function CourseMappingFilters({
           const data = await DepartmentService.getDepartmentsByDegree(
             searchParams.degree_id as string
           );
-          setDepartments(data);
+
+          // If user has department restriction, filter to show only their department
+          let filteredDepartments = data;
+          if (hasDepartmentRestriction && departmentId) {
+            filteredDepartments = data.filter(dept => dept.id === departmentId);
+
+            // Auto-select user's department if not already selected
+            if (filteredDepartments.length > 0 && !searchParams.department_id) {
+              onFilterChange('department_id', departmentId);
+            }
+          }
+
+          setDepartments(filteredDepartments);
         } catch (error) {
           console.error('Error loading departments:', error);
         } finally {
@@ -107,7 +147,7 @@ export function CourseMappingFilters({
       }
     }
     loadDepartments();
-  }, [searchParams.degree_id]);
+  }, [searchParams.degree_id, departmentId, hasDepartmentRestriction]);
 
   useEffect(() => {
     async function loadPrograms() {
@@ -223,7 +263,7 @@ export function CourseMappingFilters({
             <Select
               value={searchParams.institution_id || 'all'}
               onValueChange={handleInstitutionChange}
-              disabled={loading}
+              disabled={loading || (hasDepartmentRestriction && !!profile?.institution_id)}
             >
               <SelectTrigger className='w-full'>
                 <SelectValue
@@ -231,7 +271,7 @@ export function CourseMappingFilters({
                 />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Institutions</SelectItem>
+                {!hasDepartmentRestriction && <SelectItem value='all'>All Institutions</SelectItem>}
                 {institutions.map((inst) => (
                   <SelectItem key={inst.id} value={inst.id}>
                     {inst.name}
@@ -246,13 +286,13 @@ export function CourseMappingFilters({
             <Select
               value={searchParams.degree_id || 'all'}
               onValueChange={handleDegreeChange}
-              disabled={!searchParams.institution_id || loading}
+              disabled={!searchParams.institution_id || loading || hasDepartmentRestriction}
             >
               <SelectTrigger className='w-full'>
                 <SelectValue placeholder='All Degrees' />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Degrees</SelectItem>
+                {!hasDepartmentRestriction && <SelectItem value='all'>All Degrees</SelectItem>}
                 {degrees.map((degree) => (
                   <SelectItem key={degree.id} value={degree.id}>
                     {degree.degree_name}
@@ -267,13 +307,13 @@ export function CourseMappingFilters({
             <Select
               value={searchParams.department_id || 'all'}
               onValueChange={handleDepartmentChange}
-              disabled={!searchParams.degree_id || loading}
+              disabled={!searchParams.degree_id || loading || hasDepartmentRestriction}
             >
               <SelectTrigger className='w-full'>
                 <SelectValue placeholder='All Departments' />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Departments</SelectItem>
+                {!hasDepartmentRestriction && <SelectItem value='all'>All Departments</SelectItem>}
                 {departments.map((dept) => (
                   <SelectItem key={dept.id} value={dept.id}>
                     {dept.department_name}

@@ -42,7 +42,7 @@ export const columns: ColumnDef<CourseMapping>[] = [
       const mapping = row.original;
       return (
         <Link
-          href={`/organizations/courses/${mapping.course?.id}`}
+          href={`/organizations/courses/mappings/${mapping.id}`}
           className='flex items-center hover:text-primary font-medium'
         >
           <FileText className='mr-2 h-4 w-4' />

@@ -40,22 +40,40 @@ export function DepartmentFilters({
   const [loading, setLoading] = useState(false);
   const { canAccess, isSuperAdmin } = usePermissions();
 
+  // FIXED: Add AbortController to prevent race conditions and memory leaks
   useEffect(() => {
+    const abortController = new AbortController();
+
     async function loadInstitutions() {
       try {
         setLoading(true);
         const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
+
+        // Only update state if not aborted
+        if (!abortController.signal.aborted) {
+          setInstitutions(data);
+        }
       } catch (error) {
-        console.error('Error loading institutions:', error);
+        if (!abortController.signal.aborted) {
+          console.error('Error loading institutions:', error);
+        }
       } finally {
-        setLoading(false);
+        if (!abortController.signal.aborted) {
+          setLoading(false);
+        }
       }
     }
+
     loadInstitutions();
+
+    // Cleanup: abort fetch on unmount
+    return () => abortController.abort();
   }, []);
 
+  // FIXED: Add AbortController to prevent race conditions and memory leaks
   useEffect(() => {
+    const abortController = new AbortController();
+
     async function loadDegrees() {
       if (searchParams.institution_id) {
         try {
@@ -63,17 +81,31 @@ export function DepartmentFilters({
           const data = await DegreeService.getDegreesByInstitution(
             searchParams.institution_id
           );
-          setDegrees(data);
+
+          // Only update state if not aborted
+          if (!abortController.signal.aborted) {
+            setDegrees(data);
+          }
         } catch (error) {
-          console.error('Error loading degrees:', error);
+          if (!abortController.signal.aborted) {
+            console.error('Error loading degrees:', error);
+          }
         } finally {
-          setLoading(false);
+          if (!abortController.signal.aborted) {
+            setLoading(false);
+          }
         }
       } else {
-        setDegrees([]);
+        if (!abortController.signal.aborted) {
+          setDegrees([]);
+        }
       }
     }
+
     loadDegrees();
+
+    // Cleanup: abort fetch on unmount or when institution changes
+    return () => abortController.abort();
   }, [searchParams.institution_id]);
 
   const handleInstitutionChange = (value: string) => {
