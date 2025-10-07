@@ -2054,13 +2054,20 @@ export class AttendanceService {
     } = {}
   ): Promise<AttendancePeriodOption[]> {
     try {
-      console.log('getAvailablePeriodsForDate called with:', {
-        filters,
-        date,
-        options,
-        semesterValue: filters.semester,
-        semesterType: typeof filters.semester,
-        semesterAsString: String(filters.semester)
+      console.log('🔍 ==== getAvailablePeriodsForDate CALLED ====');
+      console.log('📅 Date:', date);
+      console.log('🏫 Filters:', {
+        institution_id: filters.institution_id || 'MISSING ❌',
+        academic_year_id: filters.academic_year_id || 'MISSING ❌',
+        degree_id: filters.degree_id || 'MISSING ❌',
+        program_id: filters.program_id || 'MISSING ❌',
+        department_id: filters.department_id || 'MISSING ❌',
+        semester: filters.semester || 'MISSING ❌',
+        section: filters.section || 'NOT PROVIDED (optional)'
+      });
+      console.log('⚙️ Options:', {
+        filterByStaffAssignment: options.filterByStaffAssignment ?? 'default',
+        isSuperAdmin: options.isSuperAdmin ?? 'default'
       });
 
       // Add warning if multiple programs might conflict
@@ -2121,17 +2128,45 @@ export class AttendanceService {
         // This allows fetching timetables that have a section set even when no specific section is requested
       }
 
-      const { data: timetables, error: timetableError } = await timetableQuery;
+      let timetables;
+      let timetableError;
+
+      try {
+        const result = await timetableQuery;
+        timetables = result.data;
+        timetableError = result.error;
+      } catch (networkError) {
+        console.error('❌ Network error fetching timetables:', networkError);
+        console.error('Network error details:', {
+          message: networkError instanceof Error ? networkError.message : 'Unknown error',
+          stack: networkError instanceof Error ? networkError.stack : undefined
+        });
+        throw new Error(`Failed to fetch timetables: ${networkError instanceof Error ? networkError.message : 'Network error'}`);
+      }
 
       console.log('Timetables query result:', {
         timetables,
+        timetablesCount: timetables?.length || 0,
         error: timetableError
       });
 
-      if (timetableError || !timetables || timetables.length === 0) {
-        console.warn('No active timetables found for the given criteria.', {
-          error: timetableError,
-          timetablesCount: timetables?.length || 0
+      if (timetableError) {
+        console.error('❌ Database error fetching timetables:', timetableError);
+        throw new Error(`Database error: ${timetableError.message || 'Unknown database error'}`);
+      }
+
+      if (!timetables || timetables.length === 0) {
+        console.warn('⚠️ No active timetables found for the given criteria.');
+        console.warn('Search criteria used:', {
+          institution_id: filters.institution_id,
+          academic_year_id: filters.academic_year_id,
+          degree_id: filters.degree_id,
+          program_id: filters.program_id,
+          department_id: filters.department_id,
+          semester_id: filters.semester,
+          section_id: filters.section || 'ANY',
+          date: date,
+          dayOfWeek: dayOfWeek
         });
         return [];
       }
@@ -2224,27 +2259,109 @@ export class AttendanceService {
                 console.error('Date is required for batch timetables');
                 continue;
               }
+
+              console.log('Processing batch timetable for date:', date);
+              console.log('Timetable selected_dates:', timetable.selected_dates);
+              console.log('🔍 Full timetable_data structure:', JSON.stringify(timetableData, null, 2));
+
               // For batch timetables, extract slots for the specific date
-              Object.keys(timetableData).forEach((day) => {
-                const daySlots = timetableData[day];
-                if (daySlots && typeof daySlots === 'object') {
-                  Object.keys(daySlots).forEach((periodId) => {
-                    const slotData = daySlots[periodId];
-                    if (
-                      slotData &&
-                      slotData.slot_date === date &&
-                      !slotData.is_break_slot
-                    ) {
-                      slots.push({
-                        ...slotData,
-                        period_id: periodId,
-                        day_of_week: day,
-                        id: slotData.slot_id
-                      });
+              // Strategy: Find the date range that contains the query date, then look for ANY slot
+              // in that range and apply it to the query date
+
+              console.log('🔍 Strategy: Find slots from same date range and apply to query date');
+
+              // Step 1: Find which date range contains the query date
+              let matchingRangeStart = null;
+              let matchingRangeEnd = null;
+
+              if (timetable.selected_dates && Array.isArray(timetable.selected_dates)) {
+                const queryDate = new Date(date);
+
+                for (const dateItem of timetable.selected_dates) {
+                  if (typeof dateItem === 'string' && dateItem.startsWith('RANGE:')) {
+                    const parts = dateItem.split(':');
+                    if (parts.length === 3) {
+                      const rangeStart = new Date(parts[1]);
+                      const rangeEnd = new Date(parts[2]);
+
+                      if (queryDate >= rangeStart && queryDate <= rangeEnd) {
+                        matchingRangeStart = parts[1];
+                        matchingRangeEnd = parts[2];
+                        console.log('✅ Query date falls in range:', {
+                          range: `${parts[1]} to ${parts[2]}`,
+                          query_date: date
+                        });
+                        break;
+                      }
                     }
-                  });
+                  }
                 }
-              });
+              }
+
+              if (!matchingRangeStart || !matchingRangeEnd) {
+                console.log('❌ No matching date range found for query date');
+              } else {
+                console.log('🔍 Looking for slots with dates in range:', {
+                  rangeStart: matchingRangeStart,
+                  rangeEnd: matchingRangeEnd
+                });
+
+                // Step 2: Find ONE representative slot per period from this date range
+                // Use a Map to track which periods we've already found slots for
+                const periodSlotMap = new Map();
+
+                Object.keys(timetableData).forEach((day) => {
+                  const daySlots = timetableData[day];
+                  if (daySlots && typeof daySlots === 'object') {
+                    Object.keys(daySlots).forEach((periodId) => {
+                      const slotData = daySlots[periodId];
+
+                      // Skip break slots
+                      if (slotData && slotData.is_break_slot) {
+                        return;
+                      }
+
+                      // Skip if we already have a slot for this period
+                      if (periodSlotMap.has(periodId)) {
+                        return;
+                      }
+
+                      if (slotData && slotData.slot_date) {
+                        const slotDate = new Date(slotData.slot_date);
+                        const rangeStart = new Date(matchingRangeStart);
+                        const rangeEnd = new Date(matchingRangeEnd);
+
+                        // Check if this slot's date is in the same range
+                        if (slotDate >= rangeStart && slotDate <= rangeEnd) {
+                          console.log('✅ Found slot in same range:', {
+                            slot_date: slotData.slot_date,
+                            period_id: periodId,
+                            course_id: slotData.course_id
+                          });
+
+                          // Mark this period as found
+                          periodSlotMap.set(periodId, true);
+
+                          // Apply this slot configuration to the query date
+                          slots.push({
+                            ...slotData,
+                            period_id: periodId,
+                            day_of_week: day,
+                            id: slotData.slot_id,
+                            // Override slot_date with query date for attendance tracking
+                            slot_date: date,
+                            _original_slot_date: slotData.slot_date // Keep original for reference
+                          });
+
+                          console.log('✅ Slot applied to query date:', date);
+                        }
+                      }
+                    });
+                  }
+                });
+              }
+
+              console.log(`Extracted ${slots.length} slots for date ${date} from batch timetable`);
             } else {
               // For regular timetables, extract slots for the specific day
               const daySlots = timetableData[dayOfWeek];
@@ -2522,6 +2639,17 @@ export class AttendanceService {
             console.warn('Invalid slot found, skipping:', slot);
             return false;
           }
+
+          // Filter out break periods - they should not appear in attendance
+          const periodData = periodsData.find((p) => p.id === slot.period_id);
+          if (periodData?.is_break) {
+            console.log('Filtering out break period from attendance:', {
+              period_name: periodData.period_name,
+              period_id: slot.period_id
+            });
+            return false;
+          }
+
           return true;
         })
         .map((slot: any) => {

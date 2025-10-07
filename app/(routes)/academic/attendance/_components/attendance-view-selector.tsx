@@ -64,13 +64,24 @@ export function AttendanceViewSelector({
   // Check if user is faculty (has a staff record) - Skip for non-faculty roles
   useEffect(() => {
     const checkIfFaculty = async () => {
+      console.log('🎯 AttendanceViewSelector - Role Check:', {
+        isUserSuperAdmin,
+        isAdmin,
+        isHOD,
+        isFaculty,
+        role: profile?.role,
+        email: profile?.email
+      });
+
       // Skip faculty check for super admins, admin roles, and HOD roles
       if (isUserSuperAdmin || isAdmin || isHOD || !isFaculty) {
+        console.log('✅ Non-faculty role detected - skipping staff check');
         setLoadingStaffId(false);
         return;
       }
 
       if (!profile?.email) {
+        console.log('⚠️ No profile email - skipping staff check');
         setLoadingStaffId(false);
         return;
       }
@@ -81,6 +92,7 @@ export function AttendanceViewSelector({
           profile.email
         );
         setStaffId(id);
+        console.log('✅ Faculty staff ID found:', id);
       } catch (error) {
         console.error('Error checking faculty status:', error);
       } finally {
@@ -89,7 +101,7 @@ export function AttendanceViewSelector({
     };
 
     checkIfFaculty();
-  }, [profile?.email, isUserSuperAdmin, isAdmin, isFaculty]);
+  }, [profile?.email, isUserSuperAdmin, isAdmin, isFaculty, isHOD]);
 
   // Handle quick attendance period selection
   const handleQuickPeriodSelect = (
@@ -105,6 +117,7 @@ export function AttendanceViewSelector({
 
   // Loading state
   if (loadingStaffId) {
+    console.log('⏳ Showing loading state');
     return (
       <div className='flex items-center justify-center py-8'>
         <Loader2 className='h-6 w-6 animate-spin mr-2' />
@@ -113,8 +126,21 @@ export function AttendanceViewSelector({
     );
   }
 
+  console.log('🎨 Rendering AttendanceViewSelector:', {
+    isUserSuperAdmin,
+    isAdmin,
+    isHOD,
+    staffId,
+    isFaculty,
+    willShowAdminInterface: isUserSuperAdmin || isAdmin || isHOD,
+    willShowFacultyInterface: !!staffId,
+    willShowNoPermission: !staffId && isFaculty,
+    willShowDefaultNoPermission: !isUserSuperAdmin && !isAdmin && !isHOD && !staffId
+  });
+
   // For super admins, administrators, and HOD users, show the full search interface
   if (isUserSuperAdmin || isAdmin || isHOD) {
+    console.log('✅ Rendering admin/super admin search interface');
     return (
       <div className='space-y-6 flex flex-col gap-4'>
         <Alert className='flex items-center gap-2 border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>

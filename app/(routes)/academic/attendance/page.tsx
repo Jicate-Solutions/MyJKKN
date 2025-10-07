@@ -86,6 +86,14 @@ export default function AttendancePage() {
 
   // Initialize with user's institution
   useEffect(() => {
+    console.log('🔍 Attendance Page - Initialization:', {
+      hasProfile: !!profile,
+      institution_id: profile?.institution_id,
+      role: profile?.role,
+      isSuperAdmin,
+      loadingInitialData
+    });
+
     if (profile?.institution_id) {
       updateSearchContext({
         institution_id: profile.institution_id
@@ -93,6 +101,11 @@ export default function AttendancePage() {
       setLoadingInitialData(false);
     } else if (isSuperAdmin) {
       // For super admins without a specific institution, we need to handle this case
+      console.log('✅ Super admin detected - enabling search interface');
+      setLoadingInitialData(false);
+    } else if (profile && !profile.institution_id) {
+      // Profile loaded but no institution - still allow loading to finish
+      console.log('⚠️ Profile loaded without institution_id - finishing load');
       setLoadingInitialData(false);
     }
   }, [profile?.institution_id, isSuperAdmin, profile]);
