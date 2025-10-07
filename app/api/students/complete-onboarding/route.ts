@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const { data: student, error: studentError } = await supabaseAdmin
       .from('students')
       .select(
-        'id, first_name, last_name, college_email, student_mobile, institution_id, is_profile_complete'
+        'id, first_name, last_name, college_email, student_mobile, institution_id, department_id, is_profile_complete'
       )
       .eq('id', student_id)
       .single();
@@ -168,6 +168,7 @@ export async function POST(request: NextRequest) {
         phone_number: student.student_mobile,
         role: 'student',
         institution_id: student.institution_id,
+        department_id: student.department_id,
         profile_completed: true,
         is_active: true
       });
