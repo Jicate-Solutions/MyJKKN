@@ -424,6 +424,14 @@ export class AdmissionService {
         query = query.eq('institution_id', filters.institution);
       }
 
+      if (filters.department && filters.department !== 'all') {
+        query = query.eq('department_id', filters.department);
+      }
+
+      if (filters.entry_type && filters.entry_type !== 'all') {
+        query = query.eq('entry_type', filters.entry_type);
+      }
+
       if (filters.course && filters.course !== 'all') {
         query = query.eq('program_id', filters.course);
       }

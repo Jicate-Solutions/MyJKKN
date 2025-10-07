@@ -77,6 +77,7 @@ interface AdmissionDataTableProps {
   pageSize: number;
   totalItems: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
 }
 
 export function AdmissionDataTable({
@@ -90,7 +91,8 @@ export function AdmissionDataTable({
   totalPages,
   pageSize,
   totalItems,
-  onPageChange
+  onPageChange,
+  onPageSizeChange
 }: AdmissionDataTableProps) {
   const router = useRouter();
   const updateStatus = useUpdateAdmissionStatus();
@@ -286,11 +288,18 @@ export function AdmissionDataTable({
       id: 'program',
       header: 'Program',
       cell: ({ row }) => (
-        <div>
-          {row.original.program?.program_name ||
-            (row.original.program_id
-              ? `ID: ${row.original.program_id}`
-              : 'N/A')}
+        <div className="flex flex-col gap-1">
+          <div>
+            {row.original.program?.program_name ||
+              (row.original.program_id
+                ? `ID: ${row.original.program_id}`
+                : 'N/A')}
+          </div>
+          {row.original.entry_type && (
+            <div className="text-xs text-muted-foreground">
+              {row.original.entry_type}
+            </div>
+          )}
         </div>
       )
     },
@@ -385,6 +394,7 @@ export function AdmissionDataTable({
           hasNextPage: currentPage < totalPages,
           hasPreviousPage: currentPage > 1,
           onPageChange,
+          onPageSizeChange,
           isLoading
         }}
       />

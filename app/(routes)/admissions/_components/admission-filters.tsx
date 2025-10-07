@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { AdmissionFilters as FilterType } from '@/types/admission';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
@@ -28,6 +29,12 @@ type InstitutionName = {
   id: string;
   name: string;
   counselling_code: string;
+};
+
+type DepartmentName = {
+  id: string;
+  department_name: string;
+  department_code: string;
 };
 
 interface AdmissionFilterProps {
@@ -49,6 +56,8 @@ export function AdmissionFilter({
   );
   const [institutions, setInstitutions] = useState<InstitutionName[]>([]);
   const [loadingInstitutions, setLoadingInstitutions] = useState(true);
+  const [departments, setDepartments] = useState<DepartmentName[]>([]);
+  const [loadingDepartments, setLoadingDepartments] = useState(false);
 
   useEffect(() => {
     setLocalFilters(filters);
@@ -107,13 +116,50 @@ export function AdmissionFilter({
     fetchInstitutions();
   }, [profile?.id]);
 
+  // Fetch departments when institution changes
+  useEffect(() => {
+    async function fetchDepartments() {
+      if (!localFilters.institution) {
+        setDepartments([]);
+        return;
+      }
+
+      try {
+        setLoadingDepartments(true);
+        const { data: departmentsData } = await DepartmentService.getDepartments({
+          institution_id: localFilters.institution,
+          isActive: true
+        });
+
+        const mappedDepartments = departmentsData.map((dept) => ({
+          id: dept.id,
+          department_name: dept.department_name,
+          department_code: dept.department_code
+        }));
+        setDepartments(mappedDepartments);
+      } catch (error) {
+        console.error('Error fetching departments:', error);
+        setDepartments([]);
+      } finally {
+        setLoadingDepartments(false);
+      }
+    }
+
+    fetchDepartments();
+  }, [localFilters.institution]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setLocalFilters((prev: FilterType) => ({ ...prev, [name]: value }));
   };
 
   const handleSelectChange = (name: string, value: string) => {
-    setLocalFilters((prev: FilterType) => ({ ...prev, [name]: value }));
+    // If institution changes, reset department
+    if (name === 'institution') {
+      setLocalFilters((prev: FilterType) => ({ ...prev, [name]: value, department: '' }));
+    } else {
+      setLocalFilters((prev: FilterType) => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleFromDateChange = (date: Date | undefined) => {
@@ -137,6 +183,8 @@ export function AdmissionFilter({
       search: '',
       name: '',
       institution: '',
+      department: '',
+      entry_type: '',
       status: '',
       course: '',
       fromDate: undefined,
@@ -192,6 +240,53 @@ export function AdmissionFilter({
                   </SelectItem>
                 ))
               )}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className='w-full sm:w-48'>
+          <Select
+            value={localFilters.department || 'all'}
+            onValueChange={(value) =>
+              handleSelectChange('department', value === 'all' ? '' : value)
+            }
+            disabled={!localFilters.institution || loadingDepartments}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Department' />
+            </SelectTrigger>
+            <SelectContent className='max-h-60 overflow-y-auto'>
+              <SelectItem value='all'>All Departments</SelectItem>
+              {loadingDepartments ? (
+                <div className='p-2'>
+                  <Skeleton className='h-5 w-full' />
+                  <Skeleton className='h-5 w-full mt-2' />
+                </div>
+              ) : (
+                departments.map((department) => (
+                  <SelectItem key={department.id} value={department.id}>
+                    {department.department_name}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className='w-full sm:w-40'>
+          <Select
+            value={localFilters.entry_type || 'all'}
+            onValueChange={(value) =>
+              handleSelectChange('entry_type', value === 'all' ? '' : value)
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Entry Type' />
+            </SelectTrigger>
+            <SelectContent className='max-h-60 overflow-y-auto'>
+              <SelectItem value='all'>All Entry Types</SelectItem>
+              <SelectItem value='FIRST YEAR'>First Year</SelectItem>
+              <SelectItem value='LATERAL ENTRY'>Lateral Entry</SelectItem>
             </SelectContent>
           </Select>
         </div>
