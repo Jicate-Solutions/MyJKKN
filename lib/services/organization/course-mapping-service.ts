@@ -43,6 +43,27 @@ export class CourseMappingService {
     }
   }
 
+  /**
+   * Helper method to get user's department ID for filtering
+   */
+  private static async getUserDepartmentId(
+    userId: string
+  ): Promise<string | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('profiles')
+        .select('department_id')
+        .eq('id', userId)
+        .single();
+
+      if (error) throw error;
+      return data?.department_id || null;
+    } catch (error) {
+      console.error('Error getting user department ID:', error);
+      return null;
+    }
+  }
+
   // New method to check if a course is already mapped to a semester
   static async isCourseMapped(
     courseId: string,
@@ -171,7 +192,6 @@ export class CourseMappingService {
 
       if (error) throw error;
 
-      toast.success('Course mapping updated successfully');
       return courseMapping;
     } catch (error) {
       console.error('Error updating course mapping:', error);
@@ -273,6 +293,35 @@ export class CourseMappingService {
       }
       if (typeof filters.isActive === 'boolean') {
         query = query.eq('is_active', filters.isActive);
+      }
+
+      // Apply institution filtering based on user access if userId is provided
+      if (filters.userId && !filters.bypassInstitutionFilter) {
+        const accessibleInstitutionIds =
+          await this.getUserAccessibleInstitutionIds(filters.userId);
+        if (accessibleInstitutionIds.length > 0) {
+          query = query.in('institution_id', accessibleInstitutionIds);
+        } else {
+          // If user has no accessible institutions, return empty result
+          return {
+            data: [],
+            metadata: {
+              total: 0,
+              page: filters.page || 1,
+              limit: filters.limit || 10,
+              totalPages: 0
+            }
+          };
+        }
+      }
+
+      // Apply department filtering based on user's department if userId is provided
+      if (filters.userId && !filters.bypassDepartmentFilter) {
+        const userDepartmentId = await this.getUserDepartmentId(filters.userId);
+        // Only apply department filter if user has a department_id (HOD, department-specific roles)
+        if (userDepartmentId) {
+          query = query.eq('department_id', userDepartmentId);
+        }
       }
 
       // Pagination

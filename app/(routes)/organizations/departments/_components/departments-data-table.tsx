@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { Department } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,7 +37,8 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
   const canCreate =
     isSuperAdmin || canAccess('organizations.institutions', 'create');
 
-  const fetchData = async (params: {
+  // FIXED: Wrap fetchData in useCallback to prevent infinite re-renders
+  const fetchData = useCallback(async (params: {
     page: number;
     limit: number;
     search: string;
@@ -47,6 +48,9 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
     sort_order: string;
   }) => {
     try {
+      // Get current user for institution access filtering
+      const { data: { user } } = await DepartmentService['supabase'].auth.getUser();
+
       // Map the DataTable parameters to our DepartmentService parameters
       const filters = {
         page: params.page,
@@ -56,7 +60,8 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
         institution_id: search.institution_id,
         degree_id: search.degree_id,
-        status: search.status
+        status: search.status,
+        userId: user?.id // FIXED: Add userId for RLS filtering
       };
 
       const { data, metadata } = await DepartmentService.getDepartments(
@@ -77,7 +82,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
       console.error('Error fetching departments:', error);
       throw error;
     }
-  };
+  }, [search.institution_id, search.degree_id, search.status]); // Stable dependencies only
 
   const handleBulkDelete = async (
     selectedRows: Department[],

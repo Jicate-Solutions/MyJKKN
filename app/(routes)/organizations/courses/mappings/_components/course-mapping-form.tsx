@@ -15,6 +15,8 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { CourseService } from '@/lib/services/organization/course-service';
+import { useAuth } from '@/hooks/use-auth';
+import { useUserDepartmentAccess } from '@/hooks/use-user-department-access';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -68,6 +70,8 @@ export function CourseMappingForm({
 }: CourseMappingFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { profile } = useAuth();
+  const { departmentId, hasDepartmentRestriction } = useUserDepartmentAccess();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -121,6 +125,13 @@ export function CourseMappingForm({
   const watchedProgramId = form.watch('program_id');
   const watchedSemesterId = form.watch('semester_id');
 
+  // Auto-select user's institution if they have one and not editing
+  useEffect(() => {
+    if (!isEditing && profile?.institution_id && hasDepartmentRestriction) {
+      form.setValue('institution_id', profile.institution_id);
+    }
+  }, [profile?.institution_id, hasDepartmentRestriction, isEditing]);
+
   // Load institutions on mount
   useEffect(() => {
     async function loadInstitutions() {
@@ -146,12 +157,28 @@ export function CourseMappingForm({
           watchedInstitutionId
         );
         setDegrees(data);
+
+        // Auto-select degree for HOD users by finding their department's degree
+        if (!isEditing && hasDepartmentRestriction && departmentId) {
+          try {
+            const { data: deptData } = await DepartmentService.getDepartments({
+              institution_id: watchedInstitutionId,
+              isActive: true
+            });
+            const userDept = deptData.find(d => d.id === departmentId);
+            if (userDept?.degree_id) {
+              form.setValue('degree_id', userDept.degree_id);
+            }
+          } catch (error) {
+            console.error('Error loading user department:', error);
+          }
+        }
       } catch (error) {
         console.error('Error loading degrees:', error);
       }
     }
     loadDegrees();
-  }, [watchedInstitutionId]);
+  }, [watchedInstitutionId, hasDepartmentRestriction, departmentId, isEditing]);
 
   // Chain loading of departments based on degree
   useEffect(() => {
@@ -164,13 +191,28 @@ export function CourseMappingForm({
         const data = await DepartmentService.getDepartmentsByDegree(
           watchedDegreeId
         );
-        setDepartments(data);
+
+        // Filter departments for HOD users - show only their department
+        let filteredDepartments = data;
+        if (hasDepartmentRestriction && departmentId) {
+          filteredDepartments = data.filter(dept => dept.id === departmentId);
+
+          // Auto-select user's department if not already selected
+          // Use setTimeout to ensure the form is ready
+          if (filteredDepartments.length > 0 && !watchedDepartmentId) {
+            setTimeout(() => {
+              form.setValue('department_id', departmentId);
+            }, 0);
+          }
+        }
+
+        setDepartments(filteredDepartments);
       } catch (error) {
         console.error('Error loading departments:', error);
       }
     }
     loadDepartments();
-  }, [watchedDegreeId]);
+  }, [watchedDegreeId, hasDepartmentRestriction, departmentId, watchedDepartmentId, form]);
 
   // Chain loading of programs based on department
   useEffect(() => {
@@ -336,6 +378,7 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
+                    disabled={hasDepartmentRestriction && !!profile?.institution_id}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -369,7 +412,7 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={!watchedInstitutionId}
+                    disabled={!watchedInstitutionId || hasDepartmentRestriction}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -402,7 +445,7 @@ export function CourseMappingForm({
                       form.setValue('course_ids', []);
                     }}
                     value={field.value}
-                    disabled={!watchedDegreeId}
+                    disabled={!watchedDegreeId || hasDepartmentRestriction}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -511,8 +554,7 @@ export function CourseMappingForm({
           <CardHeader>
             <CardTitle>Select Courses</CardTitle>
             <FormDescription>
-              Select one or more courses to map to the selected semester. When
-              editing, you can only select one course.
+              Select one or more courses to map to the selected semester.
             </FormDescription>
           </CardHeader>
           <CardContent>
@@ -536,28 +578,26 @@ export function CourseMappingForm({
                     </Badge>
                   )}
                 </div>
-                {!isEditing && (
-                  <div className='flex items-center gap-2'>
-                    <Button
-                      type='button'
-                      variant='link'
-                      size='sm'
-                      onClick={handleSelectAll}
-                      disabled={availableCourses.length === 0}
-                    >
-                      Select All
-                    </Button>
-                    <Button
-                      type='button'
-                      variant='link'
-                      size='sm'
-                      onClick={handleDeselectAll}
-                      disabled={selectedCourseIds.length === 0}
-                    >
-                      Deselect All
-                    </Button>
-                  </div>
-                )}
+                <div className='flex items-center gap-2'>
+                  <Button
+                    type='button'
+                    variant='link'
+                    size='sm'
+                    onClick={handleSelectAll}
+                    disabled={availableCourses.length === 0}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='link'
+                    size='sm'
+                    onClick={handleDeselectAll}
+                    disabled={selectedCourseIds.length === 0}
+                  >
+                    Deselect All
+                  </Button>
+                </div>
               </div>
               <FormField
                 control={form.control}
@@ -581,11 +621,6 @@ export function CourseMappingForm({
                                     <Checkbox
                                       checked={field.value?.includes(course.id)}
                                       onCheckedChange={(checked) => {
-                                        if (isEditing) {
-                                          return field.onChange(
-                                            checked ? [course.id] : []
-                                          );
-                                        }
                                         return checked
                                           ? field.onChange([
                                               ...(field.value || []),
@@ -638,9 +673,7 @@ export function CourseMappingForm({
           </Button>
           <Button
             type='submit'
-            disabled={
-              isSubmitting || (isEditing && selectedCourseIds.length !== 1)
-            }
+            disabled={isSubmitting}
           >
             {isSubmitting
               ? 'Saving...'

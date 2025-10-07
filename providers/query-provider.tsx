@@ -14,8 +14,8 @@ export function QueryClientProvider({ children }: { children: ReactNode }) {
           queries: {
             staleTime: 2 * 60 * 1000, // 2 minutes - reduced for more frequent updates
             gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
-            refetchOnWindowFocus: true, // Refetch when window gains focus
-            refetchOnMount: true, // Always refetch when component mounts - FIXED
+            refetchOnWindowFocus: false, // Refetch when window gains focus - DISABLED to prevent excessive refetches
+            refetchOnMount: false, // Only refetch when data is stale - FIXED to prevent continuous loading
             refetchOnReconnect: true, // Refetch on network reconnect
             retry: (failureCount, error) => {
               // Don't retry on auth errors, RLS policy errors, or 404s

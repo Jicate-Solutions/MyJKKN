@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { CourseMappingService } from '@/lib/services/organization/course-mapping-service';
 import { CourseMapping } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
 import { useState } from 'react';
 import {
   AlertDialog,
@@ -30,6 +31,7 @@ export function CourseMappingsDataTable({
   search
 }: CourseMappingsDataTableProps) {
   const router = useRouter();
+  const { profile } = useAuth();
   const { canAccess, isSuperAdmin } = usePermissions();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<CourseMapping[]>([]);
@@ -37,7 +39,7 @@ export function CourseMappingsDataTable({
   const [isDeleting, setIsDeleting] = useState(false);
 
   const canCreate =
-    isSuperAdmin || canAccess('organizations.institutions', 'create');
+    isSuperAdmin || canAccess('organizations.course.mappings', 'create');
 
   const fetchData = async (params: {
     page: number;
@@ -66,7 +68,8 @@ export function CourseMappingsDataTable({
             ? true
             : search.status === 'inactive'
             ? false
-            : undefined
+            : undefined,
+        userId: profile?.id // Add userId for institution and department filtering
       };
 
       const { data, metadata } = await CourseMappingService.getCourseMappings(
@@ -221,7 +224,7 @@ export function CourseMappingsDataTable({
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {selectedForDelete.map((mapping) => (
                   <div key={mapping.id} className="text-sm">
-                    • {mapping.course?.name} - {mapping.semester?.name}
+                    • {mapping.course?.course_name} - {mapping.semester?.semester_name}
                   </div>
                 ))}
               </div>

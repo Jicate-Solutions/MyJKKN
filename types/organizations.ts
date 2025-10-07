@@ -498,8 +498,9 @@ export interface CourseMappingFilters {
   isActive?: boolean;
   page?: number;
   limit?: number;
-  userId?: string; // For applying user-based institution filtering
+  userId?: string; // For applying user-based institution and department filtering
   bypassInstitutionFilter?: boolean; // To bypass institution filtering when needed
+  bypassDepartmentFilter?: boolean; // To bypass department filtering when needed
 }
 
 export interface CourseMappingListResponse {
