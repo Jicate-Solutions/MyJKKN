@@ -115,6 +115,8 @@ export interface AdmissionFilters {
   name?: string;
   status?: string;
   institution?: string; // field_of_study
+  department?: string; // department filter
+  entry_type?: string; // entry type filter (FIRST YEAR, LATERAL ENTRY, etc.)
   course?: string; // year_and_branch
   fromDate?: string;
   toDate?: string;

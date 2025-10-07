@@ -22,10 +22,13 @@ import { BeatLoader } from 'react-spinners';
 export default function AdmissionsPage() {
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [filters, setFilters] = useState<AdmissionFilters>({
     search: '',
     name: '',
     institution: '',
+    department: '',
+    entry_type: '',
     status: '',
     course: '',
     fromDate: undefined,
@@ -68,7 +71,7 @@ export default function AdmissionsPage() {
   } = useAdmissions({
     ...filters,
     page: currentPage,
-    limit: 10
+    limit: pageSize
   });
 
   const handleFilterChange = (newFilters: AdmissionFilters) => {
@@ -84,10 +87,15 @@ export default function AdmissionsPage() {
     setCurrentPage(page);
   };
 
-  // Update the filter state when page changes
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setCurrentPage(1); // Reset to first page when changing page size
+  };
+
+  // Update the filter state when page or pageSize changes
   useEffect(() => {
-    setFilters((prev) => ({ ...prev, page: currentPage }));
-  }, [currentPage]);
+    setFilters((prev) => ({ ...prev, page: currentPage, limit: pageSize }));
+  }, [currentPage, pageSize]);
 
   const metadata = {
     currentPage,
@@ -165,6 +173,7 @@ export default function AdmissionsPage() {
               pageSize={metadata.pageSize}
               totalItems={metadata.totalCount}
               onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
             />
           </CardContent>
         </Card>
