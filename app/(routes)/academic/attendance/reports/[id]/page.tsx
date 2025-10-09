@@ -428,7 +428,10 @@ export default function AttendanceReportDetailPage() {
                 <div>
                   <p className='text-sm text-gray-500 mb-1'>Section</p>
                   <p className='font-semibold text-sm'>
-                    {report.section_name || 'N/A'}
+                    {/* Updated: 2025-10-09 - Display all sections for semester-level timetables */}
+                    {report.section_names && report.section_names.length > 1
+                      ? `Sections ${report.section_names.join(', ')}`
+                      : report.section_name || 'N/A'}
                   </p>
                 </div>
                 <div>
@@ -445,10 +448,26 @@ export default function AttendanceReportDetailPage() {
                 </div>
                 <div>
                   <p className='text-sm text-gray-500 mb-1'>Timetable</p>
-                  <p className='font-semibold text-sm'>
-                    {report.timetable_name ||
-                      `TT-${report.timetable_id?.slice(0, 8) || 'N/A'}`}
-                  </p>
+                  <div className='flex items-center gap-2'>
+                    <p className='font-semibold text-sm'>
+                      {report.timetable_name ||
+                        `TT-${report.timetable_id?.slice(0, 8) || 'N/A'}`}
+                    </p>
+                    {report.timetable_type && (
+                      <Badge
+                        variant='outline'
+                        className={
+                          report.timetable_type === 'semester'
+                            ? 'bg-green-50 text-green-700 border-green-200 text-xs'
+                            : 'bg-blue-50 text-blue-700 border-blue-200 text-xs'
+                        }
+                      >
+                        {report.timetable_type === 'semester'
+                          ? 'Semester Level'
+                          : 'Section Level'}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -789,6 +808,7 @@ export default function AttendanceReportDetailPage() {
                                 <TableHead className='w-16'>S.No</TableHead>
                                 <TableHead>Student Name</TableHead>
                                 <TableHead>Roll Number</TableHead>
+                                <TableHead>Section</TableHead>
                                 <TableHead className='text-center'>
                                   Status
                                 </TableHead>
@@ -879,6 +899,9 @@ export default function AttendanceReportDetailPage() {
                                         <TableCell>
                                           {student.roll_number || 'N/A'}
                                         </TableCell>
+                                        <TableCell>
+                                          {student.section_name ? `Section ${student.section_name}` : 'N/A'}
+                                        </TableCell>
                                         <TableCell className='text-center'>
                                           <Badge
                                             className={`${
@@ -897,7 +920,7 @@ export default function AttendanceReportDetailPage() {
                                   ) : (
                                     <TableRow>
                                       <TableCell
-                                        colSpan={4}
+                                        colSpan={5}
                                         className='text-center py-8 text-gray-500'
                                       >
                                         No students found matching &quot;
@@ -909,7 +932,7 @@ export default function AttendanceReportDetailPage() {
                               ) : (
                                 <TableRow>
                                   <TableCell
-                                    colSpan={4}
+                                    colSpan={5}
                                     className='text-center py-8 text-gray-500'
                                   >
                                     No student data available for this period

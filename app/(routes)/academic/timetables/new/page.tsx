@@ -60,6 +60,7 @@ import { useTemplates, useCreateFromTemplate } from '@/hooks/use-templates';
 import toast from 'react-hot-toast';
 
 // Define the schema for timetable creation
+// Updated: 2025-10-08 - Added timetable_type and made section_id optional
 const timetableFormSchema = z
   .object({
     timetable_name: z.string().min(3, {
@@ -83,9 +84,8 @@ const timetableFormSchema = z
     semester_id: z.string().min(1, {
       message: 'Please select a semester.'
     }),
-    section_id: z.string().min(1, {
-      message: 'Please select a section.'
-    }),
+    timetable_type: z.enum(['section', 'semester']).default('semester'),
+    section_id: z.string().optional(), // Now optional for semester-level timetables
     start_date: z.date().optional(),
     end_date: z.date().optional(),
     is_active: z.boolean().default(true),
@@ -104,6 +104,19 @@ const timetableFormSchema = z
     {
       message: 'End date must be on or after start date',
       path: ['end_date']
+    }
+  )
+  .refine(
+    (data) => {
+      // Section is required only for section-level timetables
+      if (data.timetable_type === 'section' && !data.section_id) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Please select a section for section-level timetables.',
+      path: ['section_id']
     }
   );
 
@@ -126,6 +139,7 @@ export default function NewTimetablePage() {
       program_id: '',
       department_id: '',
       semester_id: '',
+      timetable_type: 'semester', // Default to semester-level (new recommended approach)
       section_id: '',
       is_active: true,
       is_template: false,
@@ -143,6 +157,7 @@ export default function NewTimetablePage() {
   const watchProgramId = form.watch('program_id');
   const watchDepartmentId = form.watch('department_id');
   const watchSemesterId = form.watch('semester_id');
+  const watchTimetableType = form.watch('timetable_type'); // New watch
   const watchSectionId = form.watch('section_id');
   const watchStartDate = form.watch('start_date');
   const watchEndDate = form.watch('end_date');
@@ -467,6 +482,7 @@ export default function NewTimetablePage() {
             department_id: formattedValues.department_id,
             semester_id: formattedValues.semester_id,
             section_id: formattedValues.section_id,
+            timetable_type: formattedValues.timetable_type,
             start_date: formattedValues.start_date,
             end_date: formattedValues.end_date,
             is_active: formattedValues.is_active
@@ -911,46 +927,108 @@ export default function NewTimetablePage() {
                     )}
                   />
 
+                  {/* Timetable Type Selector - New Feature */}
                   <FormField
                     control={form.control}
-                    name='section_id'
+                    name='timetable_type'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Section</FormLabel>
+                        <FormLabel>Timetable Type</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            // Clear section_id when switching to semester type
+                            if (value === 'semester') {
+                              form.setValue('section_id', '');
+                            }
+                          }}
                           value={field.value}
-                          disabled={
-                            loadingSections ||
-                            !selectedSemesterId ||
-                            (sectionsData?.data.length ?? 0) === 0
-                          }
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select section' />
+                              <SelectValue placeholder='Select timetable type' />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent className='max-h-60 overflow-y-auto'>
-                            {uniqueSections.map((section, index) => (
-                              <SelectItem
-                                key={`section-${section.id}-${index}`}
-                                value={section.id}
-                              >
-                                {section.section_name}
-                              </SelectItem>
-                            ))}
+                          <SelectContent>
+                            <SelectItem value='semester'>
+                              <div className='flex flex-col items-start'>
+                                <span className='font-medium'>
+                                  Semester Level
+                                </span>
+                              </div>
+                            </SelectItem>
+                            <SelectItem value='section'>
+                              <div className='flex flex-col items-start'>
+                                <span className='font-medium'>
+                                  Section Level
+                                </span>
+                              </div>
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          The section for this timetable (e.g., A, B, C).
-                          Multiple timetables can exist for the same section
-                          with non-overlapping date periods.
+                          {watchTimetableType === 'semester' ? (
+                            <span className='text-green-600 dark:text-green-400'>
+                              ✅ Semester-level timetables allow flexible
+                              multi-section scheduling. Sections are assigned
+                              per slot.
+                            </span>
+                          ) : (
+                            <span className='text-amber-600 dark:text-amber-400'>
+                              ⚠️ Section-level timetables are tied to one
+                              section. Use semester-level for better
+                              flexibility.
+                            </span>
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+
+                  {/* Section Field - Only for section-level timetables */}
+                  {watchTimetableType === 'section' && (
+                    <FormField
+                      control={form.control}
+                      name='section_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Section</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={
+                              loadingSections ||
+                              !selectedSemesterId ||
+                              (sectionsData?.data.length ?? 0) === 0
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder='Select section' />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className='max-h-60 overflow-y-auto'>
+                              {uniqueSections.map((section, index) => (
+                                <SelectItem
+                                  key={`section-${section.id}-${index}`}
+                                  value={section.id}
+                                >
+                                  {section.section_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            The section for this timetable (e.g., A, B, C).
+                            Multiple timetables can exist for the same section
+                            with non-overlapping date periods.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   {/* Timetable Format Field */}
                   <FormField

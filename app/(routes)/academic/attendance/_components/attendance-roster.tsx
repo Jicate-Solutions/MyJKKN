@@ -409,6 +409,7 @@ export function AttendanceRoster({
               </TableHead>
               <TableHead>Roll Number</TableHead>
               <TableHead>Student Name</TableHead>
+              <TableHead>Section</TableHead>
               <TableHead>Status</TableHead>
               {canMarkThisSlot && <TableHead>Action</TableHead>}
             </TableRow>
@@ -430,6 +431,11 @@ export function AttendanceRoster({
                 </TableCell>
                 <TableCell>
                   {`${student.first_name} ${student.last_name || ''}`.trim()}
+                </TableCell>
+                <TableCell>
+                  <Badge variant='outline' className='font-medium'>
+                    {student.section?.section_name || 'N/A'}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   <Badge

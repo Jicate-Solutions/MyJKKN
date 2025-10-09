@@ -11,14 +11,14 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
-import type { Institution, Department, Semester, Degree, Program, Section } from '@/types/organizations';
+import type { Department, Semester, Degree, Program, Section } from '@/types/organizations';
 import type { AcademicYear } from '@/types/academics';
 import type { StudentSearchFilters } from '@/types/billing-schedule';
 
@@ -31,14 +31,18 @@ export function StudentSearchFilters({
   filters,
   onFilterChange
 }: StudentSearchFiltersProps) {
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
+  // Use the hook that respects user institution access
+  const {
+    institutions,
+    loading: isLoadingInstitutions
+  } = useInstitutionsWithAccess({ isActive: true });
+
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [degrees, setDegrees] = useState<Degree[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
-  const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(true);
   const [isLoadingAcademicYears, setIsLoadingAcademicYears] = useState(false);
   const [isLoadingDegrees, setIsLoadingDegrees] = useState(false);
   const [isLoadingDepartments, setIsLoadingDepartments] = useState(false);
@@ -63,10 +67,6 @@ export function StudentSearchFilters({
     semester_id: filters.semester_id,
     section_id: filters.section_id
   });
-
-  useEffect(() => {
-    loadInstitutions();
-  }, []);
 
   // Load hierarchical data based on local filter selections
   useEffect(() => {
@@ -168,20 +168,6 @@ export function StudentSearchFilters({
         section_id: undefined
       })
     }));
-  };
-
-  const loadInstitutions = async () => {
-    try {
-      setIsLoadingInstitutions(true);
-      const institutionNames = await OrganizationService.getInstitutionNames(
-        true
-      );
-      setInstitutions(institutionNames as Institution[]);
-    } catch (error) {
-      console.error('Error loading institutions:', error);
-    } finally {
-      setIsLoadingInstitutions(false);
-    }
   };
 
   const loadAcademicYears = async (institutionId: string) => {

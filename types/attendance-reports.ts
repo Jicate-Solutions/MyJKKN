@@ -119,10 +119,13 @@ export interface DetailedAttendanceReport {
   semester_name: string;
   section_id: string;
   section_name: string;
+  section_ids?: string[]; // Updated: 2025-10-09 - Array of all section IDs for multi-section
+  section_names?: string[]; // Updated: 2025-10-09 - Array of all section names for display
   academic_year_id: string;
   academic_year_name: string;
   timetable_id: string;
   timetable_name?: string;
+  timetable_type?: 'section' | 'semester'; // Updated: 2025-10-08
   marked_by_id: string;
   marked_by_name: string;
   marked_by_email: string;
@@ -152,6 +155,8 @@ export interface DetailedAttendanceReport {
       student_name: string;
       roll_number?: string;
       avatar_url?: string;
+      section_id?: string; // Updated: 2025-10-08 - For multi-section support
+      section_name?: string; // Updated: 2025-10-08 - For multi-section support
       is_present: boolean;
     }[];
     present_count: number;
@@ -164,6 +169,8 @@ export interface DetailedAttendanceReport {
     student_name: string;
     roll_number?: string;
     avatar_url?: string;
+    section_id?: string; // Updated: 2025-10-08 - For multi-section support
+    section_name?: string; // Updated: 2025-10-08 - For multi-section support
     is_present: boolean;
     periods_attended: string[];
     attendance_percentage: number;

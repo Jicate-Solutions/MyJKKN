@@ -229,15 +229,30 @@ export function SlotDialog({
   }, [existingSlot]);
 
   const handleSave = () => {
+    // Updated: 2025-10-09 - Auto-populate section_ids for section-level timetables
+    let finalSectionIds = selectedSections;
+
+    // For section-level timetables, auto-assign the timetable's section
+    if (timetable?.timetable_type === 'section' && timetable?.section_id) {
+      finalSectionIds = [timetable.section_id];
+      console.log('✅ Auto-assigned section for section-level timetable:', timetable.section_id);
+    }
+
     // Prepare slot data from the dialog's state
     const slotData = {
       course_id: selectedCourse || undefined,
       staff_ids: selectedStaff,
-      section_ids: selectedSections,
+      section_ids: finalSectionIds,
       is_break_slot: isBreakSlot,
       break_description: breakDescription,
       is_combined: isCombinedClass,
-      sub_slots: isCombinedClass ? subSlots : undefined
+      sub_slots: isCombinedClass ? subSlots.map((subSlot) => ({
+        ...subSlot,
+        // Also auto-assign section for sub-slots in section-level timetables
+        section_ids: timetable?.timetable_type === 'section' && timetable?.section_id
+          ? [timetable.section_id]
+          : subSlot.section_ids
+      })) : undefined
     };
 
     // Pass the slot data to the parent along with the date
@@ -640,80 +655,103 @@ export function SlotDialog({
                   )}
                 </div>
 
-                {/* Section Selection */}
-                <div className='space-y-2'>
-                  <div className='flex items-center justify-between'>
-                    <Label>
-                      Sections <span className='text-red-500'>*</span>
-                    </Label>
-                    <Badge variant='secondary' className='text-xs'>
-                      Semester ({filteredSections?.length || 0})
-                    </Badge>
-                  </div>
-                  <div
-                    className={`border rounded-md p-2 max-h-32 overflow-y-auto ${
-                      !selectedSections ||
-                      selectedSections.length === 0 ||
-                      selectedSections.every((id) => id === 'none')
-                        ? 'border-red-300 bg-red-50'
-                        : ''
-                    }`}
-                  >
-                    {filteredSections?.map((section: any) => (
-                      <div
-                        key={section.id}
-                        className='flex items-center space-x-2 py-1'
-                      >
-                        <Checkbox
-                          id={`section-${section.id}`}
-                          checked={selectedSections.includes(section.id)}
-                          disabled={readOnly}
-                          onCheckedChange={(checked) => {
-                            if (!readOnly) {
-                              if (checked) {
-                                setSelectedSections([
-                                  ...selectedSections,
-                                  section.id
-                                ]);
-                              } else {
-                                setSelectedSections(
-                                  selectedSections.filter(
-                                    (id: string) => id !== section.id
-                                  )
-                                );
-                              }
-                            }
-                          }}
-                        />
-                        <Label
-                          htmlFor={`section-${section.id}`}
-                          className='text-sm flex items-center gap-2'
+                {/* Section Selection - Updated: 2025-10-09 - Hide for section-level timetables */}
+                {timetable?.timetable_type === 'semester' ? (
+                  // Semester-level timetable: Show multi-section selector
+                  <div className='space-y-2'>
+                    <div className='flex items-center justify-between'>
+                      <Label>
+                        Sections <span className='text-red-500'>*</span>
+                      </Label>
+                      <Badge variant='secondary' className='text-xs'>
+                        Semester ({filteredSections?.length || 0})
+                      </Badge>
+                    </div>
+                    <div
+                      className={`border rounded-md p-2 max-h-32 overflow-y-auto ${
+                        !selectedSections ||
+                        selectedSections.length === 0 ||
+                        selectedSections.every((id) => id === 'none')
+                          ? 'border-red-300 bg-red-50'
+                          : ''
+                      }`}
+                    >
+                      {filteredSections?.map((section: any) => (
+                        <div
+                          key={section.id}
+                          className='flex items-center space-x-2 py-1'
                         >
-                          {section.section_name}
-                        </Label>
-                      </div>
-                    ))}
-
-                    {filteredSections?.length === 0 &&
-                      !loadingFilteredSections && (
-                        <div className='text-center py-4 text-gray-500 text-sm'>
-                          <div className='mb-1'>
-                            No sections found for {timetable?.semester_id}
-                          </div>
-                          <div className='text-xs text-gray-400'>
-                            Please create sections for this semester first
-                          </div>
+                          <Checkbox
+                            id={`section-${section.id}`}
+                            checked={selectedSections.includes(section.id)}
+                            disabled={readOnly}
+                            onCheckedChange={(checked) => {
+                              if (!readOnly) {
+                                if (checked) {
+                                  setSelectedSections([
+                                    ...selectedSections,
+                                    section.id
+                                  ]);
+                                } else {
+                                  setSelectedSections(
+                                    selectedSections.filter(
+                                      (id: string) => id !== section.id
+                                    )
+                                  );
+                                }
+                              }
+                            }}
+                          />
+                          <Label
+                            htmlFor={`section-${section.id}`}
+                            className='text-sm flex items-center gap-2'
+                          >
+                            {section.section_name}
+                          </Label>
                         </div>
-                      )}
+                      ))}
+
+                      {filteredSections?.length === 0 &&
+                        !loadingFilteredSections && (
+                          <div className='text-center py-4 text-gray-500 text-sm'>
+                            <div className='mb-1'>
+                              No sections found for {timetable?.semester_id}
+                            </div>
+                            <div className='text-xs text-gray-400'>
+                              Please create sections for this semester first
+                            </div>
+                          </div>
+                        )}
+                    </div>
+                    {(!selectedSections ||
+                      selectedSections.length === 0 ||
+                      selectedSections.every((id) => id === 'none')) && (
+                      <p className='text-sm text-red-600'>
+                        At least one section is required
+                      </p>
+                    )}
                   </div>
-                  {(!selectedSections ||
-                    selectedSections.length === 0 ||
-                    selectedSections.every((id) => id === 'none')) && (
-                    <p className='text-sm text-red-600'>
-                      At least one section is required
-                    </p>
-                  )}
-                </div>
+                ) : (
+                  // Section-level timetable: Show info message only
+                  <div className='space-y-2'>
+                    <div className='flex items-center justify-between'>
+                      <Label>Section</Label>
+                      <Badge variant='secondary' className='text-xs bg-blue-100 text-blue-800 border-blue-300'>
+                        Auto-assigned from timetable
+                      </Badge>
+                    </div>
+                    <div className='border rounded-md p-3 bg-blue-50 dark:bg-blue-900/20'>
+                      <p className='text-sm text-blue-700 dark:text-blue-300'>
+                        ℹ️ This is a section-level timetable. The section is automatically assigned from the timetable configuration and cannot be changed here.
+                      </p>
+                      {timetable?.section_id && (
+                        <p className='text-xs text-blue-600 dark:text-blue-400 mt-2'>
+                          Assigned section: <strong>{sections.find((s: any) => s.id === timetable.section_id)?.section_name || 'Unknown'}</strong>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -906,81 +944,105 @@ export function SlotDialog({
                           )}
                         </div>
 
-                        {/* Section Selection */}
-                        <div className='space-y-2'>
-                          <div className='flex items-center justify-between'>
-                            <Label>
-                              Sections <span className='text-red-500'>*</span>
-                            </Label>
-                            <Badge variant='secondary' className='text-xs'>
-                              Semester ({filteredSections?.length || 0})
-                            </Badge>
-                          </div>
-                          <div
-                            className={`border rounded-md p-2 max-h-24 overflow-y-auto ${
-                              !subSlot.section_ids ||
+                        {/* Section Selection - Updated: 2025-10-09 - Hide for section-level timetables */}
+                        {timetable?.timetable_type === 'semester' ? (
+                          // Semester-level timetable: Show multi-section selector
+                          <div className='space-y-2'>
+                            <div className='flex items-center justify-between'>
+                              <Label>
+                                Sections <span className='text-red-500'>*</span>
+                              </Label>
+                              <Badge variant='secondary' className='text-xs'>
+                                Semester ({filteredSections?.length || 0})
+                              </Badge>
+                            </div>
+                            <div
+                              className={`border rounded-md p-2 max-h-24 overflow-y-auto ${
+                                !subSlot.section_ids ||
+                                subSlot.section_ids.length === 0 ||
+                                subSlot.section_ids.every(
+                                  (id: string) => id === 'none'
+                                )
+                                  ? 'border-red-300 bg-red-50'
+                                  : ''
+                              }`}
+                            >
+                              {filteredSections?.map((section: any) => (
+                                <div
+                                  key={section.id}
+                                  className='flex items-center space-x-2 py-1'
+                                >
+                                  <Checkbox
+                                    id={`subSlotSection-${index}-${section.id}`}
+                                    checked={
+                                      subSlot.section_ids?.includes(section.id) ||
+                                      false
+                                    }
+                                    onCheckedChange={(checked) => {
+                                      // const currentSections =
+                                      //   subSlot.section_ids || [];
+                                      // if (checked) {
+                                      //   updateSubSlotSections(index, [
+                                      //     ...currentSections,
+                                      //     section.id
+                                      //   ]);
+                                      // } else {
+                                      //   updateSubSlotSections(
+                                      //     index,
+                                      //     currentSections.filter(
+                                      //       (id: string) => id !== section.id
+                                      //     )
+                                      //   );
+                                      // }
+                                    }}
+                                  />
+                                  <Label
+                                    htmlFor={`subSlotSection-${index}-${section.id}`}
+                                    className='text-xs'
+                                  >
+                                    {section.section_name}
+                                  </Label>
+                                </div>
+                              ))}
+
+                              {filteredSections?.length === 0 && (
+                                <div className='text-center py-2 text-gray-500 text-xs'>
+                                  <div className='mb-1'>
+                                    No sections available for{' '}
+                                    {timetable?.semester_id}
+                                  </div>
+                                  <div className='text-xs text-gray-400'>
+                                    Create sections for this semester first
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            {(!subSlot.section_ids ||
                               subSlot.section_ids.length === 0 ||
                               subSlot.section_ids.every(
                                 (id: string) => id === 'none'
-                              )
-                                ? 'border-red-300 bg-red-50'
-                                : ''
-                            }`}
-                          >
-                            {filteredSections?.map((section: any) => (
-                              <div
-                                key={section.id}
-                                className='flex items-center space-x-2 py-1'
-                              >
-                                <Checkbox
-                                  id={`subSlotSection-${index}-${section.id}`}
-                                  checked={
-                                    subSlot.section_ids?.includes(section.id) ||
-                                    false
-                                  }
-                                  onCheckedChange={(checked) => {
-                                    // const currentSections =
-                                    //   subSlot.section_ids || [];
-                                    // if (checked) {
-                                    //   updateSubSlotSections(index, [
-                                    //     ...currentSections,
-                                    //     section.id
-                                    //   ]);
-                                    // } else {
-                                    //   updateSubSlotSections(
-                                    //     index,
-                                    //     currentSections.filter(
-                                    //       (id: string) => id !== section.id
-                                    //     )
-                                    //   );
-                                    // }
-                                  }}
-                                />
-                              </div>
-                            ))}
-
-                            {filteredSections?.length === 0 && (
-                              <div className='text-center py-2 text-gray-500 text-xs'>
-                                <div className='mb-1'>
-                                  No sections available for{' '}
-                                  {timetable?.semester_id}
-                                </div>
-                                <div className='text-xs text-gray-400'>
-                                  Create sections for this semester first
-                                </div>
-                              </div>
+                              )) && (
+                              <p className='text-sm text-red-600'>
+                                At least one section is required
+                              </p>
                             )}
                           </div>
-                          {(!subSlot.section_ids ||
-                            subSlot.section_ids.length === 0 ||
-                            subSlot.section_ids.every(
-                              (id: string) => id === 'none'
-                            )) && (
-                            <p className='text-sm text-red-600'>
-                              At least one section is required
-                            </p>
-                          )}
-                        </div>
+                        ) : (
+                          // Section-level timetable: Show info message only
+                          <div className='space-y-2'>
+                            <div className='flex items-center justify-between'>
+                              <Label>Section</Label>
+                              <Badge variant='secondary' className='text-xs bg-blue-100 text-blue-800 border-blue-300'>
+                                Auto-assigned
+                              </Badge>
+                            </div>
+                            <div className='border rounded-md p-2 bg-blue-50 dark:bg-blue-900/20'>
+                              <p className='text-xs text-blue-700 dark:text-blue-300'>
+                                ℹ️ Section auto-assigned from timetable
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

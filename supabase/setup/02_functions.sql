@@ -117,26 +117,42 @@ END;
 $$;
 
 -- Grant user institution access
+-- Updated: 2025-10-09 - Fixed function overload by using TEXT type and proper defaults
 CREATE OR REPLACE FUNCTION public.grant_user_institution_access(
     target_user_id uuid,
     target_institution_id uuid,
-    access_type_param text,
-    granted_by_param uuid
+    access_type_param text DEFAULT 'full',
+    granted_by_param uuid DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
+    -- Insert or update the access record
     INSERT INTO user_institution_access (
-        user_id, institution_id, access_type, granted_by, is_active
-    ) VALUES (
-        target_user_id, target_institution_id, access_type_param, granted_by_param, true
+        user_id,
+        institution_id,
+        access_type,
+        granted_by,
+        is_active,
+        created_at,
+        updated_at
     )
-    ON CONFLICT (user_id, institution_id) 
-    DO UPDATE SET 
+    VALUES (
+        target_user_id,
+        target_institution_id,
+        access_type_param,
+        COALESCE(granted_by_param, auth.uid()),
+        true,
+        NOW(),
+        NOW()
+    )
+    ON CONFLICT (user_id, institution_id)
+    DO UPDATE SET
         access_type = access_type_param,
-        granted_by = granted_by_param,
+        granted_by = COALESCE(granted_by_param, auth.uid()),
         is_active = true,
         updated_at = NOW();
 END;

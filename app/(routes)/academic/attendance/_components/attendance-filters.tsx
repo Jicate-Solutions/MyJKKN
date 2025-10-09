@@ -29,22 +29,29 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import type { AttendanceSearchContext } from '@/types/attendance';
 import { cn } from '@/lib/utils';
+import { AttendanceService } from '@/lib/services/academic/attendance-service';
 
 interface AttendanceFiltersProps {
   searchContext: AttendanceSearchContext;
   onContextChange: (context: Partial<AttendanceSearchContext>) => void;
   loading: boolean;
+  // Updated: 2025-10-09 - Expose section requirement status to parent
+  onSectionRequirementChange?: (isRequired: boolean) => void;
 }
 
 export function AttendanceFilters({
   searchContext,
   onContextChange,
-  loading
+  loading,
+  onSectionRequirementChange
 }: AttendanceFiltersProps) {
   const { isSuperAdmin } = usePermissions();
   const { profile } = useAuth();
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  // Updated: 2025-10-09 - Track timetable type to conditionally require section field
+  const [timetableType, setTimetableType] = useState<'semester' | 'section' | null>(null);
+  const [isSectionRequired, setIsSectionRequired] = useState(false);
 
   // Prevent hydration mismatch for date operations
   useEffect(() => {
@@ -178,6 +185,65 @@ export function AttendanceFilters({
       }
     }
   }, [profile?.role, profile?.department_id, searchContext.department_id, onContextChange, isSuperAdmin]);
+
+  // Updated: 2025-10-09 - Detect timetable type when semester changes
+  useEffect(() => {
+    const detectTimetableType = async () => {
+      if (
+        searchContext.institution_id &&
+        searchContext.academic_year_id &&
+        searchContext.degree_id &&
+        searchContext.program_id &&
+        searchContext.department_id &&
+        searchContext.semester_id
+      ) {
+        console.log('🔍 Detecting timetable type for semester...');
+
+        const type = await AttendanceService.getTimetableTypeForSemester(
+          searchContext.institution_id,
+          searchContext.academic_year_id,
+          searchContext.degree_id,
+          searchContext.program_id,
+          searchContext.department_id,
+          searchContext.semester_id
+        );
+
+        console.log('📊 Timetable type detected:', type);
+        setTimetableType(type);
+        const isRequired = type === 'section';
+        setIsSectionRequired(isRequired);
+
+        // Notify parent component about section requirement change
+        if (onSectionRequirementChange) {
+          onSectionRequirementChange(isRequired);
+        }
+
+        // If section is now required and was previously set to null, clear it
+        if (type === 'section' && !searchContext.section_id) {
+          console.log('⚠️ Section is required for section-level timetables');
+        }
+      } else {
+        // Reset if semester is not selected
+        setTimetableType(null);
+        setIsSectionRequired(false);
+
+        // Notify parent that section is no longer required
+        if (onSectionRequirementChange) {
+          onSectionRequirementChange(false);
+        }
+      }
+    };
+
+    detectTimetableType();
+  }, [
+    searchContext.institution_id,
+    searchContext.academic_year_id,
+    searchContext.degree_id,
+    searchContext.program_id,
+    searchContext.department_id,
+    searchContext.semester_id,
+    searchContext.section_id
+  ]);
 
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
@@ -435,7 +501,12 @@ export function AttendanceFilters({
 
             {/* Section */}
             <div className='space-y-2'>
-              <Label htmlFor='section'>Section</Label>
+              <Label htmlFor='section'>
+                Section
+                {isSectionRequired && (
+                  <span className='text-red-500 ml-1'>*</span>
+                )}
+              </Label>
               <Select
                 value={searchContext.section_id || undefined}
                 onValueChange={(value) =>
@@ -445,11 +516,20 @@ export function AttendanceFilters({
                 }
                 disabled={!searchContext.semester_id}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder='Select section' />
+                <SelectTrigger className={cn(
+                  isSectionRequired && !searchContext.section_id && 'border-red-500'
+                )}>
+                  <SelectValue placeholder={
+                    isSectionRequired
+                      ? 'Select section (required)'
+                      : 'Select section'
+                  } />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all_sections'>All Sections</SelectItem>
+                  {/* Updated: 2025-10-09 - Only show "All Sections" for semester-level timetables */}
+                  {!isSectionRequired && (
+                    <SelectItem value='all_sections'>All Sections</SelectItem>
+                  )}
                   {/* Remove duplicates by section name */}
                   {Array.from(
                     new Map(
@@ -472,6 +552,11 @@ export function AttendanceFilters({
                   )}
                 </SelectContent>
               </Select>
+              {isSectionRequired && (
+                <p className='text-xs text-amber-600'>
+                  This semester uses section-level timetables. Please select a specific section.
+                </p>
+              )}
             </div>
 
             {/* Attendance Date */}

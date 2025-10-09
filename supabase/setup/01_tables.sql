@@ -431,6 +431,7 @@ CREATE TABLE IF NOT EXISTS public.staff_plan_courses (
 -- =====================================================
 
 -- Student Attendance
+-- Updated: 2025-10-08 - Added period_slot_id for multi-section attendance tracking
 CREATE TABLE IF NOT EXISTS public.student_attendance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     attendance_date DATE NOT NULL,
@@ -440,7 +441,8 @@ CREATE TABLE IF NOT EXISTS public.student_attendance (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     timetable_id UUID NOT NULL,
     section_id UUID NOT NULL,
-    attendance_data JSONB NOT NULL DEFAULT '{}'::jsonb
+    attendance_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    period_slot_id TEXT
 );
 
 -- Periods
@@ -460,6 +462,8 @@ CREATE TABLE IF NOT EXISTS public.periods (
 -- =====================================================
 
 -- Timetables
+-- Updated: 2025-10-08 - Added timetable_type for semester-level timetables support
+-- Changed semester/section from TEXT to UUID (semester_id/section_id)
 CREATE TABLE IF NOT EXISTS public.timetables (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID,
@@ -467,8 +471,6 @@ CREATE TABLE IF NOT EXISTS public.timetables (
     degree_id UUID,
     program_id UUID,
     department_id UUID,
-    semester TEXT NOT NULL,
-    section TEXT,
     timetable_name TEXT NOT NULL,
     version INTEGER DEFAULT 1,
     is_active BOOLEAN DEFAULT true,
@@ -485,7 +487,15 @@ CREATE TABLE IF NOT EXISTS public.timetables (
     timetable_data JSONB NOT NULL DEFAULT '{}'::jsonb,
     periods JSONB NOT NULL DEFAULT '[]'::jsonb,
     migrated_from_old_structure BOOLEAN DEFAULT true,
-    migration_timestamp TIMESTAMPTZ DEFAULT now()
+    migration_timestamp TIMESTAMPTZ DEFAULT now(),
+    semester_id UUID,
+    section_id UUID,
+    timetable_type VARCHAR(20) DEFAULT 'section',
+    template_description TEXT,
+    template_category TEXT,
+    template_tags JSONB DEFAULT '[]'::jsonb,
+    usage_count INTEGER DEFAULT 0,
+    created_from_template_id UUID
 );
 
 -- Timetable Slot Continuity
@@ -1223,8 +1233,15 @@ CREATE INDEX IF NOT EXISTS idx_billing_receipts_student_id ON public.billing_rec
 CREATE INDEX IF NOT EXISTS idx_billing_student_bills_student_id ON public.billing_student_bills(student_id);
 
 -- Attendance indexes
+-- Updated: 2025-10-08 - Added indexes for semester-level timetables and period tracking
 CREATE INDEX IF NOT EXISTS idx_student_attendance_date ON public.student_attendance(attendance_date);
 CREATE INDEX IF NOT EXISTS idx_student_attendance_section_id ON public.student_attendance(section_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_period_slot ON public.student_attendance(period_slot_id) WHERE period_slot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_attendance_timetable_section_date ON public.student_attendance(timetable_id, section_id, attendance_date);
+
+-- Timetable indexes
+CREATE INDEX IF NOT EXISTS idx_timetables_type_semester ON public.timetables(timetable_type, semester_id, is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_timetables_semester_active ON public.timetables(semester_id, is_active) WHERE timetable_type = 'semester' AND is_active = true;
 
 -- Activity logs index
 CREATE INDEX IF NOT EXISTS idx_user_activity_logs_user_id ON public.user_activity_logs(user_id);

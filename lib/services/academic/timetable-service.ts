@@ -324,6 +324,10 @@ Please select a different date period that doesn't overlap.`
         periods
       } = data;
 
+      // Determine timetable type based on section_id
+      // Updated: 2025-10-08 - Added support for semester-level timetables
+      const timetable_type = section_id ? 'section' : 'semester';
+
       const timetableData = {
         institution_id,
         academic_year_id,
@@ -331,8 +335,9 @@ Please select a different date period that doesn't overlap.`
         program_id,
         department_id,
         semester_id,
-        section_id,
+        section_id: section_id || null, // Explicitly null for semester-level
         timetable_name,
+        timetable_type, // New field
         is_active: is_active ?? true,
         is_template: is_template ?? false,
         template_name: template_name || null,
@@ -494,8 +499,10 @@ Please select a different date period that doesn't overlap.`
       };
 
       // Only include fields that are explicitly provided and not part of the unique constraint
+      // Updated: 2025-10-08 - Added timetable_type to allowed fields
       const allowedFields = [
         'timetable_format',
+        'timetable_type',
         'start_date',
         'end_date',
         'selected_dates',
@@ -1128,6 +1135,23 @@ Please select a different date period that doesn't overlap.`
         .single();
 
       if (error) throw error;
+
+      // Updated: 2025-10-08 - For semester-level timetables, fetch all available sections
+      if (timetable && timetable.timetable_type === 'semester' && timetable.semester_id) {
+        const { data: semesterSections, error: sectionsError } = await this.supabase
+          .from('sections')
+          .select('id, section_name, student_count:students(count)')
+          .eq('semester_id', timetable.semester_id)
+          .eq('is_active', true)
+          .order('section_name');
+
+        if (!sectionsError && semesterSections) {
+          timetable.available_sections = semesterSections.map((s: any) => ({
+            ...s,
+            student_count: s.student_count?.[0]?.count || 0
+          }));
+        }
+      }
 
       // Enrich timetable data with course and staff details
       if (timetable && timetable.timetable_data) {

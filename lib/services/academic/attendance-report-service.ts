@@ -152,6 +152,9 @@ export class AttendanceReportService {
       if (filters.semester_id) {
         query = query.eq('semester_id', filters.semester_id);
       }
+      // Updated: 2025-10-08 - Section filtering handled differently based on timetable type
+      // For now, we filter by root section_id at SQL level
+      // Semester-level records with multiple sections will be filtered post-query
       if (filters.section_id) {
         query = query.eq('section_id', filters.section_id);
       }
@@ -871,32 +874,67 @@ export class AttendanceReportService {
           .filter(Boolean);
 
         // Fetch fresh student data from students table
+        // Updated: 2025-10-08 - Fetch student info and separately fetch section info
         const studentDataMap = new Map();
         if (studentIds.length > 0) {
           const { data: freshStudentData } = await this.supabase
             .from('students')
-            .select('id, first_name, last_name, roll_number, student_photo_url')
+            .select('id, first_name, last_name, roll_number, student_photo_url, section_id')
             .in('id', studentIds);
 
           if (freshStudentData) {
-            freshStudentData.forEach((student) => {
+            freshStudentData.forEach((student: any) => {
               studentDataMap.set(student.id, {
                 student_name: student.first_name || 'Unknown',
                 roll_number: student.roll_number,
-                avatar_url: student.student_photo_url
+                avatar_url: student.student_photo_url,
+                current_section_id: student.section_id // Current section (may have changed)
               });
             });
           }
         }
 
+        // Collect all unique section_ids from attendance_data AND students table for name lookup
+        const sectionIdsToFetch = new Set<string>();
+        students.forEach((s: any) => {
+          if (s.section_id) sectionIdsToFetch.add(s.section_id); // From attendance_data
+          const studentData = studentDataMap.get(s.student_id);
+          if (studentData?.current_section_id) sectionIdsToFetch.add(studentData.current_section_id); // From students table
+        });
+
+        // Fetch section names for all section_ids
+        const sectionNamesMap = new Map();
+        if (sectionIdsToFetch.size > 0) {
+          const { data: sectionsData } = await this.supabase
+            .from('sections')
+            .select('id, section_name')
+            .in('id', Array.from(sectionIdsToFetch));
+
+          if (sectionsData) {
+            sectionsData.forEach((section) => {
+              sectionNamesMap.set(section.id, section.section_name);
+            });
+          }
+        }
+
         // Process students for this period with fresh data
+        // Updated: 2025-10-08 - Include section info
+        // Priority: 1) section_id from attendance_data (frozen at marking time - historical accuracy)
+        //          2) section_id from students table (fallback for old records without section_id)
         const processedStudents = students.map((s: any) => {
           const freshData = studentDataMap.get(s.student_id) || {};
+
+          // Determine section_id: prioritize attendance_data, fallback to current student section
+          const sectionId = s.section_id || freshData.current_section_id;
+          const sectionName = sectionId ? sectionNamesMap.get(sectionId) : null;
+
           return {
             student_id: s.student_id,
             student_name: freshData.student_name || s.student_name || 'Unknown',
             roll_number: freshData.roll_number || s.roll_number,
             avatar_url: freshData.avatar_url || s.avatar_url,
+            section_id: sectionId,
+            section_name: sectionName,
             is_present: s.status === 'Present'
           };
         });
@@ -906,6 +944,7 @@ export class AttendanceReportService {
           period.period_number || periodDetails.length + 1;
 
         // Update consolidated student map
+        // Updated: 2025-10-08 - Include section info in consolidated students
         processedStudents.forEach((student: any) => {
           if (!studentMap.has(student.student_id)) {
             studentMap.set(student.student_id, {
@@ -992,8 +1031,10 @@ export class AttendanceReportService {
       }
 
       // Fetch related data including academic_year
+      // Updated: 2025-10-09 - Fetch all sections from section_ids array for multi-section support
       const [
         sectionData,
+        allSectionsData,
         semesterData,
         programData,
         departmentData,
@@ -1009,6 +1050,13 @@ export class AttendanceReportService {
               .eq('id', data.section_id)
               .single()
           : { data: null },
+        // Fetch all sections for multi-section timetables
+        data.section_ids && Array.isArray(data.section_ids) && data.section_ids.length > 0
+          ? this.supabase
+              .from('sections')
+              .select('id, section_name')
+              .in('id', data.section_ids)
+          : { data: [] },
         data.semester_id
           ? this.supabase
               .from('semesters')
@@ -1054,13 +1102,15 @@ export class AttendanceReportService {
         data.timetable_id
           ? this.supabase
               .from('timetables')
-              .select('timetable_name')
+              .select('timetable_name, timetable_type') // Updated: 2025-10-08
               .eq('id', data.timetable_id)
               .single()
           : { data: null }
       ]);
 
       // Build the detailed report
+      // Updated: 2025-10-08 - Added timetable_type
+      // Updated: 2025-10-09 - Added section_ids and section_names for multi-section support
       const detailedReport = {
         id: data.id,
         attendance_date: data.attendance_date,
@@ -1078,11 +1128,16 @@ export class AttendanceReportService {
         section_name: sectionData.data?.section_name
           ? `Section ${sectionData.data.section_name}`
           : undefined,
+        section_ids: data.section_ids || undefined,
+        section_names: allSectionsData.data && allSectionsData.data.length > 0
+          ? allSectionsData.data.map((s: any) => s.section_name)
+          : undefined,
         academic_year_id: data.academic_year_id,
         academic_year_name:
           academicYearData.data?.academic_year_name || 'Unknown Academic Year',
         timetable_id: data.timetable_id,
         timetable_name: timetableData.data?.timetable_name,
+        timetable_type: timetableData.data?.timetable_type,
         marked_by_id: markedByDetails.marked_by_id,
         marked_by_name: markedByDetails.marked_by_name,
         marked_by_email: markedByDetails.marked_by_email,

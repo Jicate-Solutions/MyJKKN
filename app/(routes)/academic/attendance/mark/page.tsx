@@ -161,12 +161,15 @@ export default function AttendanceMarkPage() {
         });
 
         // Build query
+        // Updated: 2025-10-09 - Added timetable_format to query for batch timetable support
         let query = supabase
           .from('timetables')
           .select(
             `
             id,
             timetable_name,
+            timetable_type,
+            timetable_format,
             institution_id,
             academic_year_id,
             degree_id,
@@ -209,42 +212,20 @@ export default function AttendanceMarkPage() {
         console.log('Timetable data loaded:', timetableData);
 
         // Extract section information from timetable data
+        // Updated: 2025-10-08 - Fixed priority to use URL sectionId first for multi-section support
         let resolvedSectionId = sectionId;
         let sectionData = null;
 
         console.log('Initial sectionId from URL:', sectionId);
         console.log('Section ID from timetable:', timetableData.section_id);
 
-        // Priority 1: If we have a section_id from timetable, use it directly
-        // Since timetables now store UUIDs instead of section names
-        if (timetableData.section_id) {
+        // Priority 1: Use sectionId from URL (user's selection when clicking "Mark Attendance")
+        // This is CRITICAL for multi-section slots where user selects which section to mark
+        if (resolvedSectionId) {
           console.log(
-            `🔍 Using section_id from timetable: ${timetableData.section_id}`
+            `🎯 Priority 1: Using sectionId from URL: ${resolvedSectionId}`
           );
 
-          // Fetch section data using the UUID directly
-          const { data: sectionFromDb, error: countError } = await supabase
-            .from('sections')
-            .select(
-              'id, section_name, degree_id, program_id, department_id, semester_id'
-            )
-            .eq('id', timetableData.section_id)
-            .single();
-
-          if (!countError && sectionFromDb) {
-            resolvedSectionId = timetableData.section_id;
-            sectionData = sectionFromDb;
-            console.log(
-              `✅ Successfully fetched section data for UUID: ${resolvedSectionId}`,
-              sectionFromDb
-            );
-          } else {
-            console.error(
-              '❌ Failed to fetch section data for section_id:',
-              countError
-            );
-          }
-        } else if (resolvedSectionId) {
           // Check if provided section ID is a UUID or name
           const uuidRegex =
             /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -261,6 +242,15 @@ export default function AttendanceMarkPage() {
 
             if (!sectionError && sections) {
               sectionData = sections;
+              console.log(
+                `✅ Successfully resolved URL section UUID: ${resolvedSectionId}`,
+                sections
+              );
+            } else {
+              console.error(
+                '❌ Failed to fetch section data for URL UUID:',
+                sectionError
+              );
             }
           } else {
             // It's a name, resolve to UUID
@@ -278,18 +268,70 @@ export default function AttendanceMarkPage() {
               resolvedSectionId = sections.id;
               sectionData = sections;
               console.log(
-                `Resolved section name "${sectionId}" to UUID: ${resolvedSectionId}`
+                `✅ Resolved section name "${sectionId}" to UUID: ${resolvedSectionId}`
+              );
+            } else {
+              console.error(
+                '❌ Failed to resolve section name from URL:',
+                sectionError
               );
             }
           }
         }
 
-        if (!resolvedSectionId) {
-          console.error('❌ Unable to resolve section information');
+        // Priority 2: Fallback to timetable.section_id (ONLY for section-level timetables)
+        // Updated: 2025-10-08 - Don't use timetable.section_id for semester-level timetables
+        if (
+          !sectionData &&
+          timetableData.section_id &&
+          timetableData.timetable_type === 'section'
+        ) {
+          console.log(
+            `🔄 Priority 2 (Fallback): Using section_id from section-level timetable: ${timetableData.section_id}`
+          );
+
+          // Fetch section data using the UUID directly
+          const { data: sectionFromDb, error: countError } = await supabase
+            .from('sections')
+            .select(
+              'id, section_name, degree_id, program_id, department_id, semester_id'
+            )
+            .eq('id', timetableData.section_id)
+            .single();
+
+          if (!countError && sectionFromDb) {
+            resolvedSectionId = timetableData.section_id;
+            sectionData = sectionFromDb;
+            console.log(
+              `✅ Successfully fetched section data from timetable fallback: ${resolvedSectionId}`,
+              sectionFromDb
+            );
+          } else {
+            console.error(
+              '❌ Failed to fetch section data from timetable fallback:',
+              countError
+            );
+          }
+        } else if (
+          !sectionData &&
+          timetableData.timetable_type === 'semester'
+        ) {
+          console.log(
+            `⚠️ Semester-level timetable detected - sectionId should be provided in URL for multi-section slots`
+          );
+        }
+
+        // Updated: 2025-10-08 - For semester-level multi-section slots, resolvedSectionId may be undefined
+        // This is OK - we'll use section_ids from the slot instead
+        if (!resolvedSectionId && timetableData.timetable_type === 'section') {
+          console.error(
+            '❌ Unable to resolve section information for section-level timetable'
+          );
           console.log('Available data:', {
             sectionFromUrl: sectionId,
             sectionIdFromTimetable: timetableData.section_id,
-            resolvedSectionId
+            resolvedSectionId,
+            timetable_type: timetableData.timetable_type
           });
           toast.error(
             `Unable to resolve section information. Section ID: ${
@@ -300,14 +342,17 @@ export default function AttendanceMarkPage() {
           return;
         }
 
-        // Fetch semester name if we have semester_id
+        // Updated: 2025-10-08 - Fetch semester name from timetable or section
         let semesterName = null;
-        if (sectionData?.semester_id) {
+        const semesterId =
+          sectionData?.semester_id || timetableData.semester_id;
+
+        if (semesterId) {
           try {
             const { data: semesterData, error: semesterError } = await supabase
               .from('semesters')
               .select('id, semester_name')
-              .eq('id', sectionData.semester_id)
+              .eq('id', semesterId)
               .single();
 
             if (!semesterError && semesterData) {
@@ -318,6 +363,91 @@ export default function AttendanceMarkPage() {
             }
           } catch (error) {
             console.error('Error fetching semester data:', error);
+          }
+        } else {
+          console.warn('⚠️ No semester_id found in section or timetable data');
+        }
+
+        // Updated: 2025-10-08 - Extract section_ids from timetable slot for multi-section support
+        // Check if this is a multi-section slot by looking at the timetable_data
+        let slotSectionIds: string[] = [];
+        let slotSections: any[] = [];
+
+        console.log('🔍 Extracting section_ids from slot:', {
+          periodId,
+          hasTimetableData: !!timetableData.timetable_data,
+          timetableData: timetableData.timetable_data
+        });
+
+        if (periodId && timetableData.timetable_data) {
+          // Parse timetable_data to find the specific period's section_ids
+          const timetableSlots = timetableData.timetable_data;
+
+          // Updated: 2025-10-08 - The periodId is the slot_id, not the key in timetable_data
+          // We need to search through all slots to find where slot.slot_id === periodId
+          for (const day in timetableSlots) {
+            const daySlots = timetableSlots[day];
+            if (daySlots) {
+              // Search through all period keys in this day
+              for (const periodKey in daySlots) {
+                const slot = daySlots[periodKey];
+                // Match by slot_id instead of periodKey
+                if (slot && slot.slot_id === periodId) {
+                  console.log(
+                    `🔍 Found slot for period ${periodId} on ${day} (periodKey: ${periodKey}):`,
+                    slot
+                  );
+
+                  if (
+                    slot.section_ids &&
+                    Array.isArray(slot.section_ids) &&
+                    slot.section_ids.length > 0
+                  ) {
+                    slotSectionIds = slot.section_ids;
+                    console.log(
+                      `🎯 Found multi-section slot with ${slotSectionIds.length} sections:`,
+                      slotSectionIds
+                    );
+
+                    // Fetch all section details for display
+                    const { data: sectionsData, error: sectionsError } =
+                      await supabase
+                        .from('sections')
+                        .select('id, section_name')
+                        .in('id', slotSectionIds)
+                        .order('section_name');
+
+                    if (!sectionsError && sectionsData) {
+                      slotSections = sectionsData;
+                      console.log(
+                        '✅ Loaded section details for multi-section slot:',
+                        slotSections
+                      );
+                    } else {
+                      console.error(
+                        '❌ Failed to load section details:',
+                        sectionsError
+                      );
+                    }
+                    break;
+                  } else {
+                    console.warn(
+                      '⚠️ Slot has no section_ids or empty array:',
+                      slot
+                    );
+                  }
+                }
+              }
+            }
+            // Break outer loop if found
+            if (slotSectionIds.length > 0) break;
+          }
+
+          if (slotSectionIds.length === 0) {
+            console.warn(
+              '⚠️ No section_ids found in any slot for period:',
+              periodId
+            );
           }
         }
 
@@ -330,19 +460,40 @@ export default function AttendanceMarkPage() {
           degree_id: timetableData.degree_id,
           program_id: timetableData.program_id,
           department_id: timetableData.department_id,
-          semester_id: sectionData?.semester_id,
+          semester_id: sectionData?.semester_id || timetableData.semester_id,
           section_id: resolvedSectionId,
+          // Updated: 2025-10-08 - Properly handle section_ids for multi-section slots
+          section_ids:
+            slotSectionIds.length > 0
+              ? slotSectionIds
+              : resolvedSectionId
+              ? [resolvedSectionId]
+              : [], // Empty array for multi-section slots without resolved section
           timetable_id: timetableId,
           timetable_data: timetableData,
+          timetable_type: timetableData.timetable_type || 'section', // Track timetable type
           section_data: sectionData,
+          slot_sections: slotSections, // All sections for this slot
           academic_year_name: (timetableData as any).academic_years
             ?.academic_year_name,
           degree_name: (timetableData as any).degrees?.degree_name,
           program_name: (timetableData as any).programs?.program_name,
           department_name: (timetableData as any).departments?.department_name,
-          section_name: sectionData?.section_name || 'Unknown Section',
+          section_name:
+            sectionData?.section_name ||
+            (slotSections.length > 0
+              ? `${slotSections.length} Sections`
+              : 'Unknown Section'),
           semester_name: semesterName || 'Unknown Semester'
         };
+
+        console.log('📊 Final context data:', {
+          ...context,
+          section_ids_length: context.section_ids.length,
+          slot_sections_length: slotSections.length,
+          has_section_id: !!context.section_id,
+          has_section_data: !!context.section_data
+        });
 
         setContextData(context);
         console.log('✅ Context data resolved successfully:', context);
@@ -365,13 +516,29 @@ export default function AttendanceMarkPage() {
   // Load students using the resolved context
   useEffect(() => {
     const loadStudents = async () => {
-      if (!contextData || !contextData.section_id) {
-        console.log('Context data not ready or missing section ID');
+      // Updated: 2025-10-08 - Allow loading without section_id for multi-section slots
+      if (!contextData) {
+        console.log('Context data not ready');
+        return;
+      }
+
+      // For multi-section slots, section_ids array should be populated
+      // For single-section, section_id should be set
+      if (
+        !contextData.section_id &&
+        (!contextData.section_ids || contextData.section_ids.length === 0)
+      ) {
+        console.log('Context data missing both section_id and section_ids');
         return;
       }
 
       try {
         setLoadingStudents(true);
+
+        // Updated: 2025-10-08 - Support for multi-section slots
+        // Use section_ids if it has values, otherwise use section_id
+        const hasMultipleSections =
+          contextData.section_ids && contextData.section_ids.length > 0;
 
         console.log('🎯 Fetching students with complete context:', {
           institution_id: contextData.institution_id,
@@ -379,7 +546,10 @@ export default function AttendanceMarkPage() {
           program_id: contextData.program_id,
           department_id: contextData.department_id,
           semester_id: contextData.semester_id,
-          section_id: contextData.section_id
+          section_id: contextData.section_id,
+          section_ids: contextData.section_ids,
+          hasMultipleSections,
+          will_use: hasMultipleSections ? 'section_ids' : 'section_id'
         });
 
         const studentsData = await AttendanceService.getStudentsForAttendance({
@@ -388,7 +558,10 @@ export default function AttendanceMarkPage() {
           program_id: contextData.program_id,
           department_id: contextData.department_id,
           semester_id: contextData.semester_id,
-          section_id: contextData.section_id
+          // Updated: Use section_ids if populated, otherwise use section_id
+          ...(hasMultipleSections
+            ? { section_ids: contextData.section_ids }
+            : { section_id: contextData.section_id })
         });
 
         console.log('Students fetched successfully:', studentsData.length);
@@ -517,11 +690,6 @@ export default function AttendanceMarkPage() {
       try {
         setLoadingStaff(true);
 
-        // Get the day of the week from the date
-        const dayOfWeek = new Date(date)
-          .toLocaleDateString('en-US', { weekday: 'long' })
-          .toUpperCase();
-
         // Access the actual timetable data - it's nested in timetable_data.timetable_data
         // The contextData.timetable_data contains the full timetable record,
         // and the actual schedule is in its timetable_data property
@@ -546,26 +714,6 @@ export default function AttendanceMarkPage() {
           }
         }
 
-        console.log('🔍 Looking for staff assignments for:', {
-          dayOfWeek,
-          periodId,
-          hasTimetableData: !!actualTimetableData,
-          timetableDataType: typeof actualTimetableData,
-          availableDays: actualTimetableData
-            ? Object.keys(actualTimetableData).filter((key) =>
-                [
-                  'MONDAY',
-                  'TUESDAY',
-                  'WEDNESDAY',
-                  'THURSDAY',
-                  'FRIDAY',
-                  'SATURDAY',
-                  'SUNDAY'
-                ].includes(key)
-              )
-            : []
-        });
-
         if (!actualTimetableData) {
           console.log(
             '❌ No timetable schedule data found. Check timetable structure.'
@@ -579,10 +727,63 @@ export default function AttendanceMarkPage() {
           return;
         }
 
-        const dayData = actualTimetableData[dayOfWeek];
+        // Updated: 2025-10-09 - Detect timetable format and use appropriate key
+        const timetableFormat = contextData.timetable_data?.timetable_format || 'regular';
+
+        let dayKey: string;
+        if (timetableFormat === 'batch') {
+          // For batch timetables, we need to find the actual date key in timetable_data
+          // The slot might have been applied from a different date using "range pattern"
+          // So we search through all date keys to find which one contains our periodId
+
+          const timetableKeys = Object.keys(actualTimetableData);
+          let foundKey: string | null = null;
+
+          // Search for the period across all dates
+          for (const dateKey of timetableKeys) {
+            const daySlots = actualTimetableData[dateKey];
+            if (daySlots && typeof daySlots === 'object') {
+              // Check if this date has our period
+              if (daySlots[periodId] ||
+                  Object.values(daySlots).some((slot: any) => slot?.slot_id === periodId)) {
+                foundKey = dateKey;
+                console.log(`✅ Found period ${periodId} in date key: ${dateKey}`);
+                break;
+              }
+            }
+          }
+
+          // Use found key, or fallback to query date
+          dayKey = foundKey || date;
+          console.log('🗓️ Batch timetable detected - using date key:', dayKey, {
+            searchedDate: date,
+            foundInDate: foundKey,
+            totalKeysSearched: timetableKeys.length
+          });
+        } else {
+          // For regular timetables, use day of week (e.g., "MONDAY")
+          dayKey = new Date(date)
+            .toLocaleDateString('en-US', { weekday: 'long' })
+            .toUpperCase();
+          console.log('📅 Regular timetable detected - using day key:', dayKey);
+        }
+
+        console.log('🔍 Looking for staff assignments for:', {
+          timetableFormat,
+          dayKey,
+          periodId,
+          date,
+          hasTimetableData: !!actualTimetableData,
+          timetableDataType: typeof actualTimetableData,
+          availableKeys: actualTimetableData
+            ? Object.keys(actualTimetableData).slice(0, 10) // Show first 10 keys
+            : []
+        });
+
+        const dayData = actualTimetableData[dayKey];
         if (!dayData) {
-          console.log('No timetable data found for day:', dayOfWeek);
-          console.log('Available days:', Object.keys(actualTimetableData));
+          console.log('❌ No timetable data found for key:', dayKey);
+          console.log('Available keys:', Object.keys(actualTimetableData));
           return;
         }
 
@@ -822,8 +1023,19 @@ export default function AttendanceMarkPage() {
       return;
     }
 
-    if (!contextData?.section_id && !sectionId) {
-      toast.error('Missing section information. Please try again.');
+    // Updated: 2025-10-09 - Allow semester-level timetables to proceed without specific section
+    // For multi-section periods, we'll use the first section from section_ids array
+    const effectiveSectionId =
+      contextData?.section_id ||
+      sectionId ||
+      (contextData?.section_ids && contextData.section_ids.length > 0
+        ? contextData.section_ids[0]
+        : null);
+
+    if (!effectiveSectionId) {
+      toast.error(
+        'Missing section information. Please go back and select a section.'
+      );
       return;
     }
 
@@ -948,6 +1160,31 @@ export default function AttendanceMarkPage() {
         final_used: correctCourseInfo
       });
 
+      // Updated: 2025-10-09 - Allow semester-level timetables with multi-section support
+      // Use first section from section_ids array for multi-section periods
+      const effectiveSectionId =
+        contextData?.section_id ||
+        sectionId ||
+        (contextData?.section_ids && contextData.section_ids.length > 0
+          ? contextData.section_ids[0]
+          : null);
+
+      if (!effectiveSectionId) {
+        console.error('❌ No valid section ID found');
+        toast.error('Missing section information. Please try again.');
+        return;
+      }
+
+      console.log('✅ Using effectiveSectionId:', effectiveSectionId, {
+        source: contextData?.section_id
+          ? 'section_id'
+          : sectionId
+          ? 'URL'
+          : 'section_ids[0]',
+        is_multi_section:
+          contextData?.section_ids && contextData.section_ids.length > 1
+      });
+
       // Prepare faculty data - store all assigned faculty if multiple
       let assignedFacultyData;
       if (assignedStaff.length > 1) {
@@ -994,6 +1231,11 @@ export default function AttendanceMarkPage() {
           },
           students: students.map((student) => ({
             student_id: student.id,
+            section_id:
+              student.section_id ||
+              contextData?.section_id ||
+              effectiveSectionId ||
+              '', // Updated: 2025-10-09 - Ensure section_id is always provided
             status: attendanceData[student.id] || 'Present',
             marked_at: new Date().toISOString()
           }))
@@ -1003,17 +1245,24 @@ export default function AttendanceMarkPage() {
       // Debug: Log the payload being sent
       console.log('🔄 Saving attendance with payload:', {
         timetable_id: timetableId,
-        section_id: contextData?.section_id || sectionId,
+        section_id: effectiveSectionId,
         attendance_date: date,
         attendance_data: attendancePayload,
         marked_by: profile?.id || '',
-        institution_id: institutionId
+        institution_id: institutionId,
+        is_multi_section:
+          contextData?.section_ids && contextData.section_ids.length > 1
       });
 
+      // Updated: 2025-10-09 - Add section_ids array for multi-section support
       // Save attendance - use validated institution_id
       const result = await saveConsolidatedAttendance({
         timetable_id: timetableId,
-        section_id: contextData?.section_id || sectionId,
+        section_id: effectiveSectionId,
+        section_ids:
+          contextData?.section_ids && contextData.section_ids.length > 1
+            ? contextData.section_ids
+            : undefined, // Only include for multi-section
         attendance_date: date,
         attendance_data: attendancePayload,
         marked_by: profile?.id || '',
@@ -1255,10 +1504,25 @@ export default function AttendanceMarkPage() {
                 <Clock className='h-3 w-3 mr-1' />
                 {startTime} - {endTime}
               </Badge>
-              <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30'>
-                <Building2 className='h-3 w-3 mr-1' />
-                Section {contextData?.section_name || sectionId || 'Unknown'}
-              </Badge>
+              {/* Updated: 2025-10-08 - Support for multi-section display */}
+              {contextData?.slot_sections &&
+              contextData.slot_sections.length > 0 ? (
+                <Badge className='bg-green-500/30 text-white border-green-300/50 hover:bg-green-500/40'>
+                  <Users className='h-3 w-3 mr-1' />
+                  {contextData.slot_sections.length === 1
+                    ? `Section ${contextData.slot_sections[0].section_name}`
+                    : `${
+                        contextData.slot_sections.length
+                      } Sections: ${contextData.slot_sections
+                        .map((s: any) => s.section_name)
+                        .join(', ')}`}
+                </Badge>
+              ) : (
+                <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30'>
+                  <Building2 className='h-3 w-3 mr-1' />
+                  Section {contextData?.section_name || sectionId || 'Unknown'}
+                </Badge>
+              )}
             </div>
           </div>
         </div>
@@ -1315,16 +1579,48 @@ export default function AttendanceMarkPage() {
                         </div>
                       )}
 
-                      {contextData?.section_name && (
-                        <div className='bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700'>
+                      {/* Updated: 2025-10-08 - Support for multi-section display */}
+                      {(contextData?.slot_sections &&
+                        contextData.slot_sections.length > 0) ||
+                      contextData?.section_name ? (
+                        <div
+                          className={cn(
+                            'rounded-lg p-4 border',
+                            contextData.slot_sections &&
+                              contextData.slot_sections.length > 1
+                              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700'
+                              : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
+                          )}
+                        >
                           <span className='text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold'>
                             Section
+                            {contextData.slot_sections &&
+                            contextData.slot_sections.length > 1
+                              ? 's'
+                              : ''}
                           </span>
-                          <p className='text-sm font-bold text-gray-900 dark:text-gray-100 mt-1'>
-                            Section {contextData.section_name}
+                          <p
+                            className={cn(
+                              'text-sm font-bold mt-1',
+                              contextData.slot_sections &&
+                                contextData.slot_sections.length > 1
+                                ? 'text-green-700 dark:text-green-300'
+                                : 'text-gray-900 dark:text-gray-100'
+                            )}
+                          >
+                            {contextData.slot_sections &&
+                            contextData.slot_sections.length > 0
+                              ? contextData.slot_sections.length === 1
+                                ? `Section ${contextData.slot_sections[0].section_name}`
+                                : `${
+                                    contextData.slot_sections.length
+                                  } Sections: ${contextData.slot_sections
+                                    .map((s: any) => s.section_name)
+                                    .join(', ')}`
+                              : `Section ${contextData.section_name}`}
                           </p>
                         </div>
-                      )}
+                      ) : null}
                     </div>
 
                     {/* Assigned Staff Section - Improved Layout */}
@@ -1782,6 +2078,17 @@ export default function AttendanceMarkPage() {
                         <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 font-medium'>
                           Roll: {student.roll_number || 'N/A'}
                         </p>
+                        {/* Updated: 2025-10-08 - Show section badge for multi-section slots */}
+                        {contextData?.slot_sections &&
+                          contextData.slot_sections.length > 1 &&
+                          student.section_name && (
+                            <Badge
+                              variant='outline'
+                              className='text-xs mt-1 bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700'
+                            >
+                              {student.section_name}
+                            </Badge>
+                          )}
                       </div>
 
                       {/* Attendance Status */}

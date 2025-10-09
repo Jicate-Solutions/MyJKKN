@@ -59,6 +59,7 @@ import { Timetable, UpdateTimetableDto } from '@/types/academics';
 import { cn } from '@/lib/utils';
 
 // Define the schema for timetable editing
+// Updated: 2025-10-08 - Added timetable_type support
 const timetableFormSchema = z
   .object({
     timetable_name: z.string().min(3, {
@@ -82,6 +83,7 @@ const timetableFormSchema = z
     semester_id: z.string().min(1, {
       message: 'Please select a semester.'
     }),
+    timetable_type: z.enum(['section', 'semester']).default('semester'),
     section_id: z.string().optional(),
     start_date: z.date().optional(),
     end_date: z.date().optional(),
@@ -99,6 +101,19 @@ const timetableFormSchema = z
     {
       message: 'End date must be on or after start date',
       path: ['end_date']
+    }
+  )
+  .refine(
+    (data) => {
+      // Section is required only for section-level timetables
+      if (data.timetable_type === 'section' && !data.section_id) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Please select a section for section-level timetables.',
+      path: ['section_id']
     }
   );
 
@@ -206,6 +221,7 @@ export default function EditTimetablePage({
       program_id: '',
       department_id: '',
       semester_id: '',
+      timetable_type: 'semester', // Default to semester-level
       section_id: '',
       start_date: undefined,
       end_date: undefined,
@@ -222,6 +238,7 @@ export default function EditTimetablePage({
   const watchProgramId = form.watch('program_id');
   const watchDepartmentId = form.watch('department_id');
   const watchSemesterId = form.watch('semester_id');
+  const watchTimetableType = form.watch('timetable_type'); // New watch
 
   // Apply hierarchical filtering based on current selections
   degrees = allDegrees.filter(
@@ -275,6 +292,7 @@ export default function EditTimetablePage({
           program_id: timetableData.program_id,
           department_id: timetableData.department_id,
           semester_id: timetableData.semester_id || '',
+          timetable_type: timetableData.timetable_type || 'section', // Default to 'section' for existing timetables
           section_id: timetableData.section_id || '',
           start_date: timetableData.start_date
             ? new Date(timetableData.start_date)
@@ -494,7 +512,9 @@ export default function EditTimetablePage({
         department_id: values.department_id,
         // Fix: use correct field names for UUIDs
         semester_id: values.semester_id || undefined,
-        section_id: values.section_id || undefined,
+        timetable_type: values.timetable_type, // Updated: 2025-10-08 - Include timetable_type in update
+        // Updated: 2025-10-09 - Clear section_id when changing to semester-level (use undefined, not null)
+        section_id: values.timetable_type === 'semester' ? undefined : (values.section_id || undefined),
         start_date: formatDateForDB(values.start_date),
         end_date: formatDateForDB(values.end_date),
         is_active: values.is_active,
@@ -867,50 +887,111 @@ export default function EditTimetablePage({
                       )}
                     />
 
-                    {/* Section Field */}
+                    {/* Timetable Type Selector - Updated: 2025-10-08 */}
                     <FormField
                       control={form.control}
-                      name='section_id'
+                      name='timetable_type'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Section</FormLabel>
+                          <FormLabel>Timetable Type</FormLabel>
                           <Select
-                            onValueChange={(value) =>
-                              field.onChange(value || undefined)
-                            }
-                            value={field.value || undefined}
-                            disabled={
-                              loadingSections ||
-                              !effectiveSemesterId ||
-                              filteredSections.length === 0
-                            }
+                            onValueChange={(value) => {
+                              field.onChange(value);
+                              // Clear section_id when switching to semester type
+                              if (value === 'semester') {
+                                form.setValue('section_id', '');
+                              }
+                            }}
+                            value={field.value}
                           >
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue
-                                  placeholder={
-                                    !effectiveSemesterId
-                                      ? 'First select a semester'
-                                      : 'Choose section (optional)'
-                                  }
-                                />
+                                <SelectValue placeholder='Select timetable type' />
                               </SelectTrigger>
                             </FormControl>
-                            <SelectContent className='max-h-60 overflow-y-auto'>
-                              {filteredSections.map((section) => (
-                                <SelectItem key={section.id} value={section.id}>
-                                  {section.section_name}
-                                </SelectItem>
-                              ))}
+                            <SelectContent>
+                              <SelectItem value='semester'>
+                                <div className='flex flex-col items-start'>
+                                  <span className='font-medium'>
+                                    Semester Level
+                                  </span>
+                                </div>
+                              </SelectItem>
+                              <SelectItem value='section'>
+                                <div className='flex flex-col items-start'>
+                                  <span className='font-medium'>
+                                    Section Level
+                                  </span>
+                                </div>
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                           <FormDescription>
-                            The section for this timetable (optional)
+                            {watchTimetableType === 'semester' ? (
+                              <span className='text-green-600 dark:text-green-400'>
+                                ✅ Semester-level timetables allow flexible
+                                multi-section scheduling. Sections are assigned
+                                per slot.
+                              </span>
+                            ) : (
+                              <span className='text-amber-600 dark:text-amber-400'>
+                                ⚠️ Section-level timetables are tied to one
+                                section. Use semester-level for better
+                                flexibility.
+                              </span>
+                            )}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
+
+                    {/* Section Field - Only for section-level timetables */}
+                    {watchTimetableType === 'section' && (
+                      <FormField
+                        control={form.control}
+                        name='section_id'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Section</FormLabel>
+                            <Select
+                              onValueChange={(value) =>
+                                field.onChange(value || undefined)
+                              }
+                              value={field.value || undefined}
+                              disabled={
+                                loadingSections ||
+                                !effectiveSemesterId ||
+                                filteredSections.length === 0
+                              }
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue
+                                    placeholder={
+                                      !effectiveSemesterId
+                                        ? 'First select a semester'
+                                        : 'Choose section'
+                                    }
+                                  />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent className='max-h-60 overflow-y-auto'>
+                                {filteredSections.map((section) => (
+                                  <SelectItem key={section.id} value={section.id}>
+                                    {section.section_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormDescription>
+                              The section for this timetable
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
                   </div>
                 </div>
 

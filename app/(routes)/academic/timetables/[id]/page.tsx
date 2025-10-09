@@ -2219,6 +2219,7 @@ export default function TimetableDetailPage({
             hasAttendance={hasAttendance}
             attendanceCount={markedPeriods.length}
             isSuperAdmin={isSuperAdmin}
+            canEdit={canEditTimetable}
           />
 
           {/* Unsaved Changes Indicator */}

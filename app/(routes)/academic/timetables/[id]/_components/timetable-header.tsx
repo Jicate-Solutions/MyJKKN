@@ -2,9 +2,10 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Lock, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Lock, AlertCircle, Edit } from 'lucide-react';
 import { Timetable } from '@/types/academics';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useRouter } from 'next/navigation';
 
 interface TimetableHeaderProps {
   timetable: Timetable;
@@ -12,6 +13,7 @@ interface TimetableHeaderProps {
   hasAttendance?: boolean;
   attendanceCount?: number;
   isSuperAdmin?: boolean;
+  canEdit?: boolean; // New prop
 }
 
 export function TimetableHeader({
@@ -19,22 +21,39 @@ export function TimetableHeader({
   onBack,
   hasAttendance = false,
   attendanceCount = 0,
-  isSuperAdmin = false
+  isSuperAdmin = false,
+  canEdit = false
 }: TimetableHeaderProps) {
+  const router = useRouter();
+
   return (
     <div className='bg-white rounded-lg shadow-sm border'>
       <div className='p-6'>
         <div className='flex items-center justify-between mb-4'>
           <div>
-            <div className='flex items-center gap-3'>
+            <div className='flex items-center gap-3 flex-wrap'>
               <h1 className='text-2xl font-bold text-gray-900'>
                 {timetable.timetable_name}
               </h1>
-              {timetable.sections?.section_name && (
+
+              {/* Timetable Type Badge - Updated: 2025-10-08 */}
+              {timetable.timetable_type === 'semester' ? (
+                <Badge variant='default' className='text-sm bg-green-600'>
+                  Semester Level
+                </Badge>
+              ) : (
                 <Badge variant='secondary' className='text-sm'>
+                  Section Level
+                </Badge>
+              )}
+
+              {/* Updated: 2025-10-08 - Only show Section badge for section-level timetables */}
+              {timetable.timetable_type === 'section' && timetable.sections?.section_name && (
+                <Badge variant='outline' className='text-sm'>
                   Section {timetable.sections.section_name}
                 </Badge>
               )}
+
               {hasAttendance && (
                 <Badge
                   variant='outline'
@@ -45,13 +64,27 @@ export function TimetableHeader({
                 </Badge>
               )}
             </div>
+            {/* Updated: 2025-10-08 - Fixed description logic */}
             <p className='text-sm text-gray-500 mt-1'>
-              {timetable.sections?.section_name
-                ? `Manage and view the timetable details for Section ${timetable.sections.section_name}`
+              {timetable.timetable_type === 'semester'
+                ? 'Semester-level timetable with multi-section slot support'
+                : timetable.timetable_type === 'section' && timetable.sections?.section_name
+                ? `Section-level timetable for Section ${timetable.sections.section_name}`
                 : 'Manage and view the timetable details'}
             </p>
           </div>
           <div className='flex items-center gap-2'>
+            {/* Edit Button - Updated: 2025-10-08 */}
+            {canEdit && (
+              <Button
+                variant='default'
+                size='sm'
+                onClick={() => router.push(`/academic/timetables/${timetable.id}/edit`)}
+              >
+                <Edit className='h-4 w-4 mr-2' />
+                Edit
+              </Button>
+            )}
             <Button variant='outline' size='sm' onClick={onBack}>
               <ArrowLeft className='h-4 w-4 mr-2' />
               Back
@@ -176,12 +209,41 @@ export function TimetableHeader({
                   {timetable.semesters?.semester_name || 'N/A'}
                 </p>
               </div>
+              {/* Timetable Type - Updated: 2025-10-08 */}
               <div>
-                <span className='text-gray-500'>Section</span>
+                <span className='text-gray-500'>Timetable Type</span>
                 <p className='font-medium'>
-                  {timetable.sections?.section_name || 'N/A'}
+                  {timetable.timetable_type === 'semester' ? (
+                    <span className='text-green-600'>
+                      Semester Level
+                    </span>
+                  ) : (
+                    <span className='text-gray-900'>
+                      Section Level
+                    </span>
+                  )}
                 </p>
               </div>
+
+              {/* Updated: 2025-10-08 - Section - Only show for section-level timetables with a section */}
+              {timetable.timetable_type === 'section' && timetable.sections?.section_name && (
+                <div>
+                  <span className='text-gray-500'>Section</span>
+                  <p className='font-medium'>
+                    {timetable.sections.section_name}
+                  </p>
+                </div>
+              )}
+
+              {/* For semester-level, show available sections count */}
+              {timetable.timetable_type === 'semester' && (
+                <div>
+                  <span className='text-gray-500'>Available Sections</span>
+                  <p className='font-medium'>
+                    {timetable.available_sections?.length || 0} section(s)
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
