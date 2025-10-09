@@ -21,6 +21,7 @@ import type {
   AttendanceSearchContext,
   AttendancePeriodOption
 } from '@/types/attendance';
+import { toast } from 'sonner';
 
 interface AttendanceViewSelectorProps {
   searchContext: AttendanceSearchContext;
@@ -50,6 +51,8 @@ export function AttendanceViewSelector({
   const { isSuperAdmin: isUserSuperAdmin, userProfile } = usePermissions();
   const { profile } = useAuth();
   const [staffId, setStaffId] = useState<string | null>(null);
+  // Updated: 2025-10-09 - Track if section is required for validation
+  const [isSectionRequired, setIsSectionRequired] = useState(false);
 
   // Determine initial loading state based on role
   const isFaculty = profile?.role === 'faculty';
@@ -102,6 +105,34 @@ export function AttendanceViewSelector({
 
     checkIfFaculty();
   }, [profile?.email, isUserSuperAdmin, isAdmin, isFaculty, isHOD]);
+
+  // Updated: 2025-10-09 - Validate search criteria before search
+  const validateSearch = (): boolean => {
+    if (!searchContext.attendance_date) {
+      toast.error('Please select an attendance date');
+      return false;
+    }
+
+    if (isSectionRequired && !searchContext.section_id) {
+      toast.error(
+        'Section is required for this semester. Please select a specific section.',
+        {
+          description:
+            'This semester uses section-level timetables. Each section has its own timetable.'
+        }
+      );
+      return false;
+    }
+
+    return true;
+  };
+
+  // Updated: 2025-10-09 - Wrap onSearch with validation
+  const handleSearch = () => {
+    if (validateSearch()) {
+      onSearch();
+    }
+  };
 
   // Handle quick attendance period selection
   const handleQuickPeriodSelect = (
@@ -158,12 +189,13 @@ export function AttendanceViewSelector({
           searchContext={searchContext}
           onContextChange={onContextChange}
           loading={loading}
+          onSectionRequirementChange={setIsSectionRequired}
         />
 
         {/* Search button for admins */}
         <div className='flex justify-end'>
           <Button
-            onClick={onSearch}
+            onClick={handleSearch}
             disabled={loading || !searchContext.attendance_date}
           >
             <Search className='h-4 w-4 mr-2' />
@@ -229,11 +261,12 @@ export function AttendanceViewSelector({
             searchContext={searchContext}
             onContextChange={onContextChange}
             loading={loading}
+            onSectionRequirementChange={setIsSectionRequired}
           />
 
           <div className='flex justify-end'>
             <Button
-              onClick={onSearch}
+              onClick={handleSearch}
               disabled={loading || !searchContext.attendance_date}
             >
               <Search className='h-4 w-4 mr-2' />
@@ -288,7 +321,7 @@ export function AttendanceViewSelector({
 
       <div className='flex justify-end'>
         <Button
-          onClick={onSearch}
+          onClick={handleSearch}
           disabled={loading || !searchContext.attendance_date}
         >
           <Search className='h-4 w-4 mr-2' />

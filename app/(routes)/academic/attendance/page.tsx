@@ -23,6 +23,7 @@ import {
   useAttendanceRoster
 } from '@/hooks/academic/use-attendance';
 import { AttendanceViewSelector } from './_components/attendance-view-selector';
+import { SectionSelectionModal } from './_components/section-selection-modal';
 import { formatTimeRange } from '@/utils/time-format';
 import type {
   AttendanceSearchContext,
@@ -54,6 +55,10 @@ export default function AttendancePage() {
   >(new Map());
   const [loadingInitialData, setLoadingInitialData] = useState(true);
   const [isClient, setIsClient] = useState(false);
+  // Updated: 2025-10-09 - Added state for section selection modal
+  const [showSectionModal, setShowSectionModal] = useState(false);
+  const [selectedPeriodForModal, setSelectedPeriodForModal] =
+    useState<AttendancePeriodOption | null>(null);
 
   const {
     periods: availablePeriods,
@@ -154,44 +159,87 @@ export default function AttendancePage() {
     refetchPeriods();
   };
 
-  // Handle period selection - redirect directly to mark page
+  // Updated: 2025-10-09 - Handle period selection
+  // For semester-level timetables: mark all sections together (no modal)
+  // For section-level timetables: proceed directly to mark page
   const handlePeriodSelection = async (period: AttendancePeriodOption) => {
-    // Find the section ID - try multiple sources
-    let sectionId = searchContext.section_id;
+    // Check if this is a multi-section slot from a semester-level timetable
+    const isMultiSection =
+      (period.sections && period.sections.length > 1) ||
+      (period.section_ids && period.section_ids.length > 1);
 
-    // If no section in search context, try to get from period data
-    if (!sectionId && period.sections && period.sections.length > 0) {
-      sectionId = period.sections[0].id;
+    if (isMultiSection) {
+      // Updated: 2025-10-09 - For semester-level with multiple sections,
+      // mark attendance for ALL sections together (no section selection needed)
+      console.log(
+        '📚 Multi-section semester-level slot - marking all sections together'
+      );
+      // Navigate without specific sectionId - mark page will handle all sections
+      navigateToMarkAttendance(period, undefined);
+      return;
     }
 
-    // If still no section ID, try to get from period section_ids array
-    if (!sectionId && period.section_ids && period.section_ids.length > 0) {
-      sectionId = period.section_ids[0];
-    }
-
-    // Last resort: extract from timetable section name if available
-    if (!sectionId && period.section_name) {
-      console.warn('Using section name as fallback:', period.section_name);
-      sectionId = period.section_name; // This will be resolved in the mark page
-    }
+    // For single section, get the section ID and proceed directly
+    const sectionId = getSingleSectionId(period);
 
     if (!sectionId) {
       toast.error('Section information not found');
       return;
     }
 
-    // Navigate directly to attendance marking page
-    const params = new URLSearchParams({
+    navigateToMarkAttendance(period, sectionId);
+  };
+
+  // Helper to get single section ID from period
+  const getSingleSectionId = (
+    period: AttendancePeriodOption
+  ): string | undefined => {
+    // Try multiple sources in priority order
+    return (
+      searchContext.section_id ||
+      period.sections?.[0]?.id ||
+      period.section_ids?.[0] ||
+      period.section_name
+    );
+  };
+
+  // Handle section selection from modal
+  const handleSectionSelected = (sectionId: string) => {
+    if (selectedPeriodForModal) {
+      console.log(
+        '✅ Section selected from modal:',
+        sectionId,
+        'for period:',
+        selectedPeriodForModal.period_name
+      );
+      navigateToMarkAttendance(selectedPeriodForModal, sectionId);
+      setSelectedPeriodForModal(null);
+    }
+  };
+
+  // Navigate to mark attendance page with optional section
+  const navigateToMarkAttendance = (
+    period: AttendancePeriodOption,
+    sectionId?: string
+  ) => {
+    const params: Record<string, string> = {
       periodId: period.timetable_slot_id,
       timetableId: period.timetable_id || '',
-      sectionId: sectionId,
       date: searchContext.attendance_date || '',
       periodName: period.period_name || 'Unknown Period',
       courseName: period.course?.course_name || 'Unknown Course',
       startTime: period.start_time || '',
       endTime: period.end_time || ''
-    });
-    router.push(`/academic/attendance/mark?${params.toString()}`);
+    };
+
+    // Only include sectionId if provided (for section-level timetables)
+    // For semester-level with multiple sections, omit sectionId to load all students
+    if (sectionId) {
+      params.sectionId = sectionId;
+    }
+
+    const searchParams = new URLSearchParams(params);
+    router.push(`/academic/attendance/mark?${searchParams.toString()}`);
   };
 
   // Loading state - wait for client hydration and initial data
@@ -280,6 +328,18 @@ export default function AttendancePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Section Selection Modal - Updated: 2025-10-09 */}
+      <SectionSelectionModal
+        open={showSectionModal}
+        onOpenChange={setShowSectionModal}
+        sections={selectedPeriodForModal?.sections || []}
+        onSectionSelect={handleSectionSelected}
+        periodName={selectedPeriodForModal?.period_name || ''}
+        courseName={selectedPeriodForModal?.course?.course_name || ''}
+        startTime={selectedPeriodForModal?.start_time}
+        endTime={selectedPeriodForModal?.end_time}
+      />
     </ContentLayout>
   );
 }

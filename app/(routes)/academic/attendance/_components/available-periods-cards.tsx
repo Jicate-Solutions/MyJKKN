@@ -61,10 +61,15 @@ export function AvailablePeriodsCards({
       try {
         setCheckingAttendance(true);
 
+        // Updated: 2025-10-09 - For multi-section periods, check using the first section
+        // The service will check both section_id and section_ids array automatically
         const periodChecks = periods.map((period) => ({
           timetable_slot_id: period.timetable_slot_id,
           timetable_id: period.timetable_id,
-          section_id: period.sections?.[0]?.id || '',
+          // Use first section's ID for multi-section periods (service checks section_ids array)
+          section_id: period.sections && period.sections.length > 0
+            ? period.sections[0].id
+            : '',
           attendance_date: targetDate
         }));
 
@@ -73,9 +78,24 @@ export function AvailablePeriodsCards({
             periodChecks
           );
 
+        // DEBUG: Log the attendance check results
+        console.log('🔍 Attendance check results:', {
+          periodChecksCount: periodChecks.length,
+          attendanceMapSize: attendanceMap.size,
+          attendanceMapEntries: Array.from(attendanceMap.entries())
+        });
+
+        // Updated: 2025-10-09 - Simplified: One check per slot, service handles multi-section logic
         const marked = new Set<string>();
         const recordIds = new Map<string, string>();
+
+        // Simply check each slot - if marked, add to marked periods
         for (const [slotId, attendanceInfo] of attendanceMap) {
+          console.log(`📊 Checking slot ${slotId}:`, {
+            isMarked: attendanceInfo.isMarked,
+            recordId: attendanceInfo.recordId
+          });
+
           if (attendanceInfo.isMarked) {
             marked.add(slotId);
             if (attendanceInfo.recordId) {
@@ -83,6 +103,13 @@ export function AvailablePeriodsCards({
             }
           }
         }
+
+        console.log('✅ Final marked periods:', {
+          markedCount: marked.size,
+          markedSlotIds: Array.from(marked),
+          recordIdsCount: recordIds.size
+        });
+
         setMarkedPeriods(marked);
         setPeriodRecordIds(recordIds);
       } catch (error) {
@@ -208,6 +235,7 @@ export function AvailablePeriodsCards({
           {filteredPeriods.map((period) => {
             const timeStatus = getTimeStatus(period.start_time);
             const isMarked = markedPeriods.has(period.timetable_slot_id);
+            const isMultiSection = period.sections && period.sections.length > 1;
 
             return (
               <Card
@@ -241,7 +269,9 @@ export function AvailablePeriodsCards({
                           <div className='flex items-center gap-2 self-start sm:self-auto'>
                             <CheckCircle className='h-4 w-4 text-green-600 flex-shrink-0' />
                             <span className='text-xs text-green-600 font-medium'>
-                              Completed
+                              {isMultiSection
+                                ? 'All Sections Completed'
+                                : 'Completed'}
                             </span>
                           </div>
                         )}
@@ -286,12 +316,31 @@ export function AvailablePeriodsCards({
                           {period.semester_name}
                         </div>
                       )}
-                      {period.section_name && (
+
+                      {/* Updated: 2025-10-09 - Fixed section name display for both section-level and semester-level timetables */}
+                      {period.sections && period.sections.length > 0 ? (
+                        // Multi-section or single section slot (semester-level timetable)
+                        <div className={cn(
+                          'px-3 py-2 rounded-md flex items-center justify-center gap-1.5 font-medium col-span-1',
+                          period.sections.length === 1
+                            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 xs:col-span-2 sm:col-span-1'
+                            : 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 xs:col-span-2 sm:col-span-3'
+                        )}>
+                          <Users className='h-3 w-3 flex-shrink-0' />
+                          <span>
+                            {period.sections.length === 1
+                              ? `Section ${period.sections[0].section_name || period.sections[0].name || period.section_name || ''}`
+                              : `${period.sections.length} Sections: ${period.sections.map(s => s.section_name || s.name).join(', ')}`
+                            }
+                          </span>
+                        </div>
+                      ) : period.section_name ? (
+                        // Single section (section-level timetable - legacy fallback)
                         <div className='bg-blue-50 dark:bg-blue-900/30 px-3 py-2 rounded-md text-center flex items-center justify-center gap-1.5 font-medium text-blue-700 dark:text-blue-300 col-span-1 xs:col-span-2 sm:col-span-1'>
                           <Users className='h-3 w-3 flex-shrink-0' />
                           <span>Section {period.section_name}</span>
                         </div>
-                      )}
+                      ) : null}
                     </div>
 
                     {/* Mark Attendance Button - Mobile Responsive */}
@@ -300,7 +349,13 @@ export function AvailablePeriodsCards({
                         onClick={() => handlePeriodClick(period)}
                         disabled={false}
                         size='sm'
-                        className='w-full h-10 font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]'
+                        className={cn(
+                          'w-full h-10 font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]',
+                          // Updated: 2025-10-09 - Red background for completed attendance
+                          isMarked
+                            ? 'bg-red-600 hover:bg-red-700 text-white'
+                            : ''
+                        )}
                       >
                         {isMarked ? (
                           <>
@@ -310,7 +365,11 @@ export function AvailablePeriodsCards({
                         ) : (
                           <>
                             <Users className='h-4 w-4 mr-2 flex-shrink-0' />
-                            <span className='text-sm'>Mark Attendance</span>
+                            <span className='text-sm'>
+                              {isMultiSection
+                                ? 'Mark All Sections'
+                                : 'Mark Attendance'}
+                            </span>
                           </>
                         )}
                       </Button>

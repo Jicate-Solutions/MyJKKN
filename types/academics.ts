@@ -109,6 +109,7 @@ export interface Timetable {
   degree_id: string;
   program_id: string;
   department_id: string;
+  timetable_type: 'section' | 'semester';
   semester_id: string;
   section_id?: string;
   timetable_name: string;
@@ -157,6 +158,11 @@ export interface Timetable {
     id: string;
     section_name: string;
   };
+  // Updated: 2025-10-09 - Added available_sections for semester-level timetables
+  available_sections?: Array<{
+    id: string;
+    section_name: string;
+  }>;
   slots?: any[];
   timetable_format: 'regular' | 'batch';
   timetable_data?: any;
@@ -172,6 +178,7 @@ export interface CreateTimetableDto {
   semester_id: string;
   section_id?: string;
   timetable_name: string;
+  timetable_type: 'section' | 'semester';
   is_active?: boolean;
   is_template?: boolean;
   template_name?: string;
@@ -289,6 +296,7 @@ export interface CreateFromTemplateDto {
   department_id: string;
   semester_id: string;
   section_id?: string;
+  timetable_type: 'section' | 'semester';
   start_date?: string;
   end_date?: string;
   is_active?: boolean;

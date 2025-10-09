@@ -299,13 +299,50 @@ export class AttendanceService {
           continue;
         }
 
-        const { data, error } = await this.supabase
+        // Updated: 2025-10-09 - Check for both section_id match and section_ids array containment
+        // For multi-section timetables, attendance is stored with section_ids array
+        // We need to check if the section is either:
+        // 1. The main section_id (for single-section or as primary in multi-section)
+        // 2. In the section_ids array (for multi-section timetables)
+
+        // First try to find by exact section_id match
+        let { data, error } = await this.supabase
           .from('student_attendance')
-          .select('id, attendance_data')
+          .select('id, attendance_data, section_ids')
           .eq('timetable_id', firstPeriod.timetable_id)
           .eq('section_id', firstPeriod.section_id)
           .eq('attendance_date', firstPeriod.attendance_date)
           .maybeSingle();
+
+        console.log('🔍 First check (exact section_id):', {
+          timetable_id: firstPeriod.timetable_id,
+          section_id: firstPeriod.section_id,
+          found: !!data,
+          recordId: data?.id
+        });
+
+        // If not found by section_id, try finding by section_ids array containment
+        if (!data && firstPeriod.section_id) {
+          const { data: arrayData, error: arrayError } = await this.supabase
+            .from('student_attendance')
+            .select('id, attendance_data, section_ids')
+            .eq('timetable_id', firstPeriod.timetable_id)
+            .eq('attendance_date', firstPeriod.attendance_date)
+            .contains('section_ids', [firstPeriod.section_id])
+            .maybeSingle();
+
+          console.log('🔍 Second check (section_ids array):', {
+            timetable_id: firstPeriod.timetable_id,
+            section_id: firstPeriod.section_id,
+            found: !!arrayData,
+            recordId: arrayData?.id
+          });
+
+          if (arrayData) {
+            data = arrayData;
+            error = arrayError;
+          }
+        }
 
         if (error) {
           console.error('Error checking existing attendance:', {
@@ -328,12 +365,20 @@ export class AttendanceService {
           let isMarked = false;
 
           if (data?.attendance_data) {
-            // Check if this specific slot has attendance data
+            // Updated: 2025-10-09 - Check ONLY this specific slot, not any other slots
+            // Even for multi-section records, we should only mark a period as complete
+            // if THIS specific slot has attendance data
             const slotData = data.attendance_data[period.timetable_slot_id];
             if (slotData && slotData.students && slotData.students.length > 0) {
               isMarked = true;
+              console.log(`✅ Slot ${period.timetable_slot_id} has direct data`);
             }
           }
+
+          console.log(`📝 Setting map for slot ${period.timetable_slot_id}:`, {
+            isMarked,
+            recordId: isMarked ? data?.id : undefined
+          });
 
           attendanceMap.set(period.timetable_slot_id, {
             isMarked,
@@ -963,11 +1008,12 @@ export class AttendanceService {
           merged: mergedAttendanceData
         });
 
-        // Update existing record with merged data
+        // Updated: 2025-10-09 - Update section_ids array for multi-section support
         const { data: updateResult, error: updateError } = await this.supabase
           .from('student_attendance')
           .update({
             attendance_data: mergedAttendanceData, // Use merged data instead of overwriting
+            section_ids: data.section_ids || null, // Update section_ids array if provided
             updated_at: new Date().toISOString()
           })
           .eq('id', existingRecord.id)
@@ -1064,11 +1110,13 @@ export class AttendanceService {
           academicFields
         });
 
+        // Updated: 2025-10-09 - Add section_ids array for multi-section support
         const { data: insertResult, error: insertError } = await this.supabase
           .from('student_attendance')
           .insert({
             timetable_id: data.timetable_id,
             section_id: resolvedSectionId,
+            section_ids: data.section_ids || null, // Store section_ids array if provided
             attendance_date: data.attendance_date,
             attendance_data: data.attendance_data,
             institution_id: data.institution_id,
@@ -1555,13 +1603,15 @@ export class AttendanceService {
   // =====================
 
   // Get students for attendance based on filters
+  // Updated: 2025-10-08 - Added support for multiple sections (multi-section attendance)
   static async getStudentsForAttendance(filters: {
     institution_id: string;
     degree_id?: string;
     program_id?: string;
     department_id?: string;
     semester_id?: string;
-    section_id?: string;
+    section_id?: string; // Single section (backward compatibility)
+    section_ids?: string[]; // Multiple sections (new feature)
   }): Promise<AttendanceStudent[]> {
     try {
       console.log('🎯 getStudentsForAttendance called with filters:', filters);
@@ -1647,11 +1697,17 @@ export class AttendanceService {
         query = query.eq('semester_id', filters.semester_id);
       }
 
-      if (filters.section_id) {
+      // Updated: 2025-10-08 - Support both single section and multiple sections
+      if (filters.section_ids && filters.section_ids.length > 0) {
+        // Multi-section support (new feature)
+        query = query.in('section_id', filters.section_ids);
+      } else if (filters.section_id) {
+        // Single section (backward compatibility)
         query = query.eq('section_id', filters.section_id);
       }
 
-      query = query.order('roll_number', { ascending: true });
+      // Order by section_id first, then roll_number for better grouping
+      query = query.order('section_id', { ascending: true }).order('roll_number', { ascending: true });
 
       console.log('🔍 Executing students query with filters:', filters);
       const { data, error } = await query;
@@ -1958,7 +2014,11 @@ export class AttendanceService {
           department_id,
           semester_id,
           section_id,
-          status
+          status,
+          section:sections(
+            id,
+            section_name
+          )
         `
         )
         .eq('status', 'active')
@@ -2095,10 +2155,11 @@ export class AttendanceService {
       }
 
       // Fetch all active timetables for the given context (both regular and batch)
+      // Updated: 2025-10-09 - Added timetable_type to query for section-level filtering
       let timetableQuery = this.supabase
         .from('timetables')
         .select(
-          `id, timetable_format, start_date, end_date, selected_dates, section_id, semester_id, timetable_data,
+          `id, timetable_format, timetable_type, start_date, end_date, selected_dates, section_id, semester_id, timetable_data,
            degrees(degree_name),
            programs(program_name),
            departments(department_name),
@@ -2116,16 +2177,16 @@ export class AttendanceService {
       timetableQuery = timetableQuery.eq('semester_id', filters.semester);
       console.log('Querying with semester_id:', filters.semester);
 
-      // For section filtering, use the section_id column directly (timetables table stores section_id as UUID)
+      // Updated: 2025-10-09 - Handle section filtering for both semester-level and section-level timetables
+      // For semester-level timetables: Filter by slot section_ids (combined classes support)
+      // For section-level timetables: Filter by timetable section_id (old architecture)
       if (filters.section) {
-        console.log('Filtering by section_id:', filters.section);
-        timetableQuery = timetableQuery.eq('section_id', filters.section);
+        console.log('Section filter specified:', filters.section);
+        console.log('Note: Will filter by BOTH timetable section_id (for section-level) AND slot section_ids (for semester-level)');
       } else {
         console.log(
           'No section filter specified - getting all timetables regardless of section'
         );
-        // Don't filter by section - get all timetables for this context
-        // This allows fetching timetables that have a section set even when no specific section is requested
       }
 
       let timetables;
@@ -2169,6 +2230,55 @@ export class AttendanceService {
           dayOfWeek: dayOfWeek
         });
         return [];
+      }
+
+      // Updated: 2025-10-09 - Filter section-level timetables by section_id
+      // For section-level timetables, we need to filter by the timetable's section_id
+      // For semester-level timetables, we'll filter by slot section_ids later
+      if (filters.section) {
+        console.log('🔍 Filtering timetables by section...');
+        console.log('Before section filter:', {
+          total: timetables.length,
+          timetables: timetables.map((t: any) => ({
+            id: t.id,
+            type: t.timetable_type,
+            section_id: t.section_id,
+            section_name: t.sections?.section_name
+          }))
+        });
+
+        const originalCount = timetables.length;
+        timetables = timetables.filter((t: any) => {
+          // For semester-level timetables, keep them (we'll filter by slot section_ids later)
+          if (t.timetable_type === 'semester') {
+            console.log(`✅ Keeping semester-level timetable ${t.id} - will filter slots by section_ids`);
+            return true;
+          }
+
+          // For section-level timetables, only keep if section_id matches
+          if (t.section_id === filters.section) {
+            console.log(`✅ Keeping section-level timetable ${t.id} - section_id matches ${filters.section}`);
+            return true;
+          }
+
+          console.log(`❌ Filtering out section-level timetable ${t.id} - section_id ${t.section_id} doesn't match ${filters.section}`);
+          return false;
+        });
+
+        console.log('After section filter:', {
+          originalCount,
+          filteredCount: timetables.length,
+          filtered: timetables.map((t: any) => ({
+            id: t.id,
+            type: t.timetable_type,
+            section_id: t.section_id
+          }))
+        });
+
+        if (timetables.length === 0) {
+          console.warn('⚠️ No timetables found after section filtering');
+          return [];
+        }
       }
 
       // Collect all slots from all relevant timetables
@@ -2265,10 +2375,10 @@ export class AttendanceService {
               console.log('🔍 Full timetable_data structure:', JSON.stringify(timetableData, null, 2));
 
               // For batch timetables, extract slots for the specific date
-              // Strategy: Find the date range that contains the query date, then look for ANY slot
-              // in that range and apply it to the query date
+              // Strategy: Find the date range that contains the query date, then look for slots
+              // from dates in that range and apply the pattern to the query date
 
-              console.log('🔍 Strategy: Find slots from same date range and apply to query date');
+              console.log('🔍 Strategy: Find slots from same date range and apply pattern to query date');
 
               // Step 1: Find which date range contains the query date
               let matchingRangeStart = null;
@@ -2451,16 +2561,29 @@ export class AttendanceService {
             }
 
             // Enhance slots with related data
-            slots = slots.map((slot) => ({
-              ...slot,
-              course: slot.course_id ? coursesMap.get(slot.course_id) : null,
-              staff_members: (slot.staff_ids || [])
-                .map((id: string) => staffMap.get(id))
-                .filter(Boolean),
-              sections: (slot.section_ids || [])
-                .map((id: string) => sectionsMap.get(id))
-                .filter(Boolean)
-            }));
+            slots = slots.map((slot) => {
+              // For section-level timetables, get section name from timetable.sections
+              // For semester-level timetables, get from slot.section_ids
+              let sectionName = '';
+              if (timetable.timetable_type === 'section' && (timetable as any).sections?.section_name) {
+                sectionName = (timetable as any).sections.section_name;
+              } else if (slot.section_ids && slot.section_ids.length > 0) {
+                const firstSection = sectionsMap.get(slot.section_ids[0]);
+                sectionName = firstSection?.section_name || '';
+              }
+
+              return {
+                ...slot,
+                section_name: sectionName, // Add section_name directly to slot
+                course: slot.course_id ? coursesMap.get(slot.course_id) : null,
+                staff_members: (slot.staff_ids || [])
+                  .map((id: string) => staffMap.get(id))
+                  .filter(Boolean),
+                sections: (slot.section_ids || [])
+                  .map((id: string) => sectionsMap.get(id))
+                  .filter(Boolean)
+              };
+            });
           }
         } catch (error) {
           console.error('Error extracting slots from timetable_data:', error);
@@ -2671,7 +2794,16 @@ export class AttendanceService {
             program_name: Array.isArray(timetableData?.programs) ? timetableData.programs[0]?.program_name || '' : (timetableData?.programs as any)?.program_name || '',
             department_name: Array.isArray(timetableData?.departments) ? timetableData.departments[0]?.department_name || '' : (timetableData?.departments as any)?.department_name || '',
             semester_name: Array.isArray(timetableData?.semesters) ? timetableData.semesters[0]?.semester_name || '' : (timetableData?.semesters as any)?.semester_name || '',
-            section_name: Array.isArray(timetableData?.sections) ? timetableData.sections[0]?.section_name || '' : (timetableData?.sections as any)?.section_name || '',
+            // Updated: 2025-10-09 - Fix section name for section-level timetables
+            // Priority 1: slot.section_name (direct property from slot data)
+            // Priority 2: timetableData.sections from join (section-level timetables)
+            // Priority 3: slot.sections array with 'name' property (semester-level slots)
+            // Priority 4: slot.sections array with 'section_name' property (fallback)
+            section_name: slot.section_name ||
+                         (timetableData?.sections as any)?.section_name ||
+                         (Array.isArray(slot.sections) && slot.sections.length > 0
+                           ? (slot.sections[0]?.name || slot.sections[0]?.section_name || '')
+                           : ''),
             course: slot.course
               ? {
                   id: slot.course.id,
@@ -2692,10 +2824,12 @@ export class AttendanceService {
           };
         });
 
-      // Remove duplicates based on period id and sort
+      // Updated: 2025-10-09 - Remove duplicates based on timetable_slot_id (not period id)
+      // For batch timetables, the same period can have multiple slots on different dates
+      // We want to keep all unique slots, not de-duplicate by period
       const uniquePeriods = availablePeriods.filter(
         (period, index, self) =>
-          index === self.findIndex((p) => p.id === period.id)
+          index === self.findIndex((p) => p.timetable_slot_id === period.timetable_slot_id)
       );
 
       const sortedPeriods = uniquePeriods.sort((a, b) => {
@@ -2788,6 +2922,63 @@ export class AttendanceService {
       return staff.id;
     } catch (error) {
       console.error('Error getting current user staff ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Updated: 2025-10-09 - Get timetable type for a semester to determine if section is required
+   * Returns 'semester' for semester-level timetables (section optional)
+   * Returns 'section' for section-level timetables (section required)
+   * Returns null if no timetables found
+   */
+  static async getTimetableTypeForSemester(
+    institution_id: string,
+    academic_year_id: string,
+    degree_id: string,
+    program_id: string,
+    department_id: string,
+    semester_id: string
+  ): Promise<'semester' | 'section' | null> {
+    try {
+      console.log('🔍 Checking timetable type for semester:', {
+        institution_id,
+        academic_year_id,
+        degree_id,
+        program_id,
+        department_id,
+        semester_id
+      });
+
+      const { data, error } = await this.supabase
+        .from('timetables')
+        .select('timetable_type')
+        .eq('institution_id', institution_id)
+        .eq('academic_year_id', academic_year_id)
+        .eq('degree_id', degree_id)
+        .eq('program_id', program_id)
+        .eq('department_id', department_id)
+        .eq('semester_id', semester_id)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error checking timetable type:', error);
+        return null;
+      }
+
+      if (!data) {
+        console.warn('No timetables found for this semester');
+        return null;
+      }
+
+      const timetableType = data.timetable_type as 'semester' | 'section';
+      console.log('✅ Timetable type detected:', timetableType);
+
+      return timetableType;
+    } catch (error) {
+      console.error('Error in getTimetableTypeForSemester:', error);
       return null;
     }
   }
@@ -3138,6 +3329,7 @@ export class AttendanceService {
           end_time: '23:59',
           students: attendanceData.student_records.map((record) => ({
             student_id: record.student_id,
+            section_id: attendanceData.section_id, // Updated: 2025-10-09 - Add required section_id property
             status: record.status,
             marked_at: new Date().toISOString()
           })),

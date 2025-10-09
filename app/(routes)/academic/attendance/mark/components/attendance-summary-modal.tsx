@@ -138,12 +138,18 @@ export function AttendanceSummaryModal({
                     </p>
                   </div>
                 </div>
+                {/* Updated: 2025-10-08 - Support for multi-section display */}
                 <div className='flex items-center gap-2'>
-                  <Building2 className='h-4 w-4 text-indigo-600' />
+                  <Building2 className={contextData?.slot_sections && contextData.slot_sections.length > 1 ? 'h-4 w-4 text-green-600' : 'h-4 w-4 text-indigo-600'} />
                   <div>
-                    <p className='text-gray-600 dark:text-gray-400'>Section</p>
-                    <p className='font-semibold'>
-                      {contextData?.section_name || 'Unknown Section'}
+                    <p className='text-gray-600 dark:text-gray-400'>Section{contextData?.slot_sections && contextData.slot_sections.length > 1 ? 's' : ''}</p>
+                    <p className={contextData?.slot_sections && contextData.slot_sections.length > 1 ? 'font-semibold text-green-700 dark:text-green-300' : 'font-semibold'}>
+                      {contextData?.slot_sections && contextData.slot_sections.length > 0
+                        ? contextData.slot_sections.length === 1
+                          ? contextData.slot_sections[0].section_name
+                          : `${contextData.slot_sections.length} Sections: ${contextData.slot_sections.map((s: any) => s.section_name).join(', ')}`
+                        : contextData?.section_name || 'Unknown Section'
+                      }
                     </p>
                   </div>
                 </div>

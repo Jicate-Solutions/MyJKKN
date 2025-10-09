@@ -16,8 +16,10 @@ export interface AttendanceStudent {
 }
 
 // New consolidated attendance types for JSONB structure
+// Updated: 2025-10-08 - Added section_id for historical accuracy
 export interface ConsolidatedAttendanceStudent {
   student_id: string;
+  section_id: string; // Stores section at time of marking - preserves history
   status: 'Present' | 'Absent';
   marked_at: string;
 }
@@ -173,6 +175,8 @@ export interface UpsertConsolidatedAttendanceDto {
   attendance_data: ConsolidatedAttendanceData;
   marked_by: string;
   institution_id: string;
+  // Updated: 2025-10-09 - Added section_ids array for multi-section support
+  section_ids?: string[]; // Array of all section IDs for multi-section timetables
   // Academic hierarchy fields
   academic_year_id?: string;
   degree_id?: string;
@@ -215,6 +219,10 @@ export interface AttendanceRosterStudent {
   student_photo_url?: string;
   status: 'Present' | 'Absent';
   attendance_id?: string; // If attendance record exists
+  section?: {
+    id: string;
+    section_name: string;
+  };
 }
 
 export interface AttendanceRosterData {
@@ -271,7 +279,8 @@ export interface AttendancePeriodOption {
   };
   sections?: {
     id: string;
-    name: string;
+    name?: string; // For compatibility with semester-level timetables (may use 'name')
+    section_name?: string; // For section-level timetables (actual database field)
   }[];
   section_ids?: string[]; // Add section_ids array from timetable data
   staff?: StaffMember; // Legacy single staff member
