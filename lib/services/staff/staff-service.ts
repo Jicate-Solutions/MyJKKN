@@ -178,7 +178,7 @@ export class StaffService {
             );
 
             if (!suppressToast) {
-              toast.warning(
+              toast.error(
                 `Staff created, but profile creation may be pending. Please check the database.`
               );
             }
@@ -193,7 +193,9 @@ export class StaffService {
           }
         }
       } else {
-        console.log('No institution_email provided, profile will not be created');
+        console.log(
+          'No institution_email provided, profile will not be created'
+        );
         if (!suppressToast) {
           toast.success(`Staff created successfully`);
         }
@@ -305,7 +307,9 @@ export class StaffService {
                 `Failed to delete user profile for staff ${id}:`,
                 await response.text()
               );
-              toast.error('Staff deleted, but failed to remove user profile. Profile may need manual cleanup.');
+              toast.error(
+                'Staff deleted, but failed to remove user profile. Profile may need manual cleanup.'
+              );
             } else {
               console.log(`Successfully deleted user profile for staff ${id}`);
             }
@@ -315,7 +319,9 @@ export class StaffService {
             'Error finding or deleting staff user profile:',
             profileError
           );
-          toast.error('Staff deleted, but encountered error removing user profile. Manual cleanup may be needed.');
+          toast.error(
+            'Staff deleted, but encountered error removing user profile. Manual cleanup may be needed.'
+          );
           // Continue with staff deletion even if profile deletion fails
         }
       }

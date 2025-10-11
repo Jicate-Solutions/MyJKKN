@@ -113,7 +113,7 @@ export default function AttendancePage() {
       console.log('⚠️ Profile loaded without institution_id - finishing load');
       setLoadingInitialData(false);
     }
-  }, [profile?.institution_id, isSuperAdmin, profile]);
+  }, [profile?.institution_id, isSuperAdmin, profile, loadingInitialData]);
 
   // Check permissions for available periods
   useEffect(() => {
@@ -333,7 +333,10 @@ export default function AttendancePage() {
       <SectionSelectionModal
         open={showSectionModal}
         onOpenChange={setShowSectionModal}
-        sections={selectedPeriodForModal?.sections || []}
+        sections={(selectedPeriodForModal?.sections || []).map((section) => ({
+          id: section.id,
+          name: section.name || section.section_name || 'Unknown Section'
+        }))}
         onSectionSelect={handleSectionSelected}
         periodName={selectedPeriodForModal?.period_name || ''}
         courseName={selectedPeriodForModal?.course?.course_name || ''}

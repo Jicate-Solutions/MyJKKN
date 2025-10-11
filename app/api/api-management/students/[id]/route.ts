@@ -11,9 +11,10 @@ export async function OPTIONS() {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Add CORS headers to response
     const response = NextResponse.next();
     Object.entries(corsHeaders).forEach(([key, value]) => {
@@ -90,8 +91,6 @@ export async function GET(
         { status: 403 }
       );
     }
-
-    const { id } = params;
     console.log('[Student Detail API] 4. Student ID:', id);
 
     // First check if student exists

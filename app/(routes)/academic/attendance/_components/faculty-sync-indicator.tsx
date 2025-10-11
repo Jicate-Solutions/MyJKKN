@@ -39,6 +39,7 @@ export function FacultySyncIndicator({
     if (autoCheck && attendanceId && periodId) {
       checkForChanges();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attendanceId, periodId, autoCheck]);
 
   const checkForChanges = async () => {

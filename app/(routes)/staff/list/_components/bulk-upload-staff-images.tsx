@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { StorageService } from '@/lib/storage/storage-service';
 import { toast } from 'react-hot-toast';
+import Image from 'next/image';
 
 interface FilePreview {
   file: File;
@@ -176,9 +177,12 @@ export function BulkUploadStaffImages() {
                     className='flex items-center justify-between p-2 border rounded-md'
                   >
                     <div className='flex items-center gap-2'>
-                      <img
+                      <Image
                         src={file.preview_url}
                         alt={file.file.name}
+                        width={40}
+                        height={40}
+                        unoptimized={true}
                         className='h-10 w-10 object-cover rounded'
                       />
                       <span className='text-sm font-medium'>

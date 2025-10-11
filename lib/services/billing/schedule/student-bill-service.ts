@@ -416,7 +416,10 @@ export class StudentBillService {
       // Apply academic hierarchy filters (only when using the joined query)
       if (hasAcademicFilters) {
         if (filters.academic_year_id) {
-          query = query.eq('student.academic_year_id', filters.academic_year_id);
+          query = query.eq(
+            'student.academic_year_id',
+            filters.academic_year_id
+          );
         }
 
         if (filters.degree_id) {
@@ -447,9 +450,16 @@ export class StudentBillService {
       // Map sort columns based on query type
       if (!hasAcademicFilters) {
         // When using view, map student fields appropriately
-        if (sortBy === 'first_name' || sortBy === 'last_name' || sortBy === 'student_name') {
+        if (
+          sortBy === 'first_name' ||
+          sortBy === 'last_name' ||
+          sortBy === 'student_name'
+        ) {
           sortBy = 'student_name';
-        } else if (sortBy === 'student.first_name' || sortBy === 'student.last_name') {
+        } else if (
+          sortBy === 'student.first_name' ||
+          sortBy === 'student.last_name'
+        ) {
           sortBy = 'student_name';
         } else if (sortBy === 'student' || sortBy === 'student.name') {
           sortBy = 'student_name';
@@ -468,59 +478,67 @@ export class StudentBillService {
       if (error) throw error;
 
       // Transform data based on the query type
-      const transformedData = (data || []).map(
-        (bill): StudentBill => {
-          // Common core bill fields
-          const baseBill = {
-            id: bill.id,
-            student_id: bill.student_id,
-            institution_id: bill.institution_id,
-            item_category_id: bill.item_category_id,
-            bill_description: bill.bill_description,
-            due_date: bill.due_date,
-            quantity: bill.quantity,
-            unit_amount: bill.unit_amount,
-            total_amount: bill.total_amount,
-            tax_amount: bill.tax_amount,
-            final_amount: bill.final_amount,
-            status: bill.status,
-            payment_date: bill.payment_date,
-            balance_amount: bill.balance_amount,
-            remarks: bill.remarks,
-            is_recurring: bill.is_recurring,
-            recurrence_pattern: bill.recurrence_pattern,
-            number_of_recurrences: bill.number_of_recurrences,
-            created_by: bill.created_by,
-            created_at: bill.created_at,
-            updated_at: bill.updated_at,
-          };
+      const transformedData = (data || []).map((bill: any): StudentBill => {
+        // Common core bill fields
+        const baseBill = {
+          id: bill.id,
+          student_id: bill.student_id,
+          institution_id: bill.institution_id,
+          item_category_id: bill.item_category_id,
+          bill_description: bill.bill_description,
+          due_date: bill.due_date,
+          quantity: bill.quantity,
+          unit_amount: bill.unit_amount,
+          total_amount: bill.total_amount,
+          tax_amount: bill.tax_amount,
+          final_amount: bill.final_amount,
+          status: bill.status,
+          payment_date: bill.payment_date,
+          balance_amount: bill.balance_amount,
+          remarks: bill.remarks,
+          is_recurring: bill.is_recurring,
+          recurrence_pattern: bill.recurrence_pattern,
+          number_of_recurrences: bill.number_of_recurrences,
+          created_by: bill.created_by,
+          created_at: bill.created_at,
+          updated_at: bill.updated_at
+        };
 
-          // Since we're now using the same query structure for both cases,
-          // we can simplify the transformation logic
-          return {
-            ...baseBill,
-            student: {
-              id: bill.student_id,
-              first_name: bill.student?.first_name || '',
-              last_name: bill.student?.last_name || '',
-              roll_number: bill.student?.roll_number || '',
-              college_email: '', // Not queried to keep it light
-              student_mobile: '', // Not queried to keep it light
-              department: bill.student?.department || undefined,
-              semester: bill.student?.semester || undefined
-            },
-            institution: {
-              id: bill.institution_id,
-              name: bill.institution?.name || '',
-              counselling_code: '' // Not queried to keep it light
-            },
-            item_category: {
-              id: bill.item_category_id,
-              item_category_name: bill.item_category?.item_category_name || ''
-            }
-          };
-        }
-      );
+        // Since we're now using the same query structure for both cases,
+        // we can simplify the transformation logic
+        const studentData = Array.isArray(bill.student)
+          ? bill.student[0]
+          : bill.student;
+        const institutionData = Array.isArray(bill.institution)
+          ? bill.institution[0]
+          : bill.institution;
+        const itemCategoryData = Array.isArray(bill.item_category)
+          ? bill.item_category[0]
+          : bill.item_category;
+
+        return {
+          ...baseBill,
+          student: {
+            id: bill.student_id,
+            first_name: studentData?.first_name || '',
+            last_name: studentData?.last_name || '',
+            roll_number: studentData?.roll_number || '',
+            college_email: '', // Not queried to keep it light
+            student_mobile: '', // Not queried to keep it light
+            department: studentData?.department || undefined,
+            semester: studentData?.semester || undefined
+          },
+          institution: {
+            id: bill.institution_id,
+            name: institutionData?.name || '',
+            counselling_code: '' // Not queried to keep it light
+          },
+          item_category: {
+            id: bill.item_category_id,
+            item_category_name: itemCategoryData?.item_category_name || ''
+          }
+        };
+      });
 
       return {
         data: transformedData,

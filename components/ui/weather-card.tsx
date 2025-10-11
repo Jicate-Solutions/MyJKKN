@@ -167,7 +167,8 @@ const WeatherCard: React.FC<WeatherCardProps> = ({
     fetchWeather();
     const interval = setInterval(fetchWeather, 600000);
     return () => clearInterval(interval);
-  }, [location]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]); // fetchWeather would cause infinite loop
 
   const getWeatherIcon = (weatherType: string, isDay: boolean = true) => {
     const iconSize = embedded ? 'w-12 h-12' : 'w-16 h-16';

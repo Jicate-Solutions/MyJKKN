@@ -18,7 +18,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
@@ -100,24 +100,30 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
         )
       );
 
-      const successful = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.filter(r => r.status === 'rejected').length;
+      const successful = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.filter((r) => r.status === 'rejected').length;
 
       if (successful > 0) {
-        toast.success(`Successfully deleted ${successful} section${successful > 1 ? 's' : ''}`);
+        toast.success(
+          `Successfully deleted ${successful} section${
+            successful > 1 ? 's' : ''
+          }`
+        );
       }
-      
+
       if (failed > 0) {
-        toast.error(`Failed to delete ${failed} section${failed > 1 ? 's' : ''}`);
+        toast.error(
+          `Failed to delete ${failed} section${failed > 1 ? 's' : ''}`
+        );
       }
 
       if (deleteResetFn) {
         deleteResetFn();
       }
-      
+
       // Refresh the table
       router.refresh();
-      
+
       setShowDeleteDialog(false);
       setSelectedForDelete([]);
       setDeleteResetFn(null);
@@ -194,23 +200,25 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
             <AlertDialogTitle>
               {selectedForDelete.length > 1
                 ? `Delete ${selectedForDelete.length} Sections`
-                : `Delete Section: ${selectedForDelete[0]?.name}`}
+                : `Delete Section: ${selectedForDelete[0]?.section_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the section{selectedForDelete.length > 1 ? 's' : ''} and all related data.
+              This action cannot be undone. This will permanently delete the
+              section{selectedForDelete.length > 1 ? 's' : ''} and all related
+              data.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           {/* List sections to be deleted */}
           {selectedForDelete.length > 0 && (
-            <div className="my-4 p-3 bg-muted rounded-lg">
-              <div className="text-sm font-medium mb-2">
+            <div className='my-4 p-3 bg-muted rounded-lg'>
+              <div className='text-sm font-medium mb-2'>
                 Section{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
               </div>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
+              <div className='space-y-1 max-h-32 overflow-y-auto'>
                 {selectedForDelete.map((section) => (
-                  <div key={section.id} className="text-sm">
-                    • {section.name}
+                  <div key={section.id} className='text-sm'>
+                    • {section.section_name}
                   </div>
                 ))}
               </div>
@@ -222,15 +230,19 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
             <AlertDialogAction
               onClick={confirmDelete}
               disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isDeleting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                   Deleting...
                 </>
               ) : (
-                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} Sections` : 'Section'}`
+                `Delete ${
+                  selectedForDelete.length > 1
+                    ? `${selectedForDelete.length} Sections`
+                    : 'Section'
+                }`
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -61,7 +61,8 @@ export function CourseMappingFilters({
     if (profile?.institution_id && !searchParams.institution_id) {
       onFilterChange('institution_id', profile.institution_id);
     }
-  }, [profile?.institution_id]);
+    // onFilterChange and searchParams are external dependencies
+  }, [profile?.institution_id, onFilterChange, searchParams.institution_id]);
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -114,6 +115,8 @@ export function CourseMappingFilters({
       }
     }
     loadDegrees();
+    // onFilterChange and searchParams.degree_id are external dependencies
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams.institution_id, departmentId, hasDepartmentRestriction]);
 
   useEffect(() => {
@@ -147,6 +150,8 @@ export function CourseMappingFilters({
       }
     }
     loadDepartments();
+    // onFilterChange and searchParams.department_id are external dependencies
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams.degree_id, departmentId, hasDepartmentRestriction]);
 
   useEffect(() => {

@@ -545,14 +545,18 @@ export function useConsolidatedAttendanceRoster() {
         setError(null);
 
         // Get current user profile for marker info
-        const { createClientSupabaseClient } = await import('@/lib/supabase/client');
+        const { createClientSupabaseClient } = await import(
+          '@/lib/supabase/client'
+        );
         const supabase = createClientSupabaseClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        
+        const {
+          data: { user }
+        } = await supabase.auth.getUser();
+
         // Get better name from staff table if user is faculty
         let markerName = user?.user_metadata?.full_name || 'Unknown';
         let markerEmail = user?.email || '';
-        
+
         // Try to get staff details for better name/email if user is faculty
         if (user?.id && user?.user_metadata?.role === 'faculty') {
           try {
@@ -562,16 +566,23 @@ export function useConsolidatedAttendanceRoster() {
               .eq('profile_id', user.id)
               .eq('is_active', true)
               .single();
-              
+
             if (staffData) {
-              markerName = `${staffData.first_name || ''} ${staffData.last_name || ''}`.trim() || markerName;
-              markerEmail = staffData.email || staffData.institution_email || markerEmail;
+              markerName =
+                `${staffData.first_name || ''} ${
+                  staffData.last_name || ''
+                }`.trim() || markerName;
+              markerEmail =
+                staffData.email || staffData.institution_email || markerEmail;
             }
           } catch (error) {
-            console.warn('Could not fetch staff details for marker name:', error);
+            console.warn(
+              'Could not fetch staff details for marker name:',
+              error
+            );
           }
         }
-        
+
         // Build the consolidated attendance data structure with proper faculty and marker info
         const attendanceData: ConsolidatedAttendanceData = {
           [slot_id]: {
@@ -582,22 +593,33 @@ export function useConsolidatedAttendanceRoster() {
             course_id: period_info.course?.id || '',
             course_name: period_info.course?.course_name || '',
             // Add assigned faculty if available - handle both single and multiple
-            assigned_faculty: period_info.staff ? (
-              Array.isArray(period_info.staff) ? 
-                // Multiple staff - store as array
-                period_info.staff.map((staff: any) => ({
-                  faculty_id: staff.id,
-                  faculty_name: staff.full_name || `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
-                  faculty_email: staff.email || staff.institution_email || '',
-                  is_primary: staff.is_primary || false
-                })) :
-                // Single staff - store as object
-                {
-                  faculty_id: period_info.staff.id,
-                  faculty_name: period_info.staff.full_name || `${period_info.staff.first_name || ''} ${period_info.staff.last_name || ''}`.trim(),
-                  faculty_email: period_info.staff.email || period_info.staff.institution_email || ''
-                }
-            ) : undefined,
+            assigned_faculty: period_info.staff
+              ? Array.isArray(period_info.staff)
+                ? // Multiple staff - store as array
+                  period_info.staff.map((staff: any) => ({
+                    faculty_id: staff.id,
+                    faculty_name:
+                      staff.full_name ||
+                      `${staff.first_name || ''} ${
+                        staff.last_name || ''
+                      }`.trim(),
+                    faculty_email: staff.email || staff.institution_email || '',
+                    is_primary: staff.is_primary || false
+                  }))
+                : // Single staff - store as object
+                  {
+                    faculty_id: period_info.staff.id,
+                    faculty_name:
+                      period_info.staff.full_name ||
+                      `${period_info.staff.first_name || ''} ${
+                        period_info.staff.last_name || ''
+                      }`.trim(),
+                    faculty_email:
+                      period_info.staff.email ||
+                      period_info.staff.institution_email ||
+                      ''
+                  }
+              : undefined,
             // Add marker details with profile ID (works for all user types)
             marked_by_details: {
               marker_id: marked_by, // This is the profile ID passed to the function
@@ -608,6 +630,7 @@ export function useConsolidatedAttendanceRoster() {
             },
             students: rosterData.students.map((student) => ({
               student_id: student.id,
+              section_id: section_id, // Add section_id for historical accuracy
               status: student.status,
               marked_at: new Date().toISOString()
             }))
@@ -725,7 +748,10 @@ export function useAttendancePeriods(
 
   const fetchPeriods = useCallback(
     async (context: AttendanceSearchContext) => {
-      console.log('🔍 useAttendancePeriods fetchPeriods called with context:', context);
+      console.log(
+        '🔍 useAttendancePeriods fetchPeriods called with context:',
+        context
+      );
       console.log('🔍 enabled:', enabled);
 
       // Check which fields are missing
@@ -752,7 +778,9 @@ export function useAttendancePeriods(
         !context.semester_id ||
         !context.attendance_date
       ) {
-        console.log('⚠️ Skipping periods fetch - missing required fields or disabled');
+        console.log(
+          '⚠️ Skipping periods fetch - missing required fields or disabled'
+        );
         setPeriods([]);
         return;
       }

@@ -503,14 +503,20 @@ export function DataTable<TData extends ExportableData, TValue>({
     [setSortBy, setSortOrder, sorting]
   );
 
+  // Inline column filters handler to avoid dependency issues
   const handleColumnFiltersChange = useCallback(
-    createColumnFiltersHandler(setColumnFilters),
-    []
+    (updaterOrValue: any) => {
+      setColumnFilters(updaterOrValue);
+    },
+    [setColumnFilters]
   );
 
+  // Inline column visibility handler to avoid dependency issues
   const handleColumnVisibilityChange = useCallback(
-    createColumnVisibilityHandler(setColumnVisibility),
-    []
+    (updaterOrValue: any) => {
+      setColumnVisibility(updaterOrValue);
+    },
+    [setColumnVisibility]
   );
 
   const handlePaginationChange = useCallback(
@@ -659,13 +665,10 @@ export function DataTable<TData extends ExportableData, TValue>({
   // Set up the table with memoized configuration
   const table = useReactTable<TData>(tableOptions);
 
-  // Create keyboard navigation handler
-  const handleKeyDown = useCallback(
-    createKeyboardNavigationHandler(table, (row, rowIndex) => {
-      // Example action on keyboard activation
-    }),
-    []
-  );
+  // Create keyboard navigation handler - inline to avoid dependency issues
+  const handleKeyDown = createKeyboardNavigationHandler(table, (row, rowIndex) => {
+    // Example action on keyboard activation
+  });
 
   // Add an effect to validate page number when page size changes
   useEffect(() => {

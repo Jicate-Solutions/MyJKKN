@@ -173,10 +173,10 @@ export function RolesList({
     return format(new Date(date), 'MMM d, yyyy');
   };
 
-  const getRoleName = (roleKey: string) => {
+  const getRoleName = useCallback((roleKey: string) => {
     const role = availableRoles.find((r) => r.role_key === roleKey);
     return role ? role.role_name : roleKey;
-  };
+  }, [availableRoles]);
 
   // Define columns for the data table
   const columns: PermissionColumnDef<Profile, any>[] = useMemo(
@@ -263,7 +263,7 @@ export function RolesList({
         }
       }
     ],
-    [availableRoles, isLoadingRoles]
+    [availableRoles, isLoadingRoles, getRoleName]
   );
 
   return (

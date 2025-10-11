@@ -103,6 +103,8 @@ export default function NewReceiptPage() {
     if (billId || billIds) {
       loadBillDetails();
     }
+    // loadInstitutions and loadBillDetails are defined inline and would cause infinite loop
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [billId, billIds, studentId, router]);
 
   const loadInstitutions = async () => {

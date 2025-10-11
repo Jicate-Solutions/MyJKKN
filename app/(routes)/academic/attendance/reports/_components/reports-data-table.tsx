@@ -122,7 +122,7 @@ export function AttendanceReportsDataTable({
         );
       }
     },
-    [search, profile?.id, userRole]
+    [search, profile?.id, profile?.role, profile?.department_id, userRole, facultyStaffId, isSuperAdmin]
   );
 
   const fetchDataFn = useCallback(

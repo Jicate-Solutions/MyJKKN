@@ -50,15 +50,16 @@ export function AcademicInformationForm({
   });
 
   // Add a useEffect to log whenever form changes
-  useEffect(() => {
-    const tenthValues = form.getValues('tenthMarks');
-    const twelfthValues = form.getValues('twelfthMarks');
+  // Extract watched values to avoid complex filter expressions in dependencies
+  const watchedTenthMarks = form.watch('tenthMarks');
+  const watchedTwelfthMarks = form.watch('twelfthMarks');
 
+  useEffect(() => {
     console.log('Form values updated:', {
-      tenthMarks: tenthValues,
-      twelfthMarks: twelfthValues
+      tenthMarks: watchedTenthMarks,
+      twelfthMarks: watchedTwelfthMarks
     });
-  }, [form.watch('tenthMarks'), form.watch('twelfthMarks')]);
+  }, [watchedTenthMarks, watchedTwelfthMarks]);
 
   // Make sure tenthMarks and twelfthMarks are initialized properly
   useEffect(() => {

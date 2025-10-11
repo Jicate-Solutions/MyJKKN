@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { MoreVertical, Edit, Trash2 } from 'lucide-react';
@@ -51,7 +51,7 @@ export function CategoryList({
   const bulkDeleteCategories = useBulkDeleteCategories();
 
   // Handle single category deletion
-  const handleDeleteCategory = async (category: EmploymentCategory) => {
+  const handleDeleteCategory = useCallback(async (category: EmploymentCategory) => {
     try {
       await deleteCategory.mutateAsync(category.id);
       toast.success('Category deleted successfully');
@@ -61,7 +61,7 @@ export function CategoryList({
         error instanceof Error ? error.message : 'Failed to delete category'
       );
     }
-  };
+  }, [deleteCategory]);
 
   // Handle bulk deletion through DataTable
   const handleBulkDelete = async (selectedRows: EmploymentCategory[]) => {
@@ -191,7 +191,7 @@ export function CategoryList({
         enableSorting: false
       }
     ],
-    [canEdit, canDelete]
+    [canEdit, canDelete, handleDeleteCategory]
   );
 
   // Server-side pagination configuration

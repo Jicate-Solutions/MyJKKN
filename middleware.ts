@@ -20,7 +20,8 @@ const PUBLIC_PATHS_SET = new Set([
 ]);
 
 // Regex for static assets - single check instead of multiple endsWith
-const STATIC_ASSET_PATTERN = /^\/(_next|icons)|\.(?:js|css|png|ico|svg|json|xml|html|woff2?)$/;
+const STATIC_ASSET_PATTERN =
+  /^\/(_next|icons)|\.(?:js|css|png|ico|svg|json|xml|html|woff2?)$/;
 
 // Optimized helper to check if path is public - O(1) lookup
 const isPublicPath = (path: string): boolean => {
@@ -124,7 +125,7 @@ export async function middleware(request: NextRequest) {
     if (userError) {
       // FIXED: Clear stale profile cache on auth error to prevent stuck loading states
       if (user?.id) {
-        profileCache.delete(user.id);
+        profileCache.invalidate(user.id);
       }
       return NextResponse.redirect(new URL('/auth/login', request.url));
     }
@@ -152,7 +153,7 @@ export async function middleware(request: NextRequest) {
 
       if (profileError) {
         // FIXED: Clear cache on profile fetch error
-        profileCache.delete(user.id);
+        profileCache.invalidate(user.id);
         return NextResponse.redirect(new URL('/unauthorized', request.url));
       }
 
@@ -267,7 +268,18 @@ export async function middleware(request: NextRequest) {
     // For custom roles, fetch permissions from database
     let userPermissions: Record<string, boolean> | undefined;
 
-    if (profile.role && !['super_admin', 'administrator', 'faculty', 'staff', 'student', 'guest', 'driver'].includes(profile.role)) {
+    if (
+      profile.role &&
+      ![
+        'super_admin',
+        'administrator',
+        'faculty',
+        'staff',
+        'student',
+        'guest',
+        'driver'
+      ].includes(profile.role)
+    ) {
       // This is a custom role - fetch permissions from custom_roles table
       const { data: customRole } = await supabase
         .from('custom_roles')

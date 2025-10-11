@@ -32,7 +32,7 @@ export function InstitutionAccessGuard({
   errorMessage
 }: InstitutionAccessGuardProps) {
   const router = useRouter();
-  const { user, isLoading: authLoading } = useAuth();
+  const { profile, isLoading: authLoading } = useAuth();
   const {
     institutions,
     loading: institutionLoading,
@@ -47,7 +47,7 @@ export function InstitutionAccessGuard({
     }
 
     // If user is not authenticated, let the auth system handle it
-    if (!user) {
+    if (!profile) {
       setHasCheckedAccess(true);
       return;
     }
@@ -78,7 +78,7 @@ export function InstitutionAccessGuard({
 
     setHasCheckedAccess(true);
   }, [
-    user,
+    profile,
     authLoading,
     institutionLoading,
     isSuperAdmin,
@@ -110,7 +110,7 @@ export function InstitutionAccessGuard({
   }
 
   // If not authenticated, show children (let auth guard handle it)
-  if (!user) {
+  if (!profile) {
     return <>{children}</>;
   }
 
@@ -203,7 +203,7 @@ export function useInstitutionAccessCheck(options?: {
   requireAnyInstitutionAccess?: boolean;
   bypassForSuperAdmin?: boolean;
 }) {
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const { institutions, hasAccessToInstitution } = useUserInstitutionAccess();
   const { isSuperAdmin } = usePermissions();
 

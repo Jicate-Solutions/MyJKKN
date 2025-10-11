@@ -102,7 +102,10 @@ export async function POST(
       .maybeSingle();
 
     if (bugReportError) {
-      console.error(`[BUG_REPORT_MESSAGES_POST] Error checking bug report ${reportId}:`, bugReportError);
+      console.error(
+        `[BUG_REPORT_MESSAGES_POST] Error checking bug report ${reportId}:`,
+        bugReportError
+      );
       return NextResponse.json(
         { error: 'Failed to verify bug report access' },
         { status: 500 }
@@ -128,14 +131,15 @@ export async function POST(
     const supabase = createAdminClient();
 
     // Insert the message
-    const { data: message, error: insertError } = await supabase
-      .from('bug_report_messages')
+    const { data: message, error: insertError } = await (
+      supabase.from('bug_report_messages') as any
+    )
       .insert({
         bug_report_id: reportId,
         sender_user_id: user.id,
         message_text,
-        is_internal,
-        reply_to_message_id
+        is_internal: is_internal || false,
+        reply_to_message_id: reply_to_message_id || null
       })
       .select(
         `
@@ -162,7 +166,7 @@ export async function POST(
         .single();
 
       if (!existingParticipant) {
-        await supabase.from('bug_report_participants').insert({
+        await (supabase.from('bug_report_participants') as any).insert({
           bug_report_id: reportId,
           user_id: user.id,
           role: 'participant',

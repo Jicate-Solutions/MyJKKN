@@ -155,7 +155,8 @@ export default function MyBugReportsPage() {
     };
 
     getCurrentUser();
-  }, [supabase, refetch]);
+    // queryClient and toast are stable references from hooks, safe to add
+  }, [supabase, refetch, queryClient, toast]);
 
   // Calculate statistics
   const stats = reports

@@ -511,7 +511,7 @@ export default function AttendanceMarkPage() {
     };
 
     loadContextData();
-  }, [timetableId, profile?.institution_id, profile, sectionId, isSuperAdmin]);
+  }, [timetableId, profile?.institution_id, profile, sectionId, isSuperAdmin, periodId]);
 
   // Load students using the resolved context
   useEffect(() => {

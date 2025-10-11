@@ -105,7 +105,8 @@ export function DashboardWidget({
 
   useEffect(() => {
     fetchData();
-  }, [widget.widget_type?.id, widget.widget_config]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widget.widget_type?.id, widget.widget_config]); // fetchData would cause infinite loop
 
   const handleRefresh = () => {
     fetchData();
@@ -200,15 +201,16 @@ export function DashboardWidget({
       return (
         <div className='flex flex-col items-center justify-center h-40 text-center p-4'>
           <h4 className='font-medium text-foreground mb-1'>
-            {title || 'Error loading data'}
+            {widget.widget_type?.widget_name || 'Error loading data'}
           </h4>
           <p className='text-sm text-muted-foreground mb-4'>
-            {description || 'Please try refreshing the widget'}
+            {widget.widget_type?.description ||
+              'Please try refreshing the widget'}
           </p>
           <Button
             size='sm'
             variant='outline'
-            onClick={onRetry}
+            onClick={handleRefresh}
             className='bg-background border-border hover:bg-muted'
           >
             <RefreshCw className='h-3 w-3 mr-1' />

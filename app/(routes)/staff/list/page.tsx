@@ -127,19 +127,15 @@ export default function StaffPage() {
     await refetch();
   }, [refetch]);
 
-  // Debounced search handler for performance
-  const debouncedSearch = useCallback(
-    debounce((query: string, options: SearchOptions) => {
-      setSearchQuery(query);
-      setSearchOptions(options);
-    }, 300),
-    []
-  );
-
-  // Handle search input
+  // Handle search input - using inline function to avoid dependency issues
   const handleSearch = useCallback((query: string, options: SearchOptions) => {
-    debouncedSearch(query, options);
-  }, [debouncedSearch]);
+    // Inline debounce logic to avoid dependency issues
+    const debouncedUpdate = debounce((q: string, opts: SearchOptions) => {
+      setSearchQuery(q);
+      setSearchOptions(opts);
+    }, 300);
+    debouncedUpdate(query, options);
+  }, []);
 
   // Handle search clear
   const handleSearchClear = useCallback(() => {

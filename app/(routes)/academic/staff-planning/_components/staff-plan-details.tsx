@@ -152,14 +152,16 @@ export function StaffPlanDetailsPage({
         <div className='flex justify-between items-start'>
           <div>
             <h1 className='text-2xl font-bold'>
-              {staffPlan.total_courses ? 'Consolidated ' : ''}Staff Plan Details
+              {courses.length > 1 ? 'Consolidated ' : ''}Staff Plan Details
             </h1>
             <p className='text-muted-foreground'>
-              {staffPlan.total_courses
-                ? `Complete semester view with ${staffPlan.total_courses} courses and ${staffPlan.total_staff} staff assignments`
+              {courses.length > 0
+                ? `Complete semester view with ${courses.length} courses and ${
+                    staffPlan.total_staff || 0
+                  } staff assignments`
                 : 'View staff plan details and course assignments'}
             </p>
-            {staffPlan.total_courses && (
+            {courses.length > 1 && (
               <Badge variant='secondary' className='mt-2'>
                 Consolidated View
               </Badge>
@@ -239,9 +241,9 @@ export function StaffPlanDetailsPage({
           <CardHeader>
             <CardTitle>
               Course Assignments
-              {staffPlan.total_courses && (
+              {courses.length > 0 && (
                 <Badge variant='outline' className='ml-2'>
-                  {staffPlan.total_courses} courses
+                  {courses.length} courses
                 </Badge>
               )}
             </CardTitle>
@@ -309,7 +311,7 @@ export function StaffPlanDetailsPage({
                                   {assignment.staff_type
                                     .split('_')
                                     .map(
-                                      (word) =>
+                                      (word: string) =>
                                         word.charAt(0).toUpperCase() +
                                         word.slice(1)
                                     )

@@ -124,6 +124,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
   // Fetch departments when institution changes
   useEffect(() => {
     const fetchDepartments = async () => {
+      // Extract the watched value to a variable to satisfy exhaustive-deps
       const institutionId = form.watch('institution_id');
       if (!institutionId || institutionId === 'none') {
         setDepartments([]);
@@ -146,7 +147,8 @@ export function UserEditForm({ user }: UserEditFormProps) {
     };
 
     fetchDepartments();
-  }, [form.watch('institution_id')]);
+    // Add form to dependencies since we're using form.watch
+  }, [form]);
 
   const onSubmit = async (data: FormValues) => {
     try {

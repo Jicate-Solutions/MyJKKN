@@ -292,7 +292,8 @@ export function GoogleOneTap() {
     return () => {
       clearTimeout(timer);
     };
-  }, [shouldRender]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldRender]); // handleCredentialResponse would cause infinite loop
 
   return null; // This component does not render anything itself
 }

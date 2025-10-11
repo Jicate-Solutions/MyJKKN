@@ -10,17 +10,15 @@ export async function OPTIONS() {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: staffId } = await params;
     // Add CORS headers to response
     const response = NextResponse.next();
     Object.entries(corsHeaders).forEach(([key, value]) => {
       response.headers.set(key, value);
     });
-
-    // Get staff ID from URL
-    const staffId = params.id;
     if (!staffId) {
       return NextResponse.json(
         { error: 'Staff ID is required' },

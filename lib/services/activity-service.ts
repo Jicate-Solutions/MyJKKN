@@ -67,7 +67,7 @@ export class ActivityService {
     resource_id?: string;
     resource_name?: string;
     description: string;
-    request?: Request;
+    request?: Request | any; // Accept both Request and NextRequest
     metadata?: Record<string, any>;
     institution_id?: string;
   }): Promise<UserActivityLog> {
@@ -83,7 +83,7 @@ export class ActivityService {
         institution_id
       };
 
-      // Extract request metadata if available
+      // Extract request metadata if available (works with both Request and NextRequest)
       if (request) {
         const url = new URL(request.url);
         activityData.request_url = url.pathname;
@@ -346,9 +346,11 @@ export class ActivityService {
         ([, a], [, b]) => b - a
       )[0]?.[0];
 
+      const mostActiveUserLog = userActivityData?.find(
+        (log: any) => log.user_id === mostActiveUserId
+      );
       const mostActiveUser =
-        userActivityData?.find((log) => log.user_id === mostActiveUserId)
-          ?.profiles?.full_name || 'Unknown';
+        (mostActiveUserLog?.profiles as any)?.full_name || 'Unknown';
 
       return {
         totalActivities: totalActivities || 0,
@@ -460,8 +462,8 @@ export class ActivityService {
       const totalWithInstitution = data?.length || 0;
 
       const institutionCounts =
-        data?.reduce((acc, log) => {
-          const name = log.institutions?.name || 'Unknown';
+        data?.reduce((acc, log: any) => {
+          const name = (log.institutions as any)?.name || 'Unknown';
           acc[name] = (acc[name] || 0) + 1;
           return acc;
         }, {} as Record<string, number>) || {};
@@ -571,51 +573,47 @@ export class ActivityService {
    * Utility method to determine activity severity
    */
   static getActivitySeverity(actionType: string, statusCode?: number): string {
-    // Critical actions
+    // Critical actions - use string comparison instead of array includes
     if (
-      [
-        ACTIVITY_TYPES.SECURITY_VIOLATION,
-        ACTIVITY_TYPES.UNAUTHORIZED_ACCESS,
-        ACTIVITY_TYPES.SUSPICIOUS_ACTIVITY,
-        ACTIVITY_TYPES.USER_DELETE,
-        ACTIVITY_TYPES.DELETE
-      ].includes(actionType)
+      actionType === ACTIVITY_TYPES.SECURITY_VIOLATION ||
+      actionType === ACTIVITY_TYPES.UNAUTHORIZED_ACCESS ||
+      actionType === ACTIVITY_TYPES.SUSPICIOUS_ACTIVITY ||
+      actionType === ACTIVITY_TYPES.USER_DELETE ||
+      actionType === ACTIVITY_TYPES.DELETE
     ) {
       return ACTIVITY_SEVERITY.CRITICAL;
     }
 
     // High severity actions
     if (
-      [
-        ACTIVITY_TYPES.PASSWORD_CHANGE,
-        ACTIVITY_TYPES.ROLE_ASSIGN,
-        ACTIVITY_TYPES.PERMISSIONS_UPDATE,
-        ACTIVITY_TYPES.USER_CREATE,
-        ACTIVITY_TYPES.USER_UPDATE
-      ].includes(actionType)
+      actionType === ACTIVITY_TYPES.PASSWORD_CHANGE ||
+      actionType === ACTIVITY_TYPES.ROLE_ASSIGN ||
+      actionType === ACTIVITY_TYPES.PERMISSIONS_UPDATE ||
+      actionType === ACTIVITY_TYPES.USER_CREATE ||
+      actionType === ACTIVITY_TYPES.USER_UPDATE
     ) {
       return ACTIVITY_SEVERITY.HIGH;
     }
 
     // Medium severity actions
     if (
-      [
-        ACTIVITY_TYPES.LOGIN,
-        ACTIVITY_TYPES.LOGOUT,
-        ACTIVITY_TYPES.CREATE,
-        ACTIVITY_TYPES.UPDATE,
-        ACTIVITY_TYPES.UPLOAD
-      ].includes(actionType)
+      actionType === ACTIVITY_TYPES.LOGIN ||
+      actionType === ACTIVITY_TYPES.LOGOUT ||
+      actionType === ACTIVITY_TYPES.CREATE ||
+      actionType === ACTIVITY_TYPES.UPDATE ||
+      actionType === ACTIVITY_TYPES.UPLOAD
     ) {
       return ACTIVITY_SEVERITY.MEDIUM;
     }
 
     // Check status codes
     if (statusCode) {
-      if (STATUS_CODE_CATEGORIES.SERVER_ERROR.includes(statusCode)) {
+      // Server errors (5xx)
+      if (statusCode >= 500 && statusCode < 600) {
         return ACTIVITY_SEVERITY.HIGH;
       }
-      if (STATUS_CODE_CATEGORIES.CLIENT_ERROR.includes(statusCode)) {
+      // Client errors (4xx)
+      if (statusCode >= 400 && statusCode < 500) {
         return ACTIVITY_SEVERITY.MEDIUM;
       }
     }

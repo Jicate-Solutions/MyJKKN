@@ -9,9 +9,10 @@ export async function OPTIONS() {
 }
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Use service role key for API key authentication to bypass RLS
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -92,7 +93,7 @@ export async function GET(
         )
       `
       )
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
 
     if (programError) {

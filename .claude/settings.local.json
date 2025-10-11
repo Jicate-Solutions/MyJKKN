@@ -36,7 +36,14 @@
       "Bash(pkill:*)",
       "Bash(taskkill:*)",
       "Bash(netstat:*)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(npm audit:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(npm view:*)",
+      "Bash(npm rm:*)",
+      "Bash(tasklist)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

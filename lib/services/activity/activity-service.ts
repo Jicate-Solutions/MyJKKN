@@ -1,4 +1,3 @@
-import { createServerClient } from '@/lib/supabase/server';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   UserActivityLog,
@@ -328,7 +327,7 @@ export class ActivityService {
 
       const mostActiveUser =
         userActivityData?.find((log) => log.user_id === mostActiveUserId)
-          ?.profiles?.full_name || 'Unknown';
+          ?.profiles?.[0]?.full_name || 'Unknown';
 
       return {
         totalActivities: totalActivities || 0,
@@ -443,7 +442,7 @@ export class ActivityService {
 
       const institutionCounts =
         data?.reduce((acc, log) => {
-          const name = log.institutions?.name || 'Unknown';
+          const name = log.institutions?.[0]?.name || 'Unknown';
           acc[name] = (acc[name] || 0) + 1;
           return acc;
         }, {} as Record<string, number>) || {};
@@ -592,7 +591,7 @@ export class ActivityService {
         ACTIVITY_TYPES.SUSPICIOUS_ACTIVITY,
         ACTIVITY_TYPES.USER_DELETE,
         ACTIVITY_TYPES.DELETE
-      ].includes(actionType)
+      ].includes(actionType as any)
     ) {
       return ACTIVITY_SEVERITY.CRITICAL;
     }
@@ -605,7 +604,7 @@ export class ActivityService {
         ACTIVITY_TYPES.PERMISSIONS_UPDATE,
         ACTIVITY_TYPES.USER_CREATE,
         ACTIVITY_TYPES.USER_UPDATE
-      ].includes(actionType)
+      ].includes(actionType as any)
     ) {
       return ACTIVITY_SEVERITY.HIGH;
     }
@@ -618,17 +617,17 @@ export class ActivityService {
         ACTIVITY_TYPES.CREATE,
         ACTIVITY_TYPES.UPDATE,
         ACTIVITY_TYPES.UPLOAD
-      ].includes(actionType)
+      ].includes(actionType as any)
     ) {
       return ACTIVITY_SEVERITY.MEDIUM;
     }
 
     // Check status codes
     if (statusCode) {
-      if (STATUS_CODE_CATEGORIES.SERVER_ERROR.includes(statusCode)) {
+      if (STATUS_CODE_CATEGORIES.SERVER_ERROR.includes(statusCode as any)) {
         return ACTIVITY_SEVERITY.HIGH;
       }
-      if (STATUS_CODE_CATEGORIES.CLIENT_ERROR.includes(statusCode)) {
+      if (STATUS_CODE_CATEGORIES.CLIENT_ERROR.includes(statusCode as any)) {
         return ACTIVITY_SEVERITY.MEDIUM;
       }
     }

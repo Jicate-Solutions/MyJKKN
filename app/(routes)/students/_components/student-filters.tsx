@@ -95,7 +95,7 @@ export function StudentFilters({
     try {
       // Build new params from localFilters
       const params = new URLSearchParams();
-      
+
       // Add all local filters to params
       Object.entries(localFilters).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
@@ -111,7 +111,7 @@ export function StudentFilters({
 
       // Reset to page 1
       params.set('page', '1');
-      
+
       // Navigate with new params
       router.push(`/students?${params.toString()}`);
     } finally {
@@ -134,18 +134,18 @@ export function StudentFilters({
       status: undefined,
       is_profile_complete: 'true'
     });
-    
+
     // Navigate to clean URL with default is_profile_complete
     const params = new URLSearchParams();
     params.set('page', '1');
     params.set('is_profile_complete', 'true');
-    
+
     // Preserve page size if it exists
     const currentPageSize = currentSearchParams.get('pageSize');
     if (currentPageSize) {
       params.set('pageSize', currentPageSize);
     }
-    
+
     router.push(`/students?${params.toString()}`);
     setIsSearching(false);
   };
@@ -161,7 +161,8 @@ export function StudentFilters({
       section_id: searchParams.section_id || undefined,
       academic_year_id: searchParams.academic_year_id || undefined,
       status: searchParams.status || undefined,
-      is_profile_complete: searchParams.is_profile_complete?.toString() || 'true'
+      is_profile_complete:
+        searchParams.is_profile_complete?.toString() || 'true'
     });
   }, [searchParams]);
 
@@ -364,9 +365,9 @@ export function StudentFilters({
     if (profile?.institution_id && !isSuperAdmin) {
       // Only auto-select if institution is not already set
       if (!localFilters.institution_id) {
-        setLocalFilters(prev => ({
+        setLocalFilters((prev) => ({
           ...prev,
-          institution_id: profile.institution_id
+          institution_id: profile.institution_id || undefined
         }));
       }
     }
@@ -377,13 +378,18 @@ export function StudentFilters({
     if (profile?.role === 'hod' && profile?.department_id && !isSuperAdmin) {
       // Only auto-select if department is not already set
       if (!localFilters.department_id) {
-        setLocalFilters(prev => ({
+        setLocalFilters((prev) => ({
           ...prev,
-          department_id: profile.department_id
+          department_id: profile.department_id || undefined
         }));
       }
     }
-  }, [profile?.role, profile?.department_id, localFilters.department_id, isSuperAdmin]);
+  }, [
+    profile?.role,
+    profile?.department_id,
+    localFilters.department_id,
+    isSuperAdmin
+  ]);
 
   // Hierarchical filter change handlers that reset child filters
   const handleInstitutionChange = (value: string) => {
@@ -485,11 +491,13 @@ export function StudentFilters({
                 disabled={!isSuperAdmin}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={
-                    !isSuperAdmin && profile?.institution_id
-                      ? 'Your institution is auto-selected'
-                      : 'Select Institution'
-                  } />
+                  <SelectValue
+                    placeholder={
+                      !isSuperAdmin && profile?.institution_id
+                        ? 'Your institution is auto-selected'
+                        : 'Select Institution'
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value='all'>All Institutions</SelectItem>
@@ -528,14 +536,20 @@ export function StudentFilters({
               <Select
                 value={localFilters.department_id || ''}
                 onValueChange={handleDepartmentChange}
-                disabled={!localFilters.degree_id || loadingDepartments || (profile?.role === 'hod' && !isSuperAdmin)}
+                disabled={
+                  !localFilters.degree_id ||
+                  loadingDepartments ||
+                  (profile?.role === 'hod' && !isSuperAdmin)
+                }
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      loadingDepartments ? 'Loading...' :
-                      profile?.role === 'hod' && !isSuperAdmin ? 'Your department is auto-selected' :
-                      'Select Department'
+                      loadingDepartments
+                        ? 'Loading...'
+                        : profile?.role === 'hod' && !isSuperAdmin
+                        ? 'Your department is auto-selected'
+                        : 'Select Department'
                     }
                   />
                 </SelectTrigger>
@@ -554,7 +568,8 @@ export function StudentFilters({
                 value={localFilters.program_id || ''}
                 onValueChange={handleProgramChange}
                 disabled={
-                  (!localFilters.degree_id || !localFilters.department_id) ||
+                  !localFilters.degree_id ||
+                  !localFilters.department_id ||
                   loadingPrograms
                 }
               >

@@ -8,7 +8,6 @@ import { AuthService } from '@/lib/auth/auth-service';
 import { UserNav } from './user-nav';
 import { ModeToggle } from '../theme/mode-toggle';
 import { NotificationBell } from '../notifications/notification-bell';
-import { useNotifications } from '@/hooks/use-notifications';
 
 interface NavbarProps {
   title: string;
@@ -16,7 +15,6 @@ interface NavbarProps {
 
 export function Navbar({ title }: NavbarProps) {
   const { user } = useAuth();
-  const { notifications, unreadCount, isLoading, markAsRead, markAllAsRead } = useNotifications();
 
   const handleLogout = async () => {
     try {
@@ -36,26 +34,14 @@ export function Navbar({ title }: NavbarProps) {
         <div className='flex items-center justify-between space-x-4'>
           {/* Desktop view */}
           <div className='hidden md:flex items-center space-x-2'>
-            <NotificationBell
-              notifications={notifications}
-              unreadCount={unreadCount}
-              isLoading={isLoading}
-              markAsRead={markAsRead}
-              markAllAsRead={markAllAsRead}
-            />
+            <NotificationBell />
             <ModeToggle />
             <UserNav />
           </div>
 
           {/* Mobile view */}
           <div className='flex md:hidden items-center space-x-2'>
-            <NotificationBell
-              notifications={notifications}
-              unreadCount={unreadCount}
-              isLoading={isLoading}
-              markAsRead={markAsRead}
-              markAllAsRead={markAllAsRead}
-            />
+            <NotificationBell />
             <UserNav />
             <Button
               variant='destructive'

@@ -34,8 +34,8 @@ export function createConditionalStateHook(enableUrlState: boolean) {
       if (enableUrlState) {
         return [urlState, setUrlState] as const;
       }
-      
+
       return [regularState, setRegularStateWrapper] as const;
-    }, [enableUrlState, regularState, urlState, setUrlState, setRegularStateWrapper]);
+    }, [regularState, urlState, setUrlState, setRegularStateWrapper]);
   };
 } 

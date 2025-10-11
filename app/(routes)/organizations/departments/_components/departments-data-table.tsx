@@ -18,7 +18,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
@@ -38,51 +38,56 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
     isSuperAdmin || canAccess('organizations.institutions', 'create');
 
   // FIXED: Wrap fetchData in useCallback to prevent infinite re-renders
-  const fetchData = useCallback(async (params: {
-    page: number;
-    limit: number;
-    search: string;
-    from_date: string;
-    to_date: string;
-    sort_by: string;
-    sort_order: string;
-  }) => {
-    try {
-      // Get current user for institution access filtering
-      const { data: { user } } = await DepartmentService['supabase'].auth.getUser();
+  const fetchData = useCallback(
+    async (params: {
+      page: number;
+      limit: number;
+      search: string;
+      from_date: string;
+      to_date: string;
+      sort_by: string;
+      sort_order: string;
+    }) => {
+      try {
+        // Get current user for institution access filtering
+        const {
+          data: { user }
+        } = await DepartmentService['supabase'].auth.getUser();
 
-      // Map the DataTable parameters to our DepartmentService parameters
-      const filters = {
-        page: params.page,
-        limit: params.limit,
-        search: params.search || undefined,
-        sortBy: params.sort_by || undefined,
-        sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
-        institution_id: search.institution_id,
-        degree_id: search.degree_id,
-        status: search.status,
-        userId: user?.id // FIXED: Add userId for RLS filtering
-      };
-
-      const { data, metadata } = await DepartmentService.getDepartments(
-        filters
-      );
-
-      return {
-        success: true,
-        data: data || [],
-        pagination: {
+        // Map the DataTable parameters to our DepartmentService parameters
+        const filters = {
           page: params.page,
           limit: params.limit,
-          total_pages: metadata?.totalPages ?? 0,
-          total_items: metadata?.total ?? 0
-        }
-      };
-    } catch (error) {
-      console.error('Error fetching departments:', error);
-      throw error;
-    }
-  }, [search.institution_id, search.degree_id, search.status]); // Stable dependencies only
+          search: params.search || undefined,
+          sortBy: params.sort_by || undefined,
+          sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
+          institution_id: search.institution_id,
+          degree_id: search.degree_id,
+          status: search.status,
+          userId: user?.id // FIXED: Add userId for RLS filtering
+        };
+
+        const { data, metadata } = await DepartmentService.getDepartments(
+          filters
+        );
+
+        return {
+          success: true,
+          data: data || [],
+          pagination: {
+            page: params.page,
+            limit: params.limit,
+            total_pages: metadata?.totalPages ?? 0,
+            total_items: metadata?.total ?? 0
+          }
+        };
+      } catch (error) {
+        console.error('Error fetching departments:', error);
+        throw error;
+      }
+    },
+    [search.institution_id, search.degree_id, search.status]
+  ); // Stable dependencies only
 
   const handleBulkDelete = async (
     selectedRows: Department[],
@@ -106,24 +111,30 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
         )
       );
 
-      const successful = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.filter(r => r.status === 'rejected').length;
+      const successful = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.filter((r) => r.status === 'rejected').length;
 
       if (successful > 0) {
-        toast.success(`Successfully deleted ${successful} department${successful > 1 ? 's' : ''}`);
+        toast.success(
+          `Successfully deleted ${successful} department${
+            successful > 1 ? 's' : ''
+          }`
+        );
       }
-      
+
       if (failed > 0) {
-        toast.error(`Failed to delete ${failed} department${failed > 1 ? 's' : ''}`);
+        toast.error(
+          `Failed to delete ${failed} department${failed > 1 ? 's' : ''}`
+        );
       }
 
       if (deleteResetFn) {
         deleteResetFn();
       }
-      
+
       // Refresh the table
       router.refresh();
-      
+
       setShowDeleteDialog(false);
       setSelectedForDelete([]);
       setDeleteResetFn(null);
@@ -200,23 +211,27 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
             <AlertDialogTitle>
               {selectedForDelete.length > 1
                 ? `Delete ${selectedForDelete.length} Departments`
-                : `Delete Department: ${selectedForDelete[0]?.name}`}
+                : `Delete Department: ${selectedForDelete[0]?.department_name}`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the department{selectedForDelete.length > 1 ? 's' : ''} and all related data.
+              This action cannot be undone. This will permanently delete the
+              department{selectedForDelete.length > 1 ? 's' : ''} and all
+              related data.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           {/* List departments to be deleted */}
           {selectedForDelete.length > 0 && (
-            <div className="my-4 p-3 bg-muted rounded-lg">
-              <div className="text-sm font-medium mb-2">
-                Department{selectedForDelete.length > 1 ? 's' : ''} to be deleted:
+            <div className='my-4 p-3 bg-muted rounded-lg'>
+              <div className='text-sm font-medium mb-2'>
+                Department{selectedForDelete.length > 1 ? 's' : ''} to be
+                deleted:
               </div>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
+              <div className='space-y-1 max-h-32 overflow-y-auto'>
                 {selectedForDelete.map((department) => (
-                  <div key={department.id} className="text-sm">
-                    • {department.name} ({department.abbreviation})
+                  <div key={department.id} className='text-sm'>
+                    • {department.department_name} ({department.department_code}
+                    )
                   </div>
                 ))}
               </div>
@@ -228,15 +243,19 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
             <AlertDialogAction
               onClick={confirmDelete}
               disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {isDeleting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                   Deleting...
                 </>
               ) : (
-                `Delete ${selectedForDelete.length > 1 ? `${selectedForDelete.length} Departments` : 'Department'}`
+                `Delete ${
+                  selectedForDelete.length > 1
+                    ? `${selectedForDelete.length} Departments`
+                    : 'Department'
+                }`
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

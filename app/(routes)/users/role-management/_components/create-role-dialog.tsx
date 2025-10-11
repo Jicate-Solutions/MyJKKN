@@ -165,7 +165,7 @@ export function CreateRoleDialog({
       PERMISSION_CATEGORIES.find(
         (cat) => cat.key === categoryKey
       )?.permissions.reduce((count, perm) => {
-        return permissions[perm.key] ? count + 1 : count;
+        return permissions?.[perm.key] ? count + 1 : count;
       }, 0) || 0;
 
     const totalPermCount =

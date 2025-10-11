@@ -138,8 +138,13 @@ export default function StudentOnboardingPage() {
     to: undefined
   });
 
-
-  const { data: studentsData, isLoading, refetch, isError, error } = useQuery({
+  const {
+    data: studentsData,
+    isLoading,
+    refetch,
+    isError,
+    error
+  } = useQuery({
     queryKey: ['students', 'onboarding', filters],
     queryFn: () => StudentService.getStudents(filters)
   });
@@ -298,9 +303,9 @@ export default function StudentOnboardingPage() {
     if (profile?.role === 'hod' && profile?.department_id && !isSuperAdmin) {
       // Only auto-select if department is not already set
       if (!filters.department) {
-        setFilters(prev => ({
+        setFilters((prev) => ({
           ...prev,
-          department: profile.department_id
+          department: profile.department_id || undefined
         }));
       }
     }
@@ -311,9 +316,9 @@ export default function StudentOnboardingPage() {
     if (profile?.institution_id && !isSuperAdmin) {
       // Only auto-select if institution is not already set
       if (!filters.institution) {
-        setFilters(prev => ({
+        setFilters((prev) => ({
           ...prev,
-          institution: profile.institution_id
+          institution: profile.institution_id || undefined
         }));
       }
     }
@@ -1015,11 +1020,13 @@ export default function StudentOnboardingPage() {
                     disabled={!isSuperAdmin}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={
-                        !isSuperAdmin && profile?.institution_id
-                          ? 'Your institution is auto-selected'
-                          : 'Select Institution'
-                      } />
+                      <SelectValue
+                        placeholder={
+                          !isSuperAdmin && profile?.institution_id
+                            ? 'Your institution is auto-selected'
+                            : 'Select Institution'
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='all'>All Institutions</SelectItem>
@@ -1041,14 +1048,19 @@ export default function StudentOnboardingPage() {
                         section: undefined
                       })
                     }
-                    disabled={!filters.institution || (profile?.role === 'hod' && !isSuperAdmin)}
+                    disabled={
+                      !filters.institution ||
+                      (profile?.role === 'hod' && !isSuperAdmin)
+                    }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={
-                        profile?.role === 'hod' && !isSuperAdmin
-                          ? 'Your department is auto-selected'
-                          : 'Select Department'
-                      } />
+                      <SelectValue
+                        placeholder={
+                          profile?.role === 'hod' && !isSuperAdmin
+                            ? 'Your department is auto-selected'
+                            : 'Select Department'
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='all'>All Departments</SelectItem>
