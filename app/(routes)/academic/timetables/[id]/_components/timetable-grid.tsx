@@ -161,11 +161,11 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
     const daysToShow = selectedDays.length > 0 ? selectedDays : [];
 
     return (
-      <div ref={ref} className='border rounded-lg overflow-hidden shadow-sm'>
-        <table className='w-full border-collapse'>
+      <div ref={ref} className='border rounded-lg shadow-sm inline-block min-w-full'>
+        <table className='w-max min-w-full border-collapse'>
           <thead className='bg-gradient-to-r from-blue-600 to-blue-700 text-white'>
             <tr>
-              <th className='border border-blue-500 p-2 text-left font-semibold text-xs w-24 sticky left-0 bg-blue-600'>
+              <th className='border border-blue-500 p-2 text-left font-semibold text-xs w-24 sticky left-0 bg-blue-600 z-20'>
                 <div className='flex items-center gap-1'>
                   <Calendar className='h-3 w-3' />
                   <span>Period</span>
@@ -196,7 +196,7 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                 className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
               >
                 <td
-                  className={`border border-gray-200 p-2 sticky left-0 ${
+                  className={`border border-gray-200 p-2 sticky left-0 z-10 ${
                     period.is_break
                       ? 'bg-gradient-to-r from-orange-600 to-orange-700 text-white'
                       : 'bg-gradient-to-r from-green-600 to-green-700 text-white'

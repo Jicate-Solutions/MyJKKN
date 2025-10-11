@@ -1673,7 +1673,7 @@ export default function TimetableDetailPage({
   const exportToPDF = async () => {
     // Check validation based on timetable format
     const isValidForExport = () => {
-      if (!currentTimetable || selectedPeriods.length === 0) {
+      if (!timetable || selectedPeriods.length === 0) {
         return false;
       }
 
@@ -2382,19 +2382,20 @@ export default function TimetableDetailPage({
                 </div>
               </div>
 
-              {timetableFormat === 'regular' ? (
-                <TimetableGrid
-                  ref={timetableGridRef}
-                  selectedDays={selectedDays}
-                  selectedPeriods={selectedPeriods}
-                  slots={slots}
-                  lockedPeriods={markedPeriods}
-                  onSlotClick={openSlotDialog}
-                  onSlotDelete={handleSlotDelete}
-                  isSuperAdmin={isSuperAdmin}
-                />
-              ) : (
-                <BatchTimetableGrid
+              <div className='overflow-x-auto'>
+                {timetableFormat === 'regular' ? (
+                  <TimetableGrid
+                    ref={timetableGridRef}
+                    selectedDays={selectedDays}
+                    selectedPeriods={selectedPeriods}
+                    slots={slots}
+                    lockedPeriods={markedPeriods}
+                    onSlotClick={openSlotDialog}
+                    onSlotDelete={handleSlotDelete}
+                    isSuperAdmin={isSuperAdmin}
+                  />
+                ) : (
+                  <BatchTimetableGrid
                   ref={timetableGridRef}
                   selectedDates={selectedDates}
                   selectedPeriods={selectedPeriods}
@@ -2616,6 +2617,7 @@ export default function TimetableDetailPage({
                   lockedPeriods={lockedPeriods}
                 />
               )}
+              </div>
 
               {/* Add Period/Date Range Button */}
               <div className='mt-4'>

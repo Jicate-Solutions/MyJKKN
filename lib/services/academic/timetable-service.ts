@@ -395,6 +395,26 @@ Please select a different date period that doesn't overlap.`
     data: UpdateTimetableDto
   ): Promise<Timetable> {
     try {
+      // Define fields that are safe to update even when attendance exists
+      const safeFields = [
+        'selected_days',
+        'selected_dates',
+        'timetable_format',
+        'timetable_name',
+        'is_active',
+        'is_template',
+        'template_name',
+        'template_description',
+        'template_category',
+        'template_tags'
+      ];
+
+      // Check if any unsafe fields are being modified
+      const updateKeys = Object.keys(data);
+      const hasUnsafeChanges = updateKeys.some(
+        (key) => !safeFields.includes(key)
+      );
+
       // First check if this timetable has any attendance records
       const { data: attendanceRecords, error: attendanceCheckError } =
         await this.supabase
@@ -411,10 +431,10 @@ Please select a different date period that doesn't overlap.`
         throw attendanceCheckError;
       }
 
-      // If attendance records exist, prevent any modifications
-      if (attendanceRecords && attendanceRecords.length > 0) {
+      // If attendance records exist, only block unsafe modifications
+      if (attendanceRecords && attendanceRecords.length > 0 && hasUnsafeChanges) {
         const errorMessage =
-          'Cannot modify this timetable because attendance has been marked. Once attendance is recorded, the timetable becomes locked to preserve data integrity. Staff changes should be made through the Staff Planning module.';
+          'Cannot modify this timetable structure because attendance has been marked. Once attendance is recorded, the timetable structure becomes locked to preserve data integrity. You can still update days, dates, and other configuration settings.';
 
         toast.error(errorMessage, {
           duration: 6000,

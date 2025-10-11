@@ -235,7 +235,10 @@ export function SlotDialog({
     // For section-level timetables, auto-assign the timetable's section
     if (timetable?.timetable_type === 'section' && timetable?.section_id) {
       finalSectionIds = [timetable.section_id];
-      console.log('✅ Auto-assigned section for section-level timetable:', timetable.section_id);
+      console.log(
+        '✅ Auto-assigned section for section-level timetable:',
+        timetable.section_id
+      );
     }
 
     // Prepare slot data from the dialog's state
@@ -246,13 +249,16 @@ export function SlotDialog({
       is_break_slot: isBreakSlot,
       break_description: breakDescription,
       is_combined: isCombinedClass,
-      sub_slots: isCombinedClass ? subSlots.map((subSlot) => ({
-        ...subSlot,
-        // Also auto-assign section for sub-slots in section-level timetables
-        section_ids: timetable?.timetable_type === 'section' && timetable?.section_id
-          ? [timetable.section_id]
-          : subSlot.section_ids
-      })) : undefined
+      sub_slots: isCombinedClass
+        ? subSlots.map((subSlot) => ({
+            ...subSlot,
+            // Also auto-assign section for sub-slots in section-level timetables
+            section_ids:
+              timetable?.timetable_type === 'section' && timetable?.section_id
+                ? [timetable.section_id]
+                : subSlot.section_ids
+          }))
+        : undefined
     };
 
     // Pass the slot data to the parent along with the date
@@ -541,14 +547,14 @@ export function SlotDialog({
                   {!isUsingStaffPlanningData && courses?.length > 0 && (
                     <p className='text-xs text-amber-600'>
                       ⚠️ No staff planning found for semester &quot;
-                      {timetable?.semester_id}&quot;. Showing all available
+                      {timetable?.semesters?.semester_name || timetable?.semester_id}&quot;. Showing all available
                       courses.
                     </p>
                   )}
                   {isUsingStaffPlanningData && (
                     <p className='text-xs text-green-600'>
                       ✓ Showing courses from staff planning for semester &quot;
-                      {timetable?.semester_id}&quot;
+                      {timetable?.semesters?.semester_name || timetable?.semester_id}&quot;
                     </p>
                   )}
                 </div>
@@ -650,7 +656,7 @@ export function SlotDialog({
                     <p className='text-xs text-green-600'>
                       ✓ Showing staff assigned to this course from staff
                       planning for semester &quot;
-                      {timetable?.semester_id}&quot;
+                      {timetable?.semesters?.semester_name || timetable?.semester_id}&quot;
                     </p>
                   )}
                 </div>
@@ -736,18 +742,38 @@ export function SlotDialog({
                   <div className='space-y-2'>
                     <div className='flex items-center justify-between'>
                       <Label>Section</Label>
-                      <Badge variant='secondary' className='text-xs bg-blue-100 text-blue-800 border-blue-300'>
+                      <Badge
+                        variant='secondary'
+                        className='text-xs bg-blue-100 text-blue-800 border-blue-300'
+                      >
                         Auto-assigned from timetable
                       </Badge>
                     </div>
                     <div className='border rounded-md p-3 bg-blue-50 dark:bg-blue-900/20'>
-                      <p className='text-sm text-blue-700 dark:text-blue-300'>
-                        ℹ️ This is a section-level timetable. The section is automatically assigned from the timetable configuration and cannot be changed here.
-                      </p>
                       {timetable?.section_id && (
-                        <p className='text-xs text-blue-600 dark:text-blue-400 mt-2'>
-                          Assigned section: <strong>{sections.find((s: any) => s.id === timetable.section_id)?.section_name || 'Unknown'}</strong>
-                        </p>
+                        <div className='flex items-center space-x-2 py-1'>
+                          <Checkbox
+                            id={`section-locked-${timetable.section_id}`}
+                            checked={true}
+                            disabled={true}
+                          />
+                          <Label
+                            htmlFor={`section-locked-${timetable.section_id}`}
+                            className='text-sm flex items-center gap-2 text-blue-700 dark:text-blue-300'
+                          >
+                            {timetable.sections?.section_name ||
+                              sections.find(
+                                (s: any) => s.id === timetable.section_id
+                              )?.section_name ||
+                              filteredSections.find(
+                                (s: any) => s.id === timetable.section_id
+                              )?.section_name ||
+                              'Unknown'}
+                            <Badge variant='outline' className='text-xs'>
+                              Locked
+                            </Badge>
+                          </Label>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -975,8 +1001,9 @@ export function SlotDialog({
                                   <Checkbox
                                     id={`subSlotSection-${index}-${section.id}`}
                                     checked={
-                                      subSlot.section_ids?.includes(section.id) ||
-                                      false
+                                      subSlot.section_ids?.includes(
+                                        section.id
+                                      ) || false
                                     }
                                     onCheckedChange={(checked) => {
                                       // const currentSections =
@@ -1032,7 +1059,10 @@ export function SlotDialog({
                           <div className='space-y-2'>
                             <div className='flex items-center justify-between'>
                               <Label>Section</Label>
-                              <Badge variant='secondary' className='text-xs bg-blue-100 text-blue-800 border-blue-300'>
+                              <Badge
+                                variant='secondary'
+                                className='text-xs bg-blue-100 text-blue-800 border-blue-300'
+                              >
                                 Auto-assigned
                               </Badge>
                             </div>
