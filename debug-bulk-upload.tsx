@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -240,112 +241,122 @@ export function DebugBulkUpload() {
   };
 
   // Enhanced file validation
-  const validateFileDetailed = async (
-    file: File
-  ): Promise<FilePreview['validation_details']> => {
-    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif'];
-    const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+  const validateFileDetailed = useCallback(
+    async (file: File): Promise<FilePreview['validation_details']> => {
+      const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif'];
+      const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 
-    const validation = {
-      file_type_valid: ALLOWED_TYPES.includes(file.type),
-      file_size_valid: file.size <= MAX_SIZE,
-      roll_number_extracted: false,
-      student_found: false,
-      institution_found: false,
-      auth_valid: false
-    };
+      const validation = {
+        file_type_valid: ALLOWED_TYPES.includes(file.type),
+        file_size_valid: file.size <= MAX_SIZE,
+        roll_number_extracted: false,
+        student_found: false,
+        institution_found: false,
+        auth_valid: false
+      };
 
-    // Test roll number extraction
-    const rollNumber = extractRollNumber(file.name);
-    validation.roll_number_extracted = !!rollNumber;
+      // Test roll number extraction
+      const rollNumber = extractRollNumber(file.name);
+      validation.roll_number_extracted = !!rollNumber;
 
-    if (rollNumber) {
-      try {
-        // Test authentication
-        const {
-          data: { user },
-          error: authError
-        } = await supabase.auth.getUser();
-        validation.auth_valid = !authError && !!user;
+      if (rollNumber) {
+        try {
+          // Test authentication
+          const {
+            data: { user },
+            error: authError
+          } = await supabase.auth.getUser();
+          validation.auth_valid = !authError && !!user;
 
-        if (validation.auth_valid) {
-          // Test student lookup
-          const { data: student, error: studentError } = await supabase
-            .from('students')
-            .select(
-              `
+          if (validation.auth_valid) {
+            // Test student lookup
+            const { data: student, error: studentError } = await supabase
+              .from('students')
+              .select(
+                `
               id,
               student_name,
               roll_number,
               institutions!inner(name)
             `
-            )
-            .eq('roll_number', rollNumber)
-            .single();
+              )
+              .eq('roll_number', rollNumber)
+              .single();
 
-          validation.student_found = !studentError && !!student;
-          validation.institution_found =
-            validation.student_found && !!student?.institutions?.[0]?.name;
+            validation.student_found = !studentError && !!student;
+            validation.institution_found =
+              validation.student_found && !!student?.institutions?.[0]?.name;
+          }
+        } catch (error) {
+          addLog('error', `Validation failed for ${file.name}`, error);
         }
-      } catch (error) {
-        addLog('error', `Validation failed for ${file.name}`, error);
       }
-    }
 
-    return validation;
-  };
+      return validation;
+    },
+    [supabase]
+  );
 
   // Enhanced file drop handler
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    addLog('info', `Processing ${acceptedFiles.length} dropped files`);
+  const onDrop = useCallback(
+    async (acceptedFiles: File[]) => {
+      addLog('info', `Processing ${acceptedFiles.length} dropped files`);
 
-    const newFiles: FilePreview[] = [];
+      const newFiles: FilePreview[] = [];
 
-    for (const file of acceptedFiles) {
-      addLog('info', `Processing file: ${file.name}`);
+      for (const file of acceptedFiles) {
+        addLog('info', `Processing file: ${file.name}`);
 
-      const roll_number = extractRollNumber(file.name);
-      const validation_details = await validateFileDetailed(file);
+        const roll_number = extractRollNumber(file.name);
+        const validation_details = await validateFileDetailed(file);
 
-      const filePreview: FilePreview = {
-        file,
-        roll_number,
-        preview_url: URL.createObjectURL(file),
-        status: roll_number ? 'matched' : 'unmatched',
-        validation_details
-      };
+        const filePreview: FilePreview = {
+          file,
+          roll_number,
+          preview_url: URL.createObjectURL(file),
+          status: roll_number ? 'matched' : 'unmatched',
+          validation_details
+        };
 
-      // Add detailed error if validation failed
-      if (!validation_details.file_type_valid) {
-        filePreview.detailed_error = `Invalid file type: ${file.type}. Only JPEG, PNG, GIF allowed.`;
-      } else if (!validation_details.file_size_valid) {
-        filePreview.detailed_error = `File too large: ${(
-          file.size /
-          1024 /
-          1024
-        ).toFixed(2)}MB. Max 5MB allowed.`;
-      } else if (!validation_details.roll_number_extracted) {
-        filePreview.detailed_error = `Could not extract roll number from filename. Expected format: ROLLNUMBER.extension`;
-      } else if (!validation_details.auth_valid) {
-        filePreview.detailed_error = `Authentication required for upload.`;
-      } else if (!validation_details.student_found) {
-        filePreview.detailed_error = `No student found with roll number: ${roll_number}`;
-      } else if (!validation_details.institution_found) {
-        filePreview.detailed_error = `Student institution not found for roll number: ${roll_number}`;
+        // Add detailed error if validation failed
+        if (validation_details && !validation_details.file_type_valid) {
+          filePreview.detailed_error = `Invalid file type: ${file.type}. Only JPEG, PNG, GIF allowed.`;
+        } else if (validation_details && !validation_details.file_size_valid) {
+          filePreview.detailed_error = `File too large: ${(
+            file.size /
+            1024 /
+            1024
+          ).toFixed(2)}MB. Max 5MB allowed.`;
+        } else if (
+          validation_details &&
+          !validation_details.roll_number_extracted
+        ) {
+          filePreview.detailed_error = `Could not extract roll number from filename. Expected format: ROLLNUMBER.extension`;
+        } else if (validation_details && !validation_details.auth_valid) {
+          filePreview.detailed_error = `Authentication required for upload.`;
+        } else if (validation_details && !validation_details.student_found) {
+          filePreview.detailed_error = `No student found with roll number: ${roll_number}`;
+        } else if (
+          validation_details &&
+          !validation_details.institution_found
+        ) {
+          filePreview.detailed_error = `Student institution not found for roll number: ${roll_number}`;
+        }
+
+        newFiles.push(filePreview);
+
+        addLog('info', `File processed: ${file.name}`, {
+          roll_number,
+          validation_details,
+          detailed_error: filePreview.detailed_error
+        });
       }
 
-      newFiles.push(filePreview);
-
-      addLog('info', `File processed: ${file.name}`, {
-        roll_number,
-        validation_details,
-        detailed_error: filePreview.detailed_error
-      });
-    }
-
-    setFiles((prev) => [...prev, ...newFiles]);
-    setActiveTab('preview');
-  }, []);
+      setFiles((prev) => [...prev, ...newFiles]);
+      setActiveTab('preview');
+    },
+    [validateFileDetailed]
+  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -506,9 +517,11 @@ export function DebugBulkUpload() {
                         <CardContent className='p-4'>
                           <div className='flex items-start gap-4'>
                             <div className='w-16 h-16 relative flex-shrink-0'>
-                              <img
+                              <Image
                                 src={file.preview_url}
                                 alt={file.file.name}
+                                width={64}
+                                height={64}
                                 className='w-full h-full object-cover rounded'
                               />
                             </div>
@@ -722,7 +735,8 @@ export function DebugBulkUpload() {
                   <div className='space-y-2'>
                     {diagnosticLogs.length === 0 ? (
                       <div className='text-center text-muted-foreground py-8'>
-                        Click "Run Diagnostics" to test system components
+                        Click &quot;Run Diagnostics&quot; to test system
+                        components
                       </div>
                     ) : (
                       diagnosticLogs.map((log, index) => (

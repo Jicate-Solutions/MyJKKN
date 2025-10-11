@@ -21,10 +21,11 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     // Transform the data to match the expected format
-    const transformedDepartments = departments?.map(dept => ({
-      id: dept.id,
-      name: dept.department_name
-    })) || [];
+    const transformedDepartments =
+      departments?.map((dept: any) => ({
+        id: dept.id,
+        name: dept.department_name
+      })) || [];
 
     return NextResponse.json(transformedDepartments);
   } catch (error) {

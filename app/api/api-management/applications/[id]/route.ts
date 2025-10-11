@@ -17,7 +17,7 @@ export async function OPTIONS() {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Apply CORS headers to response
@@ -42,7 +42,7 @@ export async function GET(
     );
 
     // Get application ID from route params
-    const applicationId = params.id;
+    const { id: applicationId } = await params;
     if (!applicationId) {
       return NextResponse.json(
         { error: 'Application ID is required' },

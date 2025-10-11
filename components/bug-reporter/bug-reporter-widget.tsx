@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 // Store captured console logs
 const capturedLogs: any[] = [];
@@ -1013,9 +1014,12 @@ export function BugReporterWidget() {
                     captured
                   </label>
                   <div className='mt-1 border rounded overflow-hidden'>
-                    <img
+                    <Image
                       src={capturedScreenshot}
                       alt='Captured screenshot'
+                      width={800}
+                      height={80}
+                      unoptimized={true}
                       className='w-full h-20 object-cover object-top'
                     />
                   </div>

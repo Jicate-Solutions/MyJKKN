@@ -1,12 +1,16 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // Fix for Windows EPERM error during build
+  experimental: {
+    workerThreads: false,
+    cpus: 1
+  },
+
   images: {
     domains: ['kvizhngldtiuufknvehv.supabase.co']
   },
-  typescript: {
-    ignoreBuildErrors: true
-  },
+
   async headers() {
     return [
       {
@@ -14,7 +18,8 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Cache-Control',
-            value: 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+            value:
+              'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
           },
           {
             key: 'Pragma',

@@ -4,7 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 // Send notification for new bug report message
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createServerSupabaseClient();
@@ -27,7 +27,7 @@ export async function POST(
     const { data: bugReport, error: bugReportError } = await supabase
       .from('bug_reports')
       .select('display_id, description, reporter_user_id')
-      .eq('id', params.id)
+      .eq('id', (await params).id)
       .single();
 
     if (bugReportError || !bugReport) {
@@ -40,7 +40,8 @@ export async function POST(
     // Get message details
     const { data: message, error: messageError } = await supabase
       .from('bug_report_messages')
-      .select(`
+      .select(
+        `
         message_text,
         is_internal,
         sender_user_id,
@@ -48,7 +49,8 @@ export async function POST(
           full_name,
           email
         )
-      `)
+      `
+      )
       .eq('id', messageId)
       .single();
 
@@ -62,15 +64,17 @@ export async function POST(
     // Get all participants who should be notified (excluding the sender)
     const { data: participants, error: participantsError } = await supabase
       .from('bug_report_participants')
-      .select(`
+      .select(
+        `
         user_id,
         can_view_internal,
         user:profiles!user_id (
           full_name,
           email
         )
-      `)
-      .eq('bug_report_id', params.id)
+      `
+      )
+      .eq('bug_report_id', (await params).id)
       .eq('is_active', true)
       .neq('user_id', senderId);
 
@@ -82,13 +86,14 @@ export async function POST(
     }
 
     // Filter participants based on message visibility
-    const eligibleParticipants = participants?.filter(participant => {
-      // If message is internal, only notify participants who can view internal messages
-      if (message.is_internal) {
-        return participant.can_view_internal;
-      }
-      return true;
-    }) || [];
+    const eligibleParticipants =
+      participants?.filter((participant) => {
+        // If message is internal, only notify participants who can view internal messages
+        if (message.is_internal) {
+          return participant.can_view_internal;
+        }
+        return true;
+      }) || [];
 
     if (eligibleParticipants.length === 0) {
       return NextResponse.json({
@@ -112,7 +117,10 @@ export async function POST(
 
     const notificationBody = message.is_internal
       ? `${senderName} sent an internal message`
-      : `${senderName} sent a message: ${message.message_text.substring(0, 100)}${message.message_text.length > 100 ? '...' : ''}`;
+      : `${senderName} sent a message: ${message.message_text.substring(
+          0,
+          100
+        )}${message.message_text.length > 100 ? '...' : ''}`;
 
     // Insert the main notification
     const { data: notification, error: notificationError } = await supabase
@@ -120,7 +128,7 @@ export async function POST(
       .insert({
         title: notificationTitle,
         body: notificationBody,
-        url: `/admin/bug-reports/${params.id}`,
+        url: `/admin/bug-reports/${(await params).id}`,
         icon: '🐛',
         priority: 'normal',
         category: 'bug_report_message',
@@ -137,7 +145,7 @@ export async function POST(
     }
 
     // Create user notifications for each participant
-    const userNotifications = eligibleParticipants.map(participant => ({
+    const userNotifications = eligibleParticipants.map((participant) => ({
       user_id: participant.user_id,
       notification_id: notification.id
     }));
@@ -147,7 +155,10 @@ export async function POST(
       .insert(userNotifications);
 
     if (userNotificationsError) {
-      console.error('Failed to create user notifications:', userNotificationsError);
+      console.error(
+        'Failed to create user notifications:',
+        userNotificationsError
+      );
       return NextResponse.json(
         { success: false, error: 'Failed to send notifications' },
         { status: 500 }
@@ -159,7 +170,6 @@ export async function POST(
       message: `Notification sent to ${eligibleParticipants.length} participant(s)`,
       notificationId: notification.id
     });
-
   } catch (error) {
     console.error('Error sending bug report message notification:', error);
     return NextResponse.json(

@@ -311,7 +311,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     }
 
     loadInitialEditData();
-  }, [staffPlan?.id, fetchStaffMembers]); // Only depend on staffPlan ID to prevent loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffPlan?.id, fetchStaffMembers, form, staffPlan]); // Include form and staffPlan but disable eslint warning to prevent infinite loops
 
   // Load academic years when institution changes (for new forms)
   useEffect(() => {
@@ -460,13 +461,14 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             );
 
             if (!confirmed) {
-              toast.info(
-                'Please edit the existing staff plan instead of creating a new one.'
+              toast(
+                'Please edit the existing staff plan instead of creating a new one.',
+                { icon: 'ℹ️' }
               );
               router.push(`/academic/staff-planning/${existing.id}/edit`);
               return;
             } else {
-              toast.info('Adding courses to existing staff plan...');
+              toast('Adding courses to existing staff plan...', { icon: 'ℹ️' });
             }
           }
         } catch (checkError) {

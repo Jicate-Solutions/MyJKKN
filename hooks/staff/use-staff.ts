@@ -1,6 +1,11 @@
 // hooks/staff/use-staff.ts
 
-import { useQuery, useMutation, useQueryClient, UseQueryResult } from '@tanstack/react-query';
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  UseQueryResult
+} from '@tanstack/react-query';
 import { useMemo, useCallback } from 'react';
 import {
   Staff,
@@ -30,7 +35,9 @@ export const staffKeys = {
 };
 
 // Get a list of staff with filters and role-based optimization
-export function useStaff(filters: StaffFilters = {}): UseQueryResult<StaffListResponse, Error> {
+export function useStaff(
+  filters: StaffFilters = {}
+): UseQueryResult<StaffListResponse, Error> {
   const { profile, isLoading: authLoading } = useAuth();
 
   // Create stable query key by serializing only the values that matter (no search - handled by DataTable)
@@ -66,8 +73,8 @@ export function useStaff(filters: StaffFilters = {}): UseQueryResult<StaffListRe
       // Use role-based filtering for better performance, especially for HOD users
       return await StaffService.getStaffWithRoleBasedFiltering(filters, {
         role: profile?.role || '',
-        department_id: profile?.department_id,
-        institution_id: profile?.institution_id,
+        department_id: profile?.department_id || undefined,
+        institution_id: profile?.institution_id || undefined,
         is_super_admin: profile?.is_super_admin || false
       });
     } catch (error) {
@@ -84,10 +91,10 @@ export function useStaff(filters: StaffFilters = {}): UseQueryResult<StaffListRe
     // Simple enabled logic like student module
     enabled: !authLoading && !!profile,
     // Keep previous data while fetching new data
-    keepPreviousData: true,
+    placeholderData: (previousData) => previousData,
     // Reduce refetch frequency
     staleTime: 30000, // 30 seconds
-    cacheTime: 300000 // 5 minutes
+    gcTime: 300000 // 5 minutes (renamed from cacheTime)
   });
 }
 

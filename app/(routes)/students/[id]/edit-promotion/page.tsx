@@ -44,14 +44,19 @@ type PromotionFormValues = z.infer<typeof promotionSchema>;
 export default function EditStudentPromotionPage({
   params
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const { id } = params;
+  const [id, setId] = useState<string>('');
+
+  useEffect(() => {
+    params.then((p) => setId(p.id));
+  }, [params]);
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: student, isLoading: isLoadingStudent } = useQuery({
     queryKey: ['students', 'detail', id],
-    queryFn: () => StudentService.getStudent(id)
+    queryFn: () => StudentService.getStudent(id),
+    enabled: !!id
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 

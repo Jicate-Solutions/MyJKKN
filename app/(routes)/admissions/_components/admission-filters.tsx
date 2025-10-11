@@ -114,7 +114,8 @@ export function AdmissionFilter({
     }
 
     fetchInstitutions();
-  }, [profile?.id]);
+    // Include profile?.role in dependencies as it affects filtering logic
+  }, [profile?.id, profile?.role]);
 
   // Fetch departments when institution changes
   useEffect(() => {

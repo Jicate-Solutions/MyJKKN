@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient
+} from '@/lib/supabase/server';
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/supabase';
@@ -24,16 +27,19 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Check if user has permission to update roles (super_admin only)
-    const { data: profile } = await supabase
-      .from('profiles')
+    const { data: profile } = await (supabase.from('profiles') as any)
       .select('role')
       .eq('id', user.id)
       .single();
 
-    if (!profile || (profile.role !== 'super_admin' && profile.role !== 'administrator')) {
+    if (
+      !profile ||
+      (profile.role !== 'super_admin' && profile.role !== 'administrator')
+    ) {
       return NextResponse.json(
         {
-          error: 'Insufficient permissions. Only super admins and administrators can update roles.'
+          error:
+            'Insufficient permissions. Only super admins and administrators can update roles.'
         },
         { status: 403 }
       );
@@ -58,8 +64,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Prevent updating super_admin users (except by other super_admins)
-    const { data: targetUsers } = await supabase
-      .from('profiles')
+    const { data: targetUsers } = await (supabase.from('profiles') as any)
       .select('id, role, full_name, email')
       .in('id', userIds);
 
@@ -72,12 +77,12 @@ export async function PATCH(request: NextRequest) {
 
     const success: string[] = [];
     const failed: Array<{ userId: string; error: string }> = [];
-    
+
     // Use service role client for admin operations to bypass RLS
     const serviceClient = createServiceRoleClient();
 
     // Process each user individually for better error handling
-    for (const targetUser of targetUsers) {
+    for (const targetUser of targetUsers as any[]) {
       try {
         // Prevent modifying super_admin roles unless the new role is also super_admin
         if (targetUser.role === 'super_admin' && role !== 'super_admin') {
@@ -89,8 +94,9 @@ export async function PATCH(request: NextRequest) {
         }
 
         // Update the user's role using service role client
-        const { error: updateError } = await serviceClient
-          .from('profiles')
+        const { error: updateError } = await (
+          serviceClient.from('profiles') as any
+        )
           .update({
             role,
             updated_at: new Date().toISOString()

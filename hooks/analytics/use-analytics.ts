@@ -14,8 +14,7 @@ import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
  */
 export function useAnalyticsFilters(baseFilters: AnalyticsFilters = {}) {
   const { profile } = useAuth();
-  const { institutions, selectedInstitutionId, selectedDepartmentId, loading } =
-    useUserInstitutionAccess();
+  const { institutions, loading } = useUserInstitutionAccess();
 
   // If user is super admin, return base filters as-is
   const isSuperAdmin = profile?.role === 'super_admin';
@@ -31,8 +30,8 @@ export function useAnalyticsFilters(baseFilters: AnalyticsFilters = {}) {
   // For other roles, apply institution/department restrictions
   const restrictedFilters: AnalyticsFilters = {
     ...baseFilters,
-    institution_id: baseFilters.institution_id || selectedInstitutionId,
-    department_id: baseFilters.department_id || selectedDepartmentId
+    institution_id: baseFilters.institution_id || profile?.institution_id || undefined,
+    department_id: baseFilters.department_id || profile?.department_id || undefined
   };
 
   return {

@@ -131,8 +131,7 @@ export async function PATCH(
       updateData.resolved_at = new Date().toISOString();
     }
 
-    const { data, error } = await adminSupabase
-      .from('bug_reports')
+    const { data, error } = await (adminSupabase.from('bug_reports') as any)
       .update(updateData)
       .eq('id', reportId)
       .select()
@@ -195,8 +194,9 @@ export async function DELETE(
     const adminSupabase = createAdminClient();
 
     // First, get the bug report to find the screenshot URL
-    const { data: report, error: fetchError } = await adminSupabase
-      .from('bug_reports')
+    const { data: report, error: fetchError } = await (
+      adminSupabase.from('bug_reports') as any
+    )
       .select('screenshot_url')
       .eq('id', reportId)
       .single();
@@ -209,7 +209,7 @@ export async function DELETE(
     }
 
     // If there's a screenshot, delete it from storage
-    if (report.screenshot_url) {
+    if (report?.screenshot_url) {
       try {
         // Extract the file path from the public URL
         // The URL format is typically: https://...supabase.co/storage/v1/object/public/bug-reports/{reportId}/screenshot.png
@@ -244,8 +244,9 @@ export async function DELETE(
     }
 
     // Delete the bug report from the database
-    const { error: deleteError } = await adminSupabase
-      .from('bug_reports')
+    const { error: deleteError } = await (
+      adminSupabase.from('bug_reports') as any
+    )
       .delete()
       .eq('id', reportId);
 

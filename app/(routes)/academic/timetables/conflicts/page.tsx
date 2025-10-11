@@ -71,7 +71,8 @@ export default function TimetableConflictsPage() {
         loadConflicts();
       }
     }
-  }, [permissionsLoading, isSuperAdmin, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permissionsLoading, isSuperAdmin, router]); // loadConflicts is intentionally excluded to prevent infinite loops
 
   const loadConflicts = async () => {
     try {

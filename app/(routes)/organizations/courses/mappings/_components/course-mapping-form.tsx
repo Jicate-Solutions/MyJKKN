@@ -130,7 +130,7 @@ export function CourseMappingForm({
     if (!isEditing && profile?.institution_id && hasDepartmentRestriction) {
       form.setValue('institution_id', profile.institution_id);
     }
-  }, [profile?.institution_id, hasDepartmentRestriction, isEditing]);
+  }, [profile?.institution_id, hasDepartmentRestriction, isEditing, form]);
 
   // Load institutions on mount
   useEffect(() => {
@@ -178,7 +178,7 @@ export function CourseMappingForm({
       }
     }
     loadDegrees();
-  }, [watchedInstitutionId, hasDepartmentRestriction, departmentId, isEditing]);
+  }, [watchedInstitutionId, hasDepartmentRestriction, departmentId, isEditing, form]);
 
   // Chain loading of departments based on degree
   useEffect(() => {

@@ -104,7 +104,7 @@ export function AttendanceViewSelector({
     };
 
     checkIfFaculty();
-  }, [profile?.email, isUserSuperAdmin, isAdmin, isFaculty, isHOD]);
+  }, [profile?.email, profile?.role, isUserSuperAdmin, isAdmin, isFaculty, isHOD]);
 
   // Updated: 2025-10-09 - Validate search criteria before search
   const validateSearch = (): boolean => {

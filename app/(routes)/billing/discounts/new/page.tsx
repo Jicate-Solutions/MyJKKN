@@ -68,6 +68,8 @@ export default function NewDiscountPage() {
     if (billId || billIds) {
       loadBillDetails();
     }
+    // loadBillDetails is defined inline and would cause infinite loop if added to deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [billId, billIds]);
 
   const loadBillDetails = async () => {

@@ -33,8 +33,9 @@ export async function GET(request: Request) {
     const supabase = createAdminClient();
 
     // Get all users who have submitted bug reports
-    const { data: usersWithBugs, error: usersError } = await supabase
-      .from('bug_reports')
+    const { data: usersWithBugs, error: usersError } = await (
+      supabase.from('bug_reports') as any
+    )
       .select('reporter_user_id')
       .not('reporter_user_id', 'is', null);
 
@@ -48,15 +49,16 @@ export async function GET(request: Request) {
 
     // Get unique user IDs
     const uniqueUserIds = [
-      ...new Set(usersWithBugs.map((report) => report.reporter_user_id))
+      ...new Set(usersWithBugs.map((report: any) => report.reporter_user_id))
     ];
 
     // Get user profiles and bug report counts
     const leaderboardData = await Promise.all(
-      uniqueUserIds.map(async (userId) => {
+      uniqueUserIds.map(async (userId: any) => {
         // Get user profile
-        const { data: userProfile, error: profileError } = await supabase
-          .from('profiles')
+        const { data: userProfile, error: profileError } = await (
+          supabase.from('profiles') as any
+        )
           .select('id, full_name, avatar_url')
           .eq('id', userId)
           .single();
@@ -80,8 +82,7 @@ export async function GET(request: Request) {
 
         // Helper to build query with optional date filter
         const buildQuery = (statusFilter?: string) => {
-          let query = supabase
-            .from('bug_reports')
+          let query = (supabase.from('bug_reports') as any)
             .select('*', { count: 'exact', head: true })
             .eq('reporter_user_id', userId);
           if (statusFilter) query = query.eq('status', statusFilter);
@@ -105,9 +106,9 @@ export async function GET(request: Request) {
         }
 
         return {
-          user_id: userProfile.id,
-          user_name: userProfile.full_name,
-          avatar_url: userProfile.avatar_url,
+          user_id: userProfile?.id || userId,
+          user_name: userProfile?.full_name || 'Unknown',
+          avatar_url: userProfile?.avatar_url || null,
           total_bugs_count: totalBugs || 0,
           resolved_bugs_count: resolvedBugs || 0
         };

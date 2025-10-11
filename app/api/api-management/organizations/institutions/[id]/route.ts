@@ -6,9 +6,10 @@ import type { Database } from '@/types/supabase';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Add CORS headers to response
     const response = NextResponse.next();
     Object.entries(corsHeaders).forEach(([key, value]) => {
@@ -87,7 +88,7 @@ export async function GET(
       );
     }
 
-    console.log('4. Fetching institution:', params.id);
+    console.log('4. Fetching institution:', id);
 
     // Get institution with departments
     const { data: institution, error: institutionError } = await supabase
@@ -98,7 +99,7 @@ export async function GET(
         departments:departments(*)
       `
       )
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
 
     console.log('5. Query result:', {

@@ -91,7 +91,7 @@ function AttendanceDashboardContent() {
       }));
       setPendingFilters((prev) => ({
         ...prev,
-        departmentId: profile.department_id
+        departmentId: profile.department_id || undefined
       }));
     } else if (profile?.role === 'faculty' && profile?.department_id) {
       // Faculty users: filter by their department (they'll see all classes in their department)
@@ -101,10 +101,15 @@ function AttendanceDashboardContent() {
       }));
       setPendingFilters((prev) => ({
         ...prev,
-        departmentId: profile.department_id
+        departmentId: profile.department_id || undefined
       }));
     }
-  }, [canViewAllInstitutions, profile?.institution_id, profile?.role, profile?.department_id]);
+  }, [
+    canViewAllInstitutions,
+    profile?.institution_id,
+    profile?.role,
+    profile?.department_id
+  ]);
 
   // Fetch institutions for super admin
   useEffect(() => {
@@ -153,18 +158,17 @@ function AttendanceDashboardContent() {
   }, []);
 
   // Handle pending filters change
-  const handlePendingFiltersChange = useCallback(
-    (newFilters: any) => {
-      console.log('🔄 Pending filters updated:', newFilters);
-      setPendingFilters((prev) => ({ ...prev, ...newFilters }));
-    },
-    []
-  );
+  const handlePendingFiltersChange = useCallback((newFilters: any) => {
+    console.log('🔄 Pending filters updated:', newFilters);
+    setPendingFilters((prev) => ({ ...prev, ...newFilters }));
+  }, []);
 
   // Reset pending filters
   const resetPendingFilters = useCallback(() => {
     setPendingFilters({
-      institutionId: !canViewAllInstitutions ? profile?.institution_id || undefined : undefined,
+      institutionId: !canViewAllInstitutions
+        ? profile?.institution_id || undefined
+        : undefined,
       academicYearId: undefined,
       degreeId: undefined,
       departmentId: undefined,
@@ -315,8 +319,8 @@ function AttendanceDashboardContent() {
               <Alert className='border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800'>
                 <AlertCircle className='h-4 w-4 text-amber-600' />
                 <AlertDescription className='text-amber-800 dark:text-amber-300'>
-                  <strong>Historical Data View:</strong> You are viewing attendance
-                  data for{' '}
+                  <strong>Historical Data View:</strong> You are viewing
+                  attendance data for{' '}
                   <strong>
                     {format(filters.selectedDate, 'EEEE, MMMM dd, yyyy')}
                   </strong>
@@ -366,19 +370,24 @@ function AttendanceDashboardContent() {
                 <h2 className='text-xl font-semibold'>Pending Attendance</h2>
                 <Badge variant='outline' className='flex items-center gap-1'>
                   <Calendar className='h-3 w-3' />
-                  {pendingFilters.attendanceDate 
-                    ? format(new Date(pendingFilters.attendanceDate + 'T00:00:00'), 'MMM dd, yyyy')
-                    : 'Today'
-                  }
+                  {pendingFilters.attendanceDate
+                    ? format(
+                        new Date(pendingFilters.attendanceDate + 'T00:00:00'),
+                        'MMM dd, yyyy'
+                      )
+                    : 'Today'}
                 </Badge>
               </div>
               <p className='text-muted-foreground mb-6'>
                 Periods scheduled for{' '}
-                {pendingFilters.attendanceDate 
-                  ? format(new Date(pendingFilters.attendanceDate + 'T00:00:00'), 'EEEE, MMMM dd, yyyy')
-                  : 'today'
-                } that haven&apos;t been marked yet.
-                Use filters to narrow down by organizational hierarchy.
+                {pendingFilters.attendanceDate
+                  ? format(
+                      new Date(pendingFilters.attendanceDate + 'T00:00:00'),
+                      'EEEE, MMMM dd, yyyy'
+                    )
+                  : 'today'}{' '}
+                that haven&apos;t been marked yet. Use filters to narrow down by
+                organizational hierarchy.
               </p>
 
               {/* Hierarchy Filters */}
@@ -405,10 +414,13 @@ function AttendanceDashboardContent() {
                   <CardTitle>Unmarked Periods</CardTitle>
                   <CardDescription>
                     Periods scheduled for{' '}
-                    {pendingFilters.attendanceDate 
-                      ? format(new Date(pendingFilters.attendanceDate + 'T00:00:00'), 'MMMM dd, yyyy')
-                      : 'today'
-                    } that require attendance marking
+                    {pendingFilters.attendanceDate
+                      ? format(
+                          new Date(pendingFilters.attendanceDate + 'T00:00:00'),
+                          'MMMM dd, yyyy'
+                        )
+                      : 'today'}{' '}
+                    that require attendance marking
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

@@ -45,8 +45,9 @@ export async function POST(request: Request) {
     const adminSupabase = createAdminClient();
 
     // Get all bug reports to find screenshot URLs
-    const { data: reports, error: fetchError } = await adminSupabase
-      .from('bug_reports')
+    const { data: reports, error: fetchError } = await (
+      adminSupabase.from('bug_reports') as any
+    )
       .select('id, screenshot_url')
       .in('id', reportIds);
 
@@ -98,8 +99,9 @@ export async function POST(request: Request) {
     }
 
     // Delete bug reports from database
-    const { error: deleteError } = await adminSupabase
-      .from('bug_reports')
+    const { error: deleteError } = await (
+      adminSupabase.from('bug_reports') as any
+    )
       .delete()
       .in('id', reportIds);
 

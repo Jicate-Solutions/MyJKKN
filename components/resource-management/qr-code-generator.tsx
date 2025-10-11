@@ -38,7 +38,8 @@ export function QRCodeGenerator({
     if (isOpen && !qrCode) {
       generateQRCode();
     }
-  }, [isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]); // generateQRCode would cause infinite loop
 
   const generateQRCode = async () => {
     setIsGenerating(true);

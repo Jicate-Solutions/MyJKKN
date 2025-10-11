@@ -35,7 +35,7 @@ import {
 export default function ApplicationHubPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
-  const { user, isLoading: isLoadingUser } = useAuth();
+  const { profile, isLoading: isLoadingUser } = useAuth();
   const [filteredApplications, setFilteredApplications] = useState<
     Application[]
   >([]);
@@ -55,11 +55,11 @@ export default function ApplicationHubPage() {
   useEffect(() => {
     if (loading || isLoadingUser) return; // Don't filter while still loading
 
-    console.log('Filtering applications based on user:', user);
+    console.log('Filtering applications based on user:', profile);
     console.log('Applications available:', applications.length);
 
     // If no user, but we have applications, show them all for troubleshooting
-    if (!user) {
+    if (!profile) {
       console.warn('No user found, showing all applications for debugging');
       setFilteredApplications(applications);
       return;
@@ -72,7 +72,7 @@ export default function ApplicationHubPage() {
     }
 
     // If user role is in application's roles_access array, or user is admin/super_admin, show the app
-    const userRole = user.role;
+    const userRole = profile.role;
     const isAdmin = userRole === 'administrator' || userRole === 'super_admin';
 
     console.log('User role:', userRole);
@@ -118,7 +118,7 @@ export default function ApplicationHubPage() {
 
     console.log('Number of applications after filtering:', filtered.length);
     setFilteredApplications(filtered);
-  }, [applications, user, loading, isLoadingUser]);
+  }, [applications, profile, loading, isLoadingUser]);
 
   // Load categories and applications on initial render
   useEffect(() => {
@@ -224,7 +224,9 @@ export default function ApplicationHubPage() {
             <h1 className='text-2xl font-bold py-1'>Application Hub</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
               Discover and access all available applications for your role
-              {user && <span className='font-medium'> ({user.role})</span>}
+              {profile && (
+                <span className='font-medium'> ({profile.role})</span>
+              )}
             </p>
           </div>
           <div className='flex gap-2'>
@@ -255,19 +257,19 @@ export default function ApplicationHubPage() {
             categories={categories}
             filters={filters}
             onFilterChange={updateFilters}
-            userRole={user?.role}
+            userRole={profile?.role}
           />
 
           <ApplicationGrid
             applications={filteredApplications}
-            userRole={user?.role}
+            userRole={profile?.role}
           />
 
           {applications.length > 0 && filteredApplications.length === 0 && (
             <div className='py-8 text-center'>
               <p className='text-muted-foreground'>
                 You don&apos;t have access to any applications with your current
-                role ({user?.role || 'unknown'}).
+                role ({profile?.role || 'unknown'}).
               </p>
               <p className='text-sm text-muted-foreground mt-1'>
                 Please contact an administrator if you believe this is an error.

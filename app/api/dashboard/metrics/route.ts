@@ -61,7 +61,7 @@ export async function GET(request: Request) {
 
     // Process role counts for chart
     const roleCounts = (usersByRoleData || []).reduce(
-      (acc: Record<string, number>, user) => {
+      (acc: Record<string, number>, user: any) => {
         const role = user.role || 'Unknown';
         acc[role] = (acc[role] || 0) + 1;
         return acc;

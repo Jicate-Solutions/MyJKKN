@@ -15,7 +15,7 @@ export function QueryClientProvider({ children }: { children: ReactNode }) {
             staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh longer
             gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
             refetchOnWindowFocus: true, // Re-enable: Refetch when tab regains focus after inactivity
-            refetchOnMount: 'stale', // Only refetch stale data on mount
+            refetchOnMount: true, // Refetch on mount
             refetchOnReconnect: true, // Refetch on network reconnect
             retry: (failureCount, error) => {
               // Don't retry on auth errors, RLS policy errors, or 404s

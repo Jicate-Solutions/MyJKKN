@@ -120,6 +120,7 @@ export default function NewUserPage() {
   // Fetch departments when institution changes
   useEffect(() => {
     const fetchDepartments = async () => {
+      // Extract the watched value to a variable to satisfy exhaustive-deps
       const institutionId = form.watch('institution_id');
       if (!institutionId || institutionId === 'none') {
         setDepartments([]);
@@ -147,7 +148,8 @@ export default function NewUserPage() {
     };
 
     fetchDepartments();
-  }, [form.watch('institution_id')]);
+    // Add form to dependencies since we're using form.watch
+  }, [form]);
 
   const onSubmit = async (data: FormValues) => {
     // Check if email is available before submitting

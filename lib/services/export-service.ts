@@ -3,7 +3,6 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format as formatDate } from 'date-fns';
-import { UsageReport } from '@/types/resources';
 
 export class ExportService {
   /**
@@ -116,7 +115,7 @@ export class ExportService {
    * Export usage report to different formats
    */
   static exportUsageReport(
-    report: UsageReport,
+    report: any, // UsageReport type not defined in types
     exportType: 'csv' | 'excel' | 'pdf'
   ): void {
     // Format dates
@@ -172,7 +171,7 @@ export class ExportService {
    * Export multiple usage reports to different formats
    */
   static exportMultipleUsageReports(
-    reports: UsageReport[],
+    reports: any[], // UsageReport type not defined in types
     exportType: 'csv' | 'excel' | 'pdf'
   ): void {
     // Prepare report data

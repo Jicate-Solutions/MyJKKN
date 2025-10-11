@@ -1038,9 +1038,9 @@ export class StudentService {
         reference_contact: admission.reference_contact || '',
         is_profile_complete: false,
         status: 'active', // Use a valid student_status enum value
-        semester_id: null, // Will be set later during onboarding
-        section_id: null, // Will be set later during onboarding
-        academic_year_id: null // Will be set later during onboarding
+        semester_id: undefined, // Will be set later during onboarding
+        section_id: undefined, // Will be set later during onboarding
+        academic_year_id: undefined // Will be set later during onboarding
       };
 
       // Create the student record

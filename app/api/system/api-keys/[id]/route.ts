@@ -8,9 +8,10 @@ import toast from 'react-hot-toast';
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,7 +31,6 @@ export async function PATCH(
       }
     );
     const input: UpdateApiKeyInput = await request.json();
-    const { id } = context.params;
 
     // Check authentication
     const {
@@ -87,9 +87,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const cookieStore = await cookies();
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -108,8 +109,6 @@ export async function DELETE(
         }
       }
     );
-
-    const { id } = context.params;
 
     // Check authentication
     const {

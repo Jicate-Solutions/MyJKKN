@@ -242,7 +242,8 @@ export function AttendanceFilters({
     searchContext.program_id,
     searchContext.department_id,
     searchContext.semester_id,
-    searchContext.section_id
+    searchContext.section_id,
+    onSectionRequirementChange
   ]);
 
   const handleDateSelect = (date: Date | undefined) => {

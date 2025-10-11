@@ -146,32 +146,37 @@ export async function GET(request: NextRequest) {
     }
 
     // Add other filters from the search params
-    if (searchParams.get('institution')) {
-      query = query.eq('institution_id', searchParams.get('institution'));
+    const institution = searchParams.get('institution');
+    if (institution) {
+      query = query.eq('institution_id', institution);
     }
-    if (searchParams.get('degree')) {
-      query = query.eq('degree_id', searchParams.get('degree'));
+    const degree = searchParams.get('degree');
+    if (degree) {
+      query = query.eq('degree_id', degree);
     }
-    if (searchParams.get('department')) {
-      query = query.eq('department_id', searchParams.get('department'));
+    const department = searchParams.get('department');
+    if (department) {
+      query = query.eq('department_id', department);
     }
-    if (searchParams.get('program')) {
-      query = query.eq('program_id', searchParams.get('program'));
+    const program = searchParams.get('program');
+    if (program) {
+      query = query.eq('program_id', program);
     }
-    if (searchParams.get('semester')) {
-      query = query.eq('semester_id', searchParams.get('semester'));
+    const semester = searchParams.get('semester');
+    if (semester) {
+      query = query.eq('semester_id', semester);
     }
-    if (searchParams.get('section')) {
-      query = query.eq('section_id', searchParams.get('section'));
+    const section = searchParams.get('section');
+    if (section) {
+      query = query.eq('section_id', section);
     }
-    if (searchParams.get('status')) {
-      query = query.eq('status', searchParams.get('status'));
+    const status = searchParams.get('status');
+    if (status) {
+      query = query.eq('status', status);
     }
-    if (searchParams.get('is_profile_complete')) {
-      query = query.eq(
-        'is_profile_complete',
-        searchParams.get('is_profile_complete')
-      );
+    const isProfileComplete = searchParams.get('is_profile_complete');
+    if (isProfileComplete) {
+      query = query.eq('is_profile_complete', isProfileComplete);
     }
     if (searchParams.get('search')) {
       const searchTerm = searchParams.get('search');
@@ -257,7 +262,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Return the file as a response
-    const response = new NextResponse(fileContent, {
+    const response = new NextResponse(fileContent as any, {
       status: 200,
       headers: {
         'Content-Type': contentType,

@@ -223,15 +223,19 @@ class AnalyticsService {
     // First, get filtered resource IDs if institution/department filters exist
     let resourceIds: string[] | undefined;
     if (filters.institution_id || filters.department_id) {
-      let resourceQuery = supabase
-        .from('resources')
-        .select('id');
+      let resourceQuery = supabase.from('resources').select('id');
 
       if (filters.institution_id) {
-        resourceQuery = resourceQuery.eq('institution_id', filters.institution_id);
+        resourceQuery = resourceQuery.eq(
+          'institution_id',
+          filters.institution_id
+        );
       }
       if (filters.department_id) {
-        resourceQuery = resourceQuery.eq('department_id', filters.department_id);
+        resourceQuery = resourceQuery.eq(
+          'department_id',
+          filters.department_id
+        );
       }
 
       const { data: filteredResources } = await resourceQuery;
@@ -273,7 +277,10 @@ class AnalyticsService {
     }
 
     if (filters.resource_id) {
-      reservationQuery = reservationQuery.eq('resource_id', filters.resource_id);
+      reservationQuery = reservationQuery.eq(
+        'resource_id',
+        filters.resource_id
+      );
     }
 
     const { data: reservations, error } = await reservationQuery;
@@ -395,11 +402,11 @@ class AnalyticsService {
 
     const total_maintenance = maintenanceLogs?.length || 0;
     const scheduled_maintenance =
-      maintenanceLogs?.filter((log: any) => log.status === 'scheduled').length ||
-      0;
+      maintenanceLogs?.filter((log: any) => log.status === 'scheduled')
+        .length || 0;
     const completed_maintenance =
-      maintenanceLogs?.filter((log: any) => log.status === 'completed').length ||
-      0;
+      maintenanceLogs?.filter((log: any) => log.status === 'completed')
+        .length || 0;
     const in_progress =
       maintenanceLogs?.filter((log: any) => log.status === 'in_progress')
         .length || 0;
@@ -456,8 +463,13 @@ class AnalyticsService {
     const costByMonth = new Map<string, number>();
     maintenanceLogs?.forEach((log: any) => {
       const date = new Date(log.scheduled_date);
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      costByMonth.set(monthKey, (costByMonth.get(monthKey) || 0) + (log.cost || 0));
+      const monthKey = `${date.getFullYear()}-${String(
+        date.getMonth() + 1
+      ).padStart(2, '0')}`;
+      costByMonth.set(
+        monthKey,
+        (costByMonth.get(monthKey) || 0) + (log.cost || 0)
+      );
     });
 
     const cost_trend = Array.from(costByMonth.entries())
@@ -468,7 +480,9 @@ class AnalyticsService {
         count:
           maintenanceLogs?.filter((log: any) => {
             const date = new Date(log.scheduled_date);
-            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            const monthKey = `${date.getFullYear()}-${String(
+              date.getMonth() + 1
+            ).padStart(2, '0')}`;
             return monthKey === month;
           }).length || 0
       }));
@@ -565,8 +579,8 @@ class AnalyticsService {
       revenue_by_category: [],
       expense_by_type: maintenanceAnalytics.by_type.map((t) => ({
         expense_type: t.maintenance_type,
-        amount: t.total_cost,
-        percentage: (t.total_cost / total_expenses) * 100
+        amount: 0, // Cost data not available in MaintenanceTypeAnalytics
+        percentage: t.percentage
       })),
       financial_trend: []
     };

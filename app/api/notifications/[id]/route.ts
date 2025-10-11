@@ -12,9 +12,10 @@ import {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = await createClient();
     const {
       data: { user }
@@ -24,7 +25,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const notification = await getNotification(params.id);
+    const notification = await getNotification(id);
 
     if (!notification) {
       return NextResponse.json(
@@ -49,9 +50,10 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = await createClient();
     const {
       data: { user }
@@ -65,17 +67,17 @@ export async function PATCH(
 
     // Handle special actions
     if (body.action === 'mark_read') {
-      await markAsRead(params.id);
+      await markAsRead(id);
       return NextResponse.json({ success: true });
     }
 
     if (body.action === 'archive') {
-      await archiveNotification(params.id);
+      await archiveNotification(id);
       return NextResponse.json({ success: true });
     }
 
     // Regular update
-    const notification = await updateNotification(params.id, body);
+    const notification = await updateNotification(id, body);
 
     return NextResponse.json({
       data: notification,
@@ -92,9 +94,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = await createClient();
     const {
       data: { user }
@@ -104,7 +107,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    await deleteNotification(params.id);
+    await deleteNotification(id);
 
     return NextResponse.json({
       success: true,

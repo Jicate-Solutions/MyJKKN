@@ -67,7 +67,7 @@ export async function PATCH(
       .select('role, full_name, institution_id')
       .eq('id', user.id)
       .single();
-    
+
     if (currentUserError) {
       return NextResponse.json(
         {
@@ -77,8 +77,11 @@ export async function PATCH(
         { status: 500 }
       );
     }
-    
-    if (currentUser.role !== SYSTEM_ROLES.SUPER_ADMIN && currentUser.role !== SYSTEM_ROLES.ADMINISTRATOR) {
+
+    if (
+      currentUser.role !== SYSTEM_ROLES.SUPER_ADMIN &&
+      currentUser.role !== SYSTEM_ROLES.ADMINISTRATOR
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -139,9 +142,10 @@ export async function PATCH(
     // Update the user's role using service role client to bypass RLS
     // Use service role client for admin operations to bypass RLS
     const serviceClient = createServiceRoleClient();
-    
-    const { data: updatedUser, error: updateError } = await serviceClient
-      .from('profiles')
+
+    const { data: updatedUser, error: updateError } = await (
+      serviceClient.from('profiles') as any
+    )
       .update({
         role,
         updated_at: new Date().toISOString()

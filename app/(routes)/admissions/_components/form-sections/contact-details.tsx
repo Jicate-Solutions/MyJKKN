@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { UseFormReturn, useWatch } from 'react-hook-form';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -57,14 +57,19 @@ export function ContactDetailsForm({ form }: ContactDetailsFormProps) {
     name: 'permanentAddressDistrict'
   });
 
-  // Get available options based on selections
-  const availableDistricts = selectedStateId
-    ? getDistrictsByState(selectedStateId)
-    : [];
-  const availableTaluks =
-    selectedStateId && selectedDistrictId
-      ? getTaluksByDistrict(selectedStateId, selectedDistrictId)
-      : [];
+  // Get available options based on selections - memoize to prevent recalculation
+  const availableDistricts = useMemo(
+    () => (selectedStateId ? getDistrictsByState(selectedStateId) : []),
+    [selectedStateId]
+  );
+
+  const availableTaluks = useMemo(
+    () =>
+      selectedStateId && selectedDistrictId
+        ? getTaluksByDistrict(selectedStateId, selectedDistrictId)
+        : [],
+    [selectedStateId, selectedDistrictId]
+  );
 
   // Reset dependent fields when parent changes (but preserve values in edit mode)
   useEffect(() => {

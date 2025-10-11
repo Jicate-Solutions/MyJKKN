@@ -32,7 +32,11 @@ export async function POST(request: Request) {
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profile || !['admin', 'super_admin'].includes(profile.role)) {
+    if (
+      profileError ||
+      !profile ||
+      !['admin', 'super_admin'].includes(profile.role)
+    ) {
       return NextResponse.json(
         { error: 'Admin permissions required to update bug report status' },
         { status: 403 }
@@ -50,14 +54,15 @@ export async function POST(request: Request) {
     const updateData: any = { status };
     if (status === 'resolved') {
       updateData.resolved_at = new Date().toISOString();
-    } else if (status !== 'resolved') {
+    } else {
       // Clear resolved_at if status is changed from resolved to something else
       updateData.resolved_at = null;
     }
 
     // Update bug reports status
-    const { error: updateError } = await adminSupabase
-      .from('bug_reports')
+    const { error: updateError } = await (
+      adminSupabase.from('bug_reports') as any
+    )
       .update(updateData)
       .in('id', reportIds);
 
@@ -74,7 +79,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `${reportIds.length} bug report(s) status updated to ${status.replace('_', ' ')} successfully`,
+      message: `${
+        reportIds.length
+      } bug report(s) status updated to ${status.replace(
+        '_',
+        ' '
+      )} successfully`,
       updatedCount: reportIds.length,
       status
     });

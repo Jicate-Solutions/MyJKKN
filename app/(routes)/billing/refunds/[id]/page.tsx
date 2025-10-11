@@ -92,6 +92,8 @@ export default function RefundDetailsPage({ params }: RefundDetailsPageProps) {
     if (id) {
       fetchRefundDetails();
     }
+    // fetchRefundDetails is defined inline and would cause infinite loop if added to deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const fetchRefundDetails = async () => {

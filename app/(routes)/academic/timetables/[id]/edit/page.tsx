@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useEffect } from 'react';
+import { use, useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -200,7 +200,7 @@ export default function EditTimetablePage({
   const loadingSemesters = semestersQuery.isLoading;
   const fetchSemesters = semestersQuery.refetch;
 
-  const allSections = sectionsQuery.data?.data || [];
+  const allSections = useMemo(() => sectionsQuery.data?.data || [], [sectionsQuery.data?.data]);
   const loadingSections = sectionsQuery.isLoading;
   const fetchSections = sectionsQuery.refetch;
 
@@ -486,6 +486,7 @@ export default function EditTimetablePage({
         }
       }
     }
+    // allSections is now memoized, safe to include in dependencies
   }, [watchSemesterId, form, allSections, timetable]);
 
   // Form submission handler

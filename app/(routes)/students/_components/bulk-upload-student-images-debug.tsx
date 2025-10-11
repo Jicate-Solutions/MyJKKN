@@ -280,7 +280,7 @@ export function BulkUploadStudentImagesDebug() {
   };
 
   // Enhanced file validation
-  const validateFileDetailed = async (
+  const validateFileDetailed = useCallback(async (
     file: File
   ): Promise<FilePreview['validation_details']> => {
     const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif'];
@@ -333,7 +333,7 @@ export function BulkUploadStudentImagesDebug() {
     }
 
     return validation;
-  };
+  }, [supabase]);
 
   // Enhanced file drop handler
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -388,7 +388,7 @@ export function BulkUploadStudentImagesDebug() {
 
     setFiles((prev) => [...prev, ...newFiles]);
     setActiveTab('preview');
-  }, []);
+  }, [validateFileDetailed]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
