@@ -188,21 +188,6 @@ export function usePermissions(
     };
   }, [userProfile, authLoading, authError]);
 
-  // Add effect to log state changes in development
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('usePermissions state update:', {
-        authLoading,
-        isLoading,
-        hasProfile: !!userProfile,
-        userRole: userProfile?.role,
-        isSuperAdmin,
-        permissionCount: Object.keys(permissions).length,
-        error: error?.message
-      });
-    }
-  }, [authLoading, isLoading, userProfile, isSuperAdmin, permissions, error]);
-
   // Check if user has all required permissions (using enhanced permissions)
   const hasAllPermissions = useMemo(() => {
     if (isLoading && waitForLoad) return false;

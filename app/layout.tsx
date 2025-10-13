@@ -24,8 +24,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  ),
   title: 'MyJKKN',
-  description: 'Central Hub Application for JKKN Institutions - Manage admissions, students, billing, attendance and more',
+  description:
+    'Central Hub Application for JKKN Institutions - Manage admissions, students, billing, attendance and more',
   generator: 'Next.js',
   manifest: '/manifest.json',
   keywords: [
@@ -45,17 +49,18 @@ export const metadata: Metadata = {
     'offline app',
     'installable app'
   ],
-  authors: [{ name: 'JKKN Institutions' }],
-  creator: 'JKKN Institutions',
+  authors: [{ name: 'BOOBALAN A' }],
+  creator: 'BOOBALAN A',
   publisher: 'JKKN Institutions',
   formatDetection: {
-    telephone: false,
+    telephone: false
   },
   openGraph: {
     type: 'website',
     siteName: 'MyJKKN',
     title: 'MyJKKN - Central Hub Application',
-    description: 'Central Hub Application for JKKN Institutions - Manage admissions, students, billing, attendance and more',
+    description:
+      'Central Hub Application for JKKN Institutions - Manage admissions, students, billing, attendance and more',
     images: [
       {
         url: '/icons/icon-512x512.png',
@@ -63,13 +68,14 @@ export const metadata: Metadata = {
         height: 512,
         alt: 'MyJKKN Logo'
       }
-    ],
+    ]
   },
   twitter: {
     card: 'summary',
     title: 'MyJKKN - Central Hub Application',
-    description: 'Central Hub Application for JKKN Institutions - Manage admissions, students, billing, attendance and more',
-    images: ['/icons/icon-512x512.png'],
+    description:
+      'Central Hub Application for JKKN Institutions - Manage admissions, students, billing, attendance and more',
+    images: ['/icons/icon-512x512.png']
   },
   appleWebApp: {
     capable: true,
@@ -78,35 +84,43 @@ export const metadata: Metadata = {
     startupImage: [
       {
         url: '/icons/apple-splash-2048x2732.png',
-        media: '(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
+        media:
+          '(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
       },
       {
         url: '/icons/apple-splash-1668x2388.png',
-        media: '(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
+        media:
+          '(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
       },
       {
         url: '/icons/apple-splash-1536x2048.png',
-        media: '(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
+        media:
+          '(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
       },
       {
         url: '/icons/apple-splash-1284x2778.png',
-        media: '(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'
+        media:
+          '(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'
       },
       {
         url: '/icons/apple-splash-1170x2532.png',
-        media: '(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'
+        media:
+          '(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'
       },
       {
         url: '/icons/apple-splash-1125x2436.png',
-        media: '(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'
+        media:
+          '(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)'
       },
       {
         url: '/icons/apple-splash-828x1792.png',
-        media: '(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
+        media:
+          '(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
       },
       {
         url: '/icons/apple-splash-750x1334.png',
-        media: '(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
+        media:
+          '(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)'
       }
     ]
   },
@@ -115,13 +129,21 @@ export const metadata: Metadata = {
       { url: '/icons/icon-16x16.png', sizes: '16x16', type: 'image/png' },
       { url: '/icons/icon-32x32.png', sizes: '32x32', type: 'image/png' },
       { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' }
     ],
     apple: [
-      { url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+      {
+        url: '/icons/apple-touch-icon.png',
+        sizes: '180x180',
+        type: 'image/png'
+      }
     ],
     other: [
-      { rel: 'mask-icon', url: '/icons/safari-pinned-tab.svg', color: '#3b82f6' }
+      {
+        rel: 'mask-icon',
+        url: '/icons/safari-pinned-tab.svg',
+        color: '#3b82f6'
+      }
     ]
   },
   other: {

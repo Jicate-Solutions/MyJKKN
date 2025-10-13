@@ -64,7 +64,8 @@ export class FacultyAttendanceService {
 
   /**
    * Get today's periods for a faculty member
-   * This fetches all periods assigned to the faculty for today using the same logic as search
+   * OPTIMIZED: Directly extracts periods from timetable_data instead of calling expensive service methods
+   * Updated: 2025-10-13 - Performance optimization for "My Classes" view
    */
   static async getFacultyTodayPeriods(
     staffId: string,
@@ -75,40 +76,25 @@ export class FacultyAttendanceService {
   }> {
     try {
       const targetDate = date || format(new Date(), 'yyyy-MM-dd');
+      const dayOfWeek = this.getDayOfWeekFromDate(targetDate).toUpperCase();
 
-      console.log('Fetching faculty periods for:', {
+      console.log('[faculty-attendance] Fetching faculty periods (optimized):', {
         staffId,
-        targetDate
+        targetDate,
+        dayOfWeek
       });
 
       // First get the staff member's details
       const { data: staffData, error: staffError } = await this.supabase
         .from('staff')
-        .select(
-          `
-          id,
-          first_name,
-          last_name,
-          email,
-          institution_id,
-          department_id
-        `
-        )
+        .select('id, first_name, last_name, email, institution_id, department_id')
         .eq('id', staffId)
         .single();
 
       if (staffError || !staffData) {
-        console.error('Staff not found:', staffError);
+        console.error('[faculty-attendance] Staff not found:', staffError);
         return { periods: [], searchContext: {} };
       }
-
-      console.log('Staff data found:', {
-        staffId: staffData.id,
-        staffName: `${staffData.first_name} ${staffData.last_name}`,
-        email: staffData.email,
-        institution_id: staffData.institution_id,
-        department_id: staffData.department_id
-      });
 
       // Get current academic year for the institution
       const { data: academicYears, error: yearError } = await this.supabase
@@ -120,110 +106,194 @@ export class FacultyAttendanceService {
         .limit(1);
 
       if (yearError || !academicYears || academicYears.length === 0) {
-        console.error('No active academic year found:', yearError);
+        console.error('[faculty-attendance] No active academic year found:', yearError);
         return { periods: [], searchContext: {} };
       }
 
       const academicYear = academicYears[0];
-      console.log('Using academic year:', academicYear);
 
-      // Use the same logic as getAvailablePeriodsForDate but with staff filtering
-      // Get all timetables for this institution and academic year
+      // OPTIMIZATION: Get timetables with all related data in a single query
       const { data: timetables, error: timetableError } = await this.supabase
         .from('timetables')
-        .select(
-          'id, timetable_format, start_date, end_date, selected_dates, section_id, semester_id, timetable_data, degree_id, program_id, department_id'
-        )
+        .select(`
+          id,
+          timetable_format,
+          start_date,
+          end_date,
+          selected_dates,
+          section_id,
+          semester_id,
+          timetable_data,
+          periods,
+          sections!inner(id, section_name),
+          semesters!inner(id, semester_name),
+          departments!inner(id, department_name),
+          programs!inner(id, program_name),
+          degrees!inner(id, degree_name)
+        `)
         .eq('institution_id', staffData.institution_id)
         .eq('academic_year_id', academicYear.id)
         .eq('is_active', true);
 
-      if (timetableError || !timetables) {
-        console.error('Error fetching timetables:', timetableError);
+      if (timetableError || !timetables || timetables.length === 0) {
+        console.log('[faculty-attendance] No active timetables found');
         return { periods: [], searchContext: {} };
       }
 
-      console.log(
-        `Found ${timetables.length} active timetables for institution ${staffData.institution_id}`
-      );
+      console.log(`[faculty-attendance] Found ${timetables.length} timetables, extracting staff-assigned periods`);
 
-      // Use AttendanceService to get all periods for this date, then filter by staff assignment
-      const allPeriodsPromises = timetables.map(async (timetable) => {
-        try {
-          // Create a filter context for this timetable
-          const filters = {
-            institution_id: staffData.institution_id,
-            academic_year_id: academicYear.id,
-            degree_id: timetable.degree_id,
-            program_id: timetable.program_id,
-            department_id: timetable.department_id,
-            semester: timetable.semester_id,
-            section: timetable.section_id
-          };
+      // OPTIMIZATION: Extract all unique course IDs first, then batch fetch
+      const courseIds = new Set<string>();
+      const facultyPeriods: AttendancePeriodOption[] = [];
 
-          console.log('Getting periods for timetable:', timetable.id, filters);
+      for (const timetable of timetables) {
+        // Check if this date is valid for this timetable
+        const isDateValid = this.isDateInTimetableRange(
+          targetDate,
+          timetable.timetable_format,
+          timetable.start_date,
+          timetable.end_date,
+          timetable.selected_dates
+        );
 
-          // Get periods using the working search logic
-          const periods = await AttendanceService.getAvailablePeriodsForDate(
-            filters,
-            targetDate,
-            {
-              filterByStaffAssignment: true, // Filter by staff assignment
-              isSuperAdmin: false
-            }
-          );
+        if (!isDateValid) continue;
 
-          return periods;
-        } catch (error) {
-          console.error(
-            'Error getting periods for timetable:',
-            timetable.id,
-            error
-          );
-          return [];
+        const timetableData = timetable.timetable_data;
+        const periodsDefinition = timetable.periods;
+
+        if (!timetableData || !timetableData[dayOfWeek]) continue;
+
+        // Extract periods for this day where staff is assigned
+        const dayData = timetableData[dayOfWeek];
+
+        for (const [periodId, slotData] of Object.entries(dayData)) {
+          const slot = slotData as any;
+
+          // Check if staff is assigned to this slot (regular or subdivision)
+          const isAssignedToSlot =
+            slot.primary_staff_id === staffId ||
+            (Array.isArray(slot.staff_ids) && slot.staff_ids.includes(staffId));
+
+          // Check sub_slots for subdivision assignments
+          const isAssignedToSubSlot =
+            slot.sub_slots && Array.isArray(slot.sub_slots) &&
+            slot.sub_slots.some((subSlot: any) =>
+              subSlot.staff_ids && Array.isArray(subSlot.staff_ids) &&
+              subSlot.staff_ids.includes(staffId)
+            );
+
+          if (!isAssignedToSlot && !isAssignedToSubSlot) continue;
+
+          // Find period definition
+          const periodDef = Array.isArray(periodsDefinition)
+            ? periodsDefinition.find((p: any) => p.period_id === periodId)
+            : null;
+
+          if (!periodDef) continue;
+
+          // Collect course IDs for batch fetching
+          if (slot.course_id) courseIds.add(slot.course_id);
+
+          // Handle subdivision slots
+          if (isAssignedToSubSlot && slot.sub_slots) {
+            slot.sub_slots.forEach((subSlot: any, index: number) => {
+              const isStaffInSubSlot =
+                subSlot.staff_ids && Array.isArray(subSlot.staff_ids) &&
+                subSlot.staff_ids.includes(staffId);
+
+              if (!isStaffInSubSlot) return;
+
+              const groupName = subSlot.group_name || `Group ${String.fromCharCode(65 + index)}`;
+              const groupOrder = subSlot.sub_slot_order || index + 1;
+
+              // Collect course ID from sub-slot
+              if (subSlot.course_id) courseIds.add(subSlot.course_id);
+
+              const timetableSlotId = `${slot.slot_id || `${timetable.id}_${dayOfWeek}_${periodId}`}_group_${groupOrder}`;
+
+              facultyPeriods.push({
+                id: timetableSlotId,
+                timetable_slot_id: timetableSlotId,
+                timetable_id: timetable.id,
+                period_name: `${periodDef.period_name} - ${groupName}`,
+                start_time: this.formatTo12Hour(periodDef.start_time || ''),
+                end_time: this.formatTo12Hour(periodDef.end_time || ''),
+                period_type: 'regular',
+                course: subSlot.course_id ? { id: subSlot.course_id } : slot.course_id ? { id: slot.course_id } : undefined,
+                sections: [{ id: timetable.section_id, name: (timetable.sections as any)?.section_name || '' }],
+                degree_name: (timetable.degrees as any)?.degree_name,
+                program_name: (timetable.programs as any)?.program_name,
+                department_name: (timetable.departments as any)?.department_name,
+                semester_name: (timetable.semesters as any)?.semester_name,
+                section_name: `${(timetable.sections as any)?.section_name || ''} - ${groupName}`,
+                is_subdivided: true,
+                subdivision_group: {
+                  group_order: groupOrder,
+                  group_name: groupName,
+                  student_ids: subSlot.student_ids || [],
+                  staff_ids: subSlot.staff_ids || []
+                }
+              } as any);
+            });
+          } else if (isAssignedToSlot) {
+            // Regular slot (not subdivided or staff assigned to main slot)
+            const timetableSlotId = slot.slot_id || `${timetable.id}_${dayOfWeek}_${periodId}`;
+
+            facultyPeriods.push({
+              id: timetableSlotId,
+              timetable_slot_id: timetableSlotId,
+              timetable_id: timetable.id,
+              period_name: periodDef.period_name,
+              start_time: this.formatTo12Hour(periodDef.start_time || ''),
+              end_time: this.formatTo12Hour(periodDef.end_time || ''),
+              period_type: 'regular',
+              course: slot.course_id ? { id: slot.course_id } : undefined,
+              sections: [{ id: timetable.section_id, name: (timetable.sections as any)?.section_name || '' }],
+              degree_name: (timetable.degrees as any)?.degree_name,
+              program_name: (timetable.programs as any)?.program_name,
+              department_name: (timetable.departments as any)?.department_name,
+              semester_name: (timetable.semesters as any)?.semester_name,
+              section_name: (timetable.sections as any)?.section_name || ''
+            } as any);
+          }
         }
-      });
+      }
 
-      const allPeriodsResults = await Promise.all(allPeriodsPromises);
-      const allPeriods = allPeriodsResults.flat();
+      // OPTIMIZATION: Batch fetch all course details in a single query
+      if (courseIds.size > 0) {
+        const { data: courses } = await this.supabase
+          .from('courses')
+          .select('id, course_code, course_name')
+          .in('id', Array.from(courseIds));
 
-      // Deduplicate periods based on unique combination of key fields
-      const periodMap = new Map<string, AttendancePeriodOption>();
+        if (courses) {
+          const courseMap = new Map(courses.map(c => [c.id, c]));
 
-      for (const period of allPeriods) {
-        // Create a unique key based on:
-        // - course ID (if available)
-        // - start time
-        // - end time
-        // - period name
-        // - section name
-        const uniqueKey = `${period.course?.id || 'no-course'}_${
-          period.start_time
-        }_${period.end_time}_${period.period_name}_${
-          period.section_name || 'no-section'
-        }`;
-
-        // Only add if we haven't seen this period before
-        if (!periodMap.has(uniqueKey)) {
-          periodMap.set(uniqueKey, period);
-        } else {
-          console.log('Skipping duplicate period:', {
-            uniqueKey,
-            period_name: period.period_name,
-            course: period.course?.course_name,
-            section: period.section_name
+          // Populate course details
+          facultyPeriods.forEach(period => {
+            if (period.course?.id && courseMap.has(period.course.id)) {
+              const courseDetails = courseMap.get(period.course.id)!;
+              period.course = {
+                id: courseDetails.id,
+                course_code: courseDetails.course_code,
+                course_name: courseDetails.course_name
+              };
+            }
           });
         }
       }
 
-      const facultyPeriods = Array.from(periodMap.values());
+      // Sort by start time
+      facultyPeriods.sort((a, b) => {
+        const timeA = this.parseTime(a.start_time);
+        const timeB = this.parseTime(b.start_time);
+        return timeA - timeB;
+      });
 
-      console.log(
-        `Found ${allPeriods.length} total periods, ${facultyPeriods.length} unique periods for faculty ${staffId}`
-      );
+      console.log(`[faculty-attendance] Found ${facultyPeriods.length} periods for faculty ${staffId} on ${targetDate}`);
 
-      // Create search context from the first period found
-      let searchContext: any = {
+      // Create search context
+      const searchContext: any = {
         institution_id: staffData.institution_id,
         academic_year_id: academicYear.id,
         attendance_date: targetDate
@@ -231,18 +301,7 @@ export class FacultyAttendanceService {
 
       if (facultyPeriods.length > 0) {
         const firstPeriod = facultyPeriods[0];
-        // Try to extract context from the first period
-        // This is a simplified approach - in reality we might need more sophisticated context building
-        searchContext = {
-          ...searchContext,
-          degree_id: firstPeriod.degree_name ? 'extracted_from_period' : '',
-          program_id: firstPeriod.program_name ? 'extracted_from_period' : '',
-          department_id: firstPeriod.department_name
-            ? 'extracted_from_period'
-            : '',
-          semester_id: firstPeriod.semester_name ? 'extracted_from_period' : '',
-          section_id: firstPeriod.sections?.[0]?.id || ''
-        };
+        searchContext.section_id = firstPeriod.sections?.[0]?.id || '';
       }
 
       return {
@@ -250,9 +309,34 @@ export class FacultyAttendanceService {
         searchContext
       };
     } catch (error) {
-      console.error('Error fetching faculty periods:', error);
+      console.error('[faculty-attendance] Error fetching faculty periods:', error);
       return { periods: [], searchContext: {} };
     }
+  }
+
+  /**
+   * Check if a date is within the timetable's valid range
+   */
+  private static isDateInTimetableRange(
+    targetDate: string,
+    format: string,
+    startDate: string | null,
+    endDate: string | null,
+    selectedDates: string[] | null
+  ): boolean {
+    const target = new Date(targetDate + 'T00:00:00');
+
+    if (format === 'date-range' && startDate && endDate) {
+      const start = new Date(startDate + 'T00:00:00');
+      const end = new Date(endDate + 'T00:00:00');
+      return target >= start && target <= end;
+    }
+
+    if (format === 'specific-dates' && selectedDates && Array.isArray(selectedDates)) {
+      return selectedDates.includes(targetDate);
+    }
+
+    return false;
   }
 
   /**

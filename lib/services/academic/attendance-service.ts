@@ -111,15 +111,24 @@ export class AttendanceService {
         return { isAuthorized: true, reason: 'Profile super admin access' };
       }
 
-      // STEP 5: Get the staff record for this user based on email (if exists)
+      // STEP 5: Get the staff record for this user
+      // Updated: 2025-10-13 - Use institution_email instead of email
+      // profile.email matches staff.institution_email (not staff.email which is personal)
       const { data: staffRecord } = await this.supabase
         .from('staff')
         .select('id')
-        .eq('email', profileData.email)
+        .eq('institution_email', profileData.email)
         .eq('institution_id', institutionId)
         .maybeSingle();
 
       const userStaffId = staffRecord?.id;
+
+      console.log('🔍 Staff record lookup:', {
+        markedBy,
+        profileEmail: profileData.email,
+        staffId: userStaffId,
+        found: !!staffRecord
+      });
 
       // STEP 6: Get timetable data to extract staff assignments
       const { data: timetableData, error: timetableError } = await this.supabase
@@ -177,6 +186,27 @@ export class AttendanceService {
             if (periodSlot && periodSlot.primary_profile_id) {
               allAssignedIds.add(periodSlot.primary_profile_id);
             }
+
+            // Updated: 2025-10-13 - Check sub_slots for subdivision group staff assignments
+            if (
+              periodSlot &&
+              periodSlot.sub_slots &&
+              Array.isArray(periodSlot.sub_slots)
+            ) {
+              periodSlot.sub_slots.forEach((subSlot: any) => {
+                // Add staff from sub-slot staff_ids
+                if (subSlot.staff_ids && Array.isArray(subSlot.staff_ids)) {
+                  subSlot.staff_ids.forEach((id: string) => {
+                    allAssignedIds.add(id);
+                  });
+                }
+
+                // Add primary staff from sub-slot
+                if (subSlot.primary_staff_id) {
+                  allAssignedIds.add(subSlot.primary_staff_id);
+                }
+              });
+            }
           });
         }
       });
@@ -186,6 +216,15 @@ export class AttendanceService {
       const isAuthorizedByStaff = userStaffId
         ? allAssignedIds.has(userStaffId)
         : false;
+
+      console.log('🔐 Authorization check:', {
+        markedBy,
+        userStaffId,
+        allAssignedIds: Array.from(allAssignedIds),
+        isAuthorizedByProfile,
+        isAuthorizedByStaff,
+        totalAssignedIds: allAssignedIds.size
+      });
 
       if (isAuthorizedByProfile || isAuthorizedByStaff) {
         const authType = isAuthorizedByProfile ? 'profile' : 'staff';
@@ -1689,8 +1728,14 @@ export class AttendanceService {
         query = query.eq('program_id', filters.program_id);
       }
 
-      if (filters.department_id) {
+      // Updated: 2025-10-13 - Skip department_id filter for faculty users
+      // Faculty can teach students from other departments (e.g., subdivision groups, electives)
+      // Only apply department filter for super admin and privileged roles
+      if (filters.department_id && (isSuperAdmin || isPrivilegedRole)) {
         query = query.eq('department_id', filters.department_id);
+        console.log('🔐 Applied department_id filter (admin/privileged role):', filters.department_id);
+      } else if (filters.department_id && profileData.role === 'faculty') {
+        console.log('⚠️ Skipping department_id filter for faculty user - allowing cross-department teaching');
       }
 
       if (filters.semester_id) {
@@ -2502,13 +2547,18 @@ export class AttendanceService {
           // Fetch related data for slots
           if (slots.length > 0) {
             // Get unique IDs for fetching related data
+            // Updated: 2025-10-13 - Include course_ids from sub_slots for subdivision support
             const uniqueCourseIds = [
-              ...new Set(slots.map((s) => s.course_id).filter(Boolean))
+              ...new Set([
+                ...slots.map((s) => s.course_id).filter(Boolean),
+                ...slots.flatMap((s) => (s.sub_slots || []).map((ss: any) => ss.course_id)).filter(Boolean)
+              ])
             ];
             const uniqueStaffIds = [
-              ...new Set(
-                slots.flatMap((s) => s.staff_ids || []).filter(Boolean)
-              )
+              ...new Set([
+                ...slots.flatMap((s) => s.staff_ids || []).filter(Boolean),
+                ...slots.flatMap((s) => (s.sub_slots || []).flatMap((ss: any) => ss.staff_ids || [])).filter(Boolean)
+              ])
             ];
             const uniqueSectionIds = [
               ...new Set(
@@ -2572,6 +2622,18 @@ export class AttendanceService {
                 sectionName = firstSection?.section_name || '';
               }
 
+              // Updated: 2025-10-13 - Enhance sub_slots with course data
+              const enhancedSubSlots = (slot.sub_slots || []).map((subSlot: any) => ({
+                ...subSlot,
+                // Add course details from coursesMap if course_id exists
+                course_name: subSlot.course_id ? coursesMap.get(subSlot.course_id)?.course_name || subSlot.course_name : subSlot.course_name,
+                course_code: subSlot.course_id ? coursesMap.get(subSlot.course_id)?.course_code || subSlot.course_code : subSlot.course_code,
+                // Add staff members from staffMap
+                staff_members: (subSlot.staff_ids || [])
+                  .map((id: string) => staffMap.get(id))
+                  .filter(Boolean)
+              }));
+
               return {
                 ...slot,
                 section_name: sectionName, // Add section_name directly to slot
@@ -2581,7 +2643,8 @@ export class AttendanceService {
                   .filter(Boolean),
                 sections: (slot.section_ids || [])
                   .map((id: string) => sectionsMap.get(id))
-                  .filter(Boolean)
+                  .filter(Boolean),
+                sub_slots: enhancedSubSlots
               };
             });
           }
@@ -2706,10 +2769,14 @@ export class AttendanceService {
             });
           }
 
-          // Add the timetable_id to each slot for reference
+          // Add the timetable_id and staff filtering context to each slot for reference
+          // Updated: 2025-10-13 - Include staff filtering info for subdivision expansion
           const slotsWithTimetableId = filteredSlots.map((slot: any) => ({
             ...slot,
-            timetable_id: timetable.id
+            timetable_id: timetable.id,
+            _staff_filter_id: staffIdForFiltering, // Track staff ID for subdivision filtering
+            _is_hod_user: isHODUser, // Track if user is HOD
+            _is_super_admin: options.isSuperAdmin // Track if user is super admin
           }));
           allSlots.push(...slotsWithTimetableId);
         } else {
@@ -2820,14 +2887,118 @@ export class AttendanceService {
                 staff_members: ss.staff_members || [],
                 sections: ss.sections || []
               })) || [],
-            sections: slot.sections || []
+            sections: slot.sections || [],
+            // Updated: 2025-10-13 - Pass through staff filtering metadata for subdivision expansion
+            _staff_filter_id: slot._staff_filter_id,
+            _is_hod_user: slot._is_hod_user,
+            _is_super_admin: slot._is_super_admin
           };
         });
+
+      // Updated: 2025-10-13 - Expand subdivision slots into separate period entries
+      // For subdivided slots (practical/lab groups), create one period entry per group
+      const expandedPeriods = availablePeriods.flatMap((period: any) => {
+        // Check if this is a subdivided slot with sub_slots
+        if (period.sub_slots && Array.isArray(period.sub_slots) && period.sub_slots.length > 0) {
+          console.log(`[attendance-service] Expanding subdivided slot into ${period.sub_slots.length} separate period entries`);
+
+          // Filter sub-slots by staff assignment if needed
+          let subSlotsToExpand = period.sub_slots;
+
+          if (period._staff_filter_id && !period._is_hod_user && !period._is_super_admin) {
+            // Filter to only sub-slots where this staff member is assigned
+            subSlotsToExpand = period.sub_slots.filter((subSlot: any) => {
+              const isAssignedToSubSlot = subSlot.staff_ids &&
+                                         Array.isArray(subSlot.staff_ids) &&
+                                         subSlot.staff_ids.includes(period._staff_filter_id);
+
+              if (isAssignedToSubSlot) {
+                console.log(`[attendance-service] Staff ${period._staff_filter_id} is assigned to ${subSlot.group_name}`);
+              } else {
+                console.log(`[attendance-service] Staff ${period._staff_filter_id} is NOT assigned to ${subSlot.group_name} - filtering out`);
+              }
+
+              return isAssignedToSubSlot;
+            });
+
+            console.log(`[attendance-service] Staff filtering: ${subSlotsToExpand.length} of ${period.sub_slots.length} groups visible to this staff member`);
+          } else {
+            console.log(`[attendance-service] No staff filtering applied (super admin or HOD user)`);
+          }
+
+          // If no sub-slots remain after filtering, return empty array (hide this period)
+          if (subSlotsToExpand.length === 0) {
+            console.log(`[attendance-service] No sub-slots visible to this user - hiding period`);
+            return [];
+          }
+
+          // Create a separate period entry for each sub-slot/group
+          return subSlotsToExpand.map((subSlot: any, index: number) => {
+            const groupName = subSlot.group_name || `Group ${String.fromCharCode(65 + index)}`;
+            const groupOrder = subSlot.sub_slot_order || index + 1;
+
+            const groupPeriod = {
+              ...period,
+              // Modify timetable_slot_id to be unique for each group
+              timetable_slot_id: `${period.timetable_slot_id}_group_${groupOrder}`,
+              // Updated: 2025-10-13 - Add group name to period_name for display
+              period_name: `${period.period_name} - ${groupName}`,
+              // Override course if sub-slot has its own course (Updated: 2025-10-13)
+              course: subSlot.course_id
+                ? {
+                    id: subSlot.course_id,
+                    course_name: subSlot.course_name || period.course?.course_name || '',
+                    course_code: subSlot.course_code || period.course?.course_code || ''
+                  }
+                : period.course,
+              // Updated: 2025-10-13 - Override section_name to include group info for better identification
+              section_name: `${period.section_name} - ${groupName}`,
+              // Use sub-slot's staff members instead of main slot's staff
+              staff_members: subSlot.staff_members || [],
+              // Add subdivision metadata for identification
+              is_subdivided: true,
+              subdivision_type: subSlot.subdivision_type || 'practical',
+              subdivision_group: {
+                group_order: groupOrder,
+                group_name: groupName,
+                lab_room: subSlot.lab_room,
+                max_capacity: subSlot.max_capacity,
+                student_ids: subSlot.student_ids || [],
+                staff_ids: subSlot.staff_ids || []
+              },
+              // Keep original sub_slots for reference but mark as expanded
+              sub_slots: [subSlot], // Only include this specific sub-slot
+              _expanded_from_slot_id: period.timetable_slot_id // Track original slot
+            };
+
+            console.log(`[attendance-service] Created group period:`, {
+              group_name: groupPeriod.subdivision_group.group_name,
+              slot_id: groupPeriod.timetable_slot_id,
+              student_count: groupPeriod.subdivision_group.student_ids?.length || 0,
+              staff_ids_in_group: groupPeriod.subdivision_group.staff_ids,
+              staff_members_count: groupPeriod.staff_members?.length || 0,
+              staff_ids_count: groupPeriod.subdivision_group.staff_ids?.length || 0
+            });
+
+            return groupPeriod;
+          });
+        }
+
+        // Not a subdivided slot, return as-is
+        return [period];
+      });
+
+      console.log(`[attendance-service] Period expansion complete:`, {
+        original_count: availablePeriods.length,
+        expanded_count: expandedPeriods.length,
+        subdivided_slots_expanded: expandedPeriods.length - availablePeriods.length
+      });
 
       // Updated: 2025-10-09 - Remove duplicates based on timetable_slot_id (not period id)
       // For batch timetables, the same period can have multiple slots on different dates
       // We want to keep all unique slots, not de-duplicate by period
-      const uniquePeriods = availablePeriods.filter(
+      // Updated: 2025-10-13 - Use expandedPeriods instead of availablePeriods
+      const uniquePeriods = expandedPeriods.filter(
         (period, index, self) =>
           index === self.findIndex((p) => p.timetable_slot_id === period.timetable_slot_id)
       );
@@ -2838,8 +3009,14 @@ export class AttendanceService {
         return 0;
       });
 
+      // Updated: 2025-10-13 - Clean up internal metadata fields before returning
+      const cleanedPeriods = sortedPeriods.map((period: any) => {
+        const { _staff_filter_id, _is_hod_user, _is_super_admin, ...cleanPeriod } = period;
+        return cleanPeriod;
+      });
+
       // Final validation to ensure we always return an array
-      return Array.isArray(sortedPeriods) ? sortedPeriods : [];
+      return Array.isArray(cleanedPeriods) ? cleanedPeriods : [];
     } catch (error) {
       console.error('Error in getAvailablePeriodsForDate:', error);
       return [];
