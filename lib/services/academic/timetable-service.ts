@@ -887,6 +887,10 @@ Please select a different date period that doesn't overlap.`
         query = query.eq('is_template', filters.is_template);
       }
 
+      if (filters.timetable_type !== undefined) {
+        query = query.eq('timetable_type', filters.timetable_type);
+      }
+
       // Apply pagination
       const page = filters.page || 1;
       const limit = filters.limit || 10;
@@ -982,6 +986,9 @@ Please select a different date period that doesn't overlap.`
           }
           if (filters.is_template !== undefined) {
             retryQuery = retryQuery.eq('is_template', filters.is_template);
+          }
+          if (filters.timetable_type !== undefined) {
+            retryQuery = retryQuery.eq('timetable_type', filters.timetable_type);
           }
 
           retryQuery = retryQuery.range(start, start + limit - 1);

@@ -92,29 +92,23 @@ export const columns: ColumnDef<Timetable>[] = [
     }
   },
   {
-    accessorKey: 'is_template',
+    accessorKey: 'timetable_type',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Type' />
+      <DataTableColumnHeader column={column} title='Timetable Type' />
     ),
     cell: ({ row }) => {
-      const isTemplate = row.getValue('is_template') as boolean;
-      const timetable = row.original;
+      const timetableType = row.getValue('timetable_type') as string;
       return (
-        <div className='flex flex-col gap-1'>
-          <Badge variant={isTemplate ? 'secondary' : 'default'}>
-            {isTemplate ? 'Template' : 'Regular'}
-          </Badge>
-          {isTemplate && timetable.template_name && (
-            <span className='text-xs text-muted-foreground'>
-              {timetable.template_name}
-            </span>
-          )}
-          {isTemplate && timetable.usage_count && timetable.usage_count > 0 && (
-            <span className='text-xs text-green-600'>
-              Used {timetable.usage_count} times
-            </span>
-          )}
-        </div>
+        <Badge
+          variant={timetableType === 'semester' ? 'default' : 'secondary'}
+          className={
+            timetableType === 'semester'
+              ? 'bg-blue-50 text-blue-700 border-blue-200'
+              : 'bg-purple-50 text-purple-700 border-purple-200'
+          }
+        >
+          {timetableType === 'semester' ? 'Semester' : 'Section'}
+        </Badge>
       );
     }
   },

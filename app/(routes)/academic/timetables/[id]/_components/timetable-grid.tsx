@@ -140,7 +140,8 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
     const renderSubdividedSlot = (slot: any) => {
       const groupCount = slot.sub_slots?.length || 0;
       const subdivisionTypeLabel = slot.subdivision_type
-        ? slot.subdivision_type.charAt(0).toUpperCase() + slot.subdivision_type.slice(1)
+        ? slot.subdivision_type.charAt(0).toUpperCase() +
+          slot.subdivision_type.slice(1)
         : 'Practical';
 
       // Extract all unique courses and staff from sub_slots
@@ -167,7 +168,9 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
         <div className='text-purple-700 min-h-[60px] flex flex-col text-center'>
           <div className='flex items-center justify-center gap-1 mb-1'>
             <Users className='h-3 w-3' />
-            <div className='font-semibold text-xs leading-tight'>{subdivisionTypeLabel}</div>
+            <div className='font-semibold text-xs leading-tight'>
+              {subdivisionTypeLabel}
+            </div>
           </div>
           <div className='text-xs mb-1'>
             <Badge
@@ -224,11 +227,14 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
     const daysToShow = selectedDays.length > 0 ? selectedDays : [];
 
     return (
-      <div ref={ref} className='border rounded-lg shadow-sm inline-block min-w-full'>
+      <div
+        ref={ref}
+        className='border rounded-lg shadow-sm inline-block min-w-full'
+      >
         <table className='w-max min-w-full border-collapse'>
           <thead className='bg-gradient-to-r from-blue-600 to-blue-700 text-white'>
             <tr>
-              <th className='border border-blue-500 p-2 text-left font-semibold text-xs w-24 sticky left-0 bg-blue-600 z-20'>
+              <th className='border border-blue-500 p-2 text-left font-semibold text-xs w-24 sticky left-0 bg-blue-600 z-10'>
                 <div className='flex items-center gap-1'>
                   <Calendar className='h-3 w-3' />
                   <span>Period</span>
@@ -361,37 +367,47 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                             className={`
                               p-1.5 border-2 rounded cursor-pointer transition-all duration-200
                               hover:shadow-md min-h-[60px] flex flex-col justify-center relative group
-                              ${lockedPeriods.includes(period.id) ? 'border-orange-300 bg-orange-50' : ''} ${
-                                slot.is_break_slot
-                                  ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
-                                  : slot.is_subdivided
-                                  ? 'bg-purple-50 border-purple-300 hover:bg-purple-100'
-                                  : slot.is_combined
-                                  ? 'bg-purple-50 border-purple-200 hover:bg-purple-100'
-                                  : 'bg-blue-50 border-blue-200 hover:bg-blue-100'
-                              }
+                              ${
+                                lockedPeriods.includes(period.id)
+                                  ? 'border-orange-300 bg-orange-50'
+                                  : ''
+                              } ${
+                              slot.is_break_slot
+                                ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+                                : slot.is_subdivided
+                                ? 'bg-purple-50 border-purple-300 hover:bg-purple-100'
+                                : slot.is_combined
+                                ? 'bg-purple-50 border-purple-200 hover:bg-purple-100'
+                                : 'bg-blue-50 border-blue-200 hover:bg-blue-100'
+                            }
                             `}
                             onClick={() => onSlotClick(day, period, slot)}
                           >
                             {/* Lock indicator for periods with attendance */}
-                            {lockedPeriods.includes(period.id) && !isSuperAdmin && (
-                              <div className='absolute top-1 left-1 p-1 rounded-full bg-orange-500 text-white z-10' title='Attendance marked - Cannot modify'>
-                                <Lock className='h-3 w-3' />
-                              </div>
-                            )}
+                            {lockedPeriods.includes(period.id) &&
+                              !isSuperAdmin && (
+                                <div
+                                  className='absolute top-1 left-1 p-1 rounded-full bg-orange-500 text-white z-10'
+                                  title='Attendance marked - Cannot modify'
+                                >
+                                  <Lock className='h-3 w-3' />
+                                </div>
+                              )}
                             {/* Delete button - show for super admin even if locked, hide for others if locked */}
-                            {onSlotDelete && (isSuperAdmin || !lockedPeriods.includes(period.id)) && (
-                              <button
-                                className='absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-500 hover:bg-red-600 text-white z-10'
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onSlotDelete(day, period, slot);
-                                }}
-                                title='Delete slot'
-                              >
-                                <X className='h-3 w-3' />
-                              </button>
-                            )}
+                            {onSlotDelete &&
+                              (isSuperAdmin ||
+                                !lockedPeriods.includes(period.id)) && (
+                                <button
+                                  className='absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-red-500 hover:bg-red-600 text-white z-10'
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSlotDelete(day, period, slot);
+                                  }}
+                                  title='Delete slot'
+                                >
+                                  <X className='h-3 w-3' />
+                                </button>
+                              )}
                             {slot.is_break_slot
                               ? renderBreakSlot(slot)
                               : slot.is_subdivided
@@ -400,11 +416,14 @@ export const TimetableGrid = forwardRef<HTMLDivElement, TimetableGridProps>(
                               ? renderCombinedSlot(slot)
                               : renderRegularSlot(slot)}
                           </div>
-                        ) : lockedPeriods.includes(period.id) && !isSuperAdmin ? (
+                        ) : lockedPeriods.includes(period.id) &&
+                          !isSuperAdmin ? (
                           // Show locked state for periods with attendance (except for super admin)
                           <div className='w-full h-14 border-2 border-dashed border-orange-300 bg-orange-50 rounded flex flex-col items-center justify-center cursor-not-allowed'>
                             <Lock className='h-3 w-3 text-orange-500' />
-                            <span className='text-xs text-orange-600'>Locked</span>
+                            <span className='text-xs text-orange-600'>
+                              Locked
+                            </span>
                           </div>
                         ) : (
                           <Button

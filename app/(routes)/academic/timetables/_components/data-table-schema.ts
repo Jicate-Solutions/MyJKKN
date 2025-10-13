@@ -20,6 +20,7 @@ export const timetablesSearchParamsSchema = z.object({
   section: z.string().optional(),
   is_active: z.enum(['true', 'false']).optional(),
   is_template: z.enum(['true', 'false']).optional(),
+  timetable_type: z.enum(['section', 'semester']).optional(), // Updated: 2025-10-13
 
   // Date range filter is a stringified JSON in the URL
   dateRange: z

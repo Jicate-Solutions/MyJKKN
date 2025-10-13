@@ -131,7 +131,8 @@ export function TimetablesDataTable({ search }: TimetablesDataTableProps) {
             ? true
             : search.is_template === 'false'
             ? false
-            : undefined
+            : undefined,
+        timetable_type: search.timetable_type || undefined
       };
 
       const { data, metadata } = await TimetableService.getTimetables(filters);

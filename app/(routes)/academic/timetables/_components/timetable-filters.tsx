@@ -245,6 +245,7 @@ export function TimetableFilters({
     searchParams.academic_year_id ||
     searchParams.is_active ||
     searchParams.is_template ||
+    searchParams.timetable_type ||
     searchParams.section ||
     searchParams.search
   );
@@ -497,6 +498,23 @@ export function TimetableFilters({
             <SelectItem value='all'>All Types</SelectItem>
             <SelectItem value='false'>Regular</SelectItem>
             <SelectItem value='true'>Template</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Timetable Type Filter - Updated: 2025-10-13 */}
+        <Select
+          value={searchParams.timetable_type || 'all'}
+          onValueChange={(value) => {
+            onFilterChange('timetable_type', value === 'all' ? undefined : value);
+          }}
+        >
+          <SelectTrigger className='w-full sm:w-[160px]'>
+            <SelectValue placeholder='Timetable type' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Timetable Types</SelectItem>
+            <SelectItem value='section'>Section</SelectItem>
+            <SelectItem value='semester'>Semester</SelectItem>
           </SelectContent>
         </Select>
       </div>
