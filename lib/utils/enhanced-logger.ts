@@ -17,7 +17,7 @@ export interface LogEntry {
   id: string;
   type: LogType;
   message: string;
-  module: string;
+  moduleName: string;
   component?: string;
   timestamp: string;
   count: number;
@@ -35,7 +35,7 @@ export interface LogSummary {
   infoCount: number;
   logCount: number;
   debugCount: number;
-  topModules: { module: string; count: number }[];
+  topModules: { moduleName: string; count: number }[];
   criticalErrors: LogEntry[];
 }
 
@@ -64,11 +64,11 @@ export class LogManager {
   private generateHash(
     type: LogType,
     message: string,
-    module: string,
+    moduleName: string,
     component?: string
   ): string {
     const componentPart = component ? `:${component}` : '';
-    return `${type}:${module}${componentPart}:${message.substring(0, 200)}`;
+    return `${type}:${moduleName}${componentPart}:${message.substring(0, 200)}`;
   }
 
   /**
@@ -152,11 +152,11 @@ export class LogManager {
   addLog(type: LogType, args: any[]): void {
     try {
       const message = this.serializeMessage(args);
-      const module = this.extractModule();
+      const moduleName = this.extractModule();
       const stackTrace = this.getTruncatedStack();
       const component = stackTrace ? this.extractComponentName(stackTrace) : undefined;
 
-      const hash = this.generateHash(type, message, module, component);
+      const hash = this.generateHash(type, message, moduleName, component);
 
       const now = new Date().toISOString();
 
@@ -180,7 +180,7 @@ export class LogManager {
           id: hash,
           type,
           message,
-          module,
+          moduleName,
           component,
           timestamp: now,
           count: 1,
@@ -213,15 +213,15 @@ export class LogManager {
     const grouped: Record<string, LogEntry[]> = {};
 
     for (const log of this.logs.values()) {
-      if (!grouped[log.module]) {
-        grouped[log.module] = [];
+      if (!grouped[log.moduleName]) {
+        grouped[log.moduleName] = [];
       }
-      grouped[log.module].push(log);
+      grouped[log.moduleName].push(log);
     }
 
     // Sort each module's logs by count (descending)
-    for (const module in grouped) {
-      grouped[module].sort((a, b) => b.count - a.count);
+    for (const moduleKey in grouped) {
+      grouped[moduleKey].sort((a, b) => b.count - a.count);
     }
 
     return grouped;
@@ -269,12 +269,12 @@ export class LogManager {
     // Calculate top modules
     const moduleCounts = new Map<string, number>();
     for (const log of logs) {
-      const current = moduleCounts.get(log.module) || 0;
-      moduleCounts.set(log.module, current + log.count);
+      const current = moduleCounts.get(log.moduleName) || 0;
+      moduleCounts.set(log.moduleName, current + log.count);
     }
 
     const topModules = Array.from(moduleCounts.entries())
-      .map(([module, count]) => ({ module, count }))
+      .map(([moduleKey, count]) => ({ moduleName: moduleKey, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
@@ -346,9 +346,9 @@ export const logger = {
   /**
    * Development-only log (will not appear in production)
    */
-  dev(module: string, message: string, data?: any): void {
+  dev(moduleName: string, message: string, data?: any): void {
     if (process.env.NODE_ENV === 'development') {
-      const prefix = `[${module}]`;
+      const prefix = `[${moduleName}]`;
       if (data !== undefined) {
         console.log(prefix, message, data);
       } else {
@@ -360,8 +360,8 @@ export const logger = {
   /**
    * Production log (appears in both dev and production)
    */
-  log(module: string, message: string, data?: any): void {
-    const prefix = `[${module}]`;
+  log(moduleName: string, message: string, data?: any): void {
+    const prefix = `[${moduleName}]`;
     if (data !== undefined) {
       console.log(prefix, message, data);
     } else {
@@ -372,8 +372,8 @@ export const logger = {
   /**
    * Info log
    */
-  info(module: string, message: string, data?: any): void {
-    const prefix = `[${module}]`;
+  info(moduleName: string, message: string, data?: any): void {
+    const prefix = `[${moduleName}]`;
     if (data !== undefined) {
       console.info(prefix, message, data);
     } else {
@@ -384,8 +384,8 @@ export const logger = {
   /**
    * Warning log
    */
-  warn(module: string, message: string, data?: any): void {
-    const prefix = `[${module}]`;
+  warn(moduleName: string, message: string, data?: any): void {
+    const prefix = `[${moduleName}]`;
     if (data !== undefined) {
       console.warn(prefix, message, data);
     } else {
@@ -396,8 +396,8 @@ export const logger = {
   /**
    * Error log
    */
-  error(module: string, message: string, error?: any): void {
-    const prefix = `[${module}]`;
+  error(moduleName: string, message: string, error?: any): void {
+    const prefix = `[${moduleName}]`;
     if (error !== undefined) {
       console.error(prefix, message, error);
     } else {
@@ -408,9 +408,9 @@ export const logger = {
   /**
    * Debug log (development only)
    */
-  debug(module: string, message: string, data?: any): void {
+  debug(moduleName: string, message: string, data?: any): void {
     if (process.env.NODE_ENV === 'development') {
-      const prefix = `[${module}]`;
+      const prefix = `[${moduleName}]`;
       if (data !== undefined) {
         console.debug(prefix, message, data);
       } else {

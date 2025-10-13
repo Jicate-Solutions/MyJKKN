@@ -80,7 +80,20 @@ export function SlotDialog({
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
 
+  // NEW: Staff state for each sub-slot in combined classes (Updated: 2025-10-13)
+  const [subSlotStaff, setSubSlotStaff] = useState<{ [key: number]: any[] }>({});
+  const [loadingSubSlotStaff, setLoadingSubSlotStaff] = useState<{ [key: number]: boolean }>({});
+
   const isBatchMode = timetable?.timetable_format === 'batch';
+
+  // Helper function to update a specific sub-slot
+  const updateSubSlot = (index: number, updates: any) => {
+    setSubSlots((prevSubSlots) => {
+      const newSubSlots = [...prevSubSlots];
+      newSubSlots[index] = { ...newSubSlots[index], ...updates };
+      return newSubSlots;
+    });
+  };
 
   // Populate form when existing slot is provided
   useEffect(() => {
@@ -127,8 +140,8 @@ export function SlotDialog({
         console.log('[academic/timetables] Updated sub-slots for dialog:', updatedSubSlots);
 
         setSubSlots(updatedSubSlots);
-      } else if (existingSlot.is_combined && existingSlot.sub_slots) {
-        // Handle combined slot with sub-slots
+      } else if (existingSlot.is_combined && existingSlot.sub_slots && timetable?.timetable_type === 'semester') {
+        // Handle combined slot with sub-slots - ONLY for semester-level timetables (Updated: 2025-10-13)
         setSlotType('regular');
         setIsBreakSlot(false);
         setBreakDescription('');
@@ -361,6 +374,44 @@ export function SlotDialog({
     [timetable]
   );
 
+  // NEW: Fetch staff for a specific sub-slot's course (Updated: 2025-10-13)
+  const fetchSubSlotStaff = useCallback(
+    async (subSlotIndex: number, courseId: string) => {
+      try {
+        setLoadingSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: true }));
+
+        const filters = {
+          is_active: true,
+          ...(timetable?.institution_id && {
+            institution_id: timetable.institution_id
+          }),
+          ...(timetable?.semester_id &&
+            typeof timetable.semester_id === 'object' &&
+            'id' in timetable.semester_id && {
+              semester_id: (timetable.semester_id as { id: string }).id
+            }),
+          ...(timetable?.department_id && {
+            department_id: timetable.department_id
+          }),
+          ...(timetable?.program_id && { program_id: timetable.program_id })
+        };
+
+        const assignedStaff = await StaffPlanService.getStaffAssignedToCourse(
+          courseId,
+          filters
+        );
+
+        setSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: assignedStaff }));
+      } catch (error) {
+        console.error(`Error fetching staff for sub-slot ${subSlotIndex}:`, error);
+        setSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: [] }));
+      } finally {
+        setLoadingSubSlotStaff((prev) => ({ ...prev, [subSlotIndex]: false }));
+      }
+    },
+    [timetable]
+  );
+
   // Fetch staff assigned to the selected course
   useEffect(() => {
     if (selectedCourse && !isBreakSlot && isOpen) {
@@ -370,6 +421,20 @@ export function SlotDialog({
       setCourseStaffError(null);
     }
   }, [selectedCourse, isBreakSlot, isOpen, fetchCourseAssignedStaff]);
+
+  // NEW: Fetch staff for each sub-slot when course changes (Updated: 2025-10-13)
+  useEffect(() => {
+    if (isCombinedClass && isOpen) {
+      subSlots.forEach((subSlot, index) => {
+        if (subSlot.course_id && !subSlot.is_break_slot) {
+          fetchSubSlotStaff(index, subSlot.course_id);
+        } else {
+          // Clear staff for break slots or slots without course
+          setSubSlotStaff((prev) => ({ ...prev, [index]: [] }));
+        }
+      });
+    }
+  }, [isCombinedClass, isOpen, subSlots, fetchSubSlotStaff]);
 
   // Get the staff list to display (only course-assigned staff from staff planning)
   const getDisplayStaff = () => {
@@ -495,26 +560,29 @@ export function SlotDialog({
 
             {!isBreakSlot && (
               <div className='space-y-3'>
-                <div className='flex items-center space-x-2'>
-                  <Checkbox
-                    id='combinedClass'
-                    checked={isCombinedClass}
-                    onCheckedChange={(checked) => {
-                      if (!readOnly) {
-                        setIsCombinedClass(checked === true);
-                        // Disable subdivision when combined class is enabled
-                        if (checked) {
-                          setIsSubdivided(false);
+                {/* Combined Class - Only for semester-level timetables (Updated: 2025-10-13) */}
+                {timetable?.timetable_type === 'semester' && (
+                  <div className='flex items-center space-x-2'>
+                    <Checkbox
+                      id='combinedClass'
+                      checked={isCombinedClass}
+                      onCheckedChange={(checked) => {
+                        if (!readOnly) {
+                          setIsCombinedClass(checked === true);
+                          // Disable subdivision when combined class is enabled
+                          if (checked) {
+                            setIsSubdivided(false);
+                          }
                         }
-                      }
-                    }}
-                    disabled={readOnly}
-                  />
-                  <Label htmlFor='combinedClass'>Combined Class</Label>
-                  <Badge variant='secondary' className='text-xs ml-2'>
-                    Split period into 2 sub-slots
-                  </Badge>
-                </div>
+                      }}
+                      disabled={readOnly}
+                    />
+                    <Label htmlFor='combinedClass'>Combined Class</Label>
+                    <Badge variant='secondary' className='text-xs ml-2'>
+                      Split period into 2 sub-slots
+                    </Badge>
+                  </div>
+                )}
 
                 {/* NEW: Section Subdivision checkbox (Updated: 2025-10-11) */}
                 {timetable?.timetable_type === 'section' && (
@@ -963,8 +1031,8 @@ export function SlotDialog({
               </div>
             )}
 
-            {/* Combined Class Configuration */}
-            {!isBreakSlot && isCombinedClass && (
+            {/* Combined Class Configuration - Only for semester-level timetables (Updated: 2025-10-13) */}
+            {!isBreakSlot && isCombinedClass && timetable?.timetable_type === 'semester' && (
               <div className='space-y-4'>
                 <h4 className='font-medium'>Combined Class Configuration</h4>
 
@@ -977,9 +1045,9 @@ export function SlotDialog({
                           id={`subSlotBreak-${index}`}
                           checked={subSlot.is_break_slot}
                           onCheckedChange={(checked) => {
-                            // updateSubSlot(index, {
-                            //   is_break_slot: checked === true
-                            // });
+                            updateSubSlot(index, {
+                              is_break_slot: checked === true
+                            });
                           }}
                         />
                         <Label
@@ -997,9 +1065,9 @@ export function SlotDialog({
                         <Input
                           value={subSlot.break_description || ''}
                           onChange={(e) => {
-                            // updateSubSlot(index, {
-                            //   break_description: e.target.value
-                            // })
+                            updateSubSlot(index, {
+                              break_description: e.target.value
+                            });
                           }}
                           placeholder='e.g., Short Break'
                         />
@@ -1027,7 +1095,7 @@ export function SlotDialog({
                           <Select
                             value={subSlot.course_id || ''}
                             onValueChange={(value) => {
-                              // updateSubSlot(index, { course_id: value })
+                              updateSubSlot(index, { course_id: value });
                             }}
                           >
                             <SelectTrigger
@@ -1063,8 +1131,13 @@ export function SlotDialog({
                               Staff <span className='text-red-500'>*</span>
                             </Label>
                             <Badge variant='secondary' className='text-xs'>
-                              {displayStaff?.length || 0} available
+                              {subSlotStaff[index]?.length || 0} available
                             </Badge>
+                            {loadingSubSlotStaff[index] && (
+                              <Badge variant='outline' className='text-xs'>
+                                Loading...
+                              </Badge>
+                            )}
                             <Badge
                               variant='default'
                               className='text-xs bg-green-100 text-green-800 border-green-300'
@@ -1083,7 +1156,7 @@ export function SlotDialog({
                                 : ''
                             }`}
                           >
-                            {displayStaff?.map((staffMember: any) => (
+                            {(subSlotStaff[index] || [])?.map((staffMember: any) => (
                               <div
                                 key={staffMember.id}
                                 className='flex items-center space-x-2 py-1'
@@ -1096,21 +1169,22 @@ export function SlotDialog({
                                     ) || false
                                   }
                                   onCheckedChange={(checked) => {
-                                    // const currentStaff =
-                                    //   subSlot.staff_ids || [];
-                                    // if (checked) {
-                                    //   updateSubSlotStaff(index, [
-                                    //     ...currentStaff,
-                                    //     staffMember.id
-                                    //   ]);
-                                    // } else {
-                                    //   updateSubSlotStaff(
-                                    //     index,
-                                    //     currentStaff.filter(
-                                    //       (id: string) => id !== staffMember.id
-                                    //     )
-                                    //   );
-                                    // }
+                                    const currentStaff =
+                                      subSlot.staff_ids || [];
+                                    if (checked) {
+                                      updateSubSlot(index, {
+                                        staff_ids: [
+                                          ...currentStaff,
+                                          staffMember.id
+                                        ]
+                                      });
+                                    } else {
+                                      updateSubSlot(index, {
+                                        staff_ids: currentStaff.filter(
+                                          (id: string) => id !== staffMember.id
+                                        )
+                                      });
+                                    }
                                   }}
                                 />
                                 <Label
@@ -1129,14 +1203,13 @@ export function SlotDialog({
                               </div>
                             ))}
 
-                            {displayStaff?.length === 0 && (
+                            {(!subSlotStaff[index] || subSlotStaff[index]?.length === 0) && !loadingSubSlotStaff[index] && (
                               <div className='text-center py-2 text-gray-500 text-xs'>
                                 <div className='mb-1'>
-                                  No staff assigned to this course
+                                  {subSlot.course_id ? 'No staff assigned to this course' : 'Select a course first'}
                                 </div>
                                 <div className='text-xs text-gray-400'>
-                                  Please assign staff in Staff Planning module
-                                  first
+                                  {subSlot.course_id ? 'Please assign staff in Staff Planning module first' : 'Staff will appear after selecting a course'}
                                 </div>
                               </div>
                             )}
@@ -1188,21 +1261,22 @@ export function SlotDialog({
                                       ) || false
                                     }
                                     onCheckedChange={(checked) => {
-                                      // const currentSections =
-                                      //   subSlot.section_ids || [];
-                                      // if (checked) {
-                                      //   updateSubSlotSections(index, [
-                                      //     ...currentSections,
-                                      //     section.id
-                                      //   ]);
-                                      // } else {
-                                      //   updateSubSlotSections(
-                                      //     index,
-                                      //     currentSections.filter(
-                                      //       (id: string) => id !== section.id
-                                      //     )
-                                      //   );
-                                      // }
+                                      const currentSections =
+                                        subSlot.section_ids || [];
+                                      if (checked) {
+                                        updateSubSlot(index, {
+                                          section_ids: [
+                                            ...currentSections,
+                                            section.id
+                                          ]
+                                        });
+                                      } else {
+                                        updateSubSlot(index, {
+                                          section_ids: currentSections.filter(
+                                            (id: string) => id !== section.id
+                                          )
+                                        });
+                                      }
                                     }}
                                   />
                                   <Label
